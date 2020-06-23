@@ -725,9 +725,9 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint3
 
                 newBitfield = oldBitfield | (1 << bitOffset);
 
-                if ((ma_uint32)ma_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, newBitfield, oldBitfield) == oldBitfield) {
+                if ((ma_uint32)c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
                     *pSlot = iGroup*32 + bitOffset;
-                    ma_atomic_increment_32(&pAllocator->counter);
+                    c89atomic_fetch_add_32(&pAllocator->counter, 1);
                     return MA_SUCCESS;
                 }
             }
@@ -823,8 +823,8 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint32
         oldBitfield = pAllocator->groups[iGroup].bitfield;
         newBitfield = oldBitfield & ~(1 << iBit);
 
-        if ((ma_uint32)ma_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, newBitfield, oldBitfield) == oldBitfield) {
-            ma_atomic_decrement_32(&pAllocator->counter);
+        if ((ma_uint32)c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
+            c89atomic_fetch_sub_32(&pAllocator->counter, 1);
             return MA_SUCCESS;
         }
 #else
@@ -837,8 +837,8 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint32
 
             /* Before releasing the group we need to ensure the write operation above has completed so we'll throw a memory barrier in here for safety. */
             ma_memory_barrier();
-            ma_atomic_decrement_32(&pAllocator->counter);                   /* Incrementing the counter should happen before releasing the group's ref count to ensure we don't waste loop iterations in out-of-memory scenarios. */
-            ma_atomic_decrement_32(&pAllocator->groups[iGroup].refcount);   /* Release the hold as soon as possible to allow other things to access the bitfield. */
+            c89atomic_fetch_sub_32(&pAllocator->counter, 1);                    /* Incrementing the counter should happen before releasing the group's ref count to ensure we don't waste loop iterations in out-of-memory scenarios. */
+            c89atomic_fetch_sub_32(&pAllocator->groups[iGroup].refcount, 1);    /* Release the hold as soon as possible to allow other things to access the bitfield. */
 
             return MA_SUCCESS;
         } else {
@@ -847,7 +847,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint32
         }
 
         /* Getting here means something is holding our lock. We need to release and spin. */
-        ma_atomic_decrement_32(&pAllocator->groups[iGroup]);
+        c89atomic_fetch_sub_32(&pAllocator->groups[iGroup], 1);
         ma_yield();
 #endif
     }
@@ -950,15 +950,15 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
 
         if (tail == pQueue->tail) {
             if (next == 0xFFFF) {
-                if (ma_compare_and_swap_16(&pQueue->jobs[tail].next, slot, next) == next) {
+                if (c89atomic_compare_and_swap_16(&pQueue->jobs[tail].next, next, slot) == next) {
                     break;
                 }
             } else {
-                ma_compare_and_swap_16(&pQueue->tail, next, tail);
+                c89atomic_compare_and_swap_16(&pQueue->tail, tail, next);
             }
         }
     }
-    ma_compare_and_swap_16(&pQueue->tail, slot, tail);
+    c89atomic_compare_and_swap_16(&pQueue->tail, tail, slot);
 
 
     /* Signal the semaphore as the last step if we're using synchronous mode. */
@@ -995,10 +995,10 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
                 if (next == 0xFFFF) {
                     return MA_NO_DATA_AVAILABLE;
                 }
-                ma_compare_and_swap_16(&pQueue->tail, next, tail);
+                c89atomic_compare_and_swap_16(&pQueue->tail, tail, next);
             } else {
                 *pJob = pQueue->jobs[next];
-                if (ma_compare_and_swap_16(&pQueue->head, next, head) == head) {
+                if (c89atomic_compare_and_swap_16(&pQueue->head, head, next) == head) {
                     break;
                 }
             }
@@ -1100,7 +1100,7 @@ static ma_uint32 ma_hash_32(const void* key, int len, ma_uint32 seed)
 
 static ma_uint32 ma_hash_string_32(const char* str)
 {
-    return ma_hash_32(str, strlen(str), MA_DEFAULT_HASH_SEED);
+    return ma_hash_32(str, (int)strlen(str), MA_DEFAULT_HASH_SEED);
 }
 
 
@@ -1217,7 +1217,7 @@ static ma_result ma_resource_manager_message_queue_post_nolock(ma_resource_manag
         putLoopFlag ^= 0x80000000;
     }
 
-    ma_atomic_exchange_32(&pQueue->putCursor, ma_rb__construct_offset(putIndex, putLoopFlag));
+    c89atomic_exchange_32(&pQueue->putCursor, ma_rb__construct_offset(putIndex, putLoopFlag));
 
     /* Now that the message is in the queue we can let the consumer thread know about it by releasing the semaphore. */
     ma_semaphore_release(&pQueue->sem);
@@ -1279,7 +1279,7 @@ MA_API ma_result ma_resource_manager_message_queue_next(ma_resource_manager_mess
         getLoopFlag ^= 0x80000000;
     }
     
-    ma_atomic_exchange_32(&pQueue->getCursor, ma_rb__construct_offset(getIndex, getLoopFlag));
+    c89atomic_exchange_32(&pQueue->getCursor, ma_rb__construct_offset(getIndex, getLoopFlag));
 
     return MA_SUCCESS;
 }
@@ -1612,7 +1612,7 @@ static ma_result ma_resource_manager_data_buffer_increment_ref(ma_resource_manag
 
     (void)pResourceManager;
 
-    refCount = ma_atomic_increment_32(&pDataBuffer->refCount);
+    refCount = c89atomic_fetch_add_32(&pDataBuffer->refCount, 1) + 1;
 
     if (pNewRefCount != NULL) {
         *pNewRefCount = refCount;
@@ -1630,7 +1630,7 @@ static ma_result ma_resource_manager_data_buffer_decrement_ref(ma_resource_manag
 
     (void)pResourceManager;
 
-    refCount = ma_atomic_decrement_32(&pDataBuffer->refCount);
+    refCount = c89atomic_fetch_sub_32(&pDataBuffer->refCount, 1) - 1;
 
     if (pNewRefCount != NULL) {
         *pNewRefCount = refCount;
@@ -1951,7 +1951,7 @@ static ma_result ma_resource_manager_delete_data_buffer_nolock(ma_resource_manag
         The data buffer has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
         want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
         */
-        ma_atomic_exchange_32(&pDataBuffer->result, MA_UNAVAILABLE);
+        c89atomic_exchange_32(&pDataBuffer->result, MA_UNAVAILABLE);
 
         /* Don't delete any underlying data if it's not owned by the resource manager. */
         if (pDataBuffer->isDataOwnedByResourceManager) {
@@ -2130,7 +2130,7 @@ MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pRe
     }
 
     /* The first thing to do is set the result to unavailable. This will prevent future page decoding. */
-    ma_atomic_exchange_32(&pDataStream->result, MA_UNAVAILABLE);
+    c89atomic_exchange_32(&pDataStream->result, MA_UNAVAILABLE);
 
     /*
     We need to post a message to ensure we're not in the middle or decoding or anything. Because the object is owned by the caller, we'll need
@@ -2165,7 +2165,7 @@ MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager
         return MA_INVALID_ARGS;
     }
 
-    ma_atomic_exchange_32(&pDataStream->isLooping, isLooping);
+    c89atomic_exchange_32(&pDataStream->isLooping, isLooping);
 
     return MA_SUCCESS;
 }
@@ -2268,7 +2268,7 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     }
 
     /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
-    ma_atomic_increment_32(&pDataStream->seekCounter);
+    c89atomic_fetch_add_32(&pDataStream->seekCounter, 1);
 
     /*
     We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
@@ -2277,8 +2277,8 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     */
     pDataStream->relativeCursor   = 0;
     pDataStream->currentPageIndex = 0;
-    ma_atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
-    ma_atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
+    c89atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
+    c89atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
 
     /*
     The public API is not allowed to touch the internal decoder so we need to use a message to perform the seek. When seeking, the async thread will assume both pages
@@ -2384,7 +2384,7 @@ MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resou
         message.decodeStreamPage.pageIndex   = pDataStream->currentPageIndex;
 
         /* The page needs to be marked as invalid so that the public API doesn't try reading from it. */
-        ma_atomic_exchange_32(&pDataStream->isPageValid[pDataStream->currentPageIndex], MA_FALSE);
+        c89atomic_exchange_32(&pDataStream->isPageValid[pDataStream->currentPageIndex], MA_FALSE);
 
         /* Before sending the message we need to make sure we set some state. */
         pDataStream->relativeCursor   = newRelativeCursor;
@@ -2731,7 +2731,7 @@ static ma_result ma_resource_manager_data_source_set_result_and_signal(ma_resour
     MA_ASSERT(pDataSource      != NULL);
 
     /* If the data source's status is anything other than MA_BUSY it means it is being deleted or an error occurred. We don't ever want to move away from that state. */
-    ma_compare_and_swap_32(&pDataSource->result, result, MA_BUSY);
+    c89atomic_compare_and_swap_32(&pDataSource->result, MA_BUSY, result);
 
     /* If we have an event we want to signal it after setting the data source's status. */
     if (pEvent != NULL) {
@@ -2923,7 +2923,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
             return result;
         }
 
-        ma_atomic_exchange_32(&pDataSource->result, MA_SUCCESS);
+        c89atomic_exchange_32(&pDataSource->result, MA_SUCCESS);
         return MA_SUCCESS;
     } else {
         /* Some other error has occurred with the data buffer. Lets abandon everything and return the data buffer's result. */
@@ -2999,7 +2999,7 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pRe
     }
 
     /* The first thing to do is to mark the data source as unavailable. This will stop other threads from acquiring a hold on the data source which is what happens in the callbacks. */
-    ma_atomic_exchange_32(&pDataSource->result, MA_UNAVAILABLE);
+    c89atomic_exchange_32(&pDataSource->result, MA_UNAVAILABLE);
 
     if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
         return ma_resource_manager_data_source_uninit_stream(pResourceManager, pDataSource);
@@ -3030,7 +3030,7 @@ MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager
     if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
         return ma_resource_manager_data_stream_set_looping(pResourceManager, &pDataSource->dataStream.stream, isLooping);
     } else {
-        ma_atomic_exchange_32(&pDataSource->dataBuffer.isLooping, isLooping);
+        c89atomic_exchange_32(&pDataSource->dataBuffer.isLooping, isLooping);
         return MA_SUCCESS;
     }
 }
@@ -3164,7 +3164,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
             is set *before* setting the number of available frames. This way, the other thread need only check if decodedFrameCount > 0, in
             which case it can assume pData and frameCount are valid.
             */
-            ma_memory_barrier();
+            c89atomic_thread_fence(c89atomic_memory_order_acquire);
             pDataBuffer->data.decoded.decodedFrameCount = framesRead;
 
             ma__free_from_callbacks(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
@@ -3191,7 +3191,7 @@ static ma_result ma_resource_manager_handle_message__load_data_buffer(ma_resourc
                 is set *before* setting the number of available frames. This way, the other thread need only check if decodedFrameCount > 0, in
                 which case it can assume pData and frameCount are valid.
                 */
-                ma_memory_barrier();
+                c89atomic_thread_fence(c89atomic_memory_order_acquire);
                 pDataBuffer->data.decoded.decodedFrameCount = framesRead;
             } else {
                 decodeBufferPageMessage.decodeBufferPage.isUnknownLength = MA_TRUE;
@@ -3229,7 +3229,7 @@ done:
     immediately deletes it before we've got to this point. In this case, pDataBuffer->result will be MA_UNAVAILABLE, and setting it to MA_SUCCESS or any
     other error code would cause the buffer to look like it's in a state that it's not.
     */
-    ma_compare_and_swap_32(&pDataBuffer->result, result, MA_BUSY);
+    c89atomic_compare_and_swap_32(&pDataBuffer->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pEvent != NULL) {
@@ -3282,11 +3282,11 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager* pReso
     }
 
     if (totalFramesReadForThisPage < pageSizeInFrames) {
-        ma_atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
+        c89atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
     }
 
-    ma_atomic_exchange_32(&pDataStream->pageFrameCount[pageIndex], (ma_uint32)totalFramesReadForThisPage);
-    ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
+    c89atomic_exchange_32(&pDataStream->pageFrameCount[pageIndex], (ma_uint32)totalFramesReadForThisPage);
+    c89atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
 }
 
 static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
@@ -3353,7 +3353,7 @@ done:
     ma__free_from_callbacks(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
-    ma_compare_and_swap_32(&pDataStream->result, result, MA_BUSY);
+    c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pEvent != NULL) {
@@ -3576,7 +3576,7 @@ static ma_result ma_resource_manager_handle_message__decode_buffer_page(ma_resou
         is set *before* setting the number of available frames. This way, the other thread need only check if decodedFrameCount > 0, in
         which case it can assume pData and frameCount are valid.
         */
-        ma_memory_barrier();
+        c89atomic_thread_fence(c89atomic_memory_order_seq_cst);
         messageCopy.decodeBufferPage.pDataBuffer->data.decoded.decodedFrameCount = messageCopy.decodeBufferPage.decodedFrameCount;
 
 
@@ -3586,7 +3586,7 @@ static ma_result ma_resource_manager_handle_message__decode_buffer_page(ma_resou
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
-        ma_compare_and_swap_32(&messageCopy.decodeBufferPage.pDataBuffer->result, result, MA_BUSY);
+        c89atomic_compare_and_swap_32(&messageCopy.decodeBufferPage.pDataBuffer->result, MA_BUSY, result);
 
         /* We need to signal an event to indicate that we're done. */
         if (messageCopy.decodeBufferPage.pCompletedEvent != NULL) {
@@ -3637,7 +3637,7 @@ static ma_result ma_resource_manager_handle_message__seek_data_stream(ma_resourc
     ma_resource_manager_data_stream_fill_pages(pResourceManager, pDataStream);
 
     /* We need to let the public API know that we're done seeking. */
-    ma_atomic_decrement_32(&pDataStream->seekCounter);
+    c89atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
 
     return MA_SUCCESS;
 }
@@ -4072,7 +4072,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
     MA_ASSERT(pGroup  != NULL);
     MA_ASSERT(pSound  != NULL);
 
-    ma_atomic_exchange_32(&pSound->isMixing, MA_TRUE);  /* This must be done before checking the isPlaying state. */
+    c89atomic_exchange_32(&pSound->isMixing, MA_TRUE);  /* This must be done before checking the isPlaying state. */
     {
         if (pSound->isPlaying) {
             ma_result result = MA_SUCCESS;
@@ -4096,12 +4096,12 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
             /* If we reached the end of the sound we'll want to mark it as at the end and not playing. */
             if (result == MA_AT_END) {
-                ma_atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
-                ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE);         /* Set to false in ma_engine_sound_start(). */
+                c89atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
+                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE);         /* Set to false in ma_engine_sound_start(). */
             }
         }
     }
-    ma_atomic_exchange_32(&pSound->isMixing, MA_FALSE);
+    c89atomic_exchange_32(&pSound->isMixing, MA_FALSE);
 }
 
 static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup, void* pFramesOut, ma_uint32 frameCount)
@@ -4474,18 +4474,18 @@ static ma_result ma_engine_sound_detach(ma_engine* pEngine, ma_sound* pSound)
             /* The sound is the head of the list. All we need to do is change the pPrevSoundInGroup member of the next sound to NULL and make it the new head. */
 
             /* Make a new head. */
-            ma_atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pSound->pNextSoundInGroup);
+            c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pSound->pNextSoundInGroup);
         } else {
             /*
             The sound is not the head. We need to remove the sound from the group by simply changing the pNextSoundInGroup member of the previous sound. This is
             the important part. This is the part that allows the mixing thread to continue iteration without locking.
             */
-            ma_atomic_exchange_ptr(&pSound->pPrevSoundInGroup->pNextSoundInGroup, pSound->pNextSoundInGroup);
+            c89atomic_exchange_ptr(&pSound->pPrevSoundInGroup->pNextSoundInGroup, pSound->pNextSoundInGroup);
         }
 
         /* This doesn't really need to be done atomically because we've wrapped this in a lock and it's not used by the mixing thread. */
         if (pSound->pNextSoundInGroup != NULL) {
-            ma_atomic_exchange_ptr(&pSound->pNextSoundInGroup->pPrevSoundInGroup, pSound->pPrevSoundInGroup);
+            c89atomic_exchange_ptr(&pSound->pNextSoundInGroup->pPrevSoundInGroup, pSound->pPrevSoundInGroup);
         }
     }
     ma_mutex_unlock(&pGroup->lock);
@@ -4523,7 +4523,7 @@ static ma_result ma_engine_sound_attach(ma_engine* pEngine, ma_sound* pSound, ma
             pOldFirstSoundInGroup->pPrevSoundInGroup = pNewFirstSoundInGroup;
         }
 
-        ma_atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pNewFirstSoundInGroup);
+        c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pNewFirstSoundInGroup);
     }
     ma_mutex_unlock(&pGroup->lock);
 
@@ -4984,7 +4984,7 @@ MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound)
     }
 
     /* Once everything is set up we can tell the mixer thread about it. */
-    ma_atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
+    c89atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
 
     return MA_SUCCESS;
 }
@@ -4995,7 +4995,7 @@ MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound)
         return MA_INVALID_ARGS;
     }
 
-    ma_atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
+    c89atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
 
     return MA_SUCCESS;
 }
@@ -5075,7 +5075,7 @@ MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSoun
         return MA_INVALID_ARGS;
     }
 
-    ma_atomic_exchange_32(&pSound->isLooping, isLooping);
+    c89atomic_exchange_32(&pSound->isLooping, isLooping);
 
     /*
     This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
@@ -5131,7 +5131,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
             We need to check that atEnd flag to determine if this sound is available. The problem is that another thread might be wanting to acquire this
             sound at the same time. We want to avoid as much locking as possible, so we'll do this as a compare and swap.
             */
-            if (ma_compare_and_swap_32(&pNextSound->atEnd, MA_FALSE, MA_TRUE) == MA_TRUE) {
+            if (c89atomic_compare_and_swap_32(&pNextSound->atEnd, MA_TRUE, MA_FALSE) == MA_TRUE) {
                 /* We got it. */
                 pSound = pNextSound;
                 break;
@@ -5160,7 +5160,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, dataSourceFlags, &pSound->resourceManagerDataSource);
         if (result != MA_SUCCESS) {
             /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
-            ma_atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
+            c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
             return result;
         }
 
@@ -5251,10 +5251,10 @@ static ma_result ma_engine_sound_group_detach(ma_engine* pEngine, ma_sound_group
         MA_ASSERT(pGroup->pParent != NULL);
         MA_ASSERT(pGroup->pParent->pFirstChild == pGroup);
 
-        ma_atomic_exchange_ptr(&pGroup->pParent->pFirstChild, pGroup->pNextSibling);
+        c89atomic_exchange_ptr(&pGroup->pParent->pFirstChild, pGroup->pNextSibling);
     } else {
         /* It's not the first child in the parent group. */
-        ma_atomic_exchange_ptr(&pGroup->pPrevSibling->pNextSibling, pGroup->pNextSibling);
+        c89atomic_exchange_ptr(&pGroup->pPrevSibling->pNextSibling, pGroup->pNextSibling);
     }
 
     /* The previous sibling needs to be changed for the old next sibling. */
@@ -5370,7 +5370,7 @@ MA_API ma_result ma_engine_sound_group_start(ma_engine* pEngine, ma_sound_group*
         pGroup = &pEngine->masterSoundGroup;
     }
 
-    ma_atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
 
     return MA_SUCCESS;
 }
@@ -5385,7 +5385,7 @@ MA_API ma_result ma_engine_sound_group_stop(ma_engine* pEngine, ma_sound_group* 
         pGroup = &pEngine->masterSoundGroup;
     }
 
-    ma_atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
 
     return MA_SUCCESS;
 }
