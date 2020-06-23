@@ -7601,6 +7601,10 @@ ma_atomic_increment/decrement_*() takes a pointer to the variable being incremen
     ma_uint32 newValue = ma_atomic_increment_32(&theValueToIncrement);
 
 **************************************************************************************************************************************************************/
+/* c89atomic.h begin */
+
+/* c89atomic.h end */
+
 #if defined(__clang__)
     #if defined(__has_builtin)
         #if __has_builtin(__sync_swap)
@@ -7649,6 +7653,7 @@ ma_atomic_increment/decrement_*() takes a pointer to the variable being incremen
 #ifdef MA_32BIT
 #define ma_atomic_exchange_ptr ma_atomic_exchange_32
 #endif
+
 
 
 static void* ma__malloc_default(size_t sz, void* pUserData)
