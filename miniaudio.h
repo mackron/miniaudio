@@ -43345,8 +43345,7 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
     ma_result result = MA_SUCCESS;
 
     /* Basic validation in case the internal decoder supports different limits to miniaudio. */
-    if (pDecoder->internalChannels < MA_MIN_CHANNELS || pDecoder->outputChannels < MA_MIN_CHANNELS ||
-        pDecoder->internalChannels > MA_MAX_CHANNELS || pDecoder->outputChannels > MA_MAX_CHANNELS) {
+    if (pDecoder->internalChannels < MA_MIN_CHANNELS || pDecoder->internalChannels > MA_MAX_CHANNELS) {
         result = MA_INVALID_DATA;
     }
 
