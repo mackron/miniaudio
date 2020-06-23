@@ -43342,16 +43342,21 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
 
 static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
 
     /* Basic validation in case the internal decoder supports different limits to miniaudio. */
     if (pDecoder->internalChannels < MA_MIN_CHANNELS || pDecoder->outputChannels < MA_MIN_CHANNELS ||
         pDecoder->internalChannels > MA_MAX_CHANNELS || pDecoder->outputChannels > MA_MAX_CHANNELS) {
-        return MA_INVALID_DATA;
+        result = MA_INVALID_DATA;
     }
 
-    result = ma_decoder__init_data_converter(pDecoder, pConfig);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__init_data_converter(pDecoder, pConfig);
+    }
+
+    /* If we failed post initialization we need to uninitialize the decoder before returning to prevent a memory leak. */
     if (result != MA_SUCCESS) {
+        ma_decoder_uninit(pDecoder);
         return result;
     }
 
