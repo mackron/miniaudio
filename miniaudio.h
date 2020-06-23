@@ -38646,6 +38646,12 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
 
     pConverter->config = *pConfig;
 
+    /* Basic validation. */
+    if (pConfig->channelsIn < MA_MIN_CHANNELS || pConfig->channelsOut < MA_MIN_CHANNELS ||
+        pConfig->channelsIn > MA_MAX_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
     /*
     We want to avoid as much data conversion as possible. The channel converter and resampler both support s16 and f32 natively. We need to decide
     on the format to use for this stage. We call this the mid format because it's used in the middle stage of the conversion pipeline. If the output
@@ -43338,6 +43344,12 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
 {
     ma_result result;
 
+    /* Basic validation in case the internal decoder supports different limits to miniaudio. */
+    if (pDecoder->internalChannels < MA_MIN_CHANNELS || pDecoder->outputChannels < MA_MIN_CHANNELS ||
+        pDecoder->internalChannels > MA_MAX_CHANNELS || pDecoder->outputChannels > MA_MAX_CHANNELS) {
+        return MA_INVALID_DATA;
+    }
+
     result = ma_decoder__init_data_converter(pDecoder, pConfig);
     if (result != MA_SUCCESS) {
         return result;
@@ -45925,6 +45937,7 @@ REVISION HISTORY
 ================
 v0.10.9 - TBD
   - Changes to the internal atomics library. This has been replaced with c89atomic.h which is embedded within this file.
+  - Fix a bug when a decoding backend reports configurations outside the limits of miniaudio's decoder abstraction.
 
 v0.10.8 - 2020-06-22
   - Remove dependency on ma_context from mutexes.
