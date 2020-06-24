@@ -25118,7 +25118,7 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
     When stopping the device, a callback is called on another thread. We need to wait for this callback
     before returning from ma_device_stop(). This event is used for this.
     */
-    ma_event_init(pContext, &pDevice->coreaudio.stopEvent);
+    ma_event_init(&pDevice->coreaudio.stopEvent);
 
     /* Need a ring buffer for duplex mode. */
     if (pConfig->deviceType == ma_device_type_duplex) {
