@@ -1,9 +1,6 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
-#define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"
-
 #include <stdio.h>
 
 #ifdef __EMSCRIPTEN__

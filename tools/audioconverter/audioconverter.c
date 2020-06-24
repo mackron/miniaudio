@@ -14,12 +14,6 @@ find a copy of this text in extras/speex_resampler/README.md in the miniaudio re
 */
 #define _CRT_SECURE_NO_WARNINGS /* For stb_vorbis' usage of fopen() instead of fopen_s(). */
 
-#define DR_FLAC_IMPLEMENTATION
-#include "../../extras/dr_flac.h"       /* Enables FLAC decoding. */
-#define DR_MP3_IMPLEMENTATION
-#include "../../extras/dr_mp3.h"        /* Enables MP3 decoding. */
-#define DR_WAV_IMPLEMENTATION
-#include "../../extras/dr_wav.h"        /* Enables WAV decoding. */
 #define STB_VORBIS_HEADER_ONLY
 #include "../../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
 
