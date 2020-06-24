@@ -42135,17 +42135,17 @@ Decoding
 #ifndef MA_NO_WAV
 /* dr_wav_h begin */
 /* dr_wav_h end */
-#endif
+#endif  /* MA_NO_WAV */
 
 #ifndef MA_NO_FLAC
 /* dr_flac_h begin */
 /* dr_flac_h end */
-#endif
+#endif  /* MA_NO_FLAC */
 
 #ifndef MA_NO_MP3
 /* dr_mp3_h begin */
 /* dr_mp3_h end */
-#endif
+#endif  /* MA_NO_MP3 */
 
 
 static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
@@ -45579,30 +45579,28 @@ code below please report the bug to the respective repository for the relevant p
 #if !defined(DR_WAV_IMPLEMENTATION) && !defined(DRWAV_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_wav_c begin */
 /* dr_wav_c end */
-#endif
-#endif
+#endif  /* DRWAV_IMPLEMENTATION */
+#endif  /* MA_NO_WAV */
 
 #ifndef MA_NO_FLAC
 #if !defined(DR_FLAC_IMPLEMENTATION) && !defined(DRFLAC_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_flac_c begin */
 /* dr_flac_c end */
-#endif
-#endif
+#endif  /* DRFLAC_IMPLEMENTATION */
+#endif  /* MA_NO_FLAC */
 
 #ifndef MA_NO_MP3
 #if !defined(DR_MP3_IMPLEMENTATION) && !defined(DRMP3_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_mp3_c begin */
 /* dr_mp3_c end */
-#endif
-#endif
-
+#endif  /* DRMP3_IMPLEMENTATION */
+#endif  /* MA_NO_MP3 */
 
 
 /* End globally disabled warnings. */
 #if defined(_MSC_VER)
     #pragma warning(pop)
 #endif
-
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
