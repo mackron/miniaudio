@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.9 - 2020-06-24
+miniaudio - v0.10.10 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1548,7 +1548,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 9
+#define MA_VERSION_REVISION 10
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -20577,7 +20577,7 @@ static void ma_pulse_device_state_callback(ma_pa_context* pPulseContext, void* p
     pDevice->pulse.pulseContextState = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
 }
 
-void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
+static void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     ma_pa_sink_info* pInfoOut;
 
@@ -61764,6 +61764,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.10 - TBD
+  - Mark ma_device_sink_info_callback() as static.
+
 v0.10.9 - 2020-06-24
   - Amalgamation of dr_wav, dr_flac and dr_mp3. With this change, including the header section of these libraries before the implementation of miniaudio is no
     longer required. Decoding of WAV, FLAC and MP3 should be supported seamlessly without any additional libraries. Decoders can be excluded from the build
