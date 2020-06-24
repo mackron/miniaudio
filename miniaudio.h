@@ -61771,6 +61771,8 @@ v0.10.9 - TBD
     - MA_NO_WAV
     - MA_NO_FLAC
     - MA_NO_MP3
+    If you get errors about multiple definitions you need to either enable the options above, move the implementation of dr_wav, dr_flac and/or dr_mp3 to before
+    the implementation of miniaudio, or update dr_wav, dr_flac and/or dr_mp3.
   - Changes to the internal atomics library. This has been replaced with c89atomic.h which is embedded within this file.
   - Fix a bug when a decoding backend reports configurations outside the limits of miniaudio's decoder abstraction.
   - Fix the UWP build.
