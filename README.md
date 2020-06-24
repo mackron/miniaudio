@@ -57,12 +57,12 @@ Features
   - White
   - Pink
   - Brownian
-- Decoding (requires external single-file libraries).
-  - WAV via dr_wav
-  - FLAC via dr_flac
-  - MP3 via dr_mp3
-  - Vorbis via stb_vorbis
-- Encoding (requires external single-file libraries).
+- Decoding
+  - WAV
+  - FLAC
+  - MP3
+  - Vorbis via stb_vorbis (not built in - must be included separately).
+- Encoding
   - WAV via dr_wav
 - Lock free ring buffer (single producer, single consumer).
 
@@ -113,13 +113,6 @@ Examples
 This example shows how to decode and play a sound.
 
 ```c
-#define DR_FLAC_IMPLEMENTATION
-#include "../extras/dr_flac.h"  /* Enables FLAC decoding. */
-#define DR_MP3_IMPLEMENTATION
-#include "../extras/dr_mp3.h"   /* Enables MP3 decoding. */
-#define DR_WAV_IMPLEMENTATION
-#include "../extras/dr_wav.h"   /* Enables WAV decoding. */
-
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
@@ -192,6 +185,23 @@ Documentation
 Documentation can be found at the top of [miniaudio.h](https://raw.githubusercontent.com/dr-soft/miniaudio/master/miniaudio.h)
 which is always the most up-to-date and authoritive source of information on how to use miniaudio.
 
+
+Vorbis Decoding
+===============
+Vorbis decoding is enabled via stb_vorbis. To use it, you need to include the header section of stb_vorbis
+before the implementation of miniaudio. You can enable Vorbis by doing the following:
+
+```c
+#define STB_VORBIS_HEADER_ONLY
+#include "extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
+
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+
+/* stb_vorbis implementation must come after the implementation of miniaudio. */
+#undef STB_VORBIS_HEADER_ONLY
+#include "extras/stb_vorbis.c"
+```
 
 
 Unofficial Bindings
