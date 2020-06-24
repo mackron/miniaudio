@@ -7605,10 +7605,6 @@ static MA_INLINE ma_int32 ma_dither_s32(ma_dither_mode ditherMode, ma_int32 dith
 
 Atomics
 
-ma_atomic_increment/decrement_*() takes a pointer to the variable being incremented and returns the new value. Usage:
-
-    ma_uint32 newValue = ma_atomic_increment_32(&theValueToIncrement);
-
 **************************************************************************************************************************************************************/
 /* c89atomic.h begin */
 #ifndef c89atomic_h
@@ -11825,12 +11821,12 @@ static HRESULT STDMETHODCALLTYPE ma_completion_handler_uwp_QueryInterface(ma_com
 
 static ULONG STDMETHODCALLTYPE ma_completion_handler_uwp_AddRef(ma_completion_handler_uwp* pThis)
 {
-    return (ULONG)ma_atomic_increment_32(&pThis->counter);
+    return (ULONG)c89atomic_fetch_add_32(&pThis->counter, 1) + 1;
 }
 
 static ULONG STDMETHODCALLTYPE ma_completion_handler_uwp_Release(ma_completion_handler_uwp* pThis)
 {
-    ma_uint32 newRefCount = ma_atomic_decrement_32(&pThis->counter);
+    ma_uint32 newRefCount = c89atomic_fetch_sub_32(&pThis->counter, 1) - 1;
     if (newRefCount == 0) {
         return 0;   /* We don't free anything here because we never allocate the object on the heap. */
     }
@@ -24243,7 +24239,7 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
 {
     MA_ASSERT(pContext != NULL);
     
-    if (ma_atomic_increment_32(&g_DeviceTrackingInitCounter_CoreAudio) == 1) {
+    if (c89atomic_fetch_add_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 0) {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -24264,7 +24260,7 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
 {
     MA_ASSERT(pContext != NULL);
     
-    if (ma_atomic_decrement_32(&g_DeviceTrackingInitCounter_CoreAudio) == 0) {
+    if (c89atomic_fetch_sub_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 1) {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -29794,7 +29790,7 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
 
     /* Uninit global data. */
     if (g_maOpenSLInitCounter > 0) {
-        if (ma_atomic_decrement_32(&g_maOpenSLInitCounter) == 0) {
+        if (c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1) == 1) {
             (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
         }
     }
@@ -29809,10 +29805,10 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
     (void)pConfig;
 
     /* Initialize global data first if applicable. */
-    if (ma_atomic_increment_32(&g_maOpenSLInitCounter) == 1) {
+    if (c89atomic_fetch_add_32(&g_maOpenSLInitCounter, 1) == 0) {
         SLresult resultSL = slCreateEngine(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
-            ma_atomic_decrement_32(&g_maOpenSLInitCounter);
+            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
             return ma_result_from_OpenSL(resultSL);
         }
 
@@ -29821,7 +29817,7 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
         resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_ENGINE, &g_maEngineSL);
         if (resultSL != SL_RESULT_SUCCESS) {
             (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
-            ma_atomic_decrement_32(&g_maOpenSLInitCounter);
+            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
             return ma_result_from_OpenSL(resultSL);
         }
     }
