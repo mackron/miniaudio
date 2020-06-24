@@ -61755,6 +61755,12 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.9 - TBD
+  - Amalgamation of dr_wav, dr_flac and dr_mp3. With this change, including the header section of these libraries before the implementation of miniaudio is no
+    longer required. Decoding of WAV, FLAC and MP3 should be supported seamlessly without any additional libraries. Decoders can be excluded from the build
+    with the following options:
+    - MA_NO_WAV
+    - MA_NO_FLAC
+    - MA_NO_MP3
   - Changes to the internal atomics library. This has been replaced with c89atomic.h which is embedded within this file.
   - Fix a bug when a decoding backend reports configurations outside the limits of miniaudio's decoder abstraction.
 
