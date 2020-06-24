@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.9 - TBD
+miniaudio - v0.10.9 - 2020-06-24
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -61764,7 +61764,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.9 - TBD
+v0.10.9 - 2020-06-24
   - Amalgamation of dr_wav, dr_flac and dr_mp3. With this change, including the header section of these libraries before the implementation of miniaudio is no
     longer required. Decoding of WAV, FLAC and MP3 should be supported seamlessly without any additional libraries. Decoders can be excluded from the build
     with the following options:
