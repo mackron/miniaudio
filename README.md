@@ -63,7 +63,7 @@ Features
   - MP3
   - Vorbis via stb_vorbis (not built in - must be included separately).
 - Encoding
-  - WAV via dr_wav
+  - WAV
 - Lock free ring buffer (single producer, single consumer).
 
 
