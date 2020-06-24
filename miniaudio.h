@@ -5772,6 +5772,9 @@ IMPLEMENTATION
 *************************************************************************************************************************************************************
 ************************************************************************************************************************************************************/
 #if defined(MINIAUDIO_IMPLEMENTATION) || defined(MA_IMPLEMENTATION)
+#ifndef miniaudio_c
+#define miniaudio_c
+
 #include <assert.h>
 #include <limits.h> /* For INT_MAX */
 #include <math.h>   /* sin(), etc. */
@@ -61632,6 +61635,8 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
 #if defined(_MSC_VER)
     #pragma warning(pop)
 #endif
+
+#endif  /* miniaudio_c */
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
@@ -61771,8 +61776,10 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.10 - TBD
+  - Add include guard for the implementation section.
   - Mark ma_device_sink_info_callback() as static.
   - Fix compilation errors with MA_NO_DECODING and MA_NO_ENCODING.
+  - Fix compilation errors with MA_NO_DEVICE_IO
 
 v0.10.9 - 2020-06-24
   - Amalgamation of dr_wav, dr_flac and dr_mp3. With this change, including the header section of these libraries before the implementation of miniaudio is no
