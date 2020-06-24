@@ -23,6 +23,7 @@ find a copy of this text in extras/speex_resampler/README.md in the miniaudio re
     #include "../../extras/speex_resampler/ma_speex_resampler.h"
 #endif
 
+#define MA_NO_DEVICE_IO
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 

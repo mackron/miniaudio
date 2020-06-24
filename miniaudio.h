@@ -2007,6 +2007,58 @@ typedef struct
 } ma_lcg;
 
 
+/* Thread priorties should be ordered such that the default priority of the worker thread is 0. */
+typedef enum
+{
+    ma_thread_priority_idle     = -5,
+    ma_thread_priority_lowest   = -4,
+    ma_thread_priority_low      = -3,
+    ma_thread_priority_normal   = -2,
+    ma_thread_priority_high     = -1,
+    ma_thread_priority_highest  =  0,
+    ma_thread_priority_realtime =  1,
+    ma_thread_priority_default  =  0
+} ma_thread_priority;
+
+#if defined(MA_WIN32)
+typedef ma_handle ma_thread;
+#endif
+#if defined(MA_POSIX)
+typedef pthread_t ma_thread;
+#endif
+
+#if defined(MA_WIN32)
+typedef ma_handle ma_mutex;
+#endif
+#if defined(MA_POSIX)
+typedef pthread_mutex_t ma_mutex;
+#endif
+
+#if defined(MA_WIN32)
+typedef ma_handle ma_event;
+#endif
+#if defined(MA_POSIX)
+typedef struct
+{
+    ma_uint32 value;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} ma_event;
+#endif
+
+#if defined(MA_WIN32)
+typedef ma_handle ma_semaphore;
+#endif
+#if defined(MA_POSIX)
+typedef struct
+{
+    int value;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} ma_semaphore;
+#endif
+
+
 /*
 Retrieves the version of miniaudio as separated integers. Each component can be NULL if it's not required.
 */
@@ -2996,57 +3048,6 @@ typedef enum
     ma_backend_webaudio,
     ma_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } ma_backend;
-
-/* Thread priorties should be ordered such that the default priority of the worker thread is 0. */
-typedef enum
-{
-    ma_thread_priority_idle     = -5,
-    ma_thread_priority_lowest   = -4,
-    ma_thread_priority_low      = -3,
-    ma_thread_priority_normal   = -2,
-    ma_thread_priority_high     = -1,
-    ma_thread_priority_highest  =  0,
-    ma_thread_priority_realtime =  1,
-    ma_thread_priority_default  =  0
-} ma_thread_priority;
-
-#if defined(MA_WIN32)
-typedef ma_handle ma_thread;
-#endif
-#if defined(MA_POSIX)
-typedef pthread_t ma_thread;
-#endif
-
-#if defined(MA_WIN32)
-typedef ma_handle ma_mutex;
-#endif
-#if defined(MA_POSIX)
-typedef pthread_mutex_t ma_mutex;
-#endif
-
-#if defined(MA_WIN32)
-typedef ma_handle ma_event;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    ma_uint32 value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-} ma_event;
-#endif
-
-#if defined(MA_WIN32)
-typedef ma_handle ma_semaphore;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    int value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-} ma_semaphore;
-#endif
 
 
 /*
