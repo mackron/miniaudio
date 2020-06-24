@@ -5388,21 +5388,6 @@ MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
 
 
 
-#if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
-typedef enum
-{
-    ma_seek_origin_start,
-    ma_seek_origin_current,
-    ma_seek_origin_end  /* Not used by decoders. */
-} ma_seek_origin;
-
-typedef enum
-{
-    ma_resource_format_wav
-} ma_resource_format;
-#endif
-
-
 
 /************************************************************************************************************************************************************
 
@@ -5418,6 +5403,13 @@ typedef ma_handle ma_vfs_file;
 
 #define MA_OPEN_MODE_READ   0x00000001
 #define MA_OPEN_MODE_WRITE  0x00000002
+
+typedef enum
+{
+    ma_seek_origin_start,
+    ma_seek_origin_current,
+    ma_seek_origin_end  /* Not used by decoders. */
+} ma_seek_origin;
 
 typedef struct
 {
@@ -5455,6 +5447,14 @@ typedef struct
 MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_callbacks* pAllocationCallbacks);
 
 
+
+
+#if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
+typedef enum
+{
+    ma_resource_format_wav
+} ma_resource_format;
+#endif
 
 /************************************************************************************************************************************************************
 
@@ -42146,12 +42146,10 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 
 /**************************************************************************************************************************************************************
 
-Decoding
+Decoding and Encoding Headers. These are auto-generated from a tool.
 
 **************************************************************************************************************************************************************/
-#ifndef MA_NO_DECODING
-
-#ifndef MA_NO_WAV
+#if !defined(MA_NO_WAV) && !defined(MA_NO_DECODING) && !defined(MA_NO_ENCODING)
 /* dr_wav_h begin */
 #ifndef dr_wav_h
 #define dr_wav_h
@@ -42524,7 +42522,7 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b);
 /* dr_wav_h end */
 #endif  /* MA_NO_WAV */
 
-#ifndef MA_NO_FLAC
+#if !defined(MA_NO_FLAC) && !defined(MA_NO_DECODING)
 /* dr_flac_h begin */
 #ifndef dr_flac_h
 #define dr_flac_h
@@ -42886,7 +42884,7 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 /* dr_flac_h end */
 #endif  /* MA_NO_FLAC */
 
-#ifndef MA_NO_MP3
+#if !defined(MA_NO_MP3) && !defined(MA_NO_DECODING)
 /* dr_mp3_h begin */
 #ifndef dr_mp3_h
 #define dr_mp3_h
@@ -43139,6 +43137,13 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
 /* dr_mp3_h end */
 #endif  /* MA_NO_MP3 */
 
+
+/**************************************************************************************************************************************************************
+
+Decoding
+
+**************************************************************************************************************************************************************/
+#ifndef MA_NO_DECODING
 
 static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
 {
@@ -46567,7 +46572,7 @@ code below please report the bug to the respective repository for the relevant p
 
 ***************************************************************************************************************************************************************
 **************************************************************************************************************************************************************/
-#ifndef MA_NO_WAV
+#if !defined(MA_NO_WAV) && !defined(MA_NO_DECODING) && !defined(MA_NO_ENCODING)
 #if !defined(DR_WAV_IMPLEMENTATION) && !defined(DRWAV_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_wav_c begin */
 #ifndef dr_wav_c
@@ -50240,7 +50245,7 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
 #endif  /* DRWAV_IMPLEMENTATION */
 #endif  /* MA_NO_WAV */
 
-#ifndef MA_NO_FLAC
+#if !defined(MA_NO_FLAC) && !defined(MA_NO_DECODING)
 #if !defined(DR_FLAC_IMPLEMENTATION) && !defined(DRFLAC_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_flac_c begin */
 #ifndef dr_flac_c
@@ -58386,7 +58391,7 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 #endif  /* DRFLAC_IMPLEMENTATION */
 #endif  /* MA_NO_FLAC */
 
-#ifndef MA_NO_MP3
+#if !defined(MA_NO_MP3) && !defined(MA_NO_DECODING)
 #if !defined(DR_MP3_IMPLEMENTATION) && !defined(DRMP3_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_mp3_c begin */
 #ifndef dr_mp3_c
@@ -61766,6 +61771,7 @@ REVISION HISTORY
 ================
 v0.10.10 - TBD
   - Mark ma_device_sink_info_callback() as static.
+  - Fix compilation errors with MA_NO_DECODING and MA_NO_ENCODING.
 
 v0.10.9 - 2020-06-24
   - Amalgamation of dr_wav, dr_flac and dr_mp3. With this change, including the header section of these libraries before the implementation of miniaudio is no
