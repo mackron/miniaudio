@@ -61759,6 +61759,7 @@ v0.10.9 - TBD
     - MA_NO_MP3
   - Changes to the internal atomics library. This has been replaced with c89atomic.h which is embedded within this file.
   - Fix a bug when a decoding backend reports configurations outside the limits of miniaudio's decoder abstraction.
+  - Fix the UWP build.
 
 v0.10.8 - 2020-06-22
   - Remove dependency on ma_context from mutexes.
