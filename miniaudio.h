@@ -1574,11 +1574,7 @@ extern "C" {
     #endif
 #else
     #define MA_POSIX
-
-    /* We only use multi-threading with the device IO API, so no need to include these headers otherwise. */
-#if !defined(MA_NO_DEVICE_IO)
     #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
-#endif
 
     #ifdef __unix__
         #define MA_UNIX
