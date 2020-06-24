@@ -1607,7 +1607,7 @@ extern "C" {
     #if defined(__clang__)
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
-        #pragma GCC diagnostic ignored "-Wlong-long"        
+        #pragma GCC diagnostic ignored "-Wlong-long"
         #pragma GCC diagnostic ignored "-Wc++11-long-long"
     #endif
     typedef   signed __int8  ma_int8;
@@ -41954,6 +41954,10 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
+#if !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
+int fileno(FILE *stream);
+#endif
+
 static ma_result ma_default_vfs_info__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
 {
     int fd;
@@ -61760,6 +61764,7 @@ v0.10.9 - TBD
   - Changes to the internal atomics library. This has been replaced with c89atomic.h which is embedded within this file.
   - Fix a bug when a decoding backend reports configurations outside the limits of miniaudio's decoder abstraction.
   - Fix the UWP build.
+  - Fix the -std=c89 build on GCC.
 
 v0.10.8 - 2020-06-22
   - Remove dependency on ma_context from mutexes.
