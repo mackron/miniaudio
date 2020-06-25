@@ -487,6 +487,11 @@ Build Options
   Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use miniaudio's data conversion and/or
   decoding APIs.
 
+#define MA_NO_THREADING
+  Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs. This option is useful if you only need to use miniaudio for data conversion, decoding
+  and/or encoding. Some families of APIs require threading which means the following options must also be set:
+    MA_NO_DEVICE_IO
+
 #define MA_NO_GENERATION
   Disables generation APIs such a ma_waveform and ma_noise.
 
@@ -2003,6 +2008,7 @@ typedef struct
 } ma_lcg;
 
 
+#ifndef MA_NO_THREADING
 /* Thread priorties should be ordered such that the default priority of the worker thread is 0. */
 typedef enum
 {
@@ -2040,7 +2046,7 @@ typedef struct
     pthread_mutex_t lock;
     pthread_cond_t cond;
 } ma_event;
-#endif
+#endif  /* MA_POSIX */
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_semaphore;
@@ -2052,7 +2058,13 @@ typedef struct
     pthread_mutex_t lock;
     pthread_cond_t cond;
 } ma_semaphore;
+#endif  /* MA_POSIX */
+#else
+/* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
+#ifndef MA_NO_DEVICE_IO
+#error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
 #endif
+#endif  /* MA_NO_THREADING */
 
 
 /*
@@ -5189,6 +5201,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 #endif  /* MA_NO_DEVICE_IO */
 
 
+#ifndef MA_NO_THREADING
 /*
 Creates a mutex.
 
@@ -5231,6 +5244,7 @@ MA_API ma_result ma_event_wait(ma_event* pEvent);
 Signals the specified auto-reset event.
 */
 MA_API ma_result ma_event_signal(ma_event* pEvent);
+#endif  /* MA_NO_THREADING */
 
 
 /************************************************************************************************************************************************************
@@ -8540,6 +8554,7 @@ static ma_result ma_result_from_GetLastError(DWORD error)
 Threading
 
 *******************************************************************************/
+#ifndef MA_NO_THREADING
 #ifdef MA_WIN32
     #define MA_THREADCALL WINAPI
     typedef unsigned long ma_thread_result;
@@ -9178,7 +9193,7 @@ MA_API ma_result ma_event_signal(ma_event* pEvent)
 MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -9193,7 +9208,7 @@ MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
 MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return;
     }
 
@@ -9208,7 +9223,7 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
 MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -9223,7 +9238,7 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
 MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
 {
     if (pSemaphore == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -9234,6 +9249,12 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
     return ma_semaphore_release__posix(pSemaphore);
 #endif
 }
+#else
+/* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
+#ifndef MA_NO_DEVICE_IO
+#error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
+#endif
+#endif  /* MA_NO_THREADING */
 
 
 /************************************************************************************************************************************************************

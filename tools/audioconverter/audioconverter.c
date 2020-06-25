@@ -24,6 +24,7 @@ find a copy of this text in extras/speex_resampler/README.md in the miniaudio re
 #endif
 
 #define MA_NO_DEVICE_IO
+#define MA_NO_THREADING
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 
