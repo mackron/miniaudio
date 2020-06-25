@@ -107,6 +107,16 @@ Then just compile. There's no need to install any dependencies. On Windows and m
 to anything. On Linux just link to -lpthread, -lm and -ldl. On BSD just link to -lpthread and -lm. On iOS you
 need to compile as Objective-C.
 
+If you prefer separate .h and .c files, you can find a split version of miniaudio in the extras/miniaudio_split
+folder. From here you can use miniaudio as a traditional .c and .h library - just add miniaudio.c to your source
+tree like any other source file and include miniaudio.h like a normal header. If you prefer compiling as a
+single translation unit (AKA unity builds), you can just #include the .c file in your main source file:
+```c
+#include "miniaudio.c"
+```
+Note that the split version is auto-generated using a tool and is based on the main file in the root directory.
+If you want to contribute, please make the change in the main file.
+
 
 Examples
 ========
