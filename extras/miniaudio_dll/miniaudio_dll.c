@@ -1,3 +1,2 @@
-#define MA_DLL
-#define MA_IMPLEMENTATION
-#include "../../miniaudio.h"
+#include "miniaudio_dll.h"  /* For build options. */
+#include "../miniaudio_split/miniaudio.c"
