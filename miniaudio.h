@@ -9,8 +9,8 @@ GitHub:  https://github.com/dr-soft/miniaudio
 */
 
 /*
-Introduction
-============
+1. Introduction
+===============
 miniaudio is a single file library for audio playback and capture. To use it, do the following in one .c file:
 
     ```c
@@ -74,15 +74,15 @@ are added to the `ma_device_config` structure. The example above uses a fairly s
 takes a single parameter, which is whether or not the device is a playback, capture, duplex or loopback device (loopback devices are not supported on all
 backends). The `config.playback.format` member sets the sample format which can be one of the following (all formats are native-endian):
 
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
     | Symbol        | Description                            | Range                     |
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
     | ma_format_f32 | 32-bit floating point                  | [-1, 1]                   |
     | ma_format_s16 | 16-bit signed integer                  | [-32768, 32767]           |
     | ma_format_s24 | 24-bit signed integer (tightly packed) | [-8388608, 8388607]       |
     | ma_format_s32 | 32-bit signed integer                  | [-2147483648, 2147483647] |
     | ma_format_u8  | 8-bit unsigned integer                 | [0, 255]                  |
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
 
 The `config.playback.channels` member sets the number of channels to use with the device. The channel count cannot exceed MA_MAX_CHANNELS. The
 `config.sampleRate` member sets the sample rate (which must be the same for both playback and capture in full-duplex configurations). This is usually set to
@@ -125,14 +125,14 @@ device type is set to `ma_device_type_capture`).
 
 These are the available device types and how you should handle the buffers in the callback:
 
-    |-------------------------|--------------------------------------------------------|
+    +-------------------------+--------------------------------------------------------+
     | Device Type             | Callback Behavior                                      |
-    |-------------------------|--------------------------------------------------------|
+    +-------------------------+--------------------------------------------------------+
     | ma_device_type_playback | Write to output buffer, leave input buffer untouched.  |
     | ma_device_type_capture  | Read from input buffer, leave output buffer untouched. |
     | ma_device_type_duplex   | Read from input buffer, write to output buffer.        |
     | ma_device_type_loopback | Read from input buffer, leave output buffer untouched. |
-    |-------------------------|--------------------------------------------------------|
+    +-------------------------+--------------------------------------------------------+
 
 You will notice in the example above that the sample format and channel count is specified separately for playback and capture. This is to support different
 data formats between the playback and capture devices in a full-duplex system. An example may be that you want to capture audio data as a monaural stream (one
@@ -142,7 +142,7 @@ will need to convert the data yourself. There are functions available to help yo
 The example above did not specify a physical device to connect to which means it will use the operating system's default device. If you have multiple physical
 devices connected and you want to use a specific one you will need to specify the device ID in the configuration, like so:
 
-    ```
+    ```c
     config.playback.pDeviceID = pMyPlaybackDeviceID;    // Only if requesting a playback or duplex device.
     config.capture.pDeviceID = pMyCaptureDeviceID;      // Only if requesting a capture, duplex or loopback device.
     ```
@@ -212,8 +212,8 @@ allocate memory for the context.
 
 
 
-Building
-========
+2. Building
+===========
 miniaudio should work cleanly out of the box without the need to download or install any dependencies. See below for platform-specific details.
 
 
@@ -353,76 +353,79 @@ Build Options
 
 
 
-Definitions
-===========
+3. Definitions
+==============
 This section defines common terms used throughout miniaudio. Unfortunately there is often ambiguity in the use of terms throughout the audio space, so this
 section is intended to clarify how miniaudio uses each term.
 
-Sample
-------
+3.1. Sample
+-----------
 A sample is a single unit of audio data. If the sample format is f32, then one sample is one 32-bit floating point number.
 
-Frame / PCM Frame
------------------
+3.2. Frame / PCM Frame
+----------------------
 A frame is a group of samples equal to the number of channels. For a stereo stream a frame is 2 samples, a mono frame is 1 sample, a 5.1 surround sound frame
 is 6 samples, etc. The terms "frame" and "PCM frame" are the same thing in miniaudio. Note that this is different to a compressed frame. If ever miniaudio
 needs to refer to a compressed frame, such as a FLAC frame, it will always clarify what it's referring to with something like "FLAC frame".
 
-Channel
--------
+3.3. Channel
+------------
 A stream of monaural audio that is emitted from an individual speaker in a speaker system, or received from an individual microphone in a microphone system. A
 stereo stream has two channels (a left channel, and a right channel), a 5.1 surround sound system has 6 channels, etc. Some audio systems refer to a channel as
 a complex audio stream that's mixed with other channels to produce the final mix - this is completely different to miniaudio's use of the term "channel" and
 should not be confused.
 
-Sample Rate
------------
+3.4. Sample Rate
+----------------
 The sample rate in miniaudio is always expressed in Hz, such as 44100, 48000, etc. It's the number of PCM frames that are processed per second.
 
-Formats
--------
+3.5. Formats
+------------
 Throughout miniaudio you will see references to different sample formats:
 
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
     | Symbol        | Description                            | Range                     |
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
     | ma_format_f32 | 32-bit floating point                  | [-1, 1]                   |
     | ma_format_s16 | 16-bit signed integer                  | [-32768, 32767]           |
     | ma_format_s24 | 24-bit signed integer (tightly packed) | [-8388608, 8388607]       |
     | ma_format_s32 | 32-bit signed integer                  | [-2147483648, 2147483647] |
     | ma_format_u8  | 8-bit unsigned integer                 | [0, 255]                  |
-    |---------------|----------------------------------------|---------------------------|
+    +---------------+----------------------------------------+---------------------------+
 
 All formats are native-endian.
 
 
 
-Decoding
-========
-The `ma_decoder` API is used for reading audio files. To enable a decoder you must #include the header of the relevant backend library before the
-implementation of miniaudio. You can find copies of these in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
-
-The table below are the supported decoding backends:
-
-    |--------|-----------------|
-    | Type   | Backend Library |
-    |--------|-----------------|
-    | WAV    | dr_wav.h        |
-    | FLAC   | dr_flac.h       |
-    | MP3    | dr_mp3.h        |
-    | Vorbis | stb_vorbis.c    |
-    |--------|-----------------|
-
-The code below is an example of how to enable decoding backends:
+4. Decoding
+===========
+The `ma_decoder` API is used for reading audio files. Built in support is included for WAV, FLAC and MP3. Support for Vorbis is enabled via stb_vorbis which
+can be enabled by including the header section before the implementation of miniaudio, like the following:
 
     ```c
-    #include "dr_flac.h"    // Enables FLAC decoding.
-    #include "dr_mp3.h"     // Enables MP3 decoding.
-    #include "dr_wav.h"     // Enables WAV decoding.
+    #define STB_VORBIS_HEADER_ONLY
+    #include "extras/stb_vorbis.c"    // Enables Vorbis decoding.
 
     #define MINIAUDIO_IMPLEMENTATION
     #include "miniaudio.h"
+
+    // The stb_vorbis implementation must come after the implementation of miniaudio.
+    #undef STB_VORBIS_HEADER_ONLY
+    #include "extras/stb_vorbis.c"
     ```
+
+A copy of stb_vorbis is included in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
+
+Built-in decoders are implemented via dr_wav, dr_flac and dr_mp3. These are amalgamated into the implementation section of miniaudio. You can disable the
+built-in decoders by specifying one or more of the following options before the miniaudio implementation:
+
+    ```c
+    #define MA_NO_WAV
+    #define MA_NO_FLAC
+    #define MA_NO_MP3
+    ```
+
+Disabling built-in versions of dr_wav, dr_flac and dr_mp3 is useful if you use these libraries independantly of the `ma_decoder` API.
 
 A decoder can be initialized from a file with `ma_decoder_init_file()`, a block of memory with `ma_decoder_init_memory()`, or from data delivered via callbacks
 with `ma_decoder_init()`. Here is an example for loading a decoder from a file:
@@ -490,26 +493,13 @@ The `ma_decoder_init_file()` API will try using the file extension to determine 
 
 
 
-Encoding
-========
-The `ma_encoding` API is used for writing audio files. To enable an encoder you must #include the header of the relevant backend library before the
-implementation of miniaudio. You can find copies of these in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
-
-The table below are the supported encoding backends:
-
-    |--------|-----------------|
-    | Type   | Backend Library |
-    |--------|-----------------|
-    | WAV    | dr_wav.h        |
-    |--------|-----------------|
-
-The code below is an example of how to enable encoding backends:
+5. Encoding
+===========
+The `ma_encoding` API is used for writing audio files. The only supported output format is WAV which is achieved via dr_wav which is amalgamated into the
+implementation section of miniaudio. This can be disabled by specifying the following option before the implementation of miniaudio:
 
     ```c
-    #include "dr_wav.h"     // Enables WAV encoding.
-
-    #define MINIAUDIO_IMPLEMENTATION
-    #include "miniaudio.h"
+    #define MA_NO_WAV
     ```
 
 An encoder can be initialized to write to a file with `ma_encoder_init_file()` or from data delivered via callbacks with `ma_encoder_init()`. Below is an
@@ -531,11 +521,11 @@ example for initializing an encoder to output to a file.
 When initializing an encoder you must specify a config which is initialized with `ma_encoder_config_init()`. Here you must specify the file type, the output
 sample format, output channel count and output sample rate. The following file types are supported:
 
-    |------------------------|-------------|
+    +------------------------+-------------+
     | Enum                   | Description |
-    |------------------------|-------------|
+    +------------------------+-------------+
     | ma_resource_format_wav | WAV         |
-    |------------------------|-------------|
+    +------------------------+-------------+
 
 If the format, channel count or sample rate is not supported by the output file type an error will be returned. The encoder will not perform data conversion so
 you will need to convert it before outputting any audio data. To output audio data, use `ma_encoder_write_pcm_frames()`, like in the example below:
@@ -547,26 +537,32 @@ you will need to convert it before outputting any audio data. To output audio da
 Encoders must be uninitialized with `ma_encoder_uninit()`.
 
 
+6. Data Conversion
+==================
+A data conversion API is included with miniaudio which supports the majority of data conversion requirements. This supports conversion between sample formats,
+channel counts (with channel mapping) and sample rates.
 
-Sample Format Conversion
-========================
+
+6.1. Sample Format Conversion
+-----------------------------
 Conversion between sample formats is achieved with the `ma_pcm_*_to_*()`, `ma_pcm_convert()` and `ma_convert_pcm_frames_format()` APIs. Use `ma_pcm_*_to_*()`
 to convert between two specific formats. Use `ma_pcm_convert()` to convert based on a `ma_format` variable. Use `ma_convert_pcm_frames_format()` to convert
 PCM frames where you want to specify the frame count and channel count as a variable instead of the total sample count.
 
-Dithering
----------
+
+6.1.1. Dithering
+----------------
 Dithering can be set using the ditherMode parameter.
 
 The different dithering modes include the following, in order of efficiency:
 
-    |-----------|--------------------------|
+    +-----------+--------------------------+
     | Type      | Enum Token               |
-    |-----------|--------------------------|
+    +-----------+--------------------------+
     | None      | ma_dither_mode_none      |
     | Rectangle | ma_dither_mode_rectangle |
     | Triangle  | ma_dither_mode_triangle  |
-    |-----------|--------------------------|
+    +-----------+--------------------------+
 
 Note that even if the dither mode is set to something other than `ma_dither_mode_none`, it will be ignored for conversions where dithering is not needed.
 Dithering is available for the following conversions:
@@ -583,8 +579,8 @@ Note that it is not an error to pass something other than ma_dither_mode_none fo
 
 
 
-Channel Conversion
-==================
+6.2. Channel Conversion
+-----------------------
 Channel conversion is used for channel rearrangement and conversion from one channel count to another. The `ma_channel_converter` API is used for channel
 conversion. Below is an example of initializing a simple channel converter which converts from mono to stereo.
 
@@ -613,8 +609,8 @@ The only formats supported are `ma_format_s16` and `ma_format_f32`. If you need 
 Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
 
 
-Channel Mapping
----------------
+6.2.1. Channel Mapping
+----------------------
 In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
 initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
 channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels will be performed. If,
@@ -637,9 +633,9 @@ Finally, the `ma_channel_mix_mode_custom_weights` mode can be used to use custom
 Predefined channel maps can be retrieved with `ma_get_standard_channel_map()`. This takes a `ma_standard_channel_map` enum as it's first parameter, which can
 be one of the following:
 
-    |-----------------------------------|-----------------------------------------------------------|
+    +-----------------------------------+-----------------------------------------------------------+
     | Name                              | Description                                               |
-    |-----------------------------------|-----------------------------------------------------------|
+    +-----------------------------------+-----------------------------------------------------------+
     | ma_standard_channel_map_default   | Default channel map used by miniaudio. See below.         |
     | ma_standard_channel_map_microsoft | Channel map used by Microsoft's bitfield channel maps.    |
     | ma_standard_channel_map_alsa      | Default ALSA channel map.                                 |
@@ -649,40 +645,40 @@ be one of the following:
     | ma_standard_channel_map_sound4    | FreeBSD's sound(4).                                       |
     | ma_standard_channel_map_sndio     | sndio channel map. www.sndio.org/tips.html                |
     | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering | 
-    |-----------------------------------|-----------------------------------------------------------|
+    +-----------------------------------+-----------------------------------------------------------+
 
 Below are the channel maps used by default in miniaudio (ma_standard_channel_map_default):
 
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | Channel Count | Mapping                      |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 1 (Mono)      | 0: MA_CHANNEL_MONO           |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 2 (Stereo)    | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 3             | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 4 (Surround)  | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
     |               | 3: MA_CHANNEL_BACK_CENTER    |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 5             | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
     |               | 3: MA_CHANNEL_BACK_LEFT      |
     |               | 4: MA_CHANNEL_BACK_RIGHT     |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 6 (5.1)       | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
     |               | 3: MA_CHANNEL_LFE            |
     |               | 4: MA_CHANNEL_SIDE_LEFT      |
     |               | 5: MA_CHANNEL_SIDE_RIGHT     |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 7             | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
@@ -690,7 +686,7 @@ Below are the channel maps used by default in miniaudio (ma_standard_channel_map
     |               | 4: MA_CHANNEL_BACK_CENTER    |
     |               | 4: MA_CHANNEL_SIDE_LEFT      |
     |               | 5: MA_CHANNEL_SIDE_RIGHT     |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | 8 (7.1)       | 0: MA_CHANNEL_FRONT_LEFT     |
     |               | 1: MA_CHANNEL_FRONT_RIGHT    |
     |               | 2: MA_CHANNEL_FRONT_CENTER   |
@@ -699,16 +695,16 @@ Below are the channel maps used by default in miniaudio (ma_standard_channel_map
     |               | 5: MA_CHANNEL_BACK_RIGHT     |
     |               | 6: MA_CHANNEL_SIDE_LEFT      |
     |               | 7: MA_CHANNEL_SIDE_RIGHT     |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
     | Other         | All channels set to 0. This  |
     |               | is equivalent to the same    |
     |               | mapping as the device.       |
-    |---------------|------------------------------|
+    +---------------+------------------------------+
 
 
 
-Resampling
-==========
+6.3. Resampling
+---------------
 Resampling is achieved with the `ma_resampler` object. To create a resampler object, do something like the following:
 
     ```c
@@ -752,12 +748,12 @@ only configuration property that can be changed after initialization.
 
 The miniaudio resampler supports multiple algorithms:
 
-    |-----------|------------------------------|
+    +-----------+------------------------------+
     | Algorithm | Enum Token                   |
-    |-----------|------------------------------|
+    +-----------+------------------------------+
     | Linear    | ma_resample_algorithm_linear |
     | Speex     | ma_resample_algorithm_speex  |
-    |-----------|------------------------------|
+    +-----------+------------------------------+
 
 Because Speex is not public domain it is strictly opt-in and the code is stored in separate files. if you opt-in to the Speex backend you will need to consider
 it's license, the text of which can be found in it's source files in "extras/speex_resampler". Details on how to opt-in to the Speex resampler is explained in
@@ -782,15 +778,15 @@ Due to the nature of how resampling works, the resampler introduces some latency
 with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
 
 
-Resampling Algorithms
----------------------
+6.3.1. Resampling Algorithms
+----------------------------
 The choice of resampling algorithm depends on your situation and requirements. The linear resampler is the most efficient and has the least amount of latency,
 but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap allocations internally
 for memory management.
 
 
-Linear Resampling
------------------
+6.3.1.1. Linear Resampling
+--------------------------
 The linear resampler is the fastest, but comes at the expense of poorer quality. There is, however, some control over the quality of the linear resampler which
 may make it a suitable option depending on your requirements.
 
@@ -807,8 +803,8 @@ and is a purely perceptual configuration.
 The API for the linear resampler is the same as the main resampler API, only it's called `ma_linear_resampler`.
 
 
-Speex Resampling
-----------------
+6.3.1.2. Speex Resampling
+-------------------------
 The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
 domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
 source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
@@ -828,8 +824,8 @@ the fastest with the poorest quality and 10 being the slowest with the highest q
 
 
 
-General Data Conversion
-=======================
+6.4. General Data Conversion
+----------------------------
 The `ma_data_converter` API can be used to wrap sample format conversion, channel conversion and resampling into one operation. This is what miniaudio uses
 internally to convert between the format requested when the device was initialized and the format of the backend's native device. The API for general data
 conversion is very similar to the resampling API. Create a `ma_data_converter` object like this:
@@ -899,11 +895,11 @@ input rate and the output rate with `ma_data_converter_get_input_latency()` and 
 
 
 
-Filtering
-=========
+7. Filtering
+============
 
-Biquad Filtering
-----------------
+7.1. Biquad Filtering
+---------------------
 Biquad filtering is achieved with the `ma_biquad` API. Example:
 
     ```c
@@ -938,17 +934,17 @@ do a full initialization which involves clearing the registers to 0. Note that c
 result in an error.
 
 
-Low-Pass Filtering
-------------------
+7.2. Low-Pass Filtering
+-----------------------
 Low-pass filtering is achieved with the following APIs:
 
-    |---------|------------------------------------------|
+    +---------+------------------------------------------+
     | API     | Description                              |
-    |---------|------------------------------------------|
+    +---------+------------------------------------------+
     | ma_lpf1 | First order low-pass filter              |
     | ma_lpf2 | Second order low-pass filter             |
     | ma_lpf  | High order low-pass filter (Butterworth) |
-    |---------|------------------------------------------|
+    +---------+------------------------------------------+
 
 Low-pass filter example:
 
@@ -992,82 +988,82 @@ If an even filter order is specified, a series of second order filters will be p
 will be applied, followed by a series of second order filters in a chain.
 
 
-High-Pass Filtering
--------------------
+7.3. High-Pass Filtering
+------------------------
 High-pass filtering is achieved with the following APIs:
 
-    |---------|-------------------------------------------|
+    +---------+-------------------------------------------+
     | API     | Description                               |
-    |---------|-------------------------------------------|
+    +---------+-------------------------------------------+
     | ma_hpf1 | First order high-pass filter              |
     | ma_hpf2 | Second order high-pass filter             |
     | ma_hpf  | High order high-pass filter (Butterworth) |
-    |---------|-------------------------------------------|
+    +---------+-------------------------------------------+
 
 High-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_hpf1`, `ma_hpf2` and `ma_hpf`. See example code for low-pass filters
 for example usage.
 
 
-Band-Pass Filtering
--------------------
+7.4. Band-Pass Filtering
+------------------------
 Band-pass filtering is achieved with the following APIs:
 
-    |---------|-------------------------------|
+    +---------+-------------------------------+
     | API     | Description                   |
-    |---------|-------------------------------|
+    +---------+-------------------------------+
     | ma_bpf2 | Second order band-pass filter |
     | ma_bpf  | High order band-pass filter   |
-    |---------|-------------------------------|
+    +---------+-------------------------------+
 
 Band-pass filters work exactly the same as low-pass filters, only the APIs are called `ma_bpf2` and `ma_hpf`. See example code for low-pass filters for example
 usage. Note that the order for band-pass filters must be an even number which means there is no first order band-pass filter, unlike low-pass and high-pass
 filters.
 
 
-Notch Filtering
----------------
+7.5. Notch Filtering
+--------------------
 Notch filtering is achieved with the following APIs:
 
-    |-----------|------------------------------------------|
+    +-----------+------------------------------------------+
     | API       | Description                              |
-    |-----------|------------------------------------------|
+    +-----------+------------------------------------------+
     | ma_notch2 | Second order notching filter             |
-    |-----------|------------------------------------------|
+    +-----------+------------------------------------------+
 
 
-Peaking EQ Filtering
---------------------
+7.6. Peaking EQ Filtering
+-------------------------
 Peaking filtering is achieved with the following APIs:
 
-    |----------|------------------------------------------|
+    +----------+------------------------------------------+
     | API      | Description                              |
-    |----------|------------------------------------------|
+    +----------+------------------------------------------+
     | ma_peak2 | Second order peaking filter              |
-    |----------|------------------------------------------|
+    +----------+------------------------------------------+
 
 
-Low Shelf Filtering
--------------------
+7.7. Low Shelf Filtering
+------------------------
 Low shelf filtering is achieved with the following APIs:
 
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
     | API         | Description                              |
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
     | ma_loshelf2 | Second order low shelf filter            |
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
 
 Where a high-pass filter is used to eliminate lower frequencies, a low shelf filter can be used to just turn them down rather than eliminate them entirely.
 
 
-High Shelf Filtering
---------------------
+7.8. High Shelf Filtering
+-------------------------
 High shelf filtering is achieved with the following APIs:
 
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
     | API         | Description                              |
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
     | ma_hishelf2 | Second order high shelf filter           |
-    |-------------|------------------------------------------|
+    +-------------+------------------------------------------+
 
 The high shelf filter has the same API as the low shelf filter, only you would use `ma_hishelf` instead of `ma_loshelf`. Where a low shelf filter is used to
 adjust the volume of low frequencies, the high shelf filter does the same thing for high frequencies.
@@ -1075,11 +1071,11 @@ adjust the volume of low frequencies, the high shelf filter does the same thing 
 
 
 
-Waveform and Noise Generation
-=============================
+8. Waveform and Noise Generation
+================================
 
-Waveforms
----------
+8.1. Waveforms
+--------------
 miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved with the `ma_waveform` API. Example:
 
     ```c
@@ -1104,19 +1100,19 @@ ramp, for example.
 
 Below are the supported waveform types:
 
-    |---------------------------|
+    +---------------------------+
     | Enum Name                 |
-    |---------------------------|
+    +---------------------------+
     | ma_waveform_type_sine     |
     | ma_waveform_type_square   |
     | ma_waveform_type_triangle |
     | ma_waveform_type_sawtooth |
-    |---------------------------|
+    +---------------------------+
 
 
 
-Noise
------
+8.2. Noise
+----------
 miniaudio supports generation of white, pink and Brownian noise via the `ma_noise` API. Example:
 
     ```c
@@ -1145,18 +1141,18 @@ side. To instead have each channel use the same random value, set the `duplicate
 
 Below are the supported noise types.
 
-    |------------------------|
+    +------------------------+
     | Enum Name              |
-    |------------------------|
+    +------------------------+
     | ma_noise_type_white    |
     | ma_noise_type_pink     |
     | ma_noise_type_brownian |
-    |------------------------|
+    +------------------------+
 
 
 
-Audio Buffers
-=============
+9. Audio Buffers
+================
 miniaudio supports reading from a buffer of raw audio data via the `ma_audio_buffer` API. This can read from both memory that's managed by the application, but
 can also handle the memory management for you internally. The way memory is managed is flexible and should support most use cases.
 
@@ -1230,8 +1226,8 @@ for you. You can determine if the buffer is at the end for the purpose of loopin
 
 
 
-Ring Buffers
-============
+10. Ring Buffers
+================
 miniaudio supports lock free (single producer, single consumer) ring buffers which are exposed via the `ma_rb` and `ma_pcm_rb` APIs. The `ma_rb` API operates
 on bytes, whereas the `ma_pcm_rb` operates on PCM frames. They are otherwise identical as `ma_pcm_rb` is just a wrapper around `ma_rb`.
 
@@ -1281,13 +1277,13 @@ Note that the ring buffer is only thread safe when used by a single consumer thr
 
 
 
-Backends
-========
+11. Backends
+============
 The following backends are supported by miniaudio.
 
-    |-------------|-----------------------|--------------------------------------------------------|
+    +-------------+-----------------------+--------------------------------------------------------+
     | Name        | Enum Name             | Supported Operating Systems                            |
-    |-------------|-----------------------|--------------------------------------------------------|
+    +-------------+-----------------------+--------------------------------------------------------+
     | WASAPI      | ma_backend_wasapi     | Windows Vista+                                         |
     | DirectSound | ma_backend_dsound     | Windows XP+                                            |
     | WinMM       | ma_backend_winmm      | Windows XP+ (may work on older versions, but untested) |
@@ -1302,25 +1298,25 @@ The following backends are supported by miniaudio.
     | OpenSL|ES   | ma_backend_opensl     | Android (API level 16+)                                |
     | Web Audio   | ma_backend_webaudio   | Web (via Emscripten)                                   |
     | Null        | ma_backend_null       | Cross Platform (not used on Web)                       |
-    |-------------|-----------------------|--------------------------------------------------------|
+    +-------------+-----------------------+--------------------------------------------------------+
 
 Some backends have some nuance details you may want to be aware of.
 
-WASAPI
-------
+11.1. WASAPI
+------------
 - Low-latency shared mode will be disabled when using an application-defined sample rate which is different to the device's native sample rate. To work around
   this, set wasapi.noAutoConvertSRC to true in the device config. This is due to IAudioClient3_InitializeSharedAudioStream() failing when the
   AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM flag is specified. Setting wasapi.noAutoConvertSRC will result in miniaudio's internal resampler being used instead which
   will in turn enable the use of low-latency shared mode.
 
-PulseAudio
-----------
+11.2. PulseAudio
+----------------
 - If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
     https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling
   Alternatively, consider using a different backend such as ALSA.
 
-Android
--------
+11.3. Android
+-------------
 - To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest:
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 - With OpenSL|ES, only a single ma_context can be active at any given time. This is due to a limitation with OpenSL|ES.
@@ -1329,8 +1325,8 @@ Android
 - The backend API will perform resampling where possible. The reason for this as opposed to using miniaudio's built-in resampler is to take advantage of any
   potential device-specific optimizations the driver may implement.
 
-UWP
----
+11.4. UWP
+---------
 - UWP only supports default playback and capture devices.
 - UWP requires the Microphone capability to be enabled in the application's manifest (Package.appxmanifest):
       <Package ...>
@@ -1340,7 +1336,7 @@ UWP
           </Capabilities>
       </Package>
 
-Web Audio / Emscripten
+11.5. Web Audio / Emscripten
 ----------------------
 - You cannot use -std=c* compiler flags, nor -ansi. This only applies to the Emscripten build.
 - The first time a context is initialized it will create a global object called "miniaudio" whose primary purpose is to act as a factory for device objects.
@@ -1351,8 +1347,8 @@ Web Audio / Emscripten
 
 
 
-Miscellaneous Notes
-===================
+12. Miscellaneous Notes
+=======================
 - Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for WASAPI and Core Audio, however other backends such as
   PulseAudio may naturally support it, though not all have been tested.
 - The contents of the output buffer passed into the data callback will always be pre-initialized to zero unless the noPreZeroedOutputBuffer config variable in
