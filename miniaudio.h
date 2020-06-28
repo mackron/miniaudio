@@ -24133,14 +24133,7 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
 
 static ma_result ma_device__track__coreaudio(ma_device* pDevice)
 {
-    ma_result result;
-
     MA_ASSERT(pDevice != NULL);
-    
-    result = ma_context__init_device_tracking__coreaudio(pDevice->pContext);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
     
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
@@ -24176,8 +24169,6 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice)
 
 static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 {
-    ma_result result;
-    
     MA_ASSERT(pDevice != NULL);
     
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
@@ -24206,11 +24197,6 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     }
     ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
 
-    result = ma_context__uninit_device_tracking__coreaudio(pDevice->pContext);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-    
     return MA_SUCCESS;
 }
 #endif
@@ -25053,6 +25039,8 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
 #endif
 
+    ma_context__init_device_tracking__coreaudio(pContext);
+
     (void)pContext;
     return MA_SUCCESS;
 }
@@ -25080,6 +25068,8 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
 
 static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_result result;
+
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pContext != NULL);
 
@@ -25233,6 +25223,16 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     #endif
             return MA_FAILED_TO_INIT_BACKEND;
         }
+    }
+    
+    result = ma_context__init_device_tracking__coreaudio(pContext);
+    if (result != MA_SUCCESS) {
+    #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
+            ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
+            ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
+            ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+    #endif
+        return result;
     }
 
     return MA_SUCCESS;
