@@ -6056,6 +6056,75 @@ static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
 }
 
 
+#if !defined(MA_EMSCRIPTEN)
+#ifdef MA_WIN32
+static void ma_sleep__win32(ma_uint32 milliseconds)
+{
+    Sleep((DWORD)milliseconds);
+}
+#endif
+#ifdef MA_POSIX
+static void ma_sleep__posix(ma_uint32 milliseconds)
+{
+#ifdef MA_EMSCRIPTEN
+    (void)milliseconds;
+    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
+#else
+    #if _POSIX_C_SOURCE >= 199309L
+        struct timespec ts;
+        ts.tv_sec  = milliseconds / 1000;
+        ts.tv_nsec = milliseconds % 1000 * 1000000;
+        nanosleep(&ts, NULL);
+    #else
+        struct timeval tv;
+        tv.tv_sec  = milliseconds / 1000;
+        tv.tv_usec = milliseconds % 1000 * 1000;
+        select(0, NULL, NULL, NULL, &tv);
+    #endif
+#endif
+}
+#endif
+
+static void ma_sleep(ma_uint32 milliseconds)
+{
+#ifdef MA_WIN32
+    ma_sleep__win32(milliseconds);
+#endif
+#ifdef MA_POSIX
+    ma_sleep__posix(milliseconds);
+#endif
+}
+#endif
+
+#if !defined(MA_EMSCRIPTEN)
+static MA_INLINE void ma_yield()
+{
+#if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+    /* x86/x64 */
+    #if defined(_MSC_VER) && !defined(__clang__)
+        #if _MSC_VER >= 1400
+            _mm_pause();
+        #else
+            __asm pause;
+        #endif
+    #else
+        __asm__ __volatile__ ("pause");
+    #endif
+#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+    /* ARM */
+    #if defined(_MSC_VER)
+        /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
+        __yield();
+    #else
+        __asm__ __volatile__ ("yield");
+    #endif
+#else
+    /* Unknown or unsupported architecture. No-op. */
+#endif
+}
+#endif
+
+
 
 #ifndef MA_COINIT_VALUE
 #define MA_COINIT_VALUE    0   /* 0 = COINIT_MULTITHREADED */
@@ -8191,6 +8260,51 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 /* c89atomic.h end */
 
 
+typedef unsigned char ma_spinlock;
+
+static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
+            break;
+        }
+
+        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
+            if (yield) {
+                ma_yield();
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
+}
+
+static ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
+}
+
+static ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
+    return MA_SUCCESS;
+}
+
+
+
 static void* ma__malloc_default(size_t sz, void* pUserData)
 {
     (void)pUserData;
@@ -8415,11 +8529,6 @@ static void ma_thread_wait__win32(ma_thread* pThread)
     WaitForSingleObject((HANDLE)*pThread, INFINITE);
 }
 
-static void ma_sleep__win32(ma_uint32 milliseconds)
-{
-    Sleep((DWORD)milliseconds);
-}
-
 
 static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
 {
@@ -8608,28 +8717,6 @@ static void ma_thread_wait__posix(ma_thread* pThread)
     pthread_join(*pThread, NULL);
 }
 
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep__posix(ma_uint32 milliseconds)
-{
-#ifdef MA_EMSCRIPTEN
-    (void)milliseconds;
-    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
-#else
-    #if _POSIX_C_SOURCE >= 199309L
-        struct timespec ts;
-        ts.tv_sec  = milliseconds / 1000;
-        ts.tv_nsec = milliseconds % 1000 * 1000000;
-        nanosleep(&ts, NULL);
-    #else
-        struct timeval tv;
-        tv.tv_sec  = milliseconds / 1000;
-        tv.tv_usec = milliseconds % 1000 * 1000;
-        select(0, NULL, NULL, NULL, &tv);
-    #endif
-#endif
-}
-#endif  /* MA_EMSCRIPTEN */
-
 
 static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
 {
@@ -8807,46 +8894,6 @@ static void ma_thread_wait(ma_thread* pThread)
     ma_thread_wait__posix(pThread);
 #endif
 }
-
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep(ma_uint32 milliseconds)
-{
-#ifdef MA_WIN32
-    ma_sleep__win32(milliseconds);
-#endif
-#ifdef MA_POSIX
-    ma_sleep__posix(milliseconds);
-#endif
-}
-#endif
-
-#if !defined(MA_EMSCRIPTEN)
-static MA_INLINE void ma_yield()
-{
-#if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
-    /* x86/x64 */
-    #if defined(_MSC_VER) && !defined(__clang__)
-        #if _MSC_VER >= 1400
-            _mm_pause();
-        #else
-            __asm pause;
-        #endif
-    #else
-        __asm__ __volatile__ ("pause");
-    #endif
-#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
-    /* ARM */
-    #if defined(_MSC_VER)
-        /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
-        __yield();
-    #else
-        __asm__ __volatile__ ("yield");
-    #endif
-#else
-    /* Unknown or unsupported architecture. No-op. */
-#endif
-}
-#endif
 
 
 MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
@@ -61781,6 +61828,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.11 - TBD
+  - Fix some bugs with device tracking on Core Audio.
   - Updates to documentation.
 
 v0.10.10 - 26-06-2020
