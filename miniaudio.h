@@ -5618,8 +5618,10 @@ IMPLEMENTATION
 #ifdef MA_WIN32
 #include <windows.h>
 #else
-#include <stdlib.h> /* For malloc(), free(), wcstombs(). */
-#include <string.h> /* For memset() */
+#include <stdlib.h>     /* For malloc(), free(), wcstombs(). */
+#include <string.h>     /* For memset() */
+#include <sched.h>
+#include <sys/time.h>   /* select() (used for ma_sleep()). */
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
@@ -8638,9 +8640,6 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 
 
 #ifdef MA_POSIX
-#include <sched.h>
-#include <sys/time.h>
-
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
@@ -24053,6 +24052,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
 }
 
 #if defined(MA_APPLE_DESKTOP)
+static ma_spinlock g_DeviceTrackingInitLock_CoreAudio = 0;  /* A spinlock for mutal exclusion of the init/uninit of the global tracking data. Initialization to 0 is what we need. */
 static ma_uint32   g_DeviceTrackingInitCounter_CoreAudio = 0;
 static ma_mutex    g_DeviceTrackingMutex_CoreAudio;
 static ma_device** g_ppTrackedDevices_CoreAudio = NULL;
@@ -24136,7 +24136,8 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
 {
     MA_ASSERT(pContext != NULL);
     
-    if (c89atomic_fetch_add_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 0) {
+    ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
+    {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -24149,7 +24150,8 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
         propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
         ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
     }
-    
+    ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
+
     return MA_SUCCESS;
 }
 
@@ -24157,7 +24159,8 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
 {
     MA_ASSERT(pContext != NULL);
     
-    if (c89atomic_fetch_sub_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 1) {
+    ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
+    {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -24174,6 +24177,7 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
         
         ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
     }
+    ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
     
     return MA_SUCCESS;
 }
