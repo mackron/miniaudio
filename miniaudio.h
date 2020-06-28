@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.11 - TBD
+miniaudio - v0.10.11 - 28-06-2020
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -61831,7 +61831,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.11 - TBD
+v0.10.11 - 28-06-2020
   - Fix some bugs with device tracking on Core Audio.
   - Updates to documentation.
 
