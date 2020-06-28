@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.10 - 26-06-2020
+miniaudio - v0.10.11 - 28-06-2020
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -26,8 +26,10 @@ GitHub:  https://github.com/dr-soft/miniaudio
 #ifdef MA_WIN32
 #include <windows.h>
 #else
-#include <stdlib.h> /* For malloc(), free(), wcstombs(). */
-#include <string.h> /* For memset() */
+#include <stdlib.h>     /* For malloc(), free(), wcstombs(). */
+#include <string.h>     /* For memset() */
+#include <sched.h>
+#include <sys/time.h>   /* select() (used for ma_sleep()). */
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
@@ -462,6 +464,75 @@ static MA_INLINE ma_uint32 ma_swap_endian_uint32(ma_uint32 n)
            ((n & 0x000000FF) << 24);
 #endif
 }
+
+
+#if !defined(MA_EMSCRIPTEN)
+#ifdef MA_WIN32
+static void ma_sleep__win32(ma_uint32 milliseconds)
+{
+    Sleep((DWORD)milliseconds);
+}
+#endif
+#ifdef MA_POSIX
+static void ma_sleep__posix(ma_uint32 milliseconds)
+{
+#ifdef MA_EMSCRIPTEN
+    (void)milliseconds;
+    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
+#else
+    #if _POSIX_C_SOURCE >= 199309L
+        struct timespec ts;
+        ts.tv_sec  = milliseconds / 1000;
+        ts.tv_nsec = milliseconds % 1000 * 1000000;
+        nanosleep(&ts, NULL);
+    #else
+        struct timeval tv;
+        tv.tv_sec  = milliseconds / 1000;
+        tv.tv_usec = milliseconds % 1000 * 1000;
+        select(0, NULL, NULL, NULL, &tv);
+    #endif
+#endif
+}
+#endif
+
+static void ma_sleep(ma_uint32 milliseconds)
+{
+#ifdef MA_WIN32
+    ma_sleep__win32(milliseconds);
+#endif
+#ifdef MA_POSIX
+    ma_sleep__posix(milliseconds);
+#endif
+}
+#endif
+
+#if !defined(MA_EMSCRIPTEN)
+static MA_INLINE void ma_yield()
+{
+#if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+    /* x86/x64 */
+    #if defined(_MSC_VER) && !defined(__clang__)
+        #if _MSC_VER >= 1400
+            _mm_pause();
+        #else
+            __asm pause;
+        #endif
+    #else
+        __asm__ __volatile__ ("pause");
+    #endif
+#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+    /* ARM */
+    #if defined(_MSC_VER)
+        /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
+        __yield();
+    #else
+        __asm__ __volatile__ ("yield");
+    #endif
+#else
+    /* Unknown or unsupported architecture. No-op. */
+#endif
+}
+#endif
 
 
 
@@ -2599,6 +2670,51 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 /* c89atomic.h end */
 
 
+typedef unsigned char ma_spinlock;
+
+static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
+            break;
+        }
+
+        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
+            if (yield) {
+                ma_yield();
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
+}
+
+static ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
+}
+
+static ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
+    return MA_SUCCESS;
+}
+
+
+
 static void* ma__malloc_default(size_t sz, void* pUserData)
 {
     (void)pUserData;
@@ -2823,11 +2939,6 @@ static void ma_thread_wait__win32(ma_thread* pThread)
     WaitForSingleObject((HANDLE)*pThread, INFINITE);
 }
 
-static void ma_sleep__win32(ma_uint32 milliseconds)
-{
-    Sleep((DWORD)milliseconds);
-}
-
 
 static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
 {
@@ -2937,9 +3048,6 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 
 
 #ifdef MA_POSIX
-#include <sched.h>
-#include <sys/time.h>
-
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
@@ -3015,28 +3123,6 @@ static void ma_thread_wait__posix(ma_thread* pThread)
 {
     pthread_join(*pThread, NULL);
 }
-
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep__posix(ma_uint32 milliseconds)
-{
-#ifdef MA_EMSCRIPTEN
-    (void)milliseconds;
-    MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
-#else
-    #if _POSIX_C_SOURCE >= 199309L
-        struct timespec ts;
-        ts.tv_sec  = milliseconds / 1000;
-        ts.tv_nsec = milliseconds % 1000 * 1000000;
-        nanosleep(&ts, NULL);
-    #else
-        struct timeval tv;
-        tv.tv_sec  = milliseconds / 1000;
-        tv.tv_usec = milliseconds % 1000 * 1000;
-        select(0, NULL, NULL, NULL, &tv);
-    #endif
-#endif
-}
-#endif  /* MA_EMSCRIPTEN */
 
 
 static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
@@ -3215,46 +3301,6 @@ static void ma_thread_wait(ma_thread* pThread)
     ma_thread_wait__posix(pThread);
 #endif
 }
-
-#if !defined(MA_EMSCRIPTEN)
-static void ma_sleep(ma_uint32 milliseconds)
-{
-#ifdef MA_WIN32
-    ma_sleep__win32(milliseconds);
-#endif
-#ifdef MA_POSIX
-    ma_sleep__posix(milliseconds);
-#endif
-}
-#endif
-
-#if !defined(MA_EMSCRIPTEN)
-static MA_INLINE void ma_yield()
-{
-#if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
-    /* x86/x64 */
-    #if defined(_MSC_VER) && !defined(__clang__)
-        #if _MSC_VER >= 1400
-            _mm_pause();
-        #else
-            __asm pause;
-        #endif
-    #else
-        __asm__ __volatile__ ("pause");
-    #endif
-#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
-    /* ARM */
-    #if defined(_MSC_VER)
-        /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
-        __yield();
-    #else
-        __asm__ __volatile__ ("yield");
-    #endif
-#else
-    /* Unknown or unsupported architecture. No-op. */
-#endif
-}
-#endif
 
 
 MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
@@ -18414,6 +18460,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
 }
 
 #if defined(MA_APPLE_DESKTOP)
+static ma_spinlock g_DeviceTrackingInitLock_CoreAudio = 0;  /* A spinlock for mutal exclusion of the init/uninit of the global tracking data. Initialization to 0 is what we need. */
 static ma_uint32   g_DeviceTrackingInitCounter_CoreAudio = 0;
 static ma_mutex    g_DeviceTrackingMutex_CoreAudio;
 static ma_device** g_ppTrackedDevices_CoreAudio = NULL;
@@ -18497,7 +18544,8 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
 {
     MA_ASSERT(pContext != NULL);
     
-    if (c89atomic_fetch_add_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 0) {
+    ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
+    {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -18510,7 +18558,8 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
         propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
         ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
     }
-    
+    ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
+
     return MA_SUCCESS;
 }
 
@@ -18518,7 +18567,8 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
 {
     MA_ASSERT(pContext != NULL);
     
-    if (c89atomic_fetch_sub_32(&g_DeviceTrackingInitCounter_CoreAudio, 1) == 1) {
+    ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
+    {
         AudioObjectPropertyAddress propAddress;
         propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
         propAddress.mElement  = kAudioObjectPropertyElementMaster;
@@ -18535,20 +18585,14 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
         
         ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
     }
+    ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
     
     return MA_SUCCESS;
 }
 
 static ma_result ma_device__track__coreaudio(ma_device* pDevice)
 {
-    ma_result result;
-
     MA_ASSERT(pDevice != NULL);
-    
-    result = ma_context__init_device_tracking__coreaudio(pDevice->pContext);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
     
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
     {
@@ -18584,8 +18628,6 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice)
 
 static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 {
-    ma_result result;
-    
     MA_ASSERT(pDevice != NULL);
     
     ma_mutex_lock(&g_DeviceTrackingMutex_CoreAudio);
@@ -18614,11 +18656,6 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     }
     ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
 
-    result = ma_context__uninit_device_tracking__coreaudio(pDevice->pContext);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-    
     return MA_SUCCESS;
 }
 #endif
@@ -19461,6 +19498,8 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
 #endif
 
+    ma_context__init_device_tracking__coreaudio(pContext);
+
     (void)pContext;
     return MA_SUCCESS;
 }
@@ -19488,6 +19527,8 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
 
 static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_result result;
+
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pContext != NULL);
 
@@ -19641,6 +19682,16 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     #endif
             return MA_FAILED_TO_INIT_BACKEND;
         }
+    }
+    
+    result = ma_context__init_device_tracking__coreaudio(pContext);
+    if (result != MA_SUCCESS) {
+#if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
+        ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
+        ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
+        ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+#endif
+        return result;
     }
 
     return MA_SUCCESS;

@@ -25267,11 +25267,11 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     
         pContext->coreaudio.component = ((ma_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
         if (pContext->coreaudio.component == NULL) {
-    #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
+        #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
             ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
             ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
             ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
-    #endif
+        #endif
             return MA_FAILED_TO_INIT_BACKEND;
         }
     }
@@ -25279,9 +25279,9 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     result = ma_context__init_device_tracking__coreaudio(pContext);
     if (result != MA_SUCCESS) {
     #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-            ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
-            ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-            ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+        ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
+        ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
+        ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
     #endif
         return result;
     }
