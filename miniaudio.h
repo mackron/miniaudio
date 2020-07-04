@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.12 - TBD
+miniaudio - v0.10.12 - 2020-07-04
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -61835,14 +61835,14 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.12 - TBD
+v0.10.12 - 2020-07-04
   - Fix compilation errors on the iOS build.
 
-v0.10.11 - 28-06-2020
+v0.10.11 - 2020-06-28
   - Fix some bugs with device tracking on Core Audio.
   - Updates to documentation.
 
-v0.10.10 - 26-06-2020
+v0.10.10 - 2020-06-26
   - Add include guard for the implementation section.
   - Mark ma_device_sink_info_callback() as static.
   - Fix compilation errors with MA_NO_DECODING and MA_NO_ENCODING.

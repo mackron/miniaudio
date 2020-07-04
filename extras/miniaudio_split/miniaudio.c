@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.11 - 28-06-2020
+miniaudio - v0.10.12 - 2020-07-04
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -19498,7 +19498,9 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
 #endif
 
-    ma_context__init_device_tracking__coreaudio(pContext);
+#if !defined(MA_APPLE_MOBILE)
+    ma_context__uninit_device_tracking__coreaudio(pContext);
+#endif
 
     (void)pContext;
     return MA_SUCCESS;
@@ -19675,24 +19677,26 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     
         pContext->coreaudio.component = ((ma_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
         if (pContext->coreaudio.component == NULL) {
-    #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
+        #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
             ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
             ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
             ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
-    #endif
+        #endif
             return MA_FAILED_TO_INIT_BACKEND;
         }
     }
     
+#if !defined(MA_APPLE_MOBILE)
     result = ma_context__init_device_tracking__coreaudio(pContext);
     if (result != MA_SUCCESS) {
-#if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
+    #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
         ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
         ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
         ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
-#endif
+    #endif
         return result;
     }
+#endif
 
     return MA_SUCCESS;
 }
