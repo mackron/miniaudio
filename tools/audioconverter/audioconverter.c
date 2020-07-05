@@ -47,7 +47,7 @@ void print_usage()
     printf("  --speex-quality [0..10]\n");
 }
 
-ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder, ma_format format, ma_uint32 rate)
+ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
 {
     ma_result result = MA_SUCCESS;
 
@@ -60,7 +60,7 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder, ma_format fo
         ma_uint64 framesReadThisIteration;
         ma_uint64 framesToReadThisIteration;
 
-        framesToReadThisIteration = sizeof(pRawData) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+        framesToReadThisIteration = sizeof(pRawData) / ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
         framesReadThisIteration = ma_decoder_read_pcm_frames(pDecoder, pRawData, framesToReadThisIteration);
         if (framesReadThisIteration == 0) {
             break;  /* Reached the end. */
@@ -301,7 +301,7 @@ int main(int argc, char** argv)
     }
 
     /* Initialize the encoder for the output file. */
-    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, format, decoder.internalChannels, rate);
+    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, format, channels, rate);
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
@@ -311,7 +311,7 @@ int main(int argc, char** argv)
 
 
     /* We have our decoder and encoder ready, so now we can do the conversion. */
-    result = do_conversion(&decoder, &encoder, format, rate);
+    result = do_conversion(&decoder, &encoder);
     
     
     /* Done. */
