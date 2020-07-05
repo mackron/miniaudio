@@ -1,0 +1,5 @@
+author                       = "David Reid"
+google-analytics-tracking-id = "UA-81135233-2"
+
+miniaudio-header = "{{ include \".webplate/miniaudio-header.html\" }}"
+miniaudio-footer = "{{ include \".webplate/miniaudio-footer.html\" }}"
