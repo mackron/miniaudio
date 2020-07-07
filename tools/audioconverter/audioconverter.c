@@ -301,7 +301,7 @@ int main(int argc, char** argv)
     }
 
     /* Initialize the encoder for the output file. */
-    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, format, channels, rate);
+    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate);
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
