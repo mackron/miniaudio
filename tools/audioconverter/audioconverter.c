@@ -305,7 +305,7 @@ int main(int argc, char** argv)
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
-        printf("Failed to open output file. Check that the directory exists and that the file is not already opened by another process.");
+        printf("Failed to open output file. Check that the directory exists and that the file is not already opened by another process. %s", ma_result_description(result));
         return -1;
     }
 
