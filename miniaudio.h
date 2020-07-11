@@ -29989,10 +29989,22 @@ static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma
         return MA_NO_DEVICE;
     }
 
-    /* Try calculating an appropriate buffer size. */
+    /*
+    Try calculating an appropriate buffer size. There have been reports of the default buffer size being too small on some browsers. If we're using default buffer size, we'll make sure
+    the period size is a big biffer than our standard defaults.
+    */
     internalPeriodSizeInFrames = pConfig->periodSizeInFrames;
     if (internalPeriodSizeInFrames == 0) {
-        internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, pConfig->sampleRate);
+        ma_uint32 periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
+        if (pDevice->usingDefaultBufferSize) {
+            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
+                periodSizeInMilliseconds = 33;  /* 1 frame @ 30 FPS */
+            } else {
+                periodSizeInMilliseconds = 333;
+            }
+        }
+
+        internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, pConfig->sampleRate);
     }
 
     /* The size of the buffer must be a power of 2 and between 256 and 16384. */
@@ -61952,6 +61964,7 @@ REVISION HISTORY
 v0.10.13 - TBD
   - Fix some potential buffer overflow errors with channel maps when channel counts are greater than MA_MAX_CHANNELS.
   - Fix compilation error on Emscripten.
+  - Increase the default buffer size on the Web Audio backend. This fixes glitching issues on some browsers.
 
 v0.10.12 - 2020-07-04
   - Fix compilation errors on the iOS build.
