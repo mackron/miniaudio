@@ -42538,7 +42538,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  14
+#define DRFLAC_VERSION_REVISION  15
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 #ifdef _MSC_VER
@@ -42900,7 +42900,7 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  12
+#define DRMP3_VERSION_REVISION  13
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
 #ifdef _MSC_VER
@@ -53089,6 +53089,9 @@ static drflac_bool32 drflac__decode_samples__lpc(drflac_bs* bs, drflac_uint32 bl
     if (!drflac__read_int8(bs, 5, &lpcShift)) {
         return DRFLAC_FALSE;
     }
+    if (lpcShift < 0) {
+        return DRFLAC_FALSE;
+    }
     DRFLAC_ZERO_MEMORY(coefficients, sizeof(coefficients));
     for (i = 0; i < lpcOrder; ++i) {
         if (!drflac__read_int32(bs, lpcPrecision, coefficients + i)) {
@@ -61148,7 +61151,7 @@ DRMP3_API drmp3_uint64 drmp3_read_pcm_frames_f32(drmp3* pMP3, drmp3_uint64 frame
             if (framesJustRead == 0) {
                 break;
             }
-            drmp3_s16_to_f32((float*)DRMP3_OFFSET_PTR(pBufferOut, sizeof(drmp3_int16) * totalPCMFramesRead * pMP3->channels), pTempS16, framesJustRead * pMP3->channels);
+            drmp3_s16_to_f32((float*)DRMP3_OFFSET_PTR(pBufferOut, sizeof(float) * totalPCMFramesRead * pMP3->channels), pTempS16, framesJustRead * pMP3->channels);
             totalPCMFramesRead += framesJustRead;
         }
         return totalPCMFramesRead;

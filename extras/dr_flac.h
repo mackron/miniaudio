@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.14 - 2020-06-23
+dr_flac - v0.12.15 - 2020-07-06
 
 David Reid - mackron@gmail.com
 
@@ -232,7 +232,7 @@ extern "C" {
 
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  14
+#define DRFLAC_VERSION_REVISION  15
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -4990,6 +4990,18 @@ static drflac_bool32 drflac__decode_samples__lpc(drflac_bs* bs, drflac_uint32 bl
     lpcPrecision += 1;
 
     if (!drflac__read_int8(bs, 5, &lpcShift)) {
+        return DRFLAC_FALSE;
+    }
+
+    /*
+    From the FLAC specification:
+
+        Quantized linear predictor coefficient shift needed in bits (NOTE: this number is signed two's-complement)
+
+    Emphasis on the "signed two's-complement". In practice there does not seem to be any encoders nor decoders supporting negative shifts. For now dr_flac is
+    not going to support negative shifts as I don't have any reference files. However, when a reference file comes through I will consider adding support.
+    */
+    if (lpcShift < 0) {
         return DRFLAC_FALSE;
     }
 
@@ -11740,6 +11752,9 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 /*
 REVISION HISTORY
 ================
+v0.12.15 - 2020-07-06
+  - Check for negative LPC shifts and return an error.
+
 v0.12.14 - 2020-06-23
   - Add include guard for the implementation section.
 
