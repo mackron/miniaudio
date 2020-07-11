@@ -61964,6 +61964,7 @@ REVISION HISTORY
 v0.10.13 - TBD
   - Fix some potential buffer overflow errors with channel maps when channel counts are greater than MA_MAX_CHANNELS.
   - Fix compilation error on Emscripten.
+  - Silence some unused function warnings.
   - Increase the default buffer size on the Web Audio backend. This fixes glitching issues on some browsers.
 
 v0.10.12 - 2020-07-04
