@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.13 - TBD
+miniaudio - v0.10.13 - 2020-07-11
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -61964,7 +61964,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.13 - TBD
+v0.10.13 - 2020-07-11
   - Fix some potential buffer overflow errors with channel maps when channel counts are greater than MA_MAX_CHANNELS.
   - Fix compilation error on Emscripten.
   - Silence some unused function warnings.

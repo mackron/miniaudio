@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.12 - 2020-07-04
+miniaudio - v0.10.13 - 2020-07-11
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -19,7 +19,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 12
+#define MA_VERSION_REVISION 13
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -487,6 +487,8 @@ typedef enum
     ma_thread_priority_realtime =  1,
     ma_thread_priority_default  =  0
 } ma_thread_priority;
+
+typedef unsigned char ma_spinlock;
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_thread;
@@ -1077,7 +1079,7 @@ typedef struct
     float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
 } ma_channel_converter_config;
 
-MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel channelMapIn[MA_MAX_CHANNELS], ma_uint32 channelsOut, const ma_channel channelMapOut[MA_MAX_CHANNELS], ma_channel_mix_mode mixingMode);
+MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, ma_channel_mix_mode mixingMode);
 
 typedef struct
 {
@@ -1210,11 +1212,15 @@ Channel Maps
 
 /*
 Helper for retrieving a standard channel map.
+
+The output channel map buffer must have a capacity of at least `channels`.
 */
-MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_uint32 channels, ma_channel channelMap[MA_MAX_CHANNELS]);
+MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_uint32 channels, ma_channel* pChannelMap);
 
 /*
 Copies a channel map.
+
+Both input and output channel map buffers must have a capacity of at at least `channels`.
 */
 MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
 
@@ -1228,25 +1234,33 @@ is usually treated as a passthrough.
 Invalid channel maps:
   - A channel map with no channels
   - A channel map with more than one channel and a mono channel
+
+The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_valid(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS]);
+MA_API ma_bool32 ma_channel_map_valid(ma_uint32 channels, const ma_channel* pChannelMap);
 
 /*
 Helper for comparing two channel maps for equality.
 
 This assumes the channel count is the same between the two.
+
+Both channels map buffers must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel channelMapA[MA_MAX_CHANNELS], const ma_channel channelMapB[MA_MAX_CHANNELS]);
+MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pChannelMapA, const ma_channel* pChannelMapB);
 
 /*
 Helper for determining if a channel map is blank (all channels set to MA_CHANNEL_NONE).
+
+The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS]);
+MA_API ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel* pChannelMap);
 
 /*
 Helper for determining whether or not a channel is present in the given channel map.
+
+The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel channelMap[MA_MAX_CHANNELS], ma_channel channelPosition);
+MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
 
 
 /************************************************************************************************************************************************************
@@ -3668,6 +3682,23 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 
 #ifndef MA_NO_THREADING
+
+/*
+Locks a spinlock.
+*/
+MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock);
+
+/*
+Locks a spinlock, but does not yield() when looping.
+*/
+MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock);
+
+/*
+Unlocks a spinlock.
+*/
+MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock);
+
+
 /*
 Creates a mutex.
 
