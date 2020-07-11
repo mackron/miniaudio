@@ -6110,7 +6110,6 @@ static void ma_sleep(ma_uint32 milliseconds)
 }
 #endif
 
-#if !defined(MA_EMSCRIPTEN)
 static MA_INLINE void ma_yield()
 {
 #if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
@@ -6136,7 +6135,6 @@ static MA_INLINE void ma_yield()
     /* Unknown or unsupported architecture. No-op. */
 #endif
 }
-#endif
 
 
 
@@ -61933,6 +61931,7 @@ REVISION HISTORY
 ================
 v0.10.13 - TBD
   - Fix some potential buffer overflow errors with channel maps when channel counts are greater than MA_MAX_CHANNELS.
+  - Fix compilation error on Emscripten.
 
 v0.10.12 - 2020-07-04
   - Fix compilation errors on the iOS build.
