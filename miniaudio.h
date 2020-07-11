@@ -1841,6 +1841,8 @@ typedef enum
     ma_thread_priority_default  =  0
 } ma_thread_priority;
 
+typedef unsigned char ma_spinlock;
+
 #if defined(MA_WIN32)
 typedef ma_handle ma_thread;
 #endif
@@ -5033,6 +5035,23 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 
 #ifndef MA_NO_THREADING
+
+/*
+Locks a spinlock.
+*/
+MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock);
+
+/*
+Locks a spinlock, but does not yield() when looping.
+*/
+MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock);
+
+/*
+Unlocks a spinlock.
+*/
+MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock);
+
+
 /*
 Creates a mutex.
 
@@ -8272,50 +8291,6 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 /* c89atomic.h end */
 
 
-typedef unsigned char ma_spinlock;
-
-static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
-{
-    if (pSpinlock == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    for (;;) {
-        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
-            break;
-        }
-
-        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
-            if (yield) {
-                ma_yield();
-            }
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
-{
-    return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
-}
-
-static ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
-{
-    return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
-}
-
-static ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
-{
-    if (pSpinlock == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
-    return MA_SUCCESS;
-}
-
-
 
 static void* ma__malloc_default(size_t sz, void* pUserData)
 {
@@ -8508,6 +8483,47 @@ Threading
     typedef void* ma_thread_result;
 #endif
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
+
+static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
+            break;
+        }
+
+        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
+            if (yield) {
+                ma_yield();
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
+}
+
+MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
+{
+    return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
+}
+
+MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
+{
+    if (pSpinlock == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
+    return MA_SUCCESS;
+}
 
 #ifdef MA_WIN32
 static int ma_thread_priority_to_win32(ma_thread_priority priority)
@@ -8711,6 +8727,10 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
         pthread_attr_destroy(&attr);
     }
+#else
+    /* It's the emscripten build. We'll have a few unused parameters. */
+    (void)priority;
+    (void)stackSize;
 #endif
 
     result = pthread_create(pThread, pAttr, entryProc, pData);
