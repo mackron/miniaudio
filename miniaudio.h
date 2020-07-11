@@ -61969,6 +61969,8 @@ v0.10.13 - TBD
   - Fix compilation error on Emscripten.
   - Silence some unused function warnings.
   - Increase the default buffer size on the Web Audio backend. This fixes glitching issues on some browsers.
+  - Bring FLAC decoder up-to-date with dr_flac.
+  - Bring MP3 decoder up-to-date with dr_mp3.
 
 v0.10.12 - 2020-07-04
   - Fix compilation errors on the iOS build.
