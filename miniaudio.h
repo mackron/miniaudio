@@ -28842,7 +28842,7 @@ static SLuint32 ma_channel_map_to_channel_mask__opensl(const ma_channel* pChanne
     SLuint32 channelMask = 0;
     ma_uint32 iChannel;
     for (iChannel = 0; iChannel < channels; ++iChannel) {
-        channelMask |= ma_channel_id_to_opensl(channelMap[iChannel]);
+        channelMask |= ma_channel_id_to_opensl(pChannelMap[iChannel]);
     }
 
     return channelMask;
@@ -28852,13 +28852,13 @@ static SLuint32 ma_channel_map_to_channel_mask__opensl(const ma_channel* pChanne
 static void ma_channel_mask_to_channel_map__opensl(SLuint32 channelMask, ma_uint32 channels, ma_channel* pChannelMap)
 {
     if (channels == 1 && channelMask == 0) {
-        channelMap[0] = MA_CHANNEL_MONO;
+        pChannelMap[0] = MA_CHANNEL_MONO;
     } else if (channels == 2 && channelMask == 0) {
-        channelMap[0] = MA_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+        pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+        pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
     } else {
         if (channels == 1 && (channelMask & SL_SPEAKER_FRONT_CENTER) != 0) {
-            channelMap[0] = MA_CHANNEL_MONO;
+            pChannelMap[0] = MA_CHANNEL_MONO;
         } else {
             /* Just iterate over each bit. */
             ma_uint32 iChannel = 0;
@@ -28867,7 +28867,7 @@ static void ma_channel_mask_to_channel_map__opensl(SLuint32 channelMask, ma_uint
                 SLuint32 bitValue = (channelMask & (1UL << iBit));
                 if (bitValue != 0) {
                     /* The bit is set. */
-                    channelMap[iChannel] = ma_channel_id_to_ma__opensl(bitValue);
+                    pChannelMap[iChannel] = ma_channel_id_to_ma__opensl(bitValue);
                     iChannel += 1;
                 }
             }
@@ -61967,6 +61967,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.14 - TBD
+  - Fix compilation errors on Android.
   - Updates to the documentation.
 
 v0.10.13 - 2020-07-11
