@@ -34,8 +34,9 @@ but you could allocate it on the heap if that suits your situation better.
     ```c
     void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
     {
-        // In playback mode copy data to pOutput. In capture mode read data from pInput. In full-duplex mode, both pOutput and pInput will be valid and you can
-        // move data from pInput into pOutput. Never process more than frameCount frames.
+        // In playback mode copy data to pOutput. In capture mode read data from pInput. In full-duplex mode, both
+        // pOutput and pInput will be valid and you can move data from pInput into pOutput. Never process more than
+        // frameCount frames.
     }
 
     ...
@@ -715,7 +716,8 @@ The following example shows how data can be processed
         // An error occurred...
     }
 
-    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number of output frames written.
+    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the
+    // number of output frames written.
     ```
 
 To initialize the resampler you first need to set up a config (`ma_resampler_config`) with `ma_resampler_config_init()`. You need to specify the sample format
@@ -792,12 +794,16 @@ The Speex resampler is made up of third party code which is released under the B
 domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
 source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
 
+    ```c
     #include "extras/speex_resampler/ma_speex_resampler.h"
+    ```
 
 Both the header and implementation is contained within the same file. The implementation can be included in your program like so:
 
+    ```c
     #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
     #include "extras/speex_resampler/ma_speex_resampler.h"
+    ```
 
 Note that even if you opt-in to the Speex backend, miniaudio won't use it unless you explicitly ask for it in the respective config of the object you are
 initializing. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
@@ -814,7 +820,15 @@ internally to convert between the format requested when the device was initializ
 conversion is very similar to the resampling API. Create a `ma_data_converter` object like this:
 
     ```c
-    ma_data_converter_config config = ma_data_converter_config_init(inputFormat, outputFormat, inputChannels, outputChannels, inputSampleRate, outputSampleRate);
+    ma_data_converter_config config = ma_data_converter_config_init(
+        inputFormat,
+        outputFormat,
+        inputChannels,
+        outputChannels,
+        inputSampleRate,
+        outputSampleRate
+    );
+
     ma_data_converter converter;
     ma_result result = ma_data_converter_init(&config, &converter);
     if (result != MA_SUCCESS) {
@@ -853,7 +867,8 @@ The following example shows how data can be processed
         // An error occurred...
     }
 
-    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number of output frames written.
+    // At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number
+    // of output frames written.
     ```
 
 The data converter supports multiple channels and is always interleaved (both input and output). The channel count cannot be changed after initialization.
@@ -1161,6 +1176,7 @@ Sometimes it can be convenient to allocate the memory for the `ma_audio_buffer` 
 the raw audio data will be located immediately after the `ma_audio_buffer` structure. To do this, use `ma_audio_buffer_alloc_and_init()`:
 
     ```c
+    ma_audio_buffer_config config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &allocationCallbacks);
     ma_audio_buffer* pBuffer
     result = ma_audio_buffer_alloc_and_init(&config, &pBuffer);
     if (result != MA_SUCCESS) {
@@ -1172,13 +1188,13 @@ the raw audio data will be located immediately after the `ma_audio_buffer` struc
     ma_audio_buffer_uninit_and_free(&buffer);
     ```
 
-If you initialize the buffer with `ma_audio_buffer_alloc_and_init()` you should uninitialize it with `ma_audio_buffer_uninit_and_free()`.
+If you initialize the buffer with `ma_audio_buffer_alloc_and_init()` you should uninitialize it with `ma_audio_buffer_uninit_and_free()`. In the example above,
+the memory pointed to by `pExistingData` will be copied into the buffer, which is contrary to the behavior of `ma_audio_buffer_init()`.
 
-An audio buffer has a playback cursor just like a decoder. As you read frames from the buffer, the cursor moves forward. It does not automatically loop back to
-the start. To do this, you should inspect the number of frames returned by `ma_audio_buffer_read_pcm_frames()` to determine if the end has been reached, which
-you can know by comparing it with the requested frame count you specified when you called the function. If the return value is less it means the end has been
-reached. In this case you can seem back to the start with `ma_audio_buffer_seek_to_pcm_frame(pAudioBuffer, 0)`. Below is an example for reading data from an
-audio buffer.
+An audio buffer has a playback cursor just like a decoder. As you read frames from the buffer, the cursor moves forward. The last parameter (`loop`) can be
+used to determine if the buffer should loop. The return value is the number of frames actually read. If this is less than the number of frames requested it
+means the end has been reached. This should never happen if the `loop` parameter is set to true. If you want to manually loop back to the start, you can do so
+with with `ma_audio_buffer_seek_to_pcm_frame(pAudioBuffer, 0)`. Below is an example for reading data from an audio buffer.
 
     ```c
     ma_uint64 framesRead = ma_audio_buffer_read_pcm_frames(pAudioBuffer, pFramesOut, desiredFrameCount, isLooping);
@@ -1187,15 +1203,16 @@ audio buffer.
     }
     ```
 
-Sometimes you may want to avoid the cost of data movement between the internal buffer and the output buffer as it's just a copy operation. Instead you can use
-memory mapping to retrieve a pointer to a segment of data:
+Sometimes you may want to avoid the cost of data movement between the internal buffer and the output buffer. Instead you can use memory mapping to retrieve a
+pointer to a segment of data:
 
     ```c
     void* pMappedFrames;
     ma_uint64 frameCount = frameCountToTryMapping;
     ma_result result = ma_audio_buffer_map(pAudioBuffer, &pMappedFrames, &frameCount);
     if (result == MA_SUCCESS) {
-        // Map was successful. The value in frameCount will be how many frames were _actually_ mapped, which may be less due to the end of the buffer being reached.
+        // Map was successful. The value in frameCount will be how many frames were _actually_ mapped, which may be
+        // less due to the end of the buffer being reached.
         ma_copy_pcm_frames(pFramesOut, pMappedFrames, frameCount, pAudioBuffer->format, pAudioBuffer->channels);
 
         // You must unmap the buffer.
@@ -1205,7 +1222,8 @@ memory mapping to retrieve a pointer to a segment of data:
 
 When you use memory mapping, the read cursor is increment by the frame count passed in to `ma_audio_buffer_unmap()`. If you decide not to process every frame
 you can pass in a value smaller than the value returned by `ma_audio_buffer_map()`. The disadvantage to using memory mapping is that it does not handle looping
-for you. You can determine if the buffer is at the end for the purpose of looping with `ma_audio_buffer_at_end()`.
+for you. You can determine if the buffer is at the end for the purpose of looping with `ma_audio_buffer_at_end()` or by inspecting the return value of
+`ma_audio_buffer_unmap()` and checking if it equals `MA_AT_END`. You should not treat `MA_AT_END` as an error when returned by `ma_audio_buffer_unmap()`.
 
 
 
