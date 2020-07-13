@@ -6144,13 +6144,13 @@ static MA_INLINE void ma_yield()
     #else
         __asm__ __volatile__ ("pause");
     #endif
-#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7) || (defined(_M_ARM) && _M_ARM >= 7) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6T2__)
     /* ARM */
     #if defined(_MSC_VER)
         /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
         __yield();
     #else
-        __asm__ __volatile__ ("yield");
+        __asm__ __volatile__ ("yield"); /* ARMv6K/ARMv6T2 and above. */
     #endif
 #else
     /* Unknown or unsupported architecture. No-op. */
@@ -61968,6 +61968,7 @@ REVISION HISTORY
 ================
 v0.10.14 - TBD
   - Fix compilation errors on Android.
+  - Fix compilation errors with -march=armv6.
   - Updates to the documentation.
 
 v0.10.13 - 2020-07-11
