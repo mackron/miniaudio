@@ -1,0 +1,70 @@
+{{ miniaudio-header }}
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:300px; border:solid 0px #000; padding:0; margin:0;">
+<a href="{{ relative-path "docs/index.html" }}" class="doc-navigation">Documentation Home</a><a href="{{ relative-path "docs/guide/index.html" }}" class="doc-navigation">Programming Guide</a><a href="{{ relative-path "./docs/examples/index.html" }}" class="doc-navigation ">Examples</a><a href="{{ relative-path "docs/examples/fixed_size_callback.html" }}" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="{{ relative-path "docs/examples/simple_capture.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="{{ relative-path "docs/examples/simple_duplex.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="{{ relative-path "docs/examples/simple_enumeration.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="{{ relative-path "docs/examples/simple_loopback.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="{{ relative-path "docs/examples/simple_looping.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="{{ relative-path "docs/examples/simple_mixing.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="{{ relative-path "docs/examples/simple_playback.html" }}" class="doc-navigation doc-navigation-l1 doc-navigation-active">Simple Playback</a><a href="{{ relative-path "docs/examples/simple_playback_sine.html" }}" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="{{ relative-path "docs/api/index.html" }}" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
+#define MINIAUDIO_IMPLEMENTATION
+#include &quot;../miniaudio.h&quot;
+
+#include &lt;stdio.h&gt;
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDevice-&gt;pUserData;
+    if (pDecoder == NULL) {
+        return;
+    }
+
+    ma_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
+
+    (void)pInput;
+}
+
+int main(int argc, char** argv)
+{
+    ma_result result;
+    ma_decoder decoder;
+    ma_device_config deviceConfig;
+    ma_device device;
+
+    if (argc &lt; 2) {
+        printf(&quot;No input file.\n&quot;);
+        return -1;
+    }
+
+    result = ma_decoder_init_file(argv[1], NULL, &amp;decoder);
+    if (result != MA_SUCCESS) {
+        return -2;
+    }
+
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = decoder.outputFormat;
+    deviceConfig.playback.channels = decoder.outputChannels;
+    deviceConfig.sampleRate        = decoder.outputSampleRate;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &amp;decoder;
+
+    if (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
+        printf(&quot;Failed to open playback device.\n&quot;);
+        ma_decoder_uninit(&amp;decoder);
+        return -3;
+    }
+
+    if (ma_device_start(&amp;device) != MA_SUCCESS) {
+        printf(&quot;Failed to start playback device.\n&quot;);
+        ma_device_uninit(&amp;device);
+        ma_decoder_uninit(&amp;decoder);
+        return -4;
+    }
+
+    printf(&quot;Press Enter to quit...&quot;);
+    getchar();
+
+    ma_device_uninit(&amp;device);
+    ma_decoder_uninit(&amp;decoder);
+
+    return 0;
+}
+</pre></div></td>
+</tr></table>
+{{ miniaudio-footer }}
