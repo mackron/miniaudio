@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.14 - 2020-07-14
+miniaudio - v0.10.15 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1374,7 +1374,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 14
+#define MA_VERSION_REVISION 15
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -11105,7 +11105,7 @@ static void ma_channel_mask_to_channel_map__win32(DWORD dwChannelMask, ma_uint32
             ma_uint32 iChannel = 0;
             ma_uint32 iBit;
 
-            for (iBit = 0; iBit < 32 && iBit < channels; ++iBit) {
+            for (iBit = 0; iBit < 32 && iChannel < channels; ++iBit) {
                 DWORD bitValue = (dwChannelMask & (1UL << iBit));
                 if (bitValue != 0) {
                     /* The bit is set. */
@@ -61966,6 +61966,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.15 - TBD
+  - Fix a bug when converting bit-masked channel maps to miniaudio channel maps.
+
 v0.10.14 - 2020-07-14
   - Fix compilation errors on Android.
   - Fix compilation errors with -march=armv6.
