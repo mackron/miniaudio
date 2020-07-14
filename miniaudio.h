@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.14 - TBD
+miniaudio - v0.10.14 - 2020-07-14
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -61966,7 +61966,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.14 - TBD
+v0.10.14 - 2020-07-14
   - Fix compilation errors on Android.
   - Fix compilation errors with -march=armv6.
   - Updates to the documentation.

@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.13 - 2020-07-11
+miniaudio - v0.10.14 - 2020-07-14
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -519,13 +519,13 @@ static MA_INLINE void ma_yield()
     #else
         __asm__ __volatile__ ("pause");
     #endif
-#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 6) || (defined(_M_ARM) && _M_ARM >= 6)
+#elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7) || (defined(_M_ARM) && _M_ARM >= 7) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6T2__)
     /* ARM */
     #if defined(_MSC_VER)
         /* Apparently there is a __yield() intrinsic that's compatible with ARM, but I cannot find documentation for it nor can I find where it's declared. */
         __yield();
     #else
-        __asm__ __volatile__ ("yield");
+        __asm__ __volatile__ ("yield"); /* ARMv6K/ARMv6T2 and above. */
     #endif
 #else
     /* Unknown or unsupported architecture. No-op. */
@@ -23217,7 +23217,7 @@ static SLuint32 ma_channel_map_to_channel_mask__opensl(const ma_channel* pChanne
     SLuint32 channelMask = 0;
     ma_uint32 iChannel;
     for (iChannel = 0; iChannel < channels; ++iChannel) {
-        channelMask |= ma_channel_id_to_opensl(channelMap[iChannel]);
+        channelMask |= ma_channel_id_to_opensl(pChannelMap[iChannel]);
     }
 
     return channelMask;
@@ -23227,13 +23227,13 @@ static SLuint32 ma_channel_map_to_channel_mask__opensl(const ma_channel* pChanne
 static void ma_channel_mask_to_channel_map__opensl(SLuint32 channelMask, ma_uint32 channels, ma_channel* pChannelMap)
 {
     if (channels == 1 && channelMask == 0) {
-        channelMap[0] = MA_CHANNEL_MONO;
+        pChannelMap[0] = MA_CHANNEL_MONO;
     } else if (channels == 2 && channelMask == 0) {
-        channelMap[0] = MA_CHANNEL_FRONT_LEFT;
-        channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+        pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+        pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
     } else {
         if (channels == 1 && (channelMask & SL_SPEAKER_FRONT_CENTER) != 0) {
-            channelMap[0] = MA_CHANNEL_MONO;
+            pChannelMap[0] = MA_CHANNEL_MONO;
         } else {
             /* Just iterate over each bit. */
             ma_uint32 iChannel = 0;
@@ -23242,7 +23242,7 @@ static void ma_channel_mask_to_channel_map__opensl(SLuint32 channelMask, ma_uint
                 SLuint32 bitValue = (channelMask & (1UL << iBit));
                 if (bitValue != 0) {
                     /* The bit is set. */
-                    channelMap[iChannel] = ma_channel_id_to_ma__opensl(bitValue);
+                    pChannelMap[iChannel] = ma_channel_id_to_ma__opensl(bitValue);
                     iChannel += 1;
                 }
             }
