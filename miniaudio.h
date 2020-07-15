@@ -22690,7 +22690,7 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
         UInt32 iChannel = 0;
         UInt32 iBit;
         AudioChannelBitmap bitmap = pChannelLayout->mChannelBitmap;
-        for (iBit = 0; iBit < 32 && iBit < channelMapCap; ++iBit) {
+        for (iBit = 0; iBit < 32 && iChannel < channelMapCap; ++iBit) {
             AudioChannelBitmap bit = bitmap & (1 << iBit);
             if (bit != 0) {
                 pChannelMap[iChannel++] = ma_channel_from_AudioChannelBit(bit);
@@ -28863,7 +28863,7 @@ static void ma_channel_mask_to_channel_map__opensl(SLuint32 channelMask, ma_uint
             /* Just iterate over each bit. */
             ma_uint32 iChannel = 0;
             ma_uint32 iBit;
-            for (iBit = 0; iBit < 32 && iBit < channels; ++iBit) {
+            for (iBit = 0; iBit < 32 && iChannel < channels; ++iBit) {
                 SLuint32 bitValue = (channelMask & (1UL << iBit));
                 if (bitValue != 0) {
                     /* The bit is set. */
