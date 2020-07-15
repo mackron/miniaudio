@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.15 - TBD
+miniaudio - v0.10.15 - 2020-07-15
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -62003,8 +62003,8 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.15 - TBD
-  - Fix a bug when converting bit-masked channel maps to miniaudio channel maps.
+v0.10.15 - 2020-07-15
+  - Fix a bug when converting bit-masked channel maps to miniaudio channel maps. This affects the WASAPI and OpenSL backends.
 
 v0.10.14 - 2020-07-14
   - Fix compilation errors on Android.
