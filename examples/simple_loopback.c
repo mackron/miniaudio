@@ -1,6 +1,11 @@
 /*
-This example simply captures data from your default playback device until you press Enter. The output is saved to the file
-specified on the command line.
+Demonstrates how to implement loopback recording.
+
+This example simply captures data from your default playback device until you press Enter. The output is saved to the
+file specified on the command line.
+
+Loopback mode is when you record audio that is played from a given speaker. It is only supported on WASAPI, but can be
+used indirectly with PulseAudio by choosing the appropriate loopback device after enumeration.
 
 To use loopback mode you just need to set the device type to ma_device_type_loopback and set the capture device config
 properties. The output buffer in the callback will be null whereas the input buffer will be valid.

@@ -1,3 +1,15 @@
+/*
+Demonstrates duplex mode which is where data is captured from a microphone and then output to a device.
+
+This example captures audio from the default microphone and then outputs it straight to the default playback device
+without any kind of modification. If you wanted to, you could also apply filters and effects to the input stream
+before outputting to the playback device.
+
+Note that the microphone and playback device must run in lockstep. Any kind of timing deviation will result in audible
+glitching which the backend may not be able to recover from. For this reason, miniaudio forces you to use the same
+sample rate for both capture and playback. If internally the native sample rates differ, miniaudio will perform the
+sample rate conversion for you automatically.
+*/
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 

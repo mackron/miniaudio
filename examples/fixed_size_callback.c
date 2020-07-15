@@ -1,14 +1,16 @@
 /*
-The example demonstrates how to implement a fixed sized callback. miniaudio does not have built-in support for
-firing the data callback with fixed sized buffers. In order to support this you need to implement a layer that
-sits on top of the normal data callback. This example demonstrates one way of doing this.
+Shows one way to implement a data callback that is called with a fixed frame count.
 
-This example uses a ring buffer to act as the intermediary buffer between the low-level device callback and the
-fixed sized callback. You do not need to use a ring buffer here, but it's a good opportunity to demonstrate how
-to use miniaudio's ring buffer API. The ring buffer in this example is in global scope for simplicity, but you
-can pass it around as user data for the device (device.pUserData).
+miniaudio does not have built-in support for firing the data callback with fixed sized buffers. In order to support
+this you need to implement a layer that sits on top of the normal data callback. This example demonstrates one way of
+doing this.
 
-This only works for output devices, but can be implemented for input devices by simply swapping the direction
+This example uses a ring buffer to act as the intermediary buffer between the low-level device callback and the fixed
+sized callback. You do not need to use a ring buffer here, but it's a good opportunity to demonstrate how to use
+miniaudio's ring buffer API. The ring buffer in this example is in global scope for simplicity, but you can pass it
+around as user data for the device (device.pUserData).
+
+This example only works for output devices, but can be implemented for input devices by simply swapping the direction
 of data movement.
 */
 #define MINIAUDIO_IMPLEMENTATION

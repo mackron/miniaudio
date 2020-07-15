@@ -1,6 +1,15 @@
 /*
+Demonstrates one way to load multiple files and play them all back at the same time.
+
+When mixing multiple sounds together, you should not create multiple devices. Instead you should create only a single
+device and then mix your sounds together which you can do by simply summing their samples together. The simplest way to
+do this is to use floating point samples and use miniaudio's built-in clipper to handling clipping for you. (Clipping
+is when sample are clampled to their minimum and maximum range, which for floating point is -1..1.)
+
+```
 Usage:   simple_mixing [input file 0] [input file 1] ... [input file n]
 Example: simple_mixing file1.wav file2.flac
+```
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -8,7 +17,7 @@ Example: simple_mixing file1.wav file2.flac
 #include <stdio.h>
 
 /*
-For simplicity, this example requires the device use floating point samples.
+For simplicity, this example requires the device to use floating point samples.
 */
 #define SAMPLE_FORMAT   ma_format_f32
 #define CHANNEL_COUNT   2

@@ -1,4 +1,13 @@
-/* This example simply captures data from your default microphone until you press Enter. The output is saved to the file specified on the command line. */
+/*
+Demonstrates how to capture data from a microphone using the low-level API.
+
+This example simply captures data from your default microphone until you press Enter. The output is saved to the file
+specified on the command line.
+
+Capturing works in a very similar way to playback. The only difference is the direction of data movement. Instead of
+the application sending data to the device, the device will send data to the application. This example just writes the
+data received by the microphone straight to a WAV file.
+*/
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 

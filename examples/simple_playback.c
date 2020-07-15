@@ -1,3 +1,15 @@
+/*
+Demonstrates how to load a sound file and play it back using the low-level API.
+
+The low-level API uses a callback to deliver audio between the application and miniaudio for playback or recording. When
+in playback mode, as in this example, the application sends raw audio data to miniaudio which is then played back through
+the default playback device as defined by the operating system.
+
+This example uses the `ma_decoder` API to load a sound and play it back. The decoder is entirely decoupled from the
+device and can be used independently of it. This example only plays back a single sound file, but it's possible to play
+back multiple files by simple loading multiple decoders and mixing them (do not create multiple devices to do this). See
+the simple_mixing example for how best to do this.
+*/
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
