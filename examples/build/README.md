@@ -14,4 +14,4 @@ path like "C:\emsdk\emsdk_env.bat". Note that PowerShell doesn't work for me for
 If you output WASM it may not work when running the web page locally. To test you can run with something
 like this:
 
-    emrun ./bin/simple_playback_emscripten.html
+    emrun ./bin/simple_playback_sine.html
