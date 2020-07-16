@@ -253,8 +253,8 @@ miniaudio is a single file library for audio playback and capture. To use it, do
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 </pre></div><p>
 
 You can do <span style="font-family:monospace;">#include miniaudio.h</span> in other parts of the program just like any other header.
@@ -280,32 +280,32 @@ but you could allocate it on the heap if that suits your situation better.
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
-    // In playback mode copy data to pOutput. In capture mode read data from pInput. In full-duplex mode, both
-    // pOutput and pInput will be valid and you can move data from pInput into pOutput. Never process more than
-    // frameCount frames.
+    <span style="color:#009900">// In playback mode copy data to pOutput. In capture mode read data from pInput. In full-duplex mode, both</span>
+    <span style="color:#009900">// pOutput and pInput will be valid and you can move data from pInput into pOutput. Never process more than</span>
+    <span style="color:#009900">// frameCount frames.</span>
 }
 
 ...
 
-ma_device_config config = ma_device_config_init(ma_device_type_playback);
+<span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_playback);
 config.playback.format   = MY_FORMAT;
 config.playback.channels = MY_CHANNEL_COUNT;
 config.sampleRate        = MY_SAMPLE_RATE;
 config.dataCallback      = data_callback;
-config.pUserData         = pMyCustomData;   // Can be accessed from the device object (device.pUserData).
+config.pUserData         = pMyCustomData;   <span style="color:#009900">// Can be accessed from the device object (device.pUserData).</span>
 
-ma_device device;
-if (ma_device_init(NULL, &amp;config, &amp;device) != MA_SUCCESS) {
+<span style="color:#0099cc">ma_device</span> device;
+<span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;config, &amp;device) != MA_SUCCESS) {
     ... An error occurred ...
 }
 
-ma_device_start(&amp;device);     // The device is sleeping by default so you&#39;ll need to start it manually.
+ma_device_start(&amp;device);     <span style="color:#009900">// The device is sleeping by default so you&#39;ll need to start it manually.</span>
 
 ...
 
-ma_device_uninit(&amp;device);    // This will stop the device so no need to do that manually.
+ma_device_uninit(&amp;device);    <span style="color:#009900">// This will stop the device so no need to do that manually.</span>
 </pre></div><p>
 
 In the example above, <span style="font-family:monospace;">data_callback()</span> is where audio data is written and read from the device. The idea is in playback mode you cause sound to be emitted
@@ -442,7 +442,7 @@ from <span style="font-family:monospace;">ma_device_type_playback</span> to <spa
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_device_config config = ma_device_config_init(ma_device_type_capture);
+<span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_capture);
 config.capture.format   = MY_FORMAT;
 config.capture.channels = MY_CHANNEL_COUNT;
 </pre></div><p>
@@ -512,8 +512,8 @@ devices connected and you want to use a specific one you will need to specify th
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-config.playback.pDeviceID = pMyPlaybackDeviceID;    // Only if requesting a playback or duplex device.
-config.capture.pDeviceID = pMyCaptureDeviceID;      // Only if requesting a capture, duplex or loopback device.
+config.playback.pDeviceID = pMyPlaybackDeviceID;    <span style="color:#009900">// Only if requesting a playback or duplex device.</span>
+config.capture.pDeviceID = pMyCaptureDeviceID;      <span style="color:#009900">// Only if requesting a capture, duplex or loopback device.</span>
 </pre></div><p>
 
 To retrieve the device ID you will need to perform device enumeration, however this requires the use of a new concept called the &quot;context&quot;. Conceptually
@@ -525,26 +525,26 @@ backends and enumerating devices. The example below shows how to enumerate devic
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_context context;
-if (ma_context_init(NULL, 0, NULL, &amp;context) != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_context</span> context;
+<span style="color:#0033ff">if</span> (ma_context_init(NULL, 0, NULL, &amp;context) != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
-ma_device_info* pPlaybackDeviceInfos;
-ma_uint32 playbackDeviceCount;
-ma_device_info* pCaptureDeviceInfos;
-ma_uint32 captureDeviceCount;
-if (ma_context_get_devices(&amp;context, &amp;pPlaybackDeviceInfos, &amp;playbackDeviceCount, &amp;pCaptureDeviceInfos, &amp;captureDeviceCount) != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_device_info</span>* pPlaybackDeviceInfos;
+<span style="color:#0099cc">ma_uint32</span> playbackDeviceCount;
+<span style="color:#0099cc">ma_device_info</span>* pCaptureDeviceInfos;
+<span style="color:#0099cc">ma_uint32</span> captureDeviceCount;
+<span style="color:#0033ff">if</span> (ma_context_get_devices(&amp;context, &amp;pPlaybackDeviceInfos, &amp;playbackDeviceCount, &amp;pCaptureDeviceInfos, &amp;captureDeviceCount) != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
-// Loop over each device info and do something with it. Here we just print the name with their index. You may want to give the user the
-// opportunity to choose which device they&#39;d prefer.
-for (ma_uint32 iDevice = 0; iDevice &lt; playbackDeviceCount; iDevice += 1) {
-    printf(&quot;%d - %s\n&quot;, iDevice, pPlaybackDeviceInfos[iDevice].name);
+<span style="color:#009900">// Loop over each device info and do something with it. Here we just print the name with their index. You may want to give the user the</span>
+<span style="color:#009900">// opportunity to choose which device they&#39;d prefer.</span>
+<span style="color:#0033ff">for</span> (<span style="color:#0099cc">ma_uint32</span> iDevice = 0; iDevice &lt; playbackDeviceCount; iDevice += 1) {
+    printf(<span style="color:#cc3300">&quot;%d - %s\n&quot;</span>, iDevice, pPlaybackDeviceInfos[iDevice].name);
 }
 
-ma_device_config config = ma_device_config_init(ma_device_type_playback);
+<span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_playback);
 config.playback.pDeviceID = &amp;pPlaybackDeviceInfos[chosenPlaybackDeviceIndex].id;
 config.playback.format    = MY_FORMAT;
 config.playback.channels  = MY_CHANNEL_COUNT;
@@ -552,9 +552,9 @@ config.sampleRate         = MY_SAMPLE_RATE;
 config.dataCallback       = data_callback;
 config.pUserData          = pMyCustomData;
 
-ma_device device;
-if (ma_device_init(&amp;context, &amp;config, &amp;device) != MA_SUCCESS) {
-    // Error
+<span style="color:#0099cc">ma_device</span> device;
+<span style="color:#0033ff">if</span> (ma_device_init(&amp;context, &amp;config, &amp;device) != MA_SUCCESS) {
+    <span style="color:#009900">// Error</span>
 }
 
 ...
@@ -1098,15 +1098,15 @@ can be enabled by including the header section before the implementation of mini
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define STB_VORBIS_HEADER_ONLY
-#include &quot;extras/stb_vorbis.c&quot;    // Enables Vorbis decoding.
+<span style="color:#666666">#define</span> STB_VORBIS_HEADER_ONLY
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/stb_vorbis.c&quot;</span>    <span style="color:#009900">// Enables Vorbis decoding.</span>
 
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 
-// The stb_vorbis implementation must come after the implementation of miniaudio.
-#undef STB_VORBIS_HEADER_ONLY
-#include &quot;extras/stb_vorbis.c&quot;
+<span style="color:#009900">// The stb_vorbis implementation must come after the implementation of miniaudio.</span>
+<span style="color:#666666">#undef</span> STB_VORBIS_HEADER_ONLY
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/stb_vorbis.c&quot;</span>
 </pre></div><p>
 
 A copy of stb_vorbis is included in the &quot;extras&quot; folder in the miniaudio repository (<a href="https://github.com/dr-soft/miniaudio">https://github.com/dr-soft/miniaudio</a>).
@@ -1120,9 +1120,9 @@ built-in decoders by specifying one or more of the following options before the 
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MA_NO_WAV
-#define MA_NO_FLAC
-#define MA_NO_MP3
+<span style="color:#666666">#define</span> MA_NO_WAV
+<span style="color:#666666">#define</span> MA_NO_FLAC
+<span style="color:#666666">#define</span> MA_NO_MP3
 </pre></div><p>
 
 Disabling built-in versions of dr_wav, dr_flac and dr_mp3 is useful if you use these libraries independantly of the <span style="font-family:monospace;">ma_decoder</span> API.
@@ -1136,10 +1136,10 @@ with <span style="font-family:monospace;">ma_decoder_init()</span>. Here is an e
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_decoder decoder;
-ma_result result = ma_decoder_init_file(&quot;MySong.mp3&quot;, NULL, &amp;decoder);
-if (result != MA_SUCCESS) {
-    return false;   // An error occurred.
+<span style="color:#0099cc">ma_decoder</span> decoder;
+<span style="color:#0099cc">ma_result</span> result = ma_decoder_init_file(<span style="color:#cc3300">&quot;MySong.mp3&quot;</span>, NULL, &amp;decoder);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#0033ff">return</span> false;   <span style="color:#009900">// An error occurred.</span>
 }
 
 ...
@@ -1154,7 +1154,7 @@ configure the output format, channel count, sample rate and channel map:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 2, 48000);
+<span style="color:#0099cc">ma_decoder_config</span> config = ma_decoder_config_init(ma_format_f32, 2, 48000);
 </pre></div><p>
 
 When passing in NULL for decoder config in <span style="font-family:monospace;">ma_decoder_init*()</span>, the output format will be the same as that defined by the decoding backend.
@@ -1168,9 +1168,9 @@ PCM frames it means you&#39;ve reached the end:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
-if (framesRead &lt; framesToRead) {
-    // Reached the end.
+<span style="color:#0099cc">ma_uint64</span> framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
+<span style="color:#0033ff">if</span> (framesRead &lt; framesToRead) {
+    <span style="color:#009900">// Reached the end.</span>
 }
 </pre></div><p>
 
@@ -1180,9 +1180,9 @@ You can also seek to a specific frame like so:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_result result = ma_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
-if (result != MA_SUCCESS) {
-    return false;   // An error occurred.
+<span style="color:#0099cc">ma_result</span> result = ma_decoder_seek_to_pcm_frame(pDecoder, targetFrame);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#0033ff">return</span> false;   <span style="color:#009900">// An error occurred.</span>
 }
 </pre></div><p>
 
@@ -1231,7 +1231,7 @@ implementation section of miniaudio. This can be disabled by specifying the foll
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MA_NO_WAV
+<span style="color:#666666">#define</span> MA_NO_WAV
 </pre></div><p>
 
 An encoder can be initialized to write to a file with <span style="font-family:monospace;">ma_encoder_init_file()</span> or from data delivered via callbacks with <span style="font-family:monospace;">ma_encoder_init()</span>. Below is an
@@ -1241,11 +1241,11 @@ example for initializing an encoder to output to a file.
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_encoder_config config = ma_encoder_config_init(ma_resource_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
-ma_encoder encoder;
-ma_result result = ma_encoder_init_file(&quot;my_file.wav&quot;, &amp;config, &amp;encoder);
-if (result != MA_SUCCESS) {
-    // Error
+<span style="color:#0099cc">ma_encoder_config</span> config = ma_encoder_config_init(ma_resource_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
+<span style="color:#0099cc">ma_encoder</span> encoder;
+<span style="color:#0099cc">ma_result</span> result = ma_encoder_init_file(<span style="color:#cc3300">&quot;my_file.wav&quot;</span>, &amp;config, &amp;encoder);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error</span>
 }
 
 ...
@@ -1397,10 +1397,10 @@ conversion. Below is an example of initializing a simple channel converter which
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_channel_converter_config config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
+<span style="color:#0099cc">ma_channel_converter_config</span> config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
 result = ma_channel_converter_init(&amp;config, &amp;converter);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 </pre></div><p>
 
@@ -1410,9 +1410,9 @@ To perform the conversion simply call <span style="font-family:monospace;">ma_ch
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_result result = ma_channel_converter_process_pcm_frames(&amp;converter, pFramesOut, pFramesIn, frameCount);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_result</span> result = ma_channel_converter_process_pcm_frames(&amp;converter, pFramesOut, pFramesIn, frameCount);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 </pre></div><p>
 
@@ -1728,11 +1728,11 @@ Resampling is achieved with the <span style="font-family:monospace;">ma_resample
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_resampler_config config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
-ma_resampler resampler;
-ma_result result = ma_resampler_init(&amp;config, &amp;resampler);
-if (result != MA_SUCCESS) {
-    // An error occurred...
+<span style="color:#0099cc">ma_resampler_config</span> config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+<span style="color:#0099cc">ma_resampler</span> resampler;
+<span style="color:#0099cc">ma_result</span> result = ma_resampler_init(&amp;config, &amp;resampler);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// An error occurred...</span>
 }
 </pre></div><p>
 
@@ -1751,15 +1751,15 @@ The following example shows how data can be processed
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_uint64 frameCountIn  = 1000;
-ma_uint64 frameCountOut = 2000;
-ma_result result = ma_resampler_process_pcm_frames(&amp;resampler, pFramesIn, &amp;frameCountIn, pFramesOut, &amp;frameCountOut);
-if (result != MA_SUCCESS) {
-    // An error occurred...
+<span style="color:#0099cc">ma_uint64</span> frameCountIn  = 1000;
+<span style="color:#0099cc">ma_uint64</span> frameCountOut = 2000;
+<span style="color:#0099cc">ma_result</span> result = ma_resampler_process_pcm_frames(&amp;resampler, pFramesIn, &amp;frameCountIn, pFramesOut, &amp;frameCountOut);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// An error occurred...</span>
 }
 
-// At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the
-// number of output frames written.
+<span style="color:#009900">// At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the</span>
+<span style="color:#009900">// number of output frames written.</span>
 </pre></div><p>
 
 To initialize the resampler you first need to set up a config (<span style="font-family:monospace;">ma_resampler_config</span>) with <span style="font-family:monospace;">ma_resampler_config_init()</span>. You need to specify the sample format
@@ -1900,7 +1900,7 @@ source files. To opt-in, you must first #include the following file before the i
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#include &quot;extras/speex_resampler/ma_speex_resampler.h&quot;
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/speex_resampler/ma_speex_resampler.h&quot;</span>
 </pre></div><p>
 
 Both the header and implementation is contained within the same file. The implementation can be included in your program like so:
@@ -1909,8 +1909,8 @@ Both the header and implementation is contained within the same file. The implem
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
-#include &quot;extras/speex_resampler/ma_speex_resampler.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/speex_resampler/ma_speex_resampler.h&quot;</span>
 </pre></div><p>
 
 Note that even if you opt-in to the Speex backend, miniaudio won&#39;t use it unless you explicitly ask for it in the respective config of the object you are
@@ -1940,7 +1940,7 @@ conversion is very similar to the resampling API. Create a <span style="font-fam
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_data_converter_config config = ma_data_converter_config_init(
+<span style="color:#0099cc">ma_data_converter_config</span> config = ma_data_converter_config_init(
     inputFormat,
     outputFormat,
     inputChannels,
@@ -1949,10 +1949,10 @@ ma_data_converter_config config = ma_data_converter_config_init(
     outputSampleRate
 );
 
-ma_data_converter converter;
-ma_result result = ma_data_converter_init(&amp;config, &amp;converter);
-if (result != MA_SUCCESS) {
-    // An error occurred...
+<span style="color:#0099cc">ma_data_converter</span> converter;
+<span style="color:#0099cc">ma_result</span> result = ma_data_converter_init(&amp;config, &amp;converter);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// An error occurred...</span>
 }
 </pre></div><p>
 
@@ -1963,7 +1963,7 @@ channel maps and resampling quality. Something like the following may be more su
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_data_converter_config config = ma_data_converter_config_init_default();
+<span style="color:#0099cc">ma_data_converter_config</span> config = ma_data_converter_config_init_default();
 config.formatIn = inputFormat;
 config.formatOut = outputFormat;
 config.channelsIn = inputChannels;
@@ -1989,15 +1989,15 @@ The following example shows how data can be processed
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_uint64 frameCountIn  = 1000;
-ma_uint64 frameCountOut = 2000;
-ma_result result = ma_data_converter_process_pcm_frames(&amp;converter, pFramesIn, &amp;frameCountIn, pFramesOut, &amp;frameCountOut);
-if (result != MA_SUCCESS) {
-    // An error occurred...
+<span style="color:#0099cc">ma_uint64</span> frameCountIn  = 1000;
+<span style="color:#0099cc">ma_uint64</span> frameCountOut = 2000;
+<span style="color:#0099cc">ma_result</span> result = ma_data_converter_process_pcm_frames(&amp;converter, pFramesIn, &amp;frameCountIn, pFramesOut, &amp;frameCountOut);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// An error occurred...</span>
 }
 
-// At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number
-// of output frames written.
+<span style="color:#009900">// At this point, frameCountIn contains the number of input frames that were consumed and frameCountOut contains the number</span>
+<span style="color:#009900">// of output frames written.</span>
 </pre></div><p>
 
 The data converter supports multiple channels and is always interleaved (both input and output). The channel count cannot be changed after initialization.
@@ -2049,10 +2049,10 @@ Biquad filtering is achieved with the <span style="font-family:monospace;">ma_bi
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
-ma_result result = ma_biquad_init(&amp;config, &amp;biquad);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_biquad_config</span> config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
+<span style="color:#0099cc">ma_result</span> result = ma_biquad_init(&amp;config, &amp;biquad);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
 ...
@@ -2140,10 +2140,10 @@ Low-pass filter example:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_lpf_config config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, order);
-ma_result result = ma_lpf_init(&amp;config, &amp;lpf);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_lpf_config</span> config = ma_lpf_config_init(ma_format_f32, channels, sampleRate, cutoffFrequency, order);
+<span style="color:#0099cc">ma_result</span> result = ma_lpf_init(&amp;config, &amp;lpf);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
 ...
@@ -2171,7 +2171,7 @@ The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-for (iFilter = 0; iFilter &lt; filterCount; iFilter += 1) {
+<span style="color:#0033ff">for</span> (iFilter = 0; iFilter &lt; filterCount; iFilter += 1) {
     ma_lpf2_process_pcm_frames(&amp;lpf2[iFilter], pMyData, pMyData, frameCount);
 }
 </pre></div><p>
@@ -2422,12 +2422,12 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_waveform_config config = ma_waveform_config_init(FORMAT, CHANNELS, SAMPLE_RATE, ma_waveform_type_sine, amplitude, frequency);
+<span style="color:#0099cc">ma_waveform_config</span> config = ma_waveform_config_init(FORMAT, CHANNELS, SAMPLE_RATE, ma_waveform_type_sine, amplitude, frequency);
 
-ma_waveform waveform;
-ma_result result = ma_waveform_init(&amp;config, &amp;waveform);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_waveform</span> waveform;
+<span style="color:#0099cc">ma_result</span> result = ma_waveform_init(&amp;config, &amp;waveform);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
 ...
@@ -2489,12 +2489,12 @@ miniaudio supports generation of white, pink and Brownian noise via the <span st
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
+<span style="color:#0099cc">ma_noise_config</span> config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
 
-ma_noise noise;
-ma_result result = ma_noise_init(&amp;config, &amp;noise);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0099cc">ma_noise</span> noise;
+<span style="color:#0099cc">ma_result</span> result = ma_noise_init(&amp;config, &amp;noise);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
 ...
@@ -2561,11 +2561,11 @@ Audio buffers are initialised using the standard configuration system used every
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_audio_buffer_config config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
-ma_audio_buffer buffer;
+<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
+<span style="color:#0099cc">ma_audio_buffer</span> buffer;
 result = ma_audio_buffer_init(&amp;config, &amp;buffer);
-if (result != MA_SUCCESS) {
-    // Error.
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error.</span>
 }
 
 ...
@@ -2585,11 +2585,11 @@ the raw audio data will be located immediately after the <span style="font-famil
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_audio_buffer_config config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
-ma_audio_buffer* pBuffer
+<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
+<span style="color:#0099cc">ma_audio_buffer</span>* pBuffer
 result = ma_audio_buffer_alloc_and_init(&amp;config, &amp;pBuffer);
-if (result != MA_SUCCESS) {
-    // Error
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error</span>
 }
 
 ...
@@ -2611,9 +2611,9 @@ with with <span style="font-family:monospace;">ma_audio_buffer_seek_to_pcm_frame
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_uint64 framesRead = ma_audio_buffer_read_pcm_frames(pAudioBuffer, pFramesOut, desiredFrameCount, isLooping);
-if (framesRead &lt; desiredFrameCount) {
-    // If not looping, this means the end has been reached. This should never happen in looping mode with valid input.
+<span style="color:#0099cc">ma_uint64</span> framesRead = ma_audio_buffer_read_pcm_frames(pAudioBuffer, pFramesOut, desiredFrameCount, isLooping);
+<span style="color:#0033ff">if</span> (framesRead &lt; desiredFrameCount) {
+    <span style="color:#009900">// If not looping, this means the end has been reached. This should never happen in looping mode with valid input.</span>
 }
 </pre></div><p>
 
@@ -2624,15 +2624,15 @@ pointer to a segment of data:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-void* pMappedFrames;
-ma_uint64 frameCount = frameCountToTryMapping;
-ma_result result = ma_audio_buffer_map(pAudioBuffer, &amp;pMappedFrames, &amp;frameCount);
-if (result == MA_SUCCESS) {
-    // Map was successful. The value in frameCount will be how many frames were _actually_ mapped, which may be
-    // less due to the end of the buffer being reached.
+<span style="color:#0033ff">void</span>* pMappedFrames;
+<span style="color:#0099cc">ma_uint64</span> frameCount = frameCountToTryMapping;
+<span style="color:#0099cc">ma_result</span> result = ma_audio_buffer_map(pAudioBuffer, &amp;pMappedFrames, &amp;frameCount);
+<span style="color:#0033ff">if</span> (result == MA_SUCCESS) {
+    <span style="color:#009900">// Map was successful. The value in frameCount will be how many frames were _actually_ mapped, which may be</span>
+    <span style="color:#009900">// less due to the end of the buffer being reached.</span>
     ma_copy_pcm_frames(pFramesOut, pMappedFrames, frameCount, pAudioBuffer-&gt;format, pAudioBuffer-&gt;channels);
 
-    // You must unmap the buffer.
+    <span style="color:#009900">// You must unmap the buffer.</span>
     ma_audio_buffer_unmap(pAudioBuffer, frameCount);
 }
 </pre></div><p>
@@ -2670,10 +2670,10 @@ something like the following:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-ma_pcm_rb rb;
-ma_result result = ma_pcm_rb_init(FORMAT, CHANNELS, BUFFER_SIZE_IN_FRAMES, NULL, NULL, &amp;rb);
-if (result != MA_SUCCESS) {
-    // Error
+<span style="color:#0099cc">ma_pcm_rb</span> rb;
+<span style="color:#0099cc">ma_result</span> result = ma_pcm_rb_init(FORMAT, CHANNELS, BUFFER_SIZE_IN_FRAMES, NULL, NULL, &amp;rb);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    <span style="color:#009900">// Error</span>
 }
 </pre></div><p>
 
@@ -2958,7 +2958,7 @@ UWP requires the Microphone capability to be enabled in the application&#39;s ma
 &lt;Package ...&gt;
     ...
     &lt;Capabilities&gt;
-        &lt;DeviceCapability Name=&quot;microphone&quot; /&gt;
+        &lt;DeviceCapability Name=<span style="color:#cc3300">&quot;microphone&quot;</span> /&gt;
     &lt;/Capabilities&gt;
 &lt;/Package&gt;
 </pre></div><p>

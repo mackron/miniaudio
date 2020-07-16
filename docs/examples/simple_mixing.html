@@ -258,139 +258,139 @@ is when sample are clampled to their minimum and maximum range, which for floati
 Usage:   simple_mixing [input file 0] [input file 1] ... [input file n]
 Example: simple_mixing file1.wav file2.flac
 </pre></div><div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;../miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-#include &lt;stdio.h&gt;
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
 
-/*
+<span style="color:#009900">/*
 For simplicity, this example requires the device to use floating point samples.
-*/
-#define SAMPLE_FORMAT   ma_format_f32
-#define CHANNEL_COUNT   2
-#define SAMPLE_RATE     48000
+*/</span>
+<span style="color:#666666">#define</span> SAMPLE_FORMAT   ma_format_f32
+<span style="color:#666666">#define</span> CHANNEL_COUNT   2
+<span style="color:#666666">#define</span> SAMPLE_RATE     48000
 
-ma_uint32   g_decoderCount;
-ma_decoder* g_pDecoders;
-ma_bool32*  g_pDecodersAtEnd;
+<span style="color:#0099cc">ma_uint32</span>   g_decoderCount;
+<span style="color:#0099cc">ma_decoder</span>* g_pDecoders;
+<span style="color:#0099cc">ma_bool32</span>*  g_pDecodersAtEnd;
 
-ma_event g_stopEvent; /* &lt;-- Signaled by the audio thread, waited on by the main thread. */
+<span style="color:#0099cc">ma_event</span> g_stopEvent; <span style="color:#009900">/* &lt;-- Signaled by the audio thread, waited on by the main thread. */</span>
 
-ma_bool32 are_all_decoders_at_end()
+<span style="color:#0099cc">ma_bool32</span> are_all_decoders_at_end()
 {
-    ma_uint32 iDecoder;
-    for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
-        if (g_pDecodersAtEnd[iDecoder] == MA_FALSE) {
-            return MA_FALSE;
+    <span style="color:#0099cc">ma_uint32</span> iDecoder;
+    <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+        <span style="color:#0033ff">if</span> (g_pDecodersAtEnd[iDecoder] == MA_FALSE) {
+            <span style="color:#0033ff">return</span> MA_FALSE;
         }
     }
 
-    return MA_TRUE;
+    <span style="color:#0033ff">return</span> MA_TRUE;
 }
 
-ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, ma_uint32 frameCount)
+<span style="color:#0099cc">ma_uint32</span> read_and_mix_pcm_frames_f32(<span style="color:#0099cc">ma_decoder</span>* pDecoder, <span style="color:#0033ff">float</span>* pOutputF32, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
-    /*
+    <span style="color:#009900">/*
     The way mixing works is that we just read into a temporary buffer, then take the contents of that buffer and mix it with the
     contents of the output buffer by simply adding the samples together. You could also clip the samples to -1..+1, but I&#39;m not
     doing that in this example.
-    */
-    float temp[4096];
-    ma_uint32 tempCapInFrames = ma_countof(temp) / CHANNEL_COUNT;
-    ma_uint32 totalFramesRead = 0;
+    */</span>
+    <span style="color:#0033ff">float</span> temp[4096];
+    <span style="color:#0099cc">ma_uint32</span> tempCapInFrames = ma_countof(temp) / CHANNEL_COUNT;
+    <span style="color:#0099cc">ma_uint32</span> totalFramesRead = 0;
 
-    while (totalFramesRead &lt; frameCount) {
-        ma_uint32 iSample;
-        ma_uint32 framesReadThisIteration;
-        ma_uint32 totalFramesRemaining = frameCount - totalFramesRead;
-        ma_uint32 framesToReadThisIteration = tempCapInFrames;
-        if (framesToReadThisIteration &gt; totalFramesRemaining) {
+    <span style="color:#0033ff">while</span> (totalFramesRead &lt; frameCount) {
+        <span style="color:#0099cc">ma_uint32</span> iSample;
+        <span style="color:#0099cc">ma_uint32</span> framesReadThisIteration;
+        <span style="color:#0099cc">ma_uint32</span> totalFramesRemaining = frameCount - totalFramesRead;
+        <span style="color:#0099cc">ma_uint32</span> framesToReadThisIteration = tempCapInFrames;
+        <span style="color:#0033ff">if</span> (framesToReadThisIteration &gt; totalFramesRemaining) {
             framesToReadThisIteration = totalFramesRemaining;
         }
 
-        framesReadThisIteration = (ma_uint32)ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration);
-        if (framesReadThisIteration == 0) {
-            break;
+        framesReadThisIteration = (<span style="color:#0099cc">ma_uint32</span>)ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration);
+        <span style="color:#0033ff">if</span> (framesReadThisIteration == 0) {
+            <span style="color:#0033ff">break</span>;
         }
 
-        /* Mix the frames together. */
-        for (iSample = 0; iSample &lt; framesReadThisIteration*CHANNEL_COUNT; ++iSample) {
+        <span style="color:#009900">/* Mix the frames together. */</span>
+        <span style="color:#0033ff">for</span> (iSample = 0; iSample &lt; framesReadThisIteration*CHANNEL_COUNT; ++iSample) {
             pOutputF32[totalFramesRead*CHANNEL_COUNT + iSample] += temp[iSample];
         }
 
         totalFramesRead += framesReadThisIteration;
 
-        if (framesReadThisIteration &lt; framesToReadThisIteration) {
-            break;  /* Reached EOF. */
+        <span style="color:#0033ff">if</span> (framesReadThisIteration &lt; framesToReadThisIteration) {
+            <span style="color:#0033ff">break</span>;  <span style="color:#009900">/* Reached EOF. */</span>
         }
     }
     
-    return totalFramesRead;
+    <span style="color:#0033ff">return</span> totalFramesRead;
 }
 
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
-    float* pOutputF32 = (float*)pOutput;
-    ma_uint32 iDecoder;
+    <span style="color:#0033ff">float</span>* pOutputF32 = (<span style="color:#0033ff">float</span>*)pOutput;
+    <span style="color:#0099cc">ma_uint32</span> iDecoder;
 
-    MA_ASSERT(pDevice-&gt;playback.format == SAMPLE_FORMAT);   /* &lt;-- Important for this example. */
+    MA_ASSERT(pDevice-&gt;playback.format == SAMPLE_FORMAT);   <span style="color:#009900">/* &lt;-- Important for this example. */</span>
 
-    for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
-        if (!g_pDecodersAtEnd[iDecoder]) {
-            ma_uint32 framesRead = read_and_mix_pcm_frames_f32(&amp;g_pDecoders[iDecoder], pOutputF32, frameCount);
-            if (framesRead &lt; frameCount) {
+    <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+        <span style="color:#0033ff">if</span> (!g_pDecodersAtEnd[iDecoder]) {
+            <span style="color:#0099cc">ma_uint32</span> framesRead = read_and_mix_pcm_frames_f32(&amp;g_pDecoders[iDecoder], pOutputF32, frameCount);
+            <span style="color:#0033ff">if</span> (framesRead &lt; frameCount) {
                 g_pDecodersAtEnd[iDecoder] = MA_TRUE;
             }
         }
     }
 
-    /*
+    <span style="color:#009900">/*
     If at the end all of our decoders are at the end we need to stop. We cannot stop the device in the callback. Instead we need to
     signal an event to indicate that it&#39;s stopped. The main thread will be waiting on the event, after which it will stop the device.
-    */
-    if (are_all_decoders_at_end()) {
+    */</span>
+    <span style="color:#0033ff">if</span> (are_all_decoders_at_end()) {
         ma_event_signal(&amp;g_stopEvent);
     }
 
-    (void)pInput;
+    (<span style="color:#0033ff">void</span>)pInput;
 }
 
-int main(int argc, char** argv)
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
-    ma_result result;
-    ma_decoder_config decoderConfig;
-    ma_device_config deviceConfig;
-    ma_device device;
-    ma_uint32 iDecoder;
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_decoder_config</span> decoderConfig;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
+    <span style="color:#0099cc">ma_uint32</span> iDecoder;
 
-    if (argc &lt; 2) {
-        printf(&quot;No input files.\n&quot;);
-        return -1;
+    <span style="color:#0033ff">if</span> (argc &lt; 2) {
+        printf(<span style="color:#cc3300">&quot;No input files.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
     }
 
     g_decoderCount   = argc-1;
-    g_pDecoders      = (ma_decoder*)malloc(sizeof(*g_pDecoders)      * g_decoderCount);
-    g_pDecodersAtEnd = (ma_bool32*) malloc(sizeof(*g_pDecodersAtEnd) * g_decoderCount);
+    g_pDecoders      = (<span style="color:#0099cc">ma_decoder</span>*)malloc(<span style="color:#0033ff">sizeof</span>(*g_pDecoders)      * g_decoderCount);
+    g_pDecodersAtEnd = (<span style="color:#0099cc">ma_bool32</span>*) malloc(<span style="color:#0033ff">sizeof</span>(*g_pDecodersAtEnd) * g_decoderCount);
 
-    /* In this example, all decoders need to have the same output format. */
+    <span style="color:#009900">/* In this example, all decoders need to have the same output format. */</span>
     decoderConfig = ma_decoder_config_init(SAMPLE_FORMAT, CHANNEL_COUNT, SAMPLE_RATE);
-    for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+    <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
         result = ma_decoder_init_file(argv[1+iDecoder], &amp;decoderConfig, &amp;g_pDecoders[iDecoder]);
-        if (result != MA_SUCCESS) {
-            ma_uint32 iDecoder2;
-            for (iDecoder2 = 0; iDecoder2 &lt; iDecoder; ++iDecoder2) {
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0099cc">ma_uint32</span> iDecoder2;
+            <span style="color:#0033ff">for</span> (iDecoder2 = 0; iDecoder2 &lt; iDecoder; ++iDecoder2) {
                 ma_decoder_uninit(&amp;g_pDecoders[iDecoder2]);
             }
             free(g_pDecoders);
             free(g_pDecodersAtEnd);
 
-            printf(&quot;Failed to load %s.\n&quot;, argv[1+iDecoder]);
-            return -3;
+            printf(<span style="color:#cc3300">&quot;Failed to load %s.\n&quot;</span>, argv[1+iDecoder]);
+            <span style="color:#0033ff">return</span> -3;
         }
         g_pDecodersAtEnd[iDecoder] = MA_FALSE;
     }
 
-    /* Create only a single device. The decoders will be mixed together in the callback. In this example the data format needs to be the same as the decoders. */
+    <span style="color:#009900">/* Create only a single device. The decoders will be mixed together in the callback. In this example the data format needs to be the same as the decoders. */</span>
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = SAMPLE_FORMAT;
     deviceConfig.playback.channels = CHANNEL_COUNT;
@@ -398,50 +398,50 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = NULL;
 
-    if (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
-        for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+    <span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
+        <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
             ma_decoder_uninit(&amp;g_pDecoders[iDecoder]);
         }
         free(g_pDecoders);
         free(g_pDecodersAtEnd);
 
-        printf(&quot;Failed to open playback device.\n&quot;);
-        return -3;
+        printf(<span style="color:#cc3300">&quot;Failed to open playback device.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -3;
     }
 
-    /*
+    <span style="color:#009900">/*
     We can&#39;t stop in the audio thread so we instead need to use an event. We wait on this thread in the main thread, and signal it in the audio thread. This
     needs to be done before starting the device. We need a context to initialize the event, which we can get from the device. Alternatively you can initialize
     a context separately, but we don&#39;t need to do that for this example.
-    */
+    */</span>
     ma_event_init(&amp;g_stopEvent);
 
-    /* Now we start playback and wait for the audio thread to tell us to stop. */
-    if (ma_device_start(&amp;device) != MA_SUCCESS) {
+    <span style="color:#009900">/* Now we start playback and wait for the audio thread to tell us to stop. */</span>
+    <span style="color:#0033ff">if</span> (ma_device_start(&amp;device) != MA_SUCCESS) {
         ma_device_uninit(&amp;device);
-        for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+        <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
             ma_decoder_uninit(&amp;g_pDecoders[iDecoder]);
         }
         free(g_pDecoders);
         free(g_pDecodersAtEnd);
 
-        printf(&quot;Failed to start playback device.\n&quot;);
-        return -4;
+        printf(<span style="color:#cc3300">&quot;Failed to start playback device.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -4;
     }
 
-    printf(&quot;Waiting for playback to complete...\n&quot;);
+    printf(<span style="color:#cc3300">&quot;Waiting for playback to complete...\n&quot;</span>);
     ma_event_wait(&amp;g_stopEvent);
     
-    /* Getting here means the audio thread has signaled that the device should be stopped. */
+    <span style="color:#009900">/* Getting here means the audio thread has signaled that the device should be stopped. */</span>
     ma_device_uninit(&amp;device);
     
-    for (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
+    <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
         ma_decoder_uninit(&amp;g_pDecoders[iDecoder]);
     }
     free(g_pDecoders);
     free(g_pDecodersAtEnd);
 
-    return 0;
+    <span style="color:#0033ff">return</span> 0;
 }
 </pre></div></td>
 </tr></table>

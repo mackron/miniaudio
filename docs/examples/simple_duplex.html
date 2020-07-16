@@ -257,31 +257,31 @@ glitching which the backend may not be able to recover from. For this reason, mi
 sample rate for both capture and playback. If internally the native sample rates differ, miniaudio will perform the
 sample rate conversion for you automatically.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;../miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-#include &lt;stdio.h&gt;
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
 
-#ifdef __EMSCRIPTEN__
-void main_loop__em()
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+<span style="color:#0033ff">void</span> main_loop__em()
 {
 }
-#endif
+<span style="color:#666666">#endif</span>
 
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
     MA_ASSERT(pDevice-&gt;capture.format == pDevice-&gt;playback.format);
     MA_ASSERT(pDevice-&gt;capture.channels == pDevice-&gt;playback.channels);
 
-    /* In this example the format and channel count are the same for both input and output which means we can just memcpy(). */
+    <span style="color:#009900">/* In this example the format and channel count are the same for both input and output which means we can just memcpy(). */</span>
     MA_COPY_MEMORY(pOutput, pInput, frameCount * ma_get_bytes_per_frame(pDevice-&gt;capture.format, pDevice-&gt;capture.channels));
 }
 
-int main(int argc, char** argv)
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
-    ma_result result;
-    ma_device_config deviceConfig;
-    ma_device device;
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
@@ -293,28 +293,28 @@ int main(int argc, char** argv)
     deviceConfig.playback.channels  = 2;
     deviceConfig.dataCallback       = data_callback;
     result = ma_device_init(NULL, &amp;deviceConfig, &amp;device);
-    if (result != MA_SUCCESS) {
-        return result;
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> result;
     }
 
-#ifdef __EMSCRIPTEN__
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
     getchar();
-#endif
+<span style="color:#666666">#endif</span>
 
     ma_device_start(&amp;device);
 
-#ifdef __EMSCRIPTEN__
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
     emscripten_set_main_loop(main_loop__em, 0, 1);
-#else
-    printf(&quot;Press Enter to quit...\n&quot;);
+<span style="color:#666666">#else</span>
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...\n&quot;</span>);
     getchar();
-#endif
+<span style="color:#666666">#endif</span>
 
     ma_device_uninit(&amp;device);
 
-    (void)argc;
-    (void)argv;
-    return 0;
+    (<span style="color:#0033ff">void</span>)argc;
+    (<span style="color:#0033ff">void</span>)argv;
+    <span style="color:#0033ff">return</span> 0;
 }
 </pre></div></td>
 </tr></table>

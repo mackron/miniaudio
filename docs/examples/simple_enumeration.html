@@ -254,50 +254,50 @@ context sits above a device. You can have many devices to one context.
 If you use device enumeration, you should explicitly specify the same context you used for enumeration in the call to
 <span style="font-family:monospace;">ma_device_init()</span> when you initialize your devices.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;../miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-#include &lt;stdio.h&gt;
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
 
-int main(int argc, char** argv)
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
-    ma_result result;
-    ma_context context;
-    ma_device_info* pPlaybackDeviceInfos;
-    ma_uint32 playbackDeviceCount;
-    ma_device_info* pCaptureDeviceInfos;
-    ma_uint32 captureDeviceCount;
-    ma_uint32 iDevice;
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_context</span> context;
+    <span style="color:#0099cc">ma_device_info</span>* pPlaybackDeviceInfos;
+    <span style="color:#0099cc">ma_uint32</span> playbackDeviceCount;
+    <span style="color:#0099cc">ma_device_info</span>* pCaptureDeviceInfos;
+    <span style="color:#0099cc">ma_uint32</span> captureDeviceCount;
+    <span style="color:#0099cc">ma_uint32</span> iDevice;
 
-    if (ma_context_init(NULL, 0, NULL, &amp;context) != MA_SUCCESS) {
-        printf(&quot;Failed to initialize context.\n&quot;);
-        return -2;
+    <span style="color:#0033ff">if</span> (ma_context_init(NULL, 0, NULL, &amp;context) != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize context.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -2;
     }
 
     result = ma_context_get_devices(&amp;context, &amp;pPlaybackDeviceInfos, &amp;playbackDeviceCount, &amp;pCaptureDeviceInfos, &amp;captureDeviceCount);
-    if (result != MA_SUCCESS) {
-        printf(&quot;Failed to retrieve device information.\n&quot;);
-        return -3;
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to retrieve device information.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -3;
     }
 
-    printf(&quot;Playback Devices\n&quot;);
-    for (iDevice = 0; iDevice &lt; playbackDeviceCount; ++iDevice) {
-        printf(&quot;    %u: %s\n&quot;, iDevice, pPlaybackDeviceInfos[iDevice].name);
+    printf(<span style="color:#cc3300">&quot;Playback Devices\n&quot;</span>);
+    <span style="color:#0033ff">for</span> (iDevice = 0; iDevice &lt; playbackDeviceCount; ++iDevice) {
+        printf(<span style="color:#cc3300">&quot;    %u: %s\n&quot;</span>, iDevice, pPlaybackDeviceInfos[iDevice].name);
     }
 
-    printf(&quot;\n&quot;);
+    printf(<span style="color:#cc3300">&quot;\n&quot;</span>);
 
-    printf(&quot;Capture Devices\n&quot;);
-    for (iDevice = 0; iDevice &lt; captureDeviceCount; ++iDevice) {
-        printf(&quot;    %u: %s\n&quot;, iDevice, pCaptureDeviceInfos[iDevice].name);
+    printf(<span style="color:#cc3300">&quot;Capture Devices\n&quot;</span>);
+    <span style="color:#0033ff">for</span> (iDevice = 0; iDevice &lt; captureDeviceCount; ++iDevice) {
+        printf(<span style="color:#cc3300">&quot;    %u: %s\n&quot;</span>, iDevice, pCaptureDeviceInfos[iDevice].name);
     }
 
 
     ma_context_uninit(&amp;context);
 
-    (void)argc;
-    (void)argv;
-    return 0;
+    (<span style="color:#0033ff">void</span>)argc;
+    (<span style="color:#0033ff">void</span>)argv;
+    <span style="color:#0033ff">return</span> 0;
 }
 </pre></div></td>
 </tr></table>

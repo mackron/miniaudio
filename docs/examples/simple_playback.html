@@ -257,38 +257,38 @@ device and can be used independently of it. This example only plays back a singl
 back multiple files by simple loading multiple decoders and mixing them (do not create multiple devices to do this). See
 the simple_mixing example for how best to do this.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-#define MINIAUDIO_IMPLEMENTATION
-#include &quot;../miniaudio.h&quot;
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-#include &lt;stdio.h&gt;
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
 
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pDevice-&gt;pUserData;
-    if (pDecoder == NULL) {
-        return;
+    <span style="color:#0099cc">ma_decoder</span>* pDecoder = (<span style="color:#0099cc">ma_decoder</span>*)pDevice-&gt;pUserData;
+    <span style="color:#0033ff">if</span> (pDecoder == NULL) {
+        <span style="color:#0033ff">return</span>;
     }
 
     ma_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
 
-    (void)pInput;
+    (<span style="color:#0033ff">void</span>)pInput;
 }
 
-int main(int argc, char** argv)
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
-    ma_result result;
-    ma_decoder decoder;
-    ma_device_config deviceConfig;
-    ma_device device;
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_decoder</span> decoder;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
 
-    if (argc &lt; 2) {
-        printf(&quot;No input file.\n&quot;);
-        return -1;
+    <span style="color:#0033ff">if</span> (argc &lt; 2) {
+        printf(<span style="color:#cc3300">&quot;No input file.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
     }
 
     result = ma_decoder_init_file(argv[1], NULL, &amp;decoder);
-    if (result != MA_SUCCESS) {
-        return -2;
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> -2;
     }
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -298,26 +298,26 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = &amp;decoder;
 
-    if (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
-        printf(&quot;Failed to open playback device.\n&quot;);
+    <span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to open playback device.\n&quot;</span>);
         ma_decoder_uninit(&amp;decoder);
-        return -3;
+        <span style="color:#0033ff">return</span> -3;
     }
 
-    if (ma_device_start(&amp;device) != MA_SUCCESS) {
-        printf(&quot;Failed to start playback device.\n&quot;);
+    <span style="color:#0033ff">if</span> (ma_device_start(&amp;device) != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to start playback device.\n&quot;</span>);
         ma_device_uninit(&amp;device);
         ma_decoder_uninit(&amp;decoder);
-        return -4;
+        <span style="color:#0033ff">return</span> -4;
     }
 
-    printf(&quot;Press Enter to quit...&quot;);
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...&quot;</span>);
     getchar();
 
     ma_device_uninit(&amp;device);
     ma_decoder_uninit(&amp;decoder);
 
-    return 0;
+    <span style="color:#0033ff">return</span> 0;
 }
 </pre></div></td>
 </tr></table>
