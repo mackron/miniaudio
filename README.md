@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-    <a href="#examples">Examples</a> -
+    <a href="#example">Example</a> -
     <a href="#documentation">Documentation</a> -
     <a href="#major-features">Major Features</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
@@ -20,8 +20,8 @@
     <a href="#unofficial-bindings">Unofficial Bindings</a>
 </p>
 
-Examples
-========
+Example
+=======
 This example shows how to decode and play a sound.
 
 ```c
