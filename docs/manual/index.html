@@ -99,12 +99,14 @@ a:hover {
 .header-link-table {
 }
 .header-link-table td {
-    padding:0.5em 0;
-    padding-right:2em;
+    padding-right:1em;
     vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
 }
 .header-link-table a {
-    color:#e0d7cf;
+    /*color:#e0d7cf;*/
+    color:#dddddd;
     text-decoration:none;
 }
 .header-link-table a:hover {
@@ -214,24 +216,27 @@ a.doc-navigation-l4 {
 
 <body style="margin:0; padding:0">
     <div style="background-color:#003800; color:#bfa792;">
-        <div style="max-width:75%; width:100%; margin:0 auto;">
-            <table class="header-link-table" style="">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
                 <tr>
-                    <td style="padding:0; width:100%; text-align:left;">
-                        <table class="header-link-table" style="">
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
                             <tr>
-                                <td style="vertical-align:center; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="index.html">Documentation</a></td>
+                                <td><a href="../examples/index.html">Examples</a></td>
                             </tr>
                         </table>    
                     </td>
-                    <td style="padding:0; width:25%; text-align:right; vertical-align:center;">
-                        <a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
                     </td>
-                    <td style="padding:0; width:25%; text-align:right; vertical-align:center;">
-                        <a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
                     </td>
-                    <td style="padding:0; width:25%; text-align:right; vertical-align:center;">
-                        <a style="padding:0;" href="https://github.com/dr-soft/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/dr-soft/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
                     </td>
                 </tr>
             </table>
@@ -287,25 +292,27 @@ but you could allocate it on the heap if that suits your situation better.
     <span style="color:#009900">// frameCount frames.</span>
 }
 
-...
+<span style="color:#0033ff">int</span> main()
+{
+    <span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format   = ma_format_f32;   <span style="color:#009900">// Set to ma_format_unknown to use the device&#39;s native format.</span>
+    config.playback.channels = 2;               <span style="color:#009900">// Set to 0 to use the device&#39;s native channel count.</span>
+    config.sampleRate        = 48000;           <span style="color:#009900">// Set to 0 to use the device&#39;s native sample rate.</span>
+    config.dataCallback      = data_callback;   <span style="color:#009900">// This function will be called when miniaudio needs more data.</span>
+    config.pUserData         = pMyCustomData;   <span style="color:#009900">// Can be accessed from the device object (device.pUserData).</span>
 
-<span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_playback);
-config.playback.format   = MY_FORMAT;
-config.playback.channels = MY_CHANNEL_COUNT;
-config.sampleRate        = MY_SAMPLE_RATE;
-config.dataCallback      = data_callback;
-config.pUserData         = pMyCustomData;   <span style="color:#009900">// Can be accessed from the device object (device.pUserData).</span>
+    <span style="color:#0099cc">ma_device</span> device;
+    <span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;config, &amp;device) != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> -1;  <span style="color:#009900">// Failed to initialize the device.</span>
+    }
 
-<span style="color:#0099cc">ma_device</span> device;
-<span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;config, &amp;device) != MA_SUCCESS) {
-    ... An error occurred ...
+    ma_device_start(&amp;device);     <span style="color:#009900">// The device is sleeping by default so you&#39;ll need to start it manually.</span>
+
+    <span style="color:#009900">// Do something here. Probably your program&#39;s main loop.</span>
+
+    ma_device_uninit(&amp;device);    <span style="color:#009900">// This will stop the device so no need to do that manually.</span>
+    <span style="color:#0033ff">return</span> 0;
 }
-
-ma_device_start(&amp;device);     <span style="color:#009900">// The device is sleeping by default so you&#39;ll need to start it manually.</span>
-
-...
-
-ma_device_uninit(&amp;device);    <span style="color:#009900">// This will stop the device so no need to do that manually.</span>
 </pre></div><p>
 
 In the example above, <span style="font-family:monospace;">data_callback()</span> is where audio data is written and read from the device. The idea is in playback mode you cause sound to be emitted
