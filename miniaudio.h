@@ -1154,8 +1154,8 @@ Below are the supported noise types.
 
 9. Audio Buffers
 ================
-miniaudio supports reading from a buffer of raw audio data via the `ma_audio_buffer` API. This can read from both memory that's managed by the application, but
-can also handle the memory management for you internally. The way memory is managed is flexible and should support most use cases.
+miniaudio supports reading from a buffer of raw audio data via the `ma_audio_buffer` API. This can read from memory that's managed by the application, but
+can also handle the memory management for you internally. Memory management is flexible and should support most use cases.
 
 Audio buffers are initialised using the standard configuration system used everywhere in miniaudio:
 
@@ -1172,8 +1172,8 @@ Audio buffers are initialised using the standard configuration system used every
     ma_audio_buffer_uninit(&buffer);
     ```
 
-In the example above, the memory pointed to by `pExistingData` will _not_ be copied which is how an application can handle memory allocations themselves. If
-you would rather make a copy of the data, use `ma_audio_buffer_init_copy()`. To uninitialize the buffer, use `ma_audio_buffer_uninit()`.
+In the example above, the memory pointed to by `pExistingData` will _not_ be copied and is how an application can do self-managed memory allocation. If you
+would rather make a copy of the data, use `ma_audio_buffer_init_copy()`. To uninitialize the buffer, use `ma_audio_buffer_uninit()`.
 
 Sometimes it can be convenient to allocate the memory for the `ma_audio_buffer` structure _and_ the raw audio data in a contiguous block of memory. That is,
 the raw audio data will be located immediately after the `ma_audio_buffer` structure. To do this, use `ma_audio_buffer_alloc_and_init()`:
