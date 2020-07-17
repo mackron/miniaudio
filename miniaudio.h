@@ -12177,6 +12177,8 @@ static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pCont
     MA_ASSERT(pContext           != NULL);
     MA_ASSERT(ppDeviceEnumerator != NULL);
 
+    *ppDeviceEnumerator = NULL; /* Safety. */
+
     hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
@@ -62053,6 +62055,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.16 - TBD
+  - WASAPI: Fix a potential crash due to using an uninitialized variable.
   - Updates to documentation.
 
 v0.10.15 - 2020-07-15
