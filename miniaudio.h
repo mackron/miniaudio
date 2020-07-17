@@ -1,11 +1,12 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.15 - 2020-07-15
+miniaudio - v0.10.16 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
-Website: https://miniaud.io
-GitHub:  https://github.com/dr-soft/miniaudio
+Website:       https://miniaud.io
+Documentation: https://miniaud.io/docs
+GitHub:        https://github.com/dr-soft/miniaudio
 */
 
 /*
@@ -39,25 +40,27 @@ but you could allocate it on the heap if that suits your situation better.
         // frameCount frames.
     }
 
-    ...
+    int main()
+    {
+        ma_device_config config = ma_device_config_init(ma_device_type_playback);
+        config.playback.format   = ma_format_f32;   // Set to ma_format_unknown to use the device's native format.
+        config.playback.channels = 2;               // Set to 0 to use the device's native channel count.
+        config.sampleRate        = 48000;           // Set to 0 to use the device's native sample rate.
+        config.dataCallback      = data_callback;   // This function will be called when miniaudio needs more data.
+        config.pUserData         = pMyCustomData;   // Can be accessed from the device object (device.pUserData).
 
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = MY_FORMAT;
-    config.playback.channels = MY_CHANNEL_COUNT;
-    config.sampleRate        = MY_SAMPLE_RATE;
-    config.dataCallback      = data_callback;
-    config.pUserData         = pMyCustomData;   // Can be accessed from the device object (device.pUserData).
+        ma_device device;
+        if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+            return -1;  // Failed to initialize the device.
+        }
 
-    ma_device device;
-    if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
-        ... An error occurred ...
+        ma_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
+
+        // Do something here. Probably your program's main loop.
+
+        ma_device_uninit(&device);    // This will stop the device so no need to do that manually.
+        return 0;
     }
-
-    ma_device_start(&device);     // The device is sleeping by default so you'll need to start it manually.
-
-    ...
-
-    ma_device_uninit(&device);    // This will stop the device so no need to do that manually.
     ```
 
 In the example above, `data_callback()` is where audio data is written and read from the device. The idea is in playback mode you cause sound to be emitted
@@ -1374,7 +1377,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 15
+#define MA_VERSION_REVISION 16
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -62003,6 +62006,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.16 - TBD
+  - Updates to documentation.
+
 v0.10.15 - 2020-07-15
   - Fix a bug when converting bit-masked channel maps to miniaudio channel maps. This affects the WASAPI and OpenSL backends.
 
