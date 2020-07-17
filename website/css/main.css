@@ -81,12 +81,14 @@ a:hover {
 .header-link-table {
 }
 .header-link-table td {
-    padding:0.5em 0;
-    padding-right:2em;
+    padding-right:1em;
     vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
 }
 .header-link-table a {
-    color:#e0d7cf;
+    /*color:#e0d7cf;*/
+    color:#dddddd;
     text-decoration:none;
 }
 .header-link-table a:hover {
