@@ -164,22 +164,22 @@ backends and enumerating devices. The example below shows how to enumerate devic
         // Error.
     }
 
-    ma_device_info* pPlaybackDeviceInfos;
-    ma_uint32 playbackDeviceCount;
-    ma_device_info* pCaptureDeviceInfos;
-    ma_uint32 captureDeviceCount;
-    if (ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount) != MA_SUCCESS) {
+    ma_device_info* pPlaybackInfos;
+    ma_uint32 playbackCount;
+    ma_device_info* pCaptureInfos;
+    ma_uint32 captureCount;
+    if (ma_context_get_devices(&context, &pPlaybackInfos, &playbackCount, &pCaptureInfos, &captureCount) != MA_SUCCESS) {
         // Error.
     }
 
-    // Loop over each device info and do something with it. Here we just print the name with their index. You may want to give the user the
-    // opportunity to choose which device they'd prefer.
-    for (ma_uint32 iDevice = 0; iDevice < playbackDeviceCount; iDevice += 1) {
-        printf("%d - %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+    // Loop over each device info and do something with it. Here we just print the name with their index. You may want
+    // to give the user the opportunity to choose which device they'd prefer.
+    for (ma_uint32 iDevice = 0; iDevice < playbackCount; iDevice += 1) {
+        printf("%d - %s\n", iDevice, pPlaybackInfos[iDevice].name);
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.pDeviceID = &pPlaybackDeviceInfos[chosenPlaybackDeviceIndex].id;
+    config.playback.pDeviceID = &pPlaybackInfos[chosenPlaybackDeviceIndex].id;
     config.playback.format    = MY_FORMAT;
     config.playback.channels  = MY_CHANNEL_COUNT;
     config.sampleRate         = MY_SAMPLE_RATE;
@@ -384,8 +384,18 @@ All formats are native-endian.
 
 4. Decoding
 ===========
-The `ma_decoder` API is used for reading audio files. Built in support is included for WAV, FLAC and MP3. Support for Vorbis is enabled via stb_vorbis which
-can be enabled by including the header section before the implementation of miniaudio, like the following:
+The `ma_decoder` API is used for reading audio files. The following formats are supported:
+
+    +---------+------------------+----------+
+    | Format  | Decoding Backend | Built-In |
+    +---------+------------------+----------+
+    | WAV     | dr_wav           | Yes      |
+    | MP3     | dr_mp3           | Yes      |
+    | FLAC    | dr_flac          | Yes      |
+    | Vorbis  | stb_vorbis       | No       |
+    +---------+------------------+----------+
+
+Vorbis is supported via stb_vorbis which can be enabled by including the header section before the implementation of miniaudio, like the following:
 
     ```c
     #define STB_VORBIS_HEADER_ONLY
@@ -401,16 +411,16 @@ can be enabled by including the header section before the implementation of mini
 
 A copy of stb_vorbis is included in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
 
-Built-in decoders are implemented via dr_wav, dr_flac and dr_mp3. These are amalgamated into the implementation section of miniaudio. You can disable the
-built-in decoders by specifying one or more of the following options before the miniaudio implementation:
+Built-in decoders are amalgamated into the implementation section of miniaudio. You can disable the built-in decoders by specifying one or more of the
+following options before the miniaudio implementation:
 
     ```c
     #define MA_NO_WAV
-    #define MA_NO_FLAC
     #define MA_NO_MP3
+    #define MA_NO_FLAC
     ```
 
-Disabling built-in versions of dr_wav, dr_flac and dr_mp3 is useful if you use these libraries independantly of the `ma_decoder` API.
+Disabling built-in decoding libraries is useful if you use these libraries independantly of the `ma_decoder` API.
 
 A decoder can be initialized from a file with `ma_decoder_init_file()`, a block of memory with `ma_decoder_init_memory()`, or from data delivered via callbacks
 with `ma_decoder_init()`. Here is an example for loading a decoder from a file:
@@ -572,7 +582,14 @@ Channel conversion is used for channel rearrangement and conversion from one cha
 conversion. Below is an example of initializing a simple channel converter which converts from mono to stereo.
 
     ```c
-    ma_channel_converter_config config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
+    ma_channel_converter_config config = ma_channel_converter_config_init(
+        ma_format,                      // Sample format
+        1,                              // Input channels
+        NULL,                           // Input channel map
+        2,                              // Output channels
+        NULL,                           // Output channel map
+        ma_channel_mix_mode_default);   // The mixing algorithm to use when combining channels.
+
     result = ma_channel_converter_init(&config, &converter);
     if (result != MA_SUCCESS) {
         // Error.
@@ -695,7 +712,13 @@ Below are the channel maps used by default in miniaudio (ma_standard_channel_map
 Resampling is achieved with the `ma_resampler` object. To create a resampler object, do something like the following:
 
     ```c
-    ma_resampler_config config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+    ma_resampler_config config = ma_resampler_config_init(
+        ma_format_s16,
+        channels,
+        sampleRateIn,
+        sampleRateOut,
+        ma_resample_algorithm_linear);
+
     ma_resampler resampler;
     ma_result result = ma_resampler_init(&config, &resampler);
     if (result != MA_SUCCESS) {
@@ -1080,7 +1103,13 @@ adjust the volume of low frequencies, the high shelf filter does the same thing 
 miniaudio supports generation of sine, square, triangle and sawtooth waveforms. This is achieved with the `ma_waveform` API. Example:
 
     ```c
-    ma_waveform_config config = ma_waveform_config_init(FORMAT, CHANNELS, SAMPLE_RATE, ma_waveform_type_sine, amplitude, frequency);
+    ma_waveform_config config = ma_waveform_config_init(
+        FORMAT,
+        CHANNELS,
+        SAMPLE_RATE,
+        ma_waveform_type_sine,
+        amplitude,
+        frequency);
 
     ma_waveform waveform;
     ma_result result = ma_waveform_init(&config, &waveform);
@@ -1117,7 +1146,12 @@ Below are the supported waveform types:
 miniaudio supports generation of white, pink and Brownian noise via the `ma_noise` API. Example:
 
     ```c
-    ma_noise_config config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
+    ma_noise_config config = ma_noise_config_init(
+        FORMAT,
+        CHANNELS,
+        ma_noise_type_white,
+        SEED,
+        amplitude);
 
     ma_noise noise;
     ma_result result = ma_noise_init(&config, &noise);
@@ -1160,7 +1194,13 @@ can also handle the memory management for you internally. Memory management is f
 Audio buffers are initialised using the standard configuration system used everywhere in miniaudio:
 
     ```c
-    ma_audio_buffer_config config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &allocationCallbacks);
+    ma_audio_buffer_config config = ma_audio_buffer_config_init(
+        format,
+        channels,
+        sizeInFrames,
+        pExistingData,
+        &allocationCallbacks);
+
     ma_audio_buffer buffer;
     result = ma_audio_buffer_init(&config, &buffer);
     if (result != MA_SUCCESS) {
@@ -1179,7 +1219,13 @@ Sometimes it can be convenient to allocate the memory for the `ma_audio_buffer` 
 the raw audio data will be located immediately after the `ma_audio_buffer` structure. To do this, use `ma_audio_buffer_alloc_and_init()`:
 
     ```c
-    ma_audio_buffer_config config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &allocationCallbacks);
+    ma_audio_buffer_config config = ma_audio_buffer_config_init(
+        format,
+        channels,
+        sizeInFrames,
+        pExistingData,
+        &allocationCallbacks);
+
     ma_audio_buffer* pBuffer
     result = ma_audio_buffer_alloc_and_init(&config, &pBuffer);
     if (result != MA_SUCCESS) {
@@ -1254,8 +1300,8 @@ ring buffer that operates on bytes you would call `ma_rb_init()` which leaves th
 fourth parameter is an optional pre-allocated buffer and the fifth parameter is a pointer to a `ma_allocation_callbacks` structure for custom memory allocation
 routines. Passing in `NULL` for this results in `MA_MALLOC()` and `MA_FREE()` being used.
 
-Use `ma_pcm_rb_init_ex()` if you need a deinterleaved buffer. The data for each sub-buffer is offset from each other based on the stride. To manage your sub-
-buffers you can use `ma_pcm_rb_get_subbuffer_stride()`, `ma_pcm_rb_get_subbuffer_offset()` and `ma_pcm_rb_get_subbuffer_ptr()`.
+Use `ma_pcm_rb_init_ex()` if you need a deinterleaved buffer. The data for each sub-buffer is offset from each other based on the stride. To manage your
+sub-buffers you can use `ma_pcm_rb_get_subbuffer_stride()`, `ma_pcm_rb_get_subbuffer_offset()` and `ma_pcm_rb_get_subbuffer_ptr()`.
 
 Use 'ma_pcm_rb_acquire_read()` and `ma_pcm_rb_acquire_write()` to retrieve a pointer to a section of the ring buffer. You specify the number of frames you
 need, and on output it will set to what was actually acquired. If the read or write pointer is positioned such that the number of frames requested will require
@@ -1272,7 +1318,7 @@ the consumer thread, and the write pointer forward by the producer thread. If th
 there is too little space between the pointers, move the write pointer forward.
 
 You can use a ring buffer at the byte level instead of the PCM frame level by using the `ma_rb` API. This is exactly the same, only you will use the `ma_rb`
-functions instead of `ma_pcm_rb` and instead of frame counts pass around byte counts.
+functions instead of `ma_pcm_rb` and instead of frame counts you will pass around byte counts.
 
 The maximum size of the buffer in bytes is `0x7FFFFFFF-(MA_SIMD_ALIGNMENT-1)` due to the most significant bit being used to encode a loop flag and the internally
 managed buffers always being aligned to MA_SIMD_ALIGNMENT.
