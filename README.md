@@ -11,112 +11,14 @@
 </p>
 
 <p align="center">
-    <a href="#features">Features</a> -
+    <a href="#examples">Examples</a> -
+    <a href="#documentation">Documentation</a> -
+    <a href="#major-features">Major Features</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
     <a href="#backends">Backends</a> -
     <a href="#building">Building</a> -
-    <a href="#examples">Examples</a> -
-    <a href="#documentation">Documentation</a> -
     <a href="#unofficial-bindings">Unofficial Bindings</a>
 </p>
-
-Features
-========
-- Your choice of either public domain or [MIT No Attribution](https://github.com/aws/mit-0).
-- Entirely contained within a single file for easy integration into your source tree.
-- No external dependencies except for the C standard library and backend libraries.
-- Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.
-- Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
-- Supports playback, capture, full-duplex and loopback (WASAPI only).
-- Device enumeration for connecting to specific devices, not just defaults.
-- Connect to multiple devices at once.
-- Shared and exclusive mode on supported backends.
-- Backend-specific configuration options.
-- Device capability querying.
-- Automatic data conversion between your application and the internal device.
-- Sample format conversion with optional dithering.
-- Channel conversion and channel mapping.
-- Resampling with support for multiple algorithms.
-  - Simple linear resampling with anti-aliasing.
-  - Optional Speex resampling (must opt-in).
-- Filters.
-  - Biquad
-  - Low-pass (first, second and high order)
-  - High-pass (first, second and high order)
-  - Second order band-pass
-  - Second order notch
-  - Second order peaking
-  - Second order low shelf
-  - Second order high shelf
-- Waveform generation.
-  - Sine
-  - Square
-  - Triangle
-  - Sawtooth
-- Noise generation.
-  - White
-  - Pink
-  - Brownian
-- Decoding
-  - WAV
-  - FLAC
-  - MP3
-  - Vorbis via stb_vorbis (not built in - must be included separately).
-- Encoding
-  - WAV
-- Lock free ring buffer (single producer, single consumer).
-
-
-Supported Platforms
-===================
-- Windows (XP+), UWP
-- macOS, iOS
-- Linux
-- BSD
-- Android
-- Raspberry Pi
-- Emscripten / HTML5
-
-
-Backends
-========
-- WASAPI
-- DirectSound
-- WinMM
-- Core Audio (Apple)
-- ALSA
-- PulseAudio
-- JACK
-- sndio (OpenBSD)
-- audio(4) (NetBSD and OpenBSD)
-- OSS (FreeBSD)
-- AAudio (Android 8.0+)
-- OpenSL|ES (Android only)
-- Web Audio (Emscripten)
-- Null (Silence)
-
-
-Building
-========
-Do the following in one source file:
-```c
-#define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
-```
-Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
-to anything. On Linux just link to -lpthread, -lm and -ldl. On BSD just link to -lpthread and -lm. On iOS you
-need to compile as Objective-C.
-
-If you prefer separate .h and .c files, you can find a split version of miniaudio in the extras/miniaudio_split
-folder. From here you can use miniaudio as a traditional .c and .h library - just add miniaudio.c to your source
-tree like any other source file and include miniaudio.h like a normal header. If you prefer compiling as a
-single translation unit (AKA unity builds), you can just #include the .c file in your main source file:
-```c
-#include "miniaudio.c"
-```
-Note that the split version is auto-generated using a tool and is based on the main file in the root directory.
-If you want to contribute, please make the change in the main file.
-
 
 Examples
 ========
@@ -186,18 +88,120 @@ int main(int argc, char** argv)
     return 0;
 }
 ```
-
-More examples can be found in the [examples](examples) folder.
+More examples can be found in the [examples](examples) folder or online here: https://miniaud.io/docs/examples/
 
 
 Documentation
 =============
-Documentation can be found at the top of [miniaudio.h](https://raw.githubusercontent.com/dr-soft/miniaudio/master/miniaudio.h)
-which is always the most up-to-date and authoritive source of information on how to use miniaudio.
+Online documentation can be found here: https://miniaud.io/docs/
 
+Documentation can also be found at the top of [miniaudio.h](https://raw.githubusercontent.com/dr-soft/miniaudio/master/miniaudio.h)
+which is always the most up-to-date and authoritive source of information on how to use miniaudio. All other
+documentation is generated from this in-code documentation.
+
+
+Major Features
+==============
+- Your choice of either public domain or [MIT No Attribution](https://github.com/aws/mit-0).
+- Entirely contained within a single file for easy integration into your source tree.
+- No external dependencies except for the C standard library and backend libraries.
+- Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.
+- Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
+- Supports playback, capture, full-duplex and loopback (WASAPI only).
+- Device enumeration for connecting to specific devices, not just defaults.
+- Connect to multiple devices at once.
+- Shared and exclusive mode on supported backends.
+- Backend-specific configuration options.
+- Device capability querying.
+- Automatic data conversion between your application and the internal device.
+- Sample format conversion with optional dithering.
+- Channel conversion and channel mapping.
+- Resampling with support for multiple algorithms.
+  - Simple linear resampling with anti-aliasing.
+  - Optional Speex resampling (must opt-in).
+- Filters.
+  - Biquad
+  - Low-pass (first, second and high order)
+  - High-pass (first, second and high order)
+  - Second order band-pass
+  - Second order notch
+  - Second order peaking
+  - Second order low shelf
+  - Second order high shelf
+- Waveform generation.
+  - Sine
+  - Square
+  - Triangle
+  - Sawtooth
+- Noise generation.
+  - White
+  - Pink
+  - Brownian
+- Decoding
+  - WAV
+  - FLAC
+  - MP3
+  - Vorbis via stb_vorbis (not built in - must be included separately).
+- Encoding
+  - WAV
+- Lock free ring buffer (single producer, single consumer).
+
+Refer to the [Programming Manual](https://miniaud.io/docs/manual/) for a more complete description of
+available features in miniaudio.
+
+
+Supported Platforms
+===================
+- Windows (XP+), UWP
+- macOS, iOS
+- Linux
+- BSD
+- Android
+- Raspberry Pi
+- Emscripten / HTML5
+
+
+Backends
+========
+- WASAPI
+- DirectSound
+- WinMM
+- Core Audio (Apple)
+- ALSA
+- PulseAudio
+- JACK
+- sndio (OpenBSD)
+- audio(4) (NetBSD and OpenBSD)
+- OSS (FreeBSD)
+- AAudio (Android 8.0+)
+- OpenSL|ES (Android only)
+- Web Audio (Emscripten)
+- Null (Silence)
+
+
+Building
+========
+Do the following in one source file:
+```c
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+```
+Then just compile. There's no need to install any dependencies. On Windows and macOS there's no need to link
+to anything. On Linux just link to -lpthread, -lm and -ldl. On BSD just link to -lpthread and -lm. On iOS you
+need to compile as Objective-C.
+
+If you prefer separate .h and .c files, you can find a split version of miniaudio in the extras/miniaudio_split
+folder. From here you can use miniaudio as a traditional .c and .h library - just add miniaudio.c to your source
+tree like any other source file and include miniaudio.h like a normal header. If you prefer compiling as a
+single translation unit (AKA unity builds), you can just #include the .c file in your main source file:
+```c
+#include "miniaudio.c"
+```
+Note that the split version is auto-generated using a tool and is based on the main file in the root directory.
+If you want to contribute, please make the change in the main file.
 
 Vorbis Decoding
-===============
+---------------
 Vorbis decoding is enabled via stb_vorbis. To use it, you need to include the header section of stb_vorbis
 before the implementation of miniaudio. You can enable Vorbis by doing the following:
 
