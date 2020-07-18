@@ -11068,8 +11068,6 @@ typedef struct
 #define WAVE_FORMAT_IEEE_FLOAT  0x0003
 #endif
 
-static GUID MA_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-
 /* Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to miniaudio. */
 static ma_uint8 ma_channel_id_to_ma__win32(DWORD id)
 {
@@ -11174,6 +11172,12 @@ static ma_bool32 ma_is_guid_equal(const void* a, const void* b)
 #else
 #define ma_is_guid_equal(a, b) IsEqualGUID((const GUID*)a, (const GUID*)b)
 #endif
+
+static MA_INLINE ma_bool32 ma_is_guid_null(const void* guid)
+{
+    static GUID nullguid = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+    return ma_is_guid_equal(guid, &nullguid);
+}
 
 static ma_format ma_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
 {
@@ -14832,7 +14836,7 @@ static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, 
     ma_context_get_device_info_callback_data__dsound* pData = (ma_context_get_device_info_callback_data__dsound*)lpContext;
     MA_ASSERT(pData != NULL);
 
-    if ((pData->pDeviceID == NULL || ma_is_guid_equal(pData->pDeviceID->dsound, &MA_GUID_NULL)) && (lpGuid == NULL || ma_is_guid_equal(lpGuid, &MA_GUID_NULL))) {
+    if ((pData->pDeviceID == NULL || ma_is_guid_null(pData->pDeviceID->dsound)) && (lpGuid == NULL || ma_is_guid_null(lpGuid))) {
         /* Default device. */
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
         pData->found = MA_TRUE;
@@ -16191,7 +16195,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
       usually fit within the 31 characters of the fixed sized buffer, so what I'm going to do is parse that string for the component
       name, and then concatenate the name from the registry.
     */
-    if (!ma_is_guid_equal(&pCaps->NameGuid, &MA_GUID_NULL)) {
+    if (!ma_is_guid_null(&pCaps->NameGuid)) {
         wchar_t guidStrW[256];
         if (((MA_PFN_StringFromGUID2)pContext->win32.StringFromGUID2)(&pCaps->NameGuid, guidStrW, ma_countof(guidStrW)) > 0) {
             char guidStr[256];
@@ -44650,6 +44654,16 @@ MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, 
     return ma_decoder__postinit(&config, pDecoder);
 }
 
+
+#if defined(MA_HAS_WAV)    || \
+    defined(MA_HAS_MP3)    || \
+    defined(MA_HAS_FLAC)   || \
+    defined(MA_HAS_VORBIS) || \
+    defined(MA_HAS_OPUS)
+#define MA_HAS_PATH_API
+#endif
+
+#if defined(MA_HAS_PATH_API)
 static const char* ma_path_file_name(const char* path)
 {
     const char* fileName;
@@ -44816,6 +44830,7 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     }
 #endif
 }
+#endif  /* MA_HAS_PATH_API */
 
 
 
@@ -62056,6 +62071,8 @@ REVISION HISTORY
 ================
 v0.10.16 - TBD
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
+  - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
+  - Fix some compilation warnings when no decoders are enabled.
   - Updates to documentation.
 
 v0.10.15 - 2020-07-15
