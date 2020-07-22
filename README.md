@@ -227,6 +227,6 @@ and I'll consider adding it to this list.
 
 Language | Project
 ---------|--------
-Python   | [pyminiaudio](https://github.com/irmen/pyminiaudio)
 Go       | [malgo](https://github.com/gen2brain/malgo)
-
+Python   | [pyminiaudio](https://github.com/irmen/pyminiaudio)
+Rust     | [miniaudio-rs](https://github.com/ExPixel/miniaudio-rs)
