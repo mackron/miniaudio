@@ -2369,6 +2369,11 @@ MA_API ma_result ma_mixer_begin(ma_mixer* pMixer, ma_mixer* pParentMixer, ma_uin
         }
     } else {
         frameCountIn = frameCountOut;
+
+        if (frameCountIn  > pMixer->accumulationBufferSizeInFrames) {
+            frameCountIn  = pMixer->accumulationBufferSizeInFrames;
+            frameCountOut = pMixer->accumulationBufferSizeInFrames;
+        }
     }
 
     /* If the output frame count cannot match the parent's input frame count we need to fail. */
