@@ -68,7 +68,9 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
 
         /*
         Terminate if we got a quit message. You don't need to terminate like this, but's a bit more robust. You can
-        just use a global variable or something similar if it's easier for you particular situation.
+        just use a global variable or something similar if it's easier for you particular situation. The quit job
+        remains in the queue and will continue to be returned by future calls to ma_resource_manager_next_job(). The
+        reason for this is to give every job thread visibility to the quit job so they have a chance to exit.
         */
         if (job.toc.code == MA_JOB_QUIT) {
             printf("CUSTOM JOB THREAD TERMINATING... ");
