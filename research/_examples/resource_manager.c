@@ -56,17 +56,26 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         ma_result result;
         ma_job job;
 
+        /*
+        Retrieve a job from the queue first. This defines what it is you're about to do. By default this will be
+        blocking. You can initialize the resource manager with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING to not block in
+        which case MA_NO_DATA_AVAILABLE will be returned if no jobs are available.
+        */
         result = ma_resource_manager_next_job(pResourceManager, &job);
         if (result != MA_SUCCESS) {
             break;
         }
 
-        /* Terminate if we got a quit message. */
+        /*
+        Terminate if we got a quit message. You don't need to terminate like this, but's a bit more robust. You can
+        just use a global variable or something similar if it's easier for you particular situation.
+        */
         if (job.toc.code == MA_JOB_QUIT) {
             printf("CUSTOM JOB THREAD TERMINATING... ");
             break;
         }
 
+        /* Call ma_resource_manager_process_job() to actually do the work to process the job. */
         printf("PROCESSING IN CUSTOM JOB THREAD: %d\n", job.toc.code);
         ma_resource_manager_process_job(pResourceManager, &job);
     }
