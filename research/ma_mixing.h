@@ -2510,6 +2510,10 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
         if (pEffect == NULL) {
             /* Fast path. Mix directly from the data source and don't bother applying an effect. */
             result = ma_data_source_map(pDataSource, &pMappedBuffer, &framesToProcess);
+            if (result != MA_SUCCESS) {
+                break;  /* Failed to map. Abort. */
+            }
+
             if (framesToProcess == 0) {
                 break;  /* Wasn't able to map any data. Abort. */
             }

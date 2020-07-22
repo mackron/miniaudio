@@ -412,8 +412,10 @@ MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager
 
 /* Job management. */
 MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
+MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager);  /* Helper for posting a quit job. */
 MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob);
 MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);
+
 
 /*
 Engine
@@ -848,9 +850,10 @@ MA_API ma_result ma_job_queue_init(ma_uint32 flags, ma_job_queue* pQueue)
     just a dummy item for giving us the first item in the list which is stored in the "next" member.
     */
     ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
+    pQueue->jobs[ma_job_extract_slot(pQueue->head)].next = MA_JOB_ID_NONE;
     pQueue->tail = pQueue->head;
 
-    pQueue->jobs[pQueue->head].next = MA_JOB_ID_NONE;
+    
 
     return MA_SUCCESS;
 }
@@ -900,8 +903,8 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
         tail = pQueue->tail;
         next = pQueue->jobs[ma_job_extract_slot(tail)].next;
 
-        if (tail == pQueue->tail) {
-            if (next == MA_JOB_ID_NONE) {
+        if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(pQueue->tail)) {
+            if (ma_job_extract_slot(next) == 0xFFFF) {
                 if (c89atomic_compare_and_swap_64(&pQueue->jobs[ma_job_extract_slot(tail)].next, next, slot) == next) {
                     break;
                 }
@@ -942,9 +945,9 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
         tail = pQueue->tail;
         next = pQueue->jobs[ma_job_extract_slot(head)].next;
 
-        if (head == pQueue->head) {
-            if (head == tail) {
-                if (next == MA_JOB_ID_NONE) {
+        if (ma_job_toc_to_allocation(head) == ma_job_toc_to_allocation(pQueue->head)) {
+            if (ma_job_toc_to_allocation(head) == ma_job_toc_to_allocation(tail)) {
+                if (ma_job_extract_slot(next) == 0xFFFF) {
                     return MA_NO_DATA_AVAILABLE;
                 }
                 c89atomic_compare_and_swap_64(&pQueue->tail, tail, next);
@@ -1545,7 +1548,6 @@ static void ma_resource_manager_delete_all_data_buffers(ma_resource_manager* pRe
 
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 {
-    ma_job quitJob;
     ma_uint32 iJobThread;
 
     if (pResourceManager == NULL) {
@@ -1556,8 +1558,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     Job threads need to be killed first. To do this we need to post a quit message to the message queue and then wait for the thread. The quit message will never be removed from the
     queue which means it will never not be returned after being encounted for the first time which means all threads will eventually receive it.
     */
-    quitJob = ma_job_init(MA_JOB_QUIT);
-    ma_resource_manager_post_job(pResourceManager, &quitJob);
+    ma_resource_manager_post_job_quit(pResourceManager);
 
     /* Wait for every job to finish before continuing to ensure nothing is sill trying to access any of our objects below. */
     for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
@@ -2545,7 +2546,7 @@ static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource
         }
     }
 
-    /* The frame cursor is increment in unmap(). */
+    /* The frame cursor is incremented in unmap(). */
     return ma_data_source_map(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), ppFramesOut, pFrameCount);
 }
 
@@ -2920,6 +2921,12 @@ MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceMana
     return ma_job_queue_post(&pResourceManager->jobQueue, pJob);
 }
 
+MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager)
+{
+    ma_job job = ma_job_init(MA_JOB_QUIT);
+    return ma_resource_manager_post_job(pResourceManager, &job);
+}
+
 MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob)
 {
     if (pResourceManager == NULL) {
@@ -2934,6 +2941,11 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager_data_buffer* pDataBuffer;
+    ma_decoder* pDecoder = NULL;       /* Malloc'd here, and then free'd on the last page decode. */
+    ma_uint64 totalFrameCount = 0;
+    void* pData = NULL;
+    ma_uint64 dataSizeInBytes = 0;
+    ma_uint64 framesRead = 0;   /* <-- Keeps track of how many frames we read for the first page. */
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
@@ -2956,7 +2968,6 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 
     if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
         /* No decoding. Just store the file contents in memory. */
-        void* pData;
         size_t sizeInBytes;
 
         result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pJob->loadDataBuffer.pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
@@ -2966,15 +2977,9 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
         }
     } else  {
         /* Decoding. */
-        ma_decoder* pDecoder;       /* Malloc'd here, and then free'd on the last page decode. */
         ma_decoder_config config;
-        ma_uint64 totalFrameCount;
-        void* pData;
-        ma_uint64 dataSizeInBytes;
         ma_uint64 dataSizeInFrames;
         ma_uint64 pageSizeInFrames;
-        ma_uint64 framesRead;   /* <-- Keeps track of how many frames we read for the first page. */
-        ma_job pageDataBufferJob;
 
         /*
         With the file initialized we now need to initialize the decoder. We need to pass this decoder around on the job queue so we'll need to
@@ -3056,56 +3061,14 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             c89atomic_thread_fence(c89atomic_memory_order_acquire);
             pDataBuffer->data.decoded.decodedFrameCount = framesRead;
 
+            ma_decoder_uninit(pDecoder);
             ma__free_from_callbacks(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+
             result = MA_SUCCESS;
             goto done;
         } else {
-            /* We've still got more to decode. We need to post a job to continue decoding. */
-            pageDataBufferJob = ma_job_init(MA_JOB_PAGE_DATA_BUFFER);
-            pageDataBufferJob.order                            = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            pageDataBufferJob.pageDataBuffer.pDataBuffer       = pDataBuffer;
-            pageDataBufferJob.pageDataBuffer.pDecoder          = pDecoder;
-            pageDataBufferJob.pageDataBuffer.pCompletedEvent   = pJob->loadDataBuffer.pEvent;
-            pageDataBufferJob.pageDataBuffer.pData             = pData;
-            pageDataBufferJob.pageDataBuffer.dataSizeInBytes   = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
-            pageDataBufferJob.pageDataBuffer.decodedFrameCount = framesRead;
-
-            if (totalFrameCount > 0) {
-                pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_FALSE;
-
-                pDataBuffer->data.decoded.pData      = pData;
-                pDataBuffer->data.decoded.frameCount = totalFrameCount;
-
-                /*
-                decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
-                is set *before* setting the number of available frames. This way, the other thread need only check if decodedFrameCount > 0, in
-                which case it can assume pData and frameCount are valid.
-                */
-                c89atomic_thread_fence(c89atomic_memory_order_acquire);
-                pDataBuffer->data.decoded.decodedFrameCount = framesRead;
-            } else {
-                pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
-
-                /*
-                These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
-                read any data until the sound is fully decoded because we're going to be dynamically expanding pData and we'll be introducing complications
-                by letting the application get access to it.
-                */
-                pDataBuffer->data.decoded.pData             = NULL;
-                pDataBuffer->data.decoded.frameCount        = 0;
-                pDataBuffer->data.decoded.decodedFrameCount = 0;
-            }
-
-            /* The job has been set up so it can now be posted. */
-            result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferJob);
-
-            /* The result needs to be set to MA_BUSY to ensure the status of the data buffer is set properly in the next section. */
-            if (result == MA_SUCCESS) {
-                result = MA_BUSY;
-            }
-            
-            /* We want to make sure we don't signal the event here. It needs to be delayed until the last page. */
-            pJob->loadDataBuffer.pEvent = NULL;
+            /* We've still got more to decode. We just set the result to MA_BUSY which will tell the next section below to post a paging event. */
+            result = MA_BUSY;
         }
     }
 
@@ -3120,6 +3083,65 @@ done:
     other error code would cause the buffer to look like it's in a state that it's not.
     */
     c89atomic_compare_and_swap_32(&pDataBuffer->result, MA_BUSY, result);
+
+    /*
+    If our result is MA_BUSY we need to post a job to start loading. It's important that we do this after setting the result to the buffer so that the
+    decoding process happens at the right time. If we don't, there's a window where the MA_JOB_PAGE_DATA_BUFFER event will see a status of something
+    other than MA_BUSY and then abort the decoding process with an error.
+    */
+    if (result == MA_BUSY && pDecoder != NULL) {
+        /* We've still got more to decode. We need to post a job to continue decoding. */
+        ma_job pageDataBufferJob;
+
+        MA_ASSERT(pDecoder != NULL);
+        MA_ASSERT(pData    != NULL);
+
+        pageDataBufferJob = ma_job_init(MA_JOB_PAGE_DATA_BUFFER);
+        pageDataBufferJob.order                            = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
+        pageDataBufferJob.pageDataBuffer.pDataBuffer       = pDataBuffer;
+        pageDataBufferJob.pageDataBuffer.pDecoder          = pDecoder;
+        pageDataBufferJob.pageDataBuffer.pCompletedEvent   = pJob->loadDataBuffer.pEvent;
+        pageDataBufferJob.pageDataBuffer.pData             = pData;
+        pageDataBufferJob.pageDataBuffer.dataSizeInBytes   = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
+        pageDataBufferJob.pageDataBuffer.decodedFrameCount = framesRead;
+
+        if (totalFrameCount > 0) {
+            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_FALSE;
+
+            pDataBuffer->data.decoded.pData      = pData;
+            pDataBuffer->data.decoded.frameCount = totalFrameCount;
+
+            /*
+            decodedFrameCount is what other threads will use to determine whether or not data is available. We must ensure pData and frameCount
+            is set *before* setting the number of available frames. This way, the other thread need only check if decodedFrameCount > 0, in
+            which case it can assume pData and frameCount are valid.
+            */
+            c89atomic_thread_fence(c89atomic_memory_order_acquire);
+            pDataBuffer->data.decoded.decodedFrameCount = framesRead;
+        } else {
+            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
+
+            /*
+            These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
+            read any data until the sound is fully decoded because we're going to be dynamically expanding pData and we'll be introducing complications
+            by letting the application get access to it.
+            */
+            pDataBuffer->data.decoded.pData             = NULL;
+            pDataBuffer->data.decoded.frameCount        = 0;
+            pDataBuffer->data.decoded.decodedFrameCount = 0;
+        }
+
+        /* The job has been set up so it can now be posted. */
+        result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferJob);
+
+        /* The result needs to be set to MA_BUSY to ensure the status of the data buffer is set properly in the next section. */
+        if (result == MA_SUCCESS) {
+            result = MA_BUSY;
+        }
+            
+        /* We want to make sure we don't signal the event here. It needs to be delayed until the last page. */
+        pJob->loadDataBuffer.pEvent = NULL;
+    }
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataBuffer.pEvent != NULL) {
