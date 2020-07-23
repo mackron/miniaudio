@@ -16,7 +16,7 @@ In this example we show how you can create a data source, mix them with other da
 threads to manage internally and how to implement your own custom job thread.
 */
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
-#define MA_IMPLEMENTATION
+#define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
 #include "../ma_engine.h"
 
@@ -149,7 +149,11 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    /* Now that we have a resource manager we can set up our custom job thread. */
+    /*
+    Now that we have a resource manager we can set up our custom job thread. This is optional. Normally when doing self-managed job threads
+    you would set the internal job thread count to zero. We're doing both internal and self-managed job threads in this example just for
+    demonstration purposes.
+    */
     ma_thread_create(&jobThread, ma_thread_priority_default, 0, custom_job_thread, &resourceManager);
 
     /* Create each data source from the resource manager. Note that the caller is the owner. */
@@ -180,7 +184,7 @@ int main(int argc, char** argv)
     ma_resource_manager_post_job_quit(&resourceManager);
     ma_thread_wait(&jobThread); /* Wait for the custom job thread to finish before uninitializing the resource manager. */
     
-    /* Out data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do it for us. */
+    /* Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do it for us. */
     for (iFile = 0; (size_t)iFile < g_dataSourceCount; iFile += 1) {
         ma_resource_manager_data_source_uninit(&resourceManager, &g_dataSources[iFile]);
     }
@@ -188,7 +192,7 @@ int main(int argc, char** argv)
     /* Uninitialize the resource manager after each data source. */
     ma_resource_manager_uninit(&resourceManager);
 
-    /* We're uninitializing the mixer last, but it doesn't really when it's done, so long as it's after the device has been stopped/uninitialized. */
+    /* We're uninitializing the mixer last, but it doesn't really matter when it's done, so long as it's after the device has been stopped/uninitialized. */
     ma_mixer_uninit(&g_mixer);
     
     return 0;

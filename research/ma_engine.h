@@ -2632,7 +2632,7 @@ static ma_result ma_resource_manager_data_source_init_connector(ma_resource_mana
     movement overhead.
     */
     if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-        if (pDataBuffer->data.decoded.format     == pResourceManager->config.decodedFormat   &&
+        if (pDataBuffer->data.decoded.format     == pResourceManager->config.decodedFormat &&
             pDataBuffer->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
             pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_buffer;
         } else {
