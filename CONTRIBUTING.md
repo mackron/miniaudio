@@ -37,6 +37,9 @@ things in particular:
 
 I'm not going to outline specific coding styles - just look at the existing code and use common sense.
 
+If you want to submit a pull request for any of the dr_* libraries in the "extras" folder, please submit the pull
+request to the [dr_libs repository](https://github.com/mackron/dr_libs).
+
 
 Respect the Goals of the Project
 --------------------------------
