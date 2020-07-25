@@ -3211,6 +3211,8 @@ typedef struct
     {
         ma_ios_session_category sessionCategory;
         ma_uint32 sessionCategoryOptions;
+        ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization. */
+        ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:false] on uninitialization. */
     } coreaudio;
     struct
     {
@@ -3479,6 +3481,8 @@ struct ma_context
             ma_proc AudioUnitRender;
             
             /*AudioComponent*/ ma_ptr component;
+            
+            ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not we should explicitly deactivation the audio session on iOS. Set from the config in ma_context_init__coreaudio(). */
         } coreaudio;
 #endif
 #ifdef MA_SUPPORT_SNDIO
@@ -23620,6 +23624,13 @@ static ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, 
     return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
 }
 
+static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDescription* pPortDesc, ma_device_info* pInfo)
+{
+    MA_ZERO_OBJECT(pInfo);
+    ma_strncpy_s(pInfo->name,         sizeof(pInfo->name),         [pPortDesc.portName UTF8String], (size_t)-1);
+    ma_strncpy_s(pInfo->id.coreaudio, sizeof(pInfo->id.coreaudio), [pPortDesc.UID      UTF8String], (size_t)-1);
+}
+
 static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
 #if defined(MA_APPLE_DESKTOP)
@@ -23659,19 +23670,22 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
     
     ma_free(pDeviceObjectIDs, &pContext->allocationCallbacks);
 #else
-    /* Only supporting default devices on non-Desktop platforms. */
     ma_device_info info;
+    NSArray *pInputs  = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+    NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
     
-    MA_ZERO_OBJECT(&info);
-    ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-    if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
-        return MA_SUCCESS;
+    for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
+        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+        if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
+            return MA_SUCCESS;
+        }
     }
     
-    MA_ZERO_OBJECT(&info);
-    ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-    if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
-        return MA_SUCCESS;
+    for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+        if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
+            return MA_SUCCESS;
+        }
     }
 #endif
     
@@ -23787,12 +23801,41 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         AudioUnitElement formatElement;
         AudioStreamBasicDescription bestFormat;
         UInt32 propSize;
-
-        if (deviceType == ma_device_type_playback) {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        
+        /* We want to ensure we use a consistent device name to device enumeration. */
+        if (pDeviceID != NULL) {
+            ma_bool32 found = MA_FALSE;
+            if (deviceType == ma_device_type_playback) {
+                NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
+                for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
+                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
+                        found = MA_TRUE;
+                        break;
+                    }
+                }
+            } else {
+                NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+                for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
+                        found = MA_TRUE;
+                        break;
+                    }
+                }
+            }
+            
+            if (!found) {
+                return MA_DOES_NOT_EXIST;
+            }
         } else {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            if (deviceType == ma_device_type_playback) {
+                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            } else {
+                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            }
         }
+        
     
         /*
         Retrieving device information is more annoying on mobile than desktop. For simplicity I'm locking this down to whatever format is
@@ -24594,6 +24637,28 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
         return ma_result_from_OSStatus(result);
     }
+#else
+    /*
+    For some reason it looks like Apple is only allowing selection of the input device. There does not appear to be any way to change
+    the default output route. I have no idea why this is like this, but for now we'll only be able to configure capture devices.
+    */
+    if (pDeviceID != NULL) {
+        if (deviceType == ma_device_type_capture) {
+            ma_bool32 found = MA_FALSE;
+            NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+            for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+                if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                    [[AVAudioSession sharedInstance] setPreferredInput:pPortDesc error:nil];
+                    found = MA_TRUE;
+                    break;
+                }
+            }
+            
+            if (found == MA_FALSE) {
+                return MA_DOES_NOT_EXIST;
+            }
+        }
+    }
 #endif
     
     /*
@@ -25184,6 +25249,14 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_coreaudio);
     
+#if defined(MA_APPLE_MOBILE)
+    if (!pContext->coreaudio.noAudioSessionDeactivate) {
+        if (![[AVAudioSession sharedInstance] setActive:false error:nil]) {
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to deactivate audio session.", MA_FAILED_TO_INIT_BACKEND);
+        }
+    }
+#endif
+    
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
     ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
     ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
@@ -25258,6 +25331,12 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
                 if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pConfig->coreaudio.sessionCategory) withOptions:options error:nil]) {
                     return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
+            }
+        }
+        
+        if (!pConfig->coreaudio.noAudioSessionActivate) {
+            if (![pAudioSession setActive:true error:nil]) {
+                return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to activate audio session.", MA_FAILED_TO_INIT_BACKEND);
             }
         }
     }
@@ -25391,6 +25470,8 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
         return result;
     }
 #endif
+
+    pContext->coreaudio.noAudioSessionDeactivate = pConfig->coreaudio.noAudioSessionDeactivate;
 
     return MA_SUCCESS;
 }
