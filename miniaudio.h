@@ -1947,7 +1947,7 @@ MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevisio
 /*
 Retrieves the version of miniaudio as a string which can be useful for logging purposes.
 */
-MA_API const char* ma_version_string();
+MA_API const char* ma_version_string(void);
 
 
 /**************************************************************************************************************************************************************
@@ -6325,7 +6325,7 @@ MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevisio
     }
 }
 
-MA_API const char* ma_version_string()
+MA_API const char* ma_version_string(void)
 {
     return MA_VERSION_STRING;
 }
@@ -25221,7 +25221,9 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
 
 static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+#if !defined(MA_APPLE_MOBILE)
     ma_result result;
+#endif
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pContext != NULL);
