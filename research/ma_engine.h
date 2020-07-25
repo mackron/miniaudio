@@ -409,6 +409,8 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager* pRe
 MA_API ma_result ma_resource_manager_data_source_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
+MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
 
 /* Job management. */
 MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
@@ -2574,8 +2576,8 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
 static ma_bool32 ma_resource_manager_data_source_buffer_is_busy(ma_resource_manager_data_source* pDataSource, ma_uint64 requiredFrameCount)
 {
     /*
-    Here is where we determine whether or not we need to return MA_BUSY from a data source callback. If we don't have enough data loaded to output all frameCount frames we
-    will abort with MA_BUSY. We could also choose to do a partial read (only reading as many frames are available), but it's just easier to abort early and I don't think it
+    Here is where we determine whether or not we need to return MA_BUSY from a data source callback. If we don't have enough data loaded to output all requiredFrameCount frames
+    we will abort with MA_BUSY. We could also choose to do a partial read (only reading as many frames are available), but it's just easier to abort early and I don't think it
     really makes much practical difference. This only applies to decoded buffers.
     */
     if (pDataSource->dataBuffer.pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
@@ -2640,7 +2642,7 @@ static ma_result ma_resource_manager_data_source_read(ma_data_source* pDataSourc
         }
     }
 
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pFramesOut, frameCount, &framesRead, MA_FALSE);
+    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), pFramesOut, frameCount, &framesRead, pRMDataSource->dataBuffer.isLooping);
     pRMDataSource->dataBuffer.cursor += framesRead;
 
     if (pFramesRead != NULL) {
@@ -3046,6 +3048,16 @@ MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager
         *pIsLooping = pDataSource->dataBuffer.isLooping;
         return MA_SUCCESS;
     }
+}
+
+MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead, MA_FALSE);
+}
+
+MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 }
 
 
