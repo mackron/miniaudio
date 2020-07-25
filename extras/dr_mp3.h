@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.14 - 2020-07-23
+dr_mp3 - v0.6.15 - 2020-07-25
 
 David Reid - mackron@gmail.com
 
@@ -95,7 +95,7 @@ extern "C" {
 
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  14
+#define DRMP3_VERSION_REVISION  15
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -246,7 +246,7 @@ typedef drmp3_int32 drmp3_result;
 
 
 DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_uint32* pRevision);
-DRMP3_API const char* drmp3_version_string();
+DRMP3_API const char* drmp3_version_string(void);
 
 
 /*
@@ -545,7 +545,7 @@ DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_u
     }
 }
 
-DRMP3_API const char* drmp3_version_string()
+DRMP3_API const char* drmp3_version_string(void)
 {
     return DRMP3_VERSION_STRING;
 }
@@ -4431,6 +4431,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.15 - 2020-07-25
+  - Fix a compilation warning.
+
 v0.6.14 - 2020-07-23
   - Fix undefined behaviour with memmove().
 

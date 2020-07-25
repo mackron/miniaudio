@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.7 - 2020-07-15
+dr_wav - v0.12.8 - 2020-07-25
 
 David Reid - mackron@gmail.com
 
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  7
+#define DRWAV_VERSION_REVISION  8
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -288,7 +288,7 @@ typedef drwav_int32 drwav_result;
 #define DRWAV_SEQUENTIAL            0x00000001
 
 DRWAV_API void drwav_version(drwav_uint32* pMajor, drwav_uint32* pMinor, drwav_uint32* pRevision);
-DRWAV_API const char* drwav_version_string();
+DRWAV_API const char* drwav_version_string(void);
 
 typedef enum
 {
@@ -1076,7 +1076,7 @@ DRWAV_API void drwav_version(drwav_uint32* pMajor, drwav_uint32* pMinor, drwav_u
     }
 }
 
-DRWAV_API const char* drwav_version_string()
+DRWAV_API const char* drwav_version_string(void)
 {
     return DRWAV_VERSION_STRING;
 }
@@ -5926,6 +5926,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.8 - 2020-07-25
+  - Fix a compilation warning.
+
 v0.12.7 - 2020-07-15
   - Fix some bugs on big-endian architectures.
   - Fix an error in s24 to f32 conversion.
