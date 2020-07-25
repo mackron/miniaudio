@@ -100,6 +100,35 @@ which is always the most up-to-date and authoritive source of information on how
 documentation is generated from this in-code documentation.
 
 
+Supported Platforms
+===================
+- Windows (XP+), UWP
+- macOS, iOS
+- Linux
+- BSD
+- Android
+- Raspberry Pi
+- Emscripten / HTML5
+
+
+Backends
+========
+- WASAPI
+- DirectSound
+- WinMM
+- Core Audio (Apple)
+- ALSA
+- PulseAudio
+- JACK
+- sndio (OpenBSD)
+- audio(4) (NetBSD and OpenBSD)
+- OSS (FreeBSD)
+- AAudio (Android 8.0+)
+- OpenSL|ES (Android only)
+- Web Audio (Emscripten)
+- Null (Silence)
+
+
 Major Features
 ==============
 - Your choice of either public domain or [MIT No Attribution](https://github.com/aws/mit-0).
@@ -148,35 +177,6 @@ Major Features
 
 Refer to the [Programming Manual](https://miniaud.io/docs/manual/) for a more complete description of
 available features in miniaudio.
-
-
-Supported Platforms
-===================
-- Windows (XP+), UWP
-- macOS, iOS
-- Linux
-- BSD
-- Android
-- Raspberry Pi
-- Emscripten / HTML5
-
-
-Backends
-========
-- WASAPI
-- DirectSound
-- WinMM
-- Core Audio (Apple)
-- ALSA
-- PulseAudio
-- JACK
-- sndio (OpenBSD)
-- audio(4) (NetBSD and OpenBSD)
-- OSS (FreeBSD)
-- AAudio (Android 8.0+)
-- OpenSL|ES (Android only)
-- Web Audio (Emscripten)
-- Null (Silence)
 
 
 Building
