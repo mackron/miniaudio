@@ -13,9 +13,9 @@
 <p align="center">
     <a href="#example">Example</a> -
     <a href="#documentation">Documentation</a> -
-    <a href="#major-features">Major Features</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
     <a href="#backends">Backends</a> -
+    <a href="#major-features">Major Features</a> -
     <a href="#building">Building</a> -
     <a href="#unofficial-bindings">Unofficial Bindings</a>
 </p>
