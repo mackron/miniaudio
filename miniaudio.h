@@ -647,7 +647,7 @@ be one of the following:
     | ma_standard_channel_map_flac      | FLAC channel map.                                         |
     | ma_standard_channel_map_vorbis    | Vorbis channel map.                                       |
     | ma_standard_channel_map_sound4    | FreeBSD's sound(4).                                       |
-    | ma_standard_channel_map_sndio     | sndio channel map. http://www.sndio.org/tips.html         |
+    | ma_standard_channel_map_sndio     | sndio channel map. http://www.sndio.org/tips.html.        |
     | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering | 
     +-----------------------------------+-----------------------------------------------------------+
 
