@@ -615,7 +615,7 @@ Input and output PCM frames are always interleaved. Deinterleaved layouts are no
 
 6.2.1. Channel Mapping
 ----------------------
-In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
+In addition to converting from one channel count to another, like the example above, the channel converter can also be used to rearrange channels. When
 initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
 channel map contains the same channel positions with the exception that they're in a different order, a simple shuffling of the channels will be performed. If,
 however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing mode which is
