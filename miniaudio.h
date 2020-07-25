@@ -19,7 +19,7 @@ miniaudio is a single file library for audio playback and capture. To use it, do
     #include "miniaudio.h"
     ```
 
-You can do `#include miniaudio.h` in other parts of the program just like any other header.
+You can do `#include "miniaudio.h"` in other parts of the program just like any other header.
 
 miniaudio uses the concept of a "device" as the abstraction for physical devices. The idea is that you choose a physical device to emit or capture audio from,
 and then move data to/from the device when miniaudio tells you to. Data is delivered to and from devices asynchronously via a callback which you specify when
