@@ -60,9 +60,19 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         Retrieve a job from the queue first. This defines what it is you're about to do. By default this will be
         blocking. You can initialize the resource manager with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING to not block in
         which case MA_NO_DATA_AVAILABLE will be returned if no jobs are available.
+
+        When the quit job is returned (MA_JOB_QUIT), the return value will always be MA_CANCELLED. If you don't want
+        to check the return value (you should), you can instead check if the job code is MA_JOB_QUIT and use that
+        instead.
         */
         result = ma_resource_manager_next_job(pResourceManager, &job);
         if (result != MA_SUCCESS) {
+            if (result == MA_CANCELLED) {
+                printf("CUSTOM JOB THREAD TERMINATING VIA MA_CANCELLED... ");
+            } else {
+                printf("CUSTOM JOB THREAD ERROR: %s. TERMINATING... ", ma_result_description(result));
+            }
+
             break;
         }
 
@@ -71,9 +81,13 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         just use a global variable or something similar if it's easier for you particular situation. The quit job
         remains in the queue and will continue to be returned by future calls to ma_resource_manager_next_job(). The
         reason for this is to give every job thread visibility to the quit job so they have a chance to exit.
+
+        We won't actually be hitting this code because the call above will return MA_CANCELLED when the MA_JOB_QUIT
+        event is received which means the `result != MA_SUCCESS` logic above will catch it. If you do not check the
+        return value of ma_resource_manager_next_job() you will want to check for MA_JOB_QUIT like the code below.
         */
         if (job.toc.code == MA_JOB_QUIT) {
-            printf("CUSTOM JOB THREAD TERMINATING... ");
+            printf("CUSTOM JOB THREAD TERMINATING VIA MA_JOB_QUIT... ");
             break;
         }
 
