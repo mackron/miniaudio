@@ -1,5 +1,5 @@
 /*
-Demonstrates duplex mode which is where data is captured from a microphone and then output to a device.
+Demonstrates duplex mode which is where data is captured from a microphone and then output to a speaker device.
 
 This example captures audio from the default microphone and then outputs it straight to the default playback device
 without any kind of modification. If you wanted to, you could also apply filters and effects to the input stream
