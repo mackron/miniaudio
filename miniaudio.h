@@ -62156,6 +62156,7 @@ REVISION HISTORY
 ================
 v0.10.16 - TBD
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
+  - iOS: Improvements to device enumeration.
   - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
   - Fix some compilation warnings when no decoders are enabled.
   - Updates to documentation.
