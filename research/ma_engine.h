@@ -384,16 +384,16 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
 /* Data Buffers. */
-MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
-MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
 
 /* Data Streams. */
-MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
-MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_stream_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
@@ -1596,7 +1596,7 @@ static ma_uint32 ma_resource_manager_data_buffer_next_execution_order(ma_resourc
     return c89atomic_fetch_add_32(&pDataBuffer->executionCounter, 1);
 }
 
-static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
     ma_resource_manager_data_buffer* pDataBuffer;
@@ -1849,7 +1849,7 @@ static ma_result ma_resource_manager_create_data_buffer_nolock(ma_resource_manag
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
     ma_result result;
     ma_uint32 hashedName32;
@@ -1870,14 +1870,14 @@ MA_API ma_result ma_resource_manager_create_data_buffer(ma_resource_manager* pRe
     /* At this point we can now enter the critical section. */
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_create_data_buffer_nolock(pResourceManager, pFilePath, hashedName32, type, async, NULL, pEvent, ppDataBuffer);
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, type, async, NULL, pEvent, ppDataBuffer);
     }
     ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
     return result;
 }
 
-static ma_result ma_resource_manager_delete_data_buffer_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_uint32 result;
     ma_uint32 refCount;
@@ -1919,7 +1919,7 @@ static ma_result ma_resource_manager_delete_data_buffer_nolock(ma_resource_manag
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
 
@@ -1929,7 +1929,7 @@ MA_API ma_result ma_resource_manager_delete_data_buffer(ma_resource_manager* pRe
 
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_delete_data_buffer_nolock(pResourceManager, pDataBuffer);
+        result = ma_resource_manager_data_buffer_uninit_nolock(pResourceManager, pDataBuffer);
     }
     ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
@@ -1959,7 +1959,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
 
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_create_data_buffer_nolock(pResourceManager, pName, hashedName32, type, /* async */MA_FALSE, pExistingData, pEvent, ppDataBuffer);
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pName, hashedName32, type, /* async */MA_FALSE, pExistingData, pEvent, ppDataBuffer);
     }
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     return result;
@@ -2011,7 +2011,7 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
         return result;  /* Could not find the data buffer. */
     }
 
-    return ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
+    return ma_resource_manager_data_buffer_uninit(pResourceManager, pDataBuffer);
 }
 
 
@@ -2021,7 +2021,7 @@ static ma_uint32 ma_resource_manager_data_stream_next_execution_order(ma_resourc
     return c89atomic_fetch_add_32(&pDataStream->executionCounter, 1);
 }
 
-MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream)
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
     char* pFilePathCopy;
@@ -2077,7 +2077,7 @@ MA_API ma_result ma_resource_manager_create_data_stream(ma_resource_manager* pRe
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_delete_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
+MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream)
 {
     ma_event freeEvent;
     ma_job job;
@@ -2506,7 +2506,7 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
 
 
     /* The first thing we need is a data stream. */
-    result = ma_resource_manager_create_data_stream(pResourceManager, pName, NULL, &pDataSource->dataStream.stream);
+    result = ma_resource_manager_data_stream_init(pResourceManager, pName, NULL, &pDataSource->dataStream.stream);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -2527,7 +2527,7 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
     if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
         result = ma_event_init(&waitEvent);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+            ma_resource_manager_data_stream_uninit(pResourceManager, &pDataSource->dataStream.stream);
             return result;
         }
 
@@ -2538,7 +2538,7 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
 
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
-        ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+        ma_resource_manager_data_stream_uninit(pResourceManager, &pDataSource->dataStream.stream);
         if (job.loadDataSource.pEvent != NULL) {
             ma_event_uninit(job.loadDataSource.pEvent);
         }
@@ -2557,7 +2557,7 @@ static ma_result ma_resource_manager_data_source_init_stream(ma_resource_manager
         /* If the data stream or data source have errors we need to return an error. */
         streamResult = ma_resource_manager_data_stream_result(pResourceManager, &pDataSource->dataStream.stream);
         if (pDataSource->result != MA_SUCCESS || streamResult != MA_SUCCESS) {
-            ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+            ma_resource_manager_data_stream_uninit(pResourceManager, &pDataSource->dataStream.stream);
             if (pDataSource->result != MA_SUCCESS) {
                 return pDataSource->result;
             } else {
@@ -2878,7 +2878,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     /* The data buffer needs to be loaded by the calling thread if we're in synchronous mode. */
     async = (flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0;
 
-    result = ma_resource_manager_create_data_buffer(pResourceManager, pName, dataBufferType, async, NULL, &pDataBuffer);
+    result = ma_resource_manager_data_buffer_init(pResourceManager, pName, dataBufferType, async, NULL, &pDataBuffer);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to acquire the data buffer. */
     }
@@ -2909,7 +2909,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
 
         result = ma_resource_manager_post_job(pResourceManager, &job);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
+            ma_resource_manager_data_buffer_uninit(pResourceManager, pDataBuffer);
             return result;
         }
 
@@ -2918,7 +2918,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
         /* The underlying data buffer has already been initialized so we can just complete initialization of the data source right now. */
         result = ma_resource_manager_data_source_init_connector(pResourceManager, pDataSource);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
+            ma_resource_manager_data_buffer_uninit(pResourceManager, pDataBuffer);
             return result;
         }
 
@@ -2926,7 +2926,7 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
         return MA_SUCCESS;
     } else {
         /* Some other error has occurred with the data buffer. Lets abandon everything and return the data buffer's result. */
-        ma_resource_manager_delete_data_buffer(pResourceManager, pDataBuffer);
+        ma_resource_manager_data_buffer_uninit(pResourceManager, pDataBuffer);
         return dataBufferResult;
     }
 }
@@ -2960,7 +2960,7 @@ static ma_result ma_resource_manager_data_source_uninit_stream(ma_resource_manag
     MA_ASSERT(pDataSource      != NULL);
 
     /* All we need to do is uninitialize the data stream and we're done. */
-    return ma_resource_manager_delete_data_stream(pResourceManager, &pDataSource->dataStream.stream);
+    return ma_resource_manager_data_stream_uninit(pResourceManager, &pDataSource->dataStream.stream);
 }
 
 static ma_result ma_resource_manager_data_source_uninit_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_data_source* pDataSource)
@@ -2974,7 +2974,7 @@ static ma_result ma_resource_manager_data_source_uninit_buffer(ma_resource_manag
 
     /* The data buffer needs to be deleted. */
     if (pDataSource->dataBuffer.pDataBuffer != NULL) {
-        ma_resource_manager_delete_data_buffer(pResourceManager, pDataSource->dataBuffer.pDataBuffer);
+        ma_resource_manager_data_buffer_uninit(pResourceManager, pDataSource->dataBuffer.pDataBuffer);
         pDataSource->dataBuffer.pDataBuffer = NULL;
     }
 
