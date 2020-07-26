@@ -5,9 +5,7 @@ Everything in this file is experimental and subject to change. Some stuff isn't 
 basically straight off the top of my head - many of these are probably outright wrong or just generally bad ideas.
 
 Very simple APIs for spatialization are declared by not yet implemented. They're just placeholders to give myself an idea on some of the API design. The
-caching system outlined in the resource manager are just ideas off the top of my head. This will almost certainly change. The resource manager currently just
-naively allocates ma_decoder objects on the heap and streams them from the disk. No caching or background loading is going on here - I just want to get some
-API ideas written and a prototype up and and running.
+caching system outlined in the resource manager are just ideas off the top of my head. This will almost certainly change.
 
 The idea is that you have an `ma_engine` object - one per listener. Decoupled from that is the `ma_resource_manager` object. You can have one `ma_resource_manager`
 object to many `ma_engine` objects. This will allow you to share resources for each listener. The `ma_engine` is responsible for the playback of audio from a
@@ -32,40 +30,11 @@ to send me a message and give me your opinions/advice:
 
     - I haven't yet got spatialization working. I'm expecting it may be required to use an acceleration structure for querying audible sounds and only mixing
       those which can be heard by the listener, but then that will cause problems in the mixing thread because that should, ideally, not have any locking.
-    - No caching or background loading is implemented in the resource manager. This is planned.
     - Sound groups can have an effect applied to them before being mixed with the parent group, but I'm considering making it so the effect is not allowed to
       have resampling enabled thereby simplifying memory management between parent and child groups.
 
-
 The best resource to use when understanding the API is the function declarations for `ma_engine`. I expect you should be able to figure it out! :)
 */
-
-/*
-Resource Management
-===================
-Resources are managed via the `ma_resource_manager` API.
-
-At it's core, the resource manager is responsible for the loading and caching of audio data. There are two types of audio data: encoded and decoded. Encoded
-audio data is the raw contents of an audio file on disk. Decoded audio data is raw, uncompressed PCM audio data. Both encoded and decoded audio data are
-associated with a name for purpose of instancing. The idea is that you have one chunk of encoded or decoded audio data to many `ma_data_source` objects. In
-this case, the `ma_data_source` object is the instance.
-
-There are three levels of storage, in order of speed:
-
-    1) Decoded/Uncompressed Cache
-    2) Encoded/Compressed Cache
-    3) Disk (accessed via a VFS)
-
-Whenever a sound is played, it should usually be loaded into one of the in-memory caches (level 1 or 2). 
-*/
-#ifndef miniaudio_engine_h
-#define miniaudio_engine_h
-
-#include "ma_mixing.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*
 Memory Allocation Types
@@ -86,12 +55,173 @@ useful to be told exactly what it being allocated so you can optimize your alloc
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
 
 /*
+Resource Management
+===================
+Many programs will want to manage sound resources for things such as reference counting and streaming. This is supported by miniaudio via the
+`ma_resource_manager` API.
+
+The resource manager is mainly responsible for the following:
+
+    1) Loading of sound files into memory with reference counting.
+    2) Streaming of sound data
+
+When loading a sound file, the resource manager will give you back a data source compatible object called `ma_resource_manager_data_source`. This object can be
+passed into any `ma_data_source` API which is how you can read and seek audio data. When loading a sound file, you specify whether or not you want the sound to
+be fully loaded into memory (and optionally pre-decoded) or streamed. When loading into memory, you can also specify whether or not you want the data to be
+loaded asynchronously.
+
+The example below is how you can initialize a resource manager using it's default configuration:
+
+    ```c
+    ma_resource_manager_config config;
+    ma_resource_manager resourceManager;
+
+    config = ma_resource_manager_config_init();
+    result = ma_resource_manager_init(&config, &resourceManager);
+    if (result != MA_SUCCESS) {
+        ma_device_uninit(&device);
+        printf("Failed to initialize the resource manager.");
+        return -1;
+    }
+    ```
+
+You can configure the format, channels and sample rate of the decoded audio data. By default it will use the file's native data format, but you can configure
+it to use a consistent format. This is useful for offloading the cost of data conversion to load time rather than dynamically converting a mixing time. To do
+this, you configure the decoded format, channels and sample rate like the code below:
+
+    ```c
+    config = ma_resource_manager_config_init();
+    config.decodedFormat     = device.playback.format;
+    config.decodedChannels   = device.playback.channels;
+    config.decodedSampleRate = device.sampleRate;
+    ```
+
+In the code above, the resource manager will be configured so that any decoded audio data will be pre-converted at load time to the device's native data
+format. If instead you used defaults and the data format of the file did not match the device's data format, you would need to convert the data at mixing time
+which may be prohibitive in high-performance and large scale scenarios like games.
+
+Asynchronicity is achieved via a job system. When an operation needs to be performed, such as the decoding of a page, a job will be posted to a queue which
+will then be processed by a job thread. By default there will be only one job thread running, but this can be configured, like so:
+
+    ```c
+    config = ma_resource_manager_config_init();
+    config.jobThreadCount = MY_JOB_THREAD_COUNT;
+    ```
+
+By default job threads are managed internally by the resource manager, however you can also self-manage your job threads if, for example, you want to integrate
+the job processing into your existing job infrastructure, or if you simply don't like the way the resource manager does it. To do this, just set the job thread
+count to 0 and process jobs manually. To process jobs, you first need to retrieve a job using `ma_resource_manager_next_job()` and then process it using
+`ma_resource_manager_process_job()`:
+
+    ```c
+    config = ma_resource_manager_config_init();
+    config.jobThreadCount = 0;                            // Don't manage any job threads internally.
+    config.flags = MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING; // Optional. Makes `ma_resource_manager_next_job()` non-blocking.
+
+    // ... Initialize your custom job threads ...
+
+    void my_custom_job_thread(...)
+    {
+        for (;;) {
+            ma_job job;
+            ma_result result = ma_resource_manager_next_job(pMyResourceManager, &job);
+            if (result != MA_SUCCESS) {
+                if (result == MA_NOT_DATA_AVAILABLE) {
+                    // No jobs are available. Keep going. Will only get this if the resource manager was initialized
+                    // with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING.
+                    continue;
+                } else if (result == MA_CANCELLED) {
+                    // MA_JOB_QUIT was posted. Exit.
+                    break;
+                } else {
+                    // Some other error occurred.
+                    break;
+                }
+            }
+
+            ma_resource_manager_process_job(pMyResourceManager, &job);
+        }
+    }
+    ```
+
+In the example above, the MA_JOB_QUIT event is the used as the termination indicator. You can instead use whatever variable you would like to terminate the
+thread. The call to `ma_resource_manager_next_job()` is blocking by default, by can be configured to be non-blocking by initializing the resource manager
+with the MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING configuration flag.
+
+When loading a file, it's sometimes convenient to be able to customize how files are opened and read. This can be done by setting `pVFS` member of the
+resource manager's config:
+
+    ```c
+    // Initialize your custom VFS object. See documentation for VFS for information on how to do this.
+    my_custom_vfs vfs = my_custom_vfs_init();
+
+    config = ma_resource_manager_config_init();
+    config.pVFS = &vfs;
+    ```
+
+If you do not specify a custom VFS, the resource manager will use the operating system's normal file operations. This is default.
+
+To load a sound file and create a data source, call `ma_resource_manager_data_source_init()`. When loading a sound you need to specify the file path and
+options for how the sounds should be loaded. By default a sound will be loaded synchronously. The returned data source is owned by the caller which means the
+caller is responsible for the allocation and freeing of the data source. Below is an example for initializing a data source:
+
+    ```c
+    ma_resource_manager_data_source dataSource;
+    ma_result result = ma_resource_manager_data_source_init(pResourceManager, pFilePath, flags, &dataSource);
+    if (result != MA_SUCCESS) {
+        // Error.
+    }
+
+    // ...
+
+    // A ma_resource_manager_data_source object is compatible with the `ma_data_source` API. To read data, just call
+    // the `ma_data_source_read_pcm_frames()` like you would with any normal data source.
+    result = ma_data_source_read_pcm_frames(&dataSource, pDecodedData, frameCount, &framesRead);
+    if (result != MA_SUCCESS) {
+        // Failed to read PCM frames.
+    }
+
+    // ...
+
+    ma_resource_manager_data_source_uninit(pResourceManager, &dataSource);
+    ```
+
+The `flags` parameter specifies how you want to perform loading of the sound file. It can be a combination of the following flags:
+
+    ```
+    MA_DATA_SOURCE_STREAM
+    MA_DATA_SOURCE_DECODE
+    MA_DATA_SOURCE_ASYNC
+    ```
+
+When no flags are specified (set to 0), the sound will be fully loaded into memory, but not decoded, meaning the raw file data will be stored in memory, and
+then dynamically decoded when `ma_data_source_read_pcm_frames()` is called. To instead decode the audio data before storing it in memory, use the
+`MA_DATA_SOURCE_DECODE` flag. By default, the sound file will be loaded synchronously, meaning `ma_resource_manager_data_source_init()` will only return after
+the entire file has been loaded. This is good for simplicity, but can be prohibitively slow. You can instead load the sound asynchronously using the
+`MA_DATA_SOURCE_ASYNC` flag. This will result in `ma_resource_manager_data_source_init()` returning quickly, but no data will be returned by
+`ma_data_source_read_pcm_frames()` until some data is available. When no data is available because the asynchronous decoding hasn't caught up, MA_BUSY will be
+returned by `ma_data_source_read_pcm_frames()`.
+
+For large sounds, it's often prohibitive to store the entire file in memory. To mitigate this, you can instead stream audio data which you can do by specifying
+the `MA_DATA_SOURCE_STREAM` flag. When streaming, data will be decoded in 1 second pages. When a new page needs to be decoded, a job will be posted to the job
+queue and then subsequently processed in a job thread.
+*/
+#ifndef miniaudio_engine_h
+#define miniaudio_engine_h
+
+#include "ma_mixing.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
 Resource Manager Data Source Flags
 ==================================
 The flags below are used for controlling how the resource manager should handle the loading and caching of data sources.
 */
-#define MA_DATA_SOURCE_FLAG_DECODE  0x00000001  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-#define MA_DATA_SOURCE_FLAG_STREAM  0x00000002  /* When set, does not load the entire data source in memory. Disk I/O will happen on the resource manager thread. */
+#define MA_DATA_SOURCE_FLAG_STREAM  0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on the resource manager thread. */
+#define MA_DATA_SOURCE_FLAG_DECODE  0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
 #define MA_DATA_SOURCE_FLAG_ASYNC   0x00000004  /* When set, the resource manager will load the data source asynchronously. */
 
 
@@ -359,15 +489,15 @@ struct ma_resource_manager_data_source
 typedef struct
 {
     ma_allocation_callbacks allocationCallbacks;
-    ma_format decodedFormat;
-    ma_uint32 decodedChannels;
-    ma_uint32 decodedSampleRate;
+    ma_format decodedFormat;        /* The decoded format to use. Set to ma_format_unknown (default) to use the file's native format. */
+    ma_uint32 decodedChannels;      /* The decoded channel count to use. Set to 0 (default) to use the file's native channel count. */
+    ma_uint32 decodedSampleRate;    /* the decoded sample rate to use. Set to 0 (default) to use the file's native sample rate. */
     ma_uint32 jobThreadCount;       /* Set to 0 if you want to self-manage your job threads. Defaults to 1. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
 } ma_resource_manager_config;
 
-MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_resource_manager_config ma_resource_manager_config_init();
 
 struct ma_resource_manager
 {
@@ -417,6 +547,7 @@ MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceMana
 MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager);  /* Helper for posting a quit job. */
 MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob);
 MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);
+MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager);   /* Returns MA_CANCELLED if a MA_JOB_QUIT job is found. In non-blocking mode, returns MA_NO_DATA_AVAILABLE if no jobs are available. */
 
 
 /*
@@ -1446,19 +1577,15 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUser
 }
 
 
-MA_API ma_resource_manager_config ma_resource_manager_config_init(ma_format decodedFormat, ma_uint32 decodedChannels, ma_uint32 decodedSampleRate, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_resource_manager_config ma_resource_manager_config_init()
 {
     ma_resource_manager_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.decodedFormat     = decodedFormat;
-    config.decodedChannels   = decodedChannels;
-    config.decodedSampleRate = decodedSampleRate;
+    config.decodedFormat     = ma_format_unknown;
+    config.decodedChannels   = 0;
+    config.decodedSampleRate = 0;
     config.jobThreadCount    = 1;   /* A single miniaudio-managed job thread by default. */
-    
-    if (pAllocationCallbacks != NULL) {
-        config.allocationCallbacks = *pAllocationCallbacks;
-    }
 
     return config;
 }
@@ -1586,7 +1713,7 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     MA_ASSERT(pFilePath        != NULL);
     MA_ASSERT(pDecoder         != NULL);
 
-    config = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
+    config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
     config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
     return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
@@ -2792,16 +2919,10 @@ static ma_result ma_resource_manager_data_source_init_connector(ma_resource_mana
     /*
     We need to initialize either a ma_decoder or an ma_audio_buffer depending on whether or not the backing data is encoded or decoded. These act as the
     "instance" to the data and are used to form the connection between underlying data buffer and the data source. If the data buffer is decoded, we can use
-    an ma_audio_buffer if the data format is identical to the primary format. This enables us to use memory mapping when mixing which saves us a bit of data
-    movement overhead.
+    an ma_audio_buffer. This enables us to use memory mapping when mixing which saves us a bit of data movement overhead.
     */
     if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-        if (pDataBuffer->data.decoded.format     == pResourceManager->config.decodedFormat &&
-            pDataBuffer->data.decoded.sampleRate == pResourceManager->config.decodedSampleRate) {
-            pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_buffer;
-        } else {
-            pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_decoder;
-        }
+        pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_buffer;
     } else {
         pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_decoder;
     }
@@ -2811,14 +2932,16 @@ static ma_result ma_resource_manager_data_source_init_connector(ma_resource_mana
         config = ma_audio_buffer_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.frameCount, pDataBuffer->data.encoded.pData, NULL);
         result = ma_audio_buffer_init(&config, &pDataSource->dataBuffer.connector.buffer);
     } else {
-        ma_decoder_config configIn;
         ma_decoder_config configOut;
-
-        configIn  = ma_decoder_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.sampleRate);
-        configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pDataBuffer->data.decoded.channels, pResourceManager->config.decodedSampleRate);  /* <-- Never perform channel conversion at this level - that will be done at a higher level. */
+        configOut = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
 
         if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-            ma_uint64 sizeInBytes = pDataBuffer->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
+            ma_decoder_config configIn;
+            ma_uint64 sizeInBytes;
+
+            configIn  = ma_decoder_config_init(pDataBuffer->data.decoded.format, pDataBuffer->data.decoded.channels, pDataBuffer->data.decoded.sampleRate);
+
+            sizeInBytes = pDataBuffer->data.decoded.frameCount * ma_get_bytes_per_frame(configIn.format, configIn.channels);
             if (sizeInBytes > MA_SIZE_MAX) {
                 result = MA_TOO_BIG;
             } else {
@@ -3460,7 +3583,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     }
 
     /* We need to initialize the decoder first so we can determine the size of the pages. */
-    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, 0, pResourceManager->config.decodedSampleRate); /* Need to keep the native channel count because we'll be using that for spatialization. */
+    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
     decoderConfig.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
     result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
@@ -3748,13 +3871,31 @@ MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceM
 
         /* Data Source */
         case MA_JOB_LOAD_DATA_SOURCE: return ma_resource_manager_process_job__load_data_source(pResourceManager, pJob);
-        case MA_JOB_FREE_DATA_SOURCE: return ma_resource_manager_process_job__free_data_source(pResourceManager, pJob); /* No used at the moment. Data sources are freed by the caller directly in ma_resource_manager_data_source_uninit(). */
+        case MA_JOB_FREE_DATA_SOURCE: return ma_resource_manager_process_job__free_data_source(pResourceManager, pJob); /* Not used at the moment. Data sources are freed by the caller directly in ma_resource_manager_data_source_uninit(). */
 
         default: break;
     }
 
     /* Getting here means we don't know what the job code is and cannot do anything with it. */
     return MA_INVALID_OPERATION;
+}
+
+MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager)
+{
+    ma_result result;
+    ma_job job;
+
+    if (pResourceManager == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* This will return MA_CANCELLED if the next job is a quit job. */
+    result = ma_resource_manager_next_job(pResourceManager, &job);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_resource_manager_process_job(pResourceManager, &job);
 }
 
 

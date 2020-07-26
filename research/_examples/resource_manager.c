@@ -27,6 +27,7 @@ static ma_uint32                       g_dataSourceCount;
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     /* In this example we're just going to play our data sources layered on top of each other. */
+    ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
     ma_uint32 framesProcessed = 0;
     while (framesProcessed < frameCount) {
         ma_uint64 frameCountIn;
@@ -39,7 +40,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
                 ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], frameCountIn, 1, NULL, MA_TRUE);
             }
         }
-        ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels)));
+        ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * bpf));
 
         framesProcessed += (ma_uint32)frameCountOut;    /* Safe cast. */
     }
@@ -147,13 +148,18 @@ int main(int argc, char** argv)
     We have the device so now we want to initialize the resource manager. We'll use the resource manager to load some
     sounds based on the command line.
     */
-    resourceManagerConfig = ma_resource_manager_config_init(
-        device.playback.format,
-        device.playback.channels,
-        device.sampleRate,
-        NULL);
+    resourceManagerConfig = ma_resource_manager_config_init();
 
-    /* Create this number of job threads to be managed internally. Set this to 0 if you want to self-manage your job threads */
+    /*
+    We'll set a standard decoding format to save us to processing time at mixing time. If you're wanting to use
+    spatialization with your decoded sounds, you may want to consider leaving this as 0 to ensure the file's native
+    channel count is used so you can do proper spatialization.
+    */
+    resourceManagerConfig.decodedFormat     = device.playback.format;
+    resourceManagerConfig.decodedChannels   = device.playback.channels;
+    resourceManagerConfig.decodedSampleRate = device.sampleRate;
+
+    /* The number of job threads to be managed internally. Set this to 0 if you want to self-manage your job threads */
     resourceManagerConfig.jobThreadCount = 4;
 
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
@@ -164,15 +170,20 @@ int main(int argc, char** argv)
     }
 
     /*
-    Now that we have a resource manager we can set up our custom job thread. This is optional. Normally when doing self-managed job threads
-    you would set the internal job thread count to zero. We're doing both internal and self-managed job threads in this example just for
-    demonstration purposes.
+    Now that we have a resource manager we can set up our custom job thread. This is optional. Normally when doing
+    self-managed job threads you would set the internal job thread count to zero. We're doing both internal and
+    self-managed job threads in this example just for demonstration purposes.
     */
     ma_thread_create(&jobThread, ma_thread_priority_default, 0, custom_job_thread, &resourceManager);
 
     /* Create each data source from the resource manager. Note that the caller is the owner. */
     for (iFile = 0; iFile < ma_countof(g_dataSources) && iFile < argc-1; iFile += 1) {
-        result = ma_resource_manager_data_source_init(&resourceManager, argv[iFile+1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &g_dataSources[iFile]);
+        result = ma_resource_manager_data_source_init(
+            &resourceManager,
+            argv[iFile+1],
+            MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/,
+            &g_dataSources[iFile]);
+
         if (result != MA_SUCCESS) {
             break;
         }
@@ -186,17 +197,18 @@ int main(int argc, char** argv)
 
     /* Teardown. */
 
-    /* Uninitialize the device first to ensure the data callback is stopped and doesn't try to access any data sources. */
+    /* Uninitialize the device first to ensure the data callback is stopped and doesn't try to access any data. */
     ma_device_uninit(&device);
 
     /*
-    Before uninitializing the resource manager we need to make sure a quit event has been posted to ensure we can get out of our custom thread. The
-    call to ma_resource_manager_uninit() will also do this, but we need to call it explicitly so that our thread can exit naturally. You only need
-    to post a quit job if you're using that as the exit indicator. You can instead use whatever variable you want to terminate your job thread, but
-    since this example is using a quit job we need to post one.
+    Before uninitializing the resource manager we need to make sure a quit event has been posted to ensure we can get
+    out of our custom thread. The call to ma_resource_manager_uninit() will also do this, but we need to call it
+    explicitly so that our thread can exit naturally. You only need to post a quit job if you're using that as the exit
+    indicator. You can instead use whatever variable you want to terminate your job thread, but since this example is
+    using a quit job we need to post one.
     */
     ma_resource_manager_post_job_quit(&resourceManager);
-    ma_thread_wait(&jobThread); /* Wait for the custom job thread to finish before uninitializing the resource manager. */
+    ma_thread_wait(&jobThread); /* Wait for the custom job thread to finish so it doesn't try to access any data. */
     
     /* Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do it for us. */
     for (iFile = 0; (size_t)iFile < g_dataSourceCount; iFile += 1) {
@@ -206,7 +218,10 @@ int main(int argc, char** argv)
     /* Uninitialize the resource manager after each data source. */
     ma_resource_manager_uninit(&resourceManager);
 
-    /* We're uninitializing the mixer last, but it doesn't really matter when it's done, so long as it's after the device has been stopped/uninitialized. */
+    /*
+    We're uninitializing the mixer last, but it doesn't matter when it's done, so long as it's after the device has
+    been stopped/uninitialized.
+    */
     ma_mixer_uninit(&g_mixer);
     
     return 0;
