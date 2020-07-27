@@ -3482,7 +3482,7 @@ struct ma_context
             
             /*AudioComponent*/ ma_ptr component;
             
-            ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not we should explicitly deactivation the audio session on iOS. Set from the config in ma_context_init__coreaudio(). */
+            ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not the iOS audio session should be explicitly deactivated. Set from the config in ma_context_init__coreaudio(). */
         } coreaudio;
 #endif
 #ifdef MA_SUPPORT_SNDIO
