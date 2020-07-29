@@ -3555,7 +3555,14 @@ struct ma_context
 #ifdef MA_SUPPORT_OPENSL
         struct
         {
-            int _unused;
+            ma_handle libOpenSLES;
+            ma_handle SL_IID_ENGINE;
+            ma_handle SL_IID_AUDIOIODEVICECAPABILITIES;
+            ma_handle SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+            ma_handle SL_IID_RECORD;
+            ma_handle SL_IID_PLAY;
+            ma_handle SL_IID_OUTPUTMIX;
+            ma_proc   slCreateEngine;
         } opensl;
 #endif
 #ifdef MA_SUPPORT_WEBAUDIO
@@ -28878,6 +28885,8 @@ OpenSL|ES Backend
 #include <SLES/OpenSLES_Android.h>
 #endif
 
+typedef SLresult (SLAPIENTRY * ma_slCreateEngine_proc)(SLObjectItf* pEngine, SLuint32 numOptions, SLEngineOption* pEngineOptions, SLuint32 numInterfaces, SLInterfaceID* pInterfaceIds, SLboolean* pInterfaceRequired);
+
 /* OpenSL|ES has one-per-application objects :( */
 SLObjectItf g_maEngineObjectSL = NULL;
 SLEngineItf g_maEngineSL = NULL;
@@ -29097,7 +29106,7 @@ static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_e
     SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
 
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         /* The interface may not be supported so just report a default device. */
         goto return_default_device;
@@ -29203,7 +29212,7 @@ static ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_dev
     */
 #if 0 && !defined(MA_ANDROID)
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         /* The interface may not be supported so just report a default device. */
         goto return_default_device;
@@ -29492,7 +29501,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     SLresult resultSL;
     ma_uint32 periodSizeInFrames;
     size_t bufferSizeInBytes;
-    const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
+    SLInterfaceID itfIDs1[0];
     const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
 #endif
 
@@ -29513,6 +29522,8 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     queues).
     */
 #ifdef MA_ANDROID
+    itfIDs1[0] = (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+
     /* No exclusive mode with OpenSL|ES. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
         ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
@@ -29569,13 +29580,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio recorder.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -29628,7 +29639,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, (SLInterfaceID)pContext->opensl.SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", ma_result_from_OpenSL(resultSL));
@@ -29672,13 +29683,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -29886,15 +29897,90 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
     return MA_SUCCESS;
 }
 
+static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, const char* pName, ma_handle* pHandle)
+{
+    /* We need to return an error if the symbol cannot be found. This is important because there have been reports that some symbols do not exist. */
+    ma_handle* p = (ma_handle*)ma_dlsym(pContext, pContext->opensl.libOpenSLES, pName);
+    if (p == NULL) {
+        ma_post_log_messagef(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol %s", pName);
+        return MA_NO_BACKEND;
+    }
+
+    *pHandle = *p;
+    return MA_SUCCESS;
+}
+
 static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_result result;
+    size_t i;
+    const char* libOpenSLESNames[] = {
+        "libOpenSLES.so"
+    };
+
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
+    /*
+    Dynamically link against libOpenSLES.so. I have now had multiple reports that SL_IID_ANDROIDSIMPLEBUFFERQUEUE cannot be found. One
+    report was happening at compile time and another at runtime. To try working around this, I'm going to link to libOpenSLES at runtime
+    and extract the symbols rather than reference them directly. This should, hopefully, fix these issues as the compiler won't see any
+    references to the symbols and will hopefully skip the checks.
+    */
+    for (i = 0; i < ma_countof(libOpenSLESNames); i += 1) {
+        pContext->opensl.libOpenSLES = ma_dlopen(pContext, libOpenSLESNames[i]);
+        if (pContext->opensl.libOpenSLES != NULL) {
+            break;
+        }
+    }
+
+    if (pContext->opensl.libOpenSLES == NULL) {
+        return MA_NO_BACKEND;   /* Couldn't find libOpenSLES.so */
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ENGINE", &pContext->opensl.SL_IID_ENGINE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_AUDIOIODEVICECAPABILITIES", &pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDSIMPLEBUFFERQUEUE", &pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_RECORD", &pContext->opensl.SL_IID_RECORD);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_PLAY", &pContext->opensl.SL_IID_PLAY);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_OUTPUTMIX", &pContext->opensl.SL_IID_OUTPUTMIX);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(pContext, pContext->opensl.libOpenSLES, "slCreateEngine");
+    if (pContext->opensl.slCreateEngine == NULL) {
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
+        return MA_NO_BACKEND;
+    }
+
+
     /* Initialize global data first if applicable. */
-    if (c89atomic_fetch_add_32(&g_maOpenSLInitCounter, 1) == 0) {
-        SLresult resultSL = slCreateEngine(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
+    if (c89atomic_fetch_add_32(&g_maOpenSLInitCounter, 1) == 0) {   /* TODO: Use a spinlock here and remove the atomic increment (can be done with a normal increment inside the critical section). */
+        SLresult resultSL;
+
+        resultSL = ((ma_slCreateEngine_proc)pContext->opensl.slCreateEngine)(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
             c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
             return ma_result_from_OpenSL(resultSL);
@@ -29902,7 +29988,7 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
 
         (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
 
-        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_ENGINE, &g_maEngineSL);
+        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_ENGINE, &g_maEngineSL);
         if (resultSL != SL_RESULT_SUCCESS) {
             (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
             c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
