@@ -28888,9 +28888,10 @@ OpenSL|ES Backend
 typedef SLresult (SLAPIENTRY * ma_slCreateEngine_proc)(SLObjectItf* pEngine, SLuint32 numOptions, SLEngineOption* pEngineOptions, SLuint32 numInterfaces, SLInterfaceID* pInterfaceIds, SLboolean* pInterfaceRequired);
 
 /* OpenSL|ES has one-per-application objects :( */
-SLObjectItf g_maEngineObjectSL = NULL;
-SLEngineItf g_maEngineSL = NULL;
-ma_uint32 g_maOpenSLInitCounter = 0;
+static SLObjectItf g_maEngineObjectSL    = NULL;
+static SLEngineItf g_maEngineSL          = NULL;
+static ma_uint32   g_maOpenSLInitCounter = 0;
+static ma_spinlock g_maOpenSLSpinlock    = 0;   /* For init/uninit. */
 
 #define MA_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
 #define MA_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
@@ -29888,11 +29889,16 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
     (void)pContext;
 
     /* Uninit global data. */
-    if (g_maOpenSLInitCounter > 0) {
-        if (c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1) == 1) {
+    ma_spinlock_lock(&g_maOpenSLSpinlock);
+    {
+        MA_ASSERT(g_maOpenSLInitCounter > 0);   /* If you've triggered this, it means you have ma_context_init/uninit mismatch. Each successful call to ma_context_init() must be matched up with a call to ma_context_uninit(). */
+
+        g_maOpenSLInitCounter -= 1;
+        if (g_maOpenSLInitCounter == 0) {
             (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
         }
     }
+    ma_spinlock_unlock(&g_maOpenSLSpinlock);
 
     return MA_SUCCESS;
 }
@@ -29907,6 +29913,31 @@ static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, const char
     }
 
     *pHandle = *p;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext)
+{
+    g_maOpenSLInitCounter += 1;
+    if (g_maOpenSLInitCounter == 1) {
+        SLresult resultSL;
+
+        resultSL = ((ma_slCreateEngine_proc)pContext->opensl.slCreateEngine)(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            g_maOpenSLInitCounter -= 1;
+            return ma_result_from_OpenSL(resultSL);
+        }
+
+        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
+
+        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_ENGINE, &g_maEngineSL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
+            g_maOpenSLInitCounter -= 1;
+            return ma_result_from_OpenSL(resultSL);
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -29977,24 +30008,16 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
 
 
     /* Initialize global data first if applicable. */
-    if (c89atomic_fetch_add_32(&g_maOpenSLInitCounter, 1) == 0) {   /* TODO: Use a spinlock here and remove the atomic increment (can be done with a normal increment inside the critical section). */
-        SLresult resultSL;
-
-        resultSL = ((ma_slCreateEngine_proc)pContext->opensl.slCreateEngine)(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
-
-        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_ENGINE, &g_maEngineSL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
-            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
-            return ma_result_from_OpenSL(resultSL);
-        }
+    ma_spinlock_lock(&g_maOpenSLSpinlock);
+    {
+        result = ma_context_init_engine_nolock__opensl(pContext);
     }
+    ma_spinlock_unlock(&g_maOpenSLSpinlock);
+
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the OpenSL engine. */
+    }
+
 
     pContext->isBackendAsynchronous = MA_TRUE;
 
