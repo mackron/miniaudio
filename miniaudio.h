@@ -62265,6 +62265,8 @@ REVISION HISTORY
 ================
 v0.10.16 - TBD
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
+  - OpenSL: Enable runtime linking.
+  - OpenSL: Fix a multithreading bug when initializing and uninitializing multiple contexts at the same time.
   - iOS: Improvements to device enumeration.
   - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
   - Fix some compilation warnings when no decoders are enabled.
