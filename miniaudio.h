@@ -29502,7 +29502,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     SLresult resultSL;
     ma_uint32 periodSizeInFrames;
     size_t bufferSizeInBytes;
-    SLInterfaceID itfIDs1[0];
+    SLInterfaceID itfIDs1[1];
     const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
 #endif
 
