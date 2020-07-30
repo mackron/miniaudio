@@ -23631,12 +23631,14 @@ static ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, 
     return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
 }
 
+#if !defined(MA_APPLE_DESKTOP)
 static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDescription* pPortDesc, ma_device_info* pInfo)
 {
     MA_ZERO_OBJECT(pInfo);
     ma_strncpy_s(pInfo->name,         sizeof(pInfo->name),         [pPortDesc.portName UTF8String], (size_t)-1);
     ma_strncpy_s(pInfo->id.coreaudio, sizeof(pInfo->id.coreaudio), [pPortDesc.UID      UTF8String], (size_t)-1);
 }
+#endif
 
 static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
