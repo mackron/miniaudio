@@ -13580,7 +13580,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 if (pMappedDeviceBufferPlayback == NULL) {
                     /* WASAPI is weird with exclusive mode. You need to wait on the event _before_ querying the available frames. */
                     if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                             return MA_ERROR;   /* Wait failed. */
                         }
                     }
@@ -13604,7 +13604,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     if (framesAvailablePlayback == 0) {
                         /* In exclusive mode we waited at the top. */
                         if (pDevice->playback.shareMode != ma_share_mode_exclusive) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -13629,7 +13629,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     /* Try grabbing some captured data if we haven't already got a mapped buffer. */
                     if (pMappedDeviceBufferCapture == NULL) {
                         if (pDevice->capture.shareMode == ma_share_mode_shared) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -13646,7 +13646,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         if (framesAvailableCapture == 0) {
                             /* In exclusive mode we waited at the top. */
                             if (pDevice->capture.shareMode != ma_share_mode_shared) {
-                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                                     return MA_ERROR;   /* Wait failed. */
                                 }
                             }
@@ -13889,7 +13889,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
 
                 /* Wait for data to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                     exitLoop = MA_TRUE;
                     break;   /* Wait failed. */
                 }
@@ -13987,7 +13987,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 ma_uint32 framesAvailablePlayback;
 
                 /* Wait for space to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                     exitLoop = MA_TRUE;
                     break;   /* Wait failed. */
                 }
