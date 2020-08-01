@@ -10443,7 +10443,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_INVALID_OPERATION);
+            c89atomic_exchange_32(&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
         }
