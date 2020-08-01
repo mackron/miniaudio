@@ -13405,6 +13405,9 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
     */
 #ifdef MA_WIN32_DESKTOP
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
+        ma_IMMDeviceEnumerator* pDeviceEnumerator;
+        HRESULT hr;
+
         if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
@@ -13412,26 +13415,23 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
 
-        //if (pDevice->wasapi.allowCaptureAutoStreamRouting || pDevice->wasapi.allowPlaybackAutoStreamRouting) {
-            ma_IMMDeviceEnumerator* pDeviceEnumerator;
-            HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-            if (FAILED(hr)) {
-                ma_device_uninit__wasapi(pDevice);
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
-            }
+        hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+        if (FAILED(hr)) {
+            ma_device_uninit__wasapi(pDevice);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
+        }
 
-            pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
-            pDevice->wasapi.notificationClient.counter = 1;
-            pDevice->wasapi.notificationClient.pDevice = pDevice;
+        pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
+        pDevice->wasapi.notificationClient.counter = 1;
+        pDevice->wasapi.notificationClient.pDevice = pDevice;
 
-            hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-            if (SUCCEEDED(hr)) {
-                pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
-            } else {
-                /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
-                ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            }
-        //}
+        hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+        if (SUCCEEDED(hr)) {
+            pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
+        } else {
+            /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
+            ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
+        }
     }
 #endif
 
