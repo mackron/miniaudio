@@ -7719,6 +7719,7 @@ typedef unsigned char      c89atomic_flag;
             static C89ATOMIC_INLINE void __stdcall c89atomic_thread_fence(int order)
             {
                 volatile c89atomic_uint32 barrier;
+                (void)order;
                 __asm {
                     xchg barrier, eax
                 }
@@ -7857,7 +7858,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue - src;
+            newValue = (c89atomic_uint8)(oldValue - src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7868,7 +7869,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue - src;
+            newValue = (c89atomic_uint16)(oldValue - src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7901,7 +7902,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue & src;
+            newValue = (c89atomic_uint8)(oldValue & src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7912,7 +7913,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue & src;
+            newValue = (c89atomic_uint16)(oldValue & src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7945,7 +7946,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue ^ src;
+            newValue = (c89atomic_uint8)(oldValue ^ src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7956,7 +7957,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue ^ src;
+            newValue = (c89atomic_uint16)(oldValue ^ src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -7989,7 +7990,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue | src;
+            newValue = (c89atomic_uint8)(oldValue | src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -8000,7 +8001,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue | src;
+            newValue = (c89atomic_uint16)(oldValue | src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
