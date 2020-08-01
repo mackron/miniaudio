@@ -41230,7 +41230,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 If we encounted an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
                 not necessarily considered an error. 
                 */
-                if (result != MA_SUCCESS) {
+                if (result != MA_SUCCESS && result != MA_AT_END) {
                     break;
                 }
 
@@ -41238,7 +41238,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 We can determine if we've reached the end by checking the return value of the onRead() callback. If it's less than what we requested it means
                 we've reached the end. To loop back to the start, all we need to do is seek back to the first frame.
                 */
-                if (framesProcessed < framesRemaining) {
+                if (framesProcessed < framesRemaining || result == MA_AT_END) {
                     if (ma_data_source_seek_to_pcm_frame(pDataSource, 0) != MA_SUCCESS) {
                         break;
                     }
@@ -41249,7 +41249,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 }
             }
 
-            *pFramesRead = totalFramesProcessed;
+            if (pFramesRead != NULL) {
+                *pFramesRead = totalFramesProcessed;
+            }
+
             return result;
         }
     }
@@ -62309,6 +62312,8 @@ v0.10.16 - TBD
   - OpenSL: Enable runtime linking.
   - OpenSL: Fix a multithreading bug when initializing and uninitializing multiple contexts at the same time.
   - iOS: Improvements to device enumeration.
+  - Fix a crash in ma_data_source_read_pcm_frames() when the output frame count parameter is NULL.
+  - Fix a bug in ma_data_source_read_pcm_frames() where looping doesn't work.
   - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
   - Fix some compilation warnings when no decoders are enabled.
   - Updates to documentation.
