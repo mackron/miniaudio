@@ -1473,56 +1473,34 @@ extern "C" {
 
 #include <stddef.h> /* For size_t. */
 
-/* Sized types. Prefer built-in types. Fall back to stdint. */
-#ifdef _MSC_VER
-    #if defined(__clang__)
+/* Sized types. */
+typedef   signed char           ma_int8;
+typedef unsigned char           ma_uint8;
+typedef   signed short          ma_int16;
+typedef unsigned short          ma_uint16;
+typedef   signed int            ma_int32;
+typedef unsigned int            ma_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    ma_int64;
+    typedef unsigned __int64    ma_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
         #pragma GCC diagnostic ignored "-Wlong-long"
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  ma_int8;
-    typedef unsigned __int8  ma_uint8;
-    typedef   signed __int16 ma_int16;
-    typedef unsigned __int16 ma_uint16;
-    typedef   signed __int32 ma_int32;
-    typedef unsigned __int32 ma_uint32;
-    typedef   signed __int64 ma_int64;
-    typedef unsigned __int64 ma_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  ma_int64;
+    typedef unsigned long long  ma_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #define MA_HAS_STDINT
-    #include <stdint.h>
-    typedef int8_t   ma_int8;
-    typedef uint8_t  ma_uint8;
-    typedef int16_t  ma_int16;
-    typedef uint16_t ma_uint16;
-    typedef int32_t  ma_int32;
-    typedef uint32_t ma_uint32;
-    typedef int64_t  ma_int64;
-    typedef uint64_t ma_uint64;
 #endif
-
-#ifdef MA_HAS_STDINT
-    typedef uintptr_t ma_uintptr;
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef ma_uint64           ma_uintptr;
 #else
-    #if defined(_WIN32)
-        #if defined(_WIN64)
-            typedef ma_uint64 ma_uintptr;
-        #else
-            typedef ma_uint32 ma_uintptr;
-        #endif
-    #elif defined(__GNUC__)
-        #if defined(__LP64__)
-            typedef ma_uint64 ma_uintptr;
-        #else
-            typedef ma_uint32 ma_uintptr;
-        #endif
-    #else
-        typedef ma_uint64 ma_uintptr;   /* Fallback. */
-    #endif
+    typedef ma_uint32           ma_uintptr;
 #endif
 
 typedef ma_uint8    ma_bool8;
