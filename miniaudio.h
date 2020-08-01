@@ -11911,7 +11911,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
     ma_bool32 isThisDevice = MA_FALSE;
 
 #ifdef MA_DEBUG_OUTPUT
-    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);
+    /*printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);*/
 #endif
 
     if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
@@ -11922,13 +11922,13 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
     There have been reports of a hang when a playback device is disconnected. The idea with this code is to explicitly stop the device if we detect
     that the device is disabled or has been unplugged.
     */
-    if (pThis->pDevice->type == ma_device_type_capture || pThis->pDevice->type == ma_device_type_duplex || pThis->pDevice->type == ma_device_type_loopback) {
+    if (pThis->pDevice->wasapi.allowCaptureAutoStreamRouting && (pThis->pDevice->type == ma_device_type_capture || pThis->pDevice->type == ma_device_type_duplex || pThis->pDevice->type == ma_device_type_loopback)) {
         if (wcscmp(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
             isThisDevice = MA_TRUE;
         }
     }
 
-    if (pThis->pDevice->type == ma_device_type_playback || pThis->pDevice->type == ma_device_type_duplex) {
+    if (pThis->pDevice->wasapi.allowPlaybackAutoStreamRouting && (pThis->pDevice->type == ma_device_type_playback || pThis->pDevice->type == ma_device_type_duplex)) {
         if (wcscmp(pThis->pDevice->playback.id.wasapi, pDeviceID) == 0) {
             isThisDevice = MA_TRUE;
         }
@@ -13233,6 +13233,8 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
+    HRESULT hr;
+    ma_IMMDeviceEnumerator* pDeviceEnumerator;
 
     (void)pContext;
 
@@ -13401,38 +13403,36 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
     }
 
     /*
-    We need to get notifications of when the default device changes. We do this through a device enumerator by
-    registering a IMMNotificationClient with it. We only care about this if it's the default device.
+    We need to register a notification client to detect when the device has been disabled, unplugged or re-routed (when the default device changes). When
+    we are connecting to the default device we want to do automatic stream routing when the device is disabled or unplugged. Otherwise we want to just
+    stop the device outright and let the application handle it.
     */
 #ifdef MA_WIN32_DESKTOP
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
-        ma_IMMDeviceEnumerator* pDeviceEnumerator;
-        HRESULT hr;
-
         if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
         if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
+    }
 
-        hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-        if (FAILED(hr)) {
-            ma_device_uninit__wasapi(pDevice);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
-        }
+    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        ma_device_uninit__wasapi(pDevice);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
+    }
 
-        pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
-        pDevice->wasapi.notificationClient.counter = 1;
-        pDevice->wasapi.notificationClient.pDevice = pDevice;
+    pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
+    pDevice->wasapi.notificationClient.counter = 1;
+    pDevice->wasapi.notificationClient.pDevice = pDevice;
 
-        hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-        if (SUCCEEDED(hr)) {
-            pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
-        } else {
-            /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
-            ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-        }
+    hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+    if (SUCCEEDED(hr)) {
+        pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
+    } else {
+        /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
+        ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
     }
 #endif
 
