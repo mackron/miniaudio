@@ -3663,6 +3663,7 @@ struct ma_device
     } resampling;
     struct
     {
+        ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_bool32 usingDefaultFormat     : 1;
@@ -3681,6 +3682,7 @@ struct ma_device
     } playback;
     struct
     {
+        ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_bool32 usingDefaultFormat     : 1;
@@ -11903,16 +11905,38 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
     return (ULONG)newRefCount;
 }
 
-
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
+    ma_bool32 isThisDevice = MA_FALSE;
+
 #ifdef MA_DEBUG_OUTPUT
-    /*printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);*/
+    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);
 #endif
 
-    (void)pThis;
-    (void)pDeviceID;
-    (void)dwNewState;
+    if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
+        return S_OK;
+    }
+
+    /*
+    There have been reports of a hang when a playback device is disconnected. The idea with this code is to explicitly stop the device if we detect
+    that the device is disabled or has been unplugged.
+    */
+    if (pThis->pDevice->type == ma_device_type_capture || pThis->pDevice->type == ma_device_type_duplex || pThis->pDevice->type == ma_device_type_loopback) {
+        if (wcscmp(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
+            isThisDevice = MA_TRUE;
+        }
+    }
+
+    if (pThis->pDevice->type == ma_device_type_playback || pThis->pDevice->type == ma_device_type_duplex) {
+        if (wcscmp(pThis->pDevice->playback.id.wasapi, pDeviceID) == 0) {
+            isThisDevice = MA_TRUE;
+        }
+    }
+
+    if (isThisDevice) {
+        ma_device_stop(pThis->pDevice);
+    }
+    
     return S_OK;
 }
 
@@ -13388,7 +13412,7 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
 
-        if (pDevice->wasapi.allowCaptureAutoStreamRouting || pDevice->wasapi.allowPlaybackAutoStreamRouting) {
+        //if (pDevice->wasapi.allowCaptureAutoStreamRouting || pDevice->wasapi.allowPlaybackAutoStreamRouting) {
             ma_IMMDeviceEnumerator* pDeviceEnumerator;
             HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
             if (FAILED(hr)) {
@@ -13407,7 +13431,7 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
                 /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
                 ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
             }
-        }
+        //}
     }
 #endif
 
@@ -13503,11 +13527,17 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     /*
-    We need to explicitly signal the capture event in loopback mode to ensure we return from WaitForSingleObject() when nothing is being played. When nothing
+    It's possible for the main loop to get stuck if the device is disconnected.
+    
+    In loopback mode it's possible for WaitForSingleObject() to get stuck in a deadlock when nothing is being played. When nothing
     is being played, the event is never signalled internally by WASAPI which means we will deadlock when stopping the device.
     */
-    if (pDevice->type == ma_device_type_loopback) {
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_duplex) {
         SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        SetEvent((HANDLE)pDevice->wasapi.hEventPlayback);
     }
 
     return MA_SUCCESS;
@@ -14075,8 +14105,11 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
         if (pDevice->wasapi.isStartedPlayback) {
+            /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
+            DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
+
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
             } else {
                 ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
                 ma_uint32 framesAvailablePlayback;
@@ -14099,7 +14132,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     }
                     prevFramesAvaialablePlayback = framesAvailablePlayback;
 
-                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
                     ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
                 }
             }
@@ -31469,6 +31502,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
     }
 
+    if (config.playback.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->playback.id, config.playback.pDeviceID, sizeof(pDevice->playback.id));
+    }
+    if (config.capture.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->capture.id, config.capture.pDeviceID, sizeof(pDevice->capture.id));
+    }
+
     pDevice->noPreZeroedOutputBuffer = config.noPreZeroedOutputBuffer;
     pDevice->noClip = config.noClip;
     pDevice->masterVolumeFactor = 1;
@@ -31840,7 +31880,6 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         ma_device__set_state(pDevice, MA_STATE_STOPPING);
 
         /* There's no need to wake up the thread like we do when starting. */
-
         if (pDevice->pContext->onDeviceStop) {
             result = pDevice->pContext->onDeviceStop(pDevice);
         } else {
