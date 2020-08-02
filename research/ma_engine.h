@@ -205,6 +205,123 @@ returned by `ma_data_source_read_pcm_frames()`.
 For large sounds, it's often prohibitive to store the entire file in memory. To mitigate this, you can instead stream audio data which you can do by specifying
 the `MA_DATA_SOURCE_STREAM` flag. When streaming, data will be decoded in 1 second pages. When a new page needs to be decoded, a job will be posted to the job
 queue and then subsequently processed in a job thread.
+
+When loading asynchronously, it can be useful to poll whether or not loading has finished. Use `ma_resource_manager_data_source_result()` to determine this.
+For in-memory sounds, this will return `MA_SUCCESS` when the file has been *entirely* decoded. If the sound is still being decoded, `MA_BUSY` will be returned.
+Otherwise, some other error code will be returned if the sound failed to load. For streaming data sources, `MA_SUCCESS` will be returned when the first page
+has been decoded and the sound is ready to be played. If the first page is still being decoded, `MA_BUSY` will be returned. Otherwise, some other error code
+will be returned if the sound failed to load.
+
+For in-memory sounds, reference counting is used to ensure the data is loaded only once. This means multiple calls to `ma_resource_manager_data_source_init()`
+with the same file path will result in the file data only being loaded once. Each call to `ma_resource_manager_data_source_init()` must be matched up with a
+call to `ma_resource_manager_data_source_uninit()`. Sometimes it can be useful for a program to register self-managed raw audio data and associate it with a
+file path. Use `ma_resource_manager_register_decoded_data()`, `ma_resource_manager_register_encoded_data()` and `ma_resource_manager_unregister_data()` to do
+this. `ma_resource_manager_register_decoded_data()` is used to associate a pointer to raw, self-managed decoded audio data in the specified data format with
+the specified name. Likewise, `ma_resource_manager_register_encoded_data()` is used to associate a pointer to raw self-managed encoded audio data (the raw
+file data) with the specified name. Note that these names need not be actual file paths. When `ma_resource_manager_data_source_init()` is called (without the
+`MA_DATA_SOURCE_STREAM` flag), the resource manager will look for these explicitly registered data buffers and, if found, will use it as the backing data for
+the data source. Note that the resource manager does *not* make a copy of this data so it is up to the caller to ensure the pointer stays valid for it's
+lifetime. Use `ma_resource_manager_unregister_data()` to unregister the self-managed data. It does not make sense to use the `MA_DATA_SOURCE_STREAM` flag with
+a self-managed data pointer. When `MA_DATA_SOURCE_STREAM` is specified, it will try loading the file data through the VFS.
+
+
+Resource Manager Implementation Details
+---------------------------------------
+Resources are managed in two main ways:
+
+    1) By storing the entire sound inside an in-memory buffer (referred to as a data buffer - `ma_resource_manager_data_buffer`)
+    2) By streaming audio data on the fly (referred to as a data stream - `ma_resource_manager_data_stream`)
+
+A resource managed data source (`ma_resource_manager_data_source`) encapsulates a data buffer or data stream, depending on whether or not the data source was
+initialized with the `MA_DATA_SOURCE_FLAG_STREAM` flag. If so, it will make use of a `ma_resource_manager_data_stream` object. Otherwise it will use a
+`ma_resource_manager_data_buffer` object.
+
+Another major feature of the resource manager is the ability to asynchronously decode audio files. This relieves the audio thread of time-consuming decoding
+which can negatively affect scalability due to the audio thread needing to complete it's work extremely quickly to avoid glitching. Asynchronous decoding is
+achieved through a job system. There is a central multi-producer, multi-consumer, lock-free, fixed-capacity job queue. When some asynchronous work needs to be
+done, a job is posted to the queue which is then read by a job thread. The number of job threads can be configured for improved scalability, and job threads
+can all run in parallel without needing to worry about the order of execution (how this is achieved is explained below).
+
+When a sound is being loaded asynchronously, playback can begin before the sound has been fully decoded. The enables the application to start playback of the
+sound quickly, while at the same time allowing to resource manager to keep loading in the background. Since there may be less threads than the number of sounds
+being loaded at a given time, a simple scheduling system is used to keep decoding time fair. The resource manager solves this by splitting decoding into chunks
+called pages. By default, each page is 1 second long. When a page has been decoded, the a new job will be posted to start decoding the next page. By dividing
+up decoding into pages, an individual sound shouldn't ever delay every other sound from having their first page decoded. Of course, when loading many sounds at
+the same time, there will always be an amount of time required to process jobs in the queue so in heavy load situations there will still be some delay. To
+determine if a data source is ready to have some frames read, use `ma_resource_manager_data_source_get_available_frames()`. This will return the number of
+frames available starting from the current position.
+
+
+Data Buffers
+------------
+When the `MA_DATA_SOURCE_FLAG_STREAM` flag is not specified at initialization time, the resource manager will try to load the data into an in-memory data
+buffer. Before doing so, however, it will first check if the specified file has already been loaded. If so, it will increment a reference counter and just use
+the already loaded data. This saves both time and memory. A binary search tree (BST) is used for storing data buffers as it has good balance between efficiency
+and simplicity. The key of the BST is a 64-bit hash of the file path that was passed into `ma_resource_manager_data_source_init()`. The advantage of using a
+hash is that it saves memory over storing the entire path, has faster comparisons, and results in a mostly balanced BST due to the random nature of the hash.
+The disadvantage is that file names are case-sensitive. If this is an issue, you should normalize your file names to upper- or lower-case before initializing
+your data sources.
+
+When a sound file has not already been loaded and the `MA_DATA_SOURCE_ASYNC` is not specified, the file will be decoded synchronously by the calling thread.
+There are two options for controlling how the audio is stored in the data buffer - encoded or decoded. When the `MA_DATA_SOURCE_DECODE` option is not
+specified, the raw file data will be stored in memory. Otherwise the sound will be decoded before storing it in memory. Synchronous loading is a very simple
+and standard process of simply adding an item to the BST, allocating a block of memory and then decoding (if `MA_DATA_SOURCE_DECODE` is specified).
+
+When the `MA_DATA_SOURCE_ASYNC` flag is specified, loading of the data buffer is done asynchronously. In this case, a job is posted to the queue to start
+loading and then the function instantly returns, setting an internal result code to `MA_BUSY`. This result code is returned when the program calls
+`ma_resource_manager_data_source_result()`. When decoding has fully completed, `MA_RESULT` will be returned. This can be used to know if loading has fully
+completed.
+
+When loading asynchronously, a single job is posted to the queue of the type `MA_JOB_LOAD_DATA_BUFFER`. This involves making a copy of the file path and
+associating it with job. When the job is processed by the job thread, it will first load the file using the VFS associated with the resource manager. When
+using a custom VFS, it's important that it be completely thread-safe because it will be used from one or more job threads at the same time. Individual files
+should only ever be accessed by one thread at a time, however. After opening the file via the VFS, the job will determine whether or not the file is being
+decoded. If not, it simply allocates a block of memory and loads the raw file contents into it and returns. On the other hand, when the file is being decoded,
+it will first allocate a decoder on the heap and initialize it. Then it will check if the length of the file is known. If so it will allocate a block of memory
+to store the decoded output and initialize it to silence. If the size is unknown, it will allocate room for one page. After memory has been allocated, the
+first page will be decoded. If the sound is shorter than a page, the result code will be set to `MA_SUCCESS` and the completion event will be signalled and
+loading is now complete. If, however, there is store more to decode, a job with the code `MA_JOB_PAGE_DATA_BUFFER` is posted. This job will decode the next
+page and perform the same process if it reaches the end. If there is more to decode, the job will post another `MA_JOB_PAGE_DATA_BUFFER` job which will keep on
+happening until the sound has been fully decoded. For sounds of an unknown length, the buffer will be dynamically expanded as necessary, and then shrunk with a
+final realloc() when the end of the file has been reached.
+
+
+Data Streams
+------------
+Data streams only ever store two pages worth of data for each sound. They are most useful for large sounds like music tracks in games which would consume too
+much memory if fully decoded in memory. Only two pages of audio data are stored in memory at a time for each data stream. After every frame from a page has
+been read, a job will be posted to load the next page which is done from the VFS.
+
+For data streams, the `MA_DATA_SOURCE_FLAG_ASYNC` flag will determine whether or not initialization of the data source waits until the two pages have been
+decoded. When unset, `ma_resource_manager_data_source()` will wait until the two pages have been loaded, otherwise it will return immediately.
+
+When frames are read from a data stream using `ma_resource_manager_data_source_read_pcm_frames()`, `MA_BUSY` will be returned if there are no frames available.
+If there are some frames available, but less than the number requested, `MA_SUCCESS` will be returned, but the actual number of frames read will be less than
+the number requested. Due to the asymchronous nature of data streams, seeking is also asynchronous. If the data stream is in the middle of a seek, `MA_BUSY`
+will be returned when trying to read frames.
+
+When `ma_resource_manager_data_source_read_pcm_frames()` results in a page getting fully consumed, a job is posted to load the next page. This will be posted
+from the same thread that called `ma_resource_manager_data_source_read_pcm_frames()` which should be lock-free.
+
+Data streams are uninitialized by posting a job to the queue, but the function won't return until that job has been processed. The reason for this is that the
+caller owns the data stream object and therefore we need to ensure everything completes before handing back control to the caller. Also, if the data stream is
+uninitialized while pages are in the middle of decoding, they must complete before destroying any underlying object and the job system handles this cleanly.
+
+
+Job Queue
+---------
+The resource manager uses a job queue which is multi-producer, multi-consumer, lock-free and fixed-capacity. The lock-free property of the queue is achieved
+using the algorithm described by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors. In
+order for this to work, only a fixed number of jobs can be allocated and inserted into the queue which is done through a lock-free data structure for
+allocating an index into a fixed sized array, with reference counting for mitigation of the ABA problem. The reference count is 32-bit.
+
+For many types of jobs it's important that they execute in a specific order. In these cases, jobs are executed serially. The way in which each type of job
+handles this is specific to the job type. For the resource manager, serial execution of jobs is only required on a per-object basis (per data buffer or per
+data stream). Each of these objects stores an execution counter. When a job is posted it is associated with an execution counter. When the job is processed, it
+checks if the execution counter of the job equals the execution counter of the owning object and if so, processes the job. If the counters are not equal, the
+job will be posted back onto the job queue for later processing. When the job finishes processing the execution order of the main object is incremented. This
+system means the no matter how many job threads are executing, decoding of an individual sound will always get processed serially. The advantage to having
+multiple threads comes into play when loading multiple sounds at the time time.
 */
 #ifndef miniaudio_engine_h
 #define miniaudio_engine_h
@@ -220,7 +337,7 @@ Resource Manager Data Source Flags
 ==================================
 The flags below are used for controlling how the resource manager should handle the loading and caching of data sources.
 */
-#define MA_DATA_SOURCE_FLAG_STREAM  0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on the resource manager thread. */
+#define MA_DATA_SOURCE_FLAG_STREAM  0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
 #define MA_DATA_SOURCE_FLAG_DECODE  0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
 #define MA_DATA_SOURCE_FLAG_ASYNC   0x00000004  /* When set, the resource manager will load the data source asynchronously. */
 
@@ -261,6 +378,7 @@ typedef struct ma_resource_manager_data_source ma_resource_manager_data_source;
 #define MA_JOB_SEEK_DATA_STREAM     0x00000007
 #define MA_JOB_LOAD_DATA_SOURCE     0x00000008
 #define MA_JOB_FREE_DATA_SOURCE     0x00000009
+#define MA_JOB_CUSTOM               0x000000FF  /* Number your custom job codes as (MA_JOB_CUSTOM + 0), (MA_JOB_CUSTOM + 1), etc. */
 
 
 /*
@@ -362,6 +480,14 @@ typedef struct
         {
             ma_resource_manager_data_source* pDataSource;
         } freeDataSource;
+
+
+        /* Others. */
+        struct
+        {
+            ma_uintptr data0;
+            ma_uintptr data1;
+        } custom;
     };
 } ma_job;
 
@@ -826,6 +952,8 @@ MA_API ma_result ma_slot_allocator_init(ma_slot_allocator* pAllocator)
 MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot)
 {
     ma_uint32 capacity;
+    ma_uint32 iAttempt;
+    const ma_uint32 maxAttempts = 2;    /* The number of iterations to perform until returning MA_OUT_OF_MEMORY if no slots can be found. */
 
     if (pAllocator == NULL || pSlot == NULL) {
         return MA_INVALID_ARGS;
@@ -833,7 +961,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 
     capacity = ma_countof(pAllocator->groups) * 32;
 
-    for (;;) {
+    for (iAttempt = 0; iAttempt < maxAttempts; iAttempt += 1) {
         /* We need to acquire a suitable bitfield first. This is a bitfield that's got an available slot within it. */
         ma_uint32 iGroup;
         for (iGroup = 0; iGroup < ma_countof(pAllocator->groups); iGroup += 1) {
@@ -883,7 +1011,8 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
         }
     }
 
-    /* Unreachable. */
+    /* We couldn't find a slot within the maximum number of attempts. */
+    return MA_OUT_OF_MEMORY;
 }
 
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot)
@@ -1792,7 +1921,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         } else {
             /*
             The data needs to be loaded. If we're loading synchronously we need to do everything here on the calling thread. Otherwise we post
-            a job to the job queue and get one of the job threads to do it for us.
+            a job and get one of the job threads to do it for us.
             */
             pDataBuffer->isDataOwnedByResourceManager = MA_TRUE;
             pDataBuffer->result = MA_BUSY;
@@ -2464,7 +2593,7 @@ MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resourc
     } else {
         /*
         The page we're on is valid so we must have some frames available. We need to make sure that we don't overflow into the next page, even if it's valid. The reason is
-        that the unmap process will only post an update for one page at a time, which means it'll possible miss the page update for one of the pages.
+        that the unmap process will only post an update for one page at a time. Keeping mapping tied to page boundaries makes this simpler.
         */
         MA_ASSERT(pDataStream->pageFrameCount[pDataStream->currentPageIndex] >= pDataStream->relativeCursor);
         framesAvailable = pDataStream->pageFrameCount[pDataStream->currentPageIndex] - pDataStream->relativeCursor;
