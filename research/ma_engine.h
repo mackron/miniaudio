@@ -43,16 +43,17 @@ When allocating memory you may want to optimize your custom allocators based on 
 are using the allocator is enough to optimize allocations, however there are high-level APIs that perform many different types of allocations and it can be
 useful to be told exactly what it being allocated so you can optimize your allocations appropriately.
 */
-#define MA_ALLOCATION_TYPE_GENERAL                      0x00000001  /* A general memory allocation. */
-#define MA_ALLOCATION_TYPE_CONTEXT                      0x00000002  /* A ma_context allocation. */
-#define MA_ALLOCATION_TYPE_DEVICE                       0x00000003  /* A ma_device allocation. */
-#define MA_ALLOCATION_TYPE_DECODER                      0x00000004  /* A ma_decoder allocation. */
-#define MA_ALLOCATION_TYPE_AUDIO_BUFFER                 0x00000005  /* A ma_audio_buffer allocation. */
-#define MA_ALLOCATION_TYPE_ENCODED_BUFFER               0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
-#define MA_ALLOCATION_TYPE_DECODED_BUFFER               0x00000007  /* Allocation for decoded audio data from a sound file. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER 0x00000010  /* A ma_resource_manager_data_buffer object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_STREAM 0x00000011  /* A ma_resource_manager_data_stream object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE 0x00000012  /* A ma_resource_manager_data_source object. */
+#define MA_ALLOCATION_TYPE_GENERAL                              0x00000001  /* A general memory allocation. */
+#define MA_ALLOCATION_TYPE_CONTEXT                              0x00000002  /* A ma_context allocation. */
+#define MA_ALLOCATION_TYPE_DEVICE                               0x00000003  /* A ma_device allocation. */
+#define MA_ALLOCATION_TYPE_DECODER                              0x00000004  /* A ma_decoder allocation. */
+#define MA_ALLOCATION_TYPE_AUDIO_BUFFER                         0x00000005  /* A ma_audio_buffer allocation. */
+#define MA_ALLOCATION_TYPE_ENCODED_BUFFER                       0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
+#define MA_ALLOCATION_TYPE_DECODED_BUFFER                       0x00000007  /* Allocation for decoded audio data from a sound file. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER_NODE    0x00000010  /* A ma_resource_manager_data_buffer_node object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER         0x00000011  /* A ma_resource_manager_data_buffer object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_STREAM         0x00000012  /* A ma_resource_manager_data_stream object. */
+#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE         0x00000013  /* A ma_resource_manager_data_source object. */
 
 /*
 Resource Management
@@ -639,13 +640,16 @@ struct ma_resource_manager
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
+/* Registration. */
+MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+
 /* Data Buffers. */
 MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_resource_manager_data_buffer_encoding type, ma_bool32 async, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer);
-MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
-MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
-MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
 
 /* Data Streams. */
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
@@ -658,6 +662,7 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager* pResourceManager, ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
@@ -667,6 +672,7 @@ MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager
 MA_API ma_result ma_resource_manager_data_source_get_looping(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
+MA_API ma_result ma_resource_manager_data_source_get_available_frames(const ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
 
 /* Job management. */
 MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
@@ -2203,6 +2209,35 @@ MA_API ma_result ma_resource_manager_data_buffer_result(ma_resource_manager* pRe
     return pDataBuffer->result;
 }
 
+MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames)
+{
+    ma_uint64 availableFrames = 0;
+
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pResourceManager == NULL || pDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataBuffer->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
+        if (pDataBuffer->data.decoded.decodedFrameCount < pDataBuffer->data.decoded.frameCount) {
+            /* TODO: Implement me. */
+        #if 0
+            if (pDataBuffer->data.decoded.decodedFrameCount > pDataBuffer->cursor) {
+                availableFrames = pDataBuffer->data.decoded.decodedFrameCount - pDataBuffer->cursor;
+            }
+        #endif
+        }
+    }
+
+    *pAvailableFrames = availableFrames;
+    return MA_SUCCESS;
+}
+
 
 static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer** ppDataBuffer)
 {
@@ -2685,6 +2720,39 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
     return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels);
 }
 
+MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager* pResourceManager, const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
+{
+    volatile ma_uint32 pageIndex0;
+    volatile ma_uint32 pageIndex1;
+    volatile ma_uint32 relativeCursor;
+    ma_uint64 availableFrames;
+
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pResourceManager == NULL || pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pageIndex0     =  pDataStream->currentPageIndex;
+    pageIndex1     = (pDataStream->currentPageIndex + 1) & 0x01;
+    relativeCursor = pDataStream->relativeCursor;
+
+    availableFrames = 0;
+    if (pDataStream->isPageValid[pageIndex0]) {
+        availableFrames += pDataStream->pageFrameCount[pageIndex0] - relativeCursor;
+        if (pDataStream->isPageValid[pageIndex1]) {
+            availableFrames += pDataStream->pageFrameCount[pageIndex1];
+        }
+    }
+
+    *pAvailableFrames = availableFrames;
+    return MA_SUCCESS;
+}
+
 
 
 static ma_uint32 ma_resource_manager_data_source_next_execution_order(ma_resource_manager_data_source* pDataSource)
@@ -2863,7 +2931,7 @@ static ma_data_source* ma_resource_manager_data_source_get_buffer_connector(ma_r
     }
 }
 
-static ma_result ma_resource_manager_data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_resource_manager_data_source_read__buffer(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result;
     ma_uint64 framesRead;
@@ -2908,7 +2976,7 @@ static ma_result ma_resource_manager_data_source_read(ma_data_source* pDataSourc
     return result;
 }
 
-static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+static ma_result ma_resource_manager_data_source_seek__buffer(ma_data_source* pDataSource, ma_uint64 frameIndex)
 {
     ma_result result;
     ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
@@ -2935,7 +3003,7 @@ static ma_result ma_resource_manager_data_source_seek(ma_data_source* pDataSourc
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+static ma_result ma_resource_manager_data_source_map__buffer(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
 {
     ma_result result;
     ma_bool32 skipBusyCheck = MA_FALSE;
@@ -2970,7 +3038,7 @@ static ma_result ma_resource_manager_data_source_map(ma_data_source* pDataSource
     return ma_data_source_map(ma_resource_manager_data_source_get_buffer_connector(pRMDataSource), ppFramesOut, pFrameCount);
 }
 
-static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+static ma_result ma_resource_manager_data_source_unmap__buffer(ma_data_source* pDataSource, ma_uint64 frameCount)
 {
     ma_result result;
     ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
@@ -2989,7 +3057,7 @@ static ma_result ma_resource_manager_data_source_unmap(ma_data_source* pDataSour
     return result;
 }
 
-static ma_result ma_resource_manager_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_resource_manager_data_source_get_data_format__buffer(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
 {
     ma_resource_manager_data_source* pRMDataSource = (ma_resource_manager_data_source*)pDataSource;
     MA_ASSERT(pRMDataSource != NULL);
@@ -3138,11 +3206,11 @@ static ma_result ma_resource_manager_data_source_init_buffer(ma_resource_manager
     }
 
     /* At this point we have our data buffer and we can start initializing the data source. */
-    pDataSource->ds.onRead                = ma_resource_manager_data_source_read;
-    pDataSource->ds.onSeek                = ma_resource_manager_data_source_seek;
-    pDataSource->ds.onMap                 = ma_resource_manager_data_source_map;
-    pDataSource->ds.onUnmap               = ma_resource_manager_data_source_unmap;
-    pDataSource->ds.onGetDataFormat       = ma_resource_manager_data_source_get_data_format;
+    pDataSource->ds.onRead                = ma_resource_manager_data_source_read__buffer;
+    pDataSource->ds.onSeek                = ma_resource_manager_data_source_seek__buffer;
+    pDataSource->ds.onMap                 = ma_resource_manager_data_source_map__buffer;
+    pDataSource->ds.onUnmap               = ma_resource_manager_data_source_unmap__buffer;
+    pDataSource->ds.onGetDataFormat       = ma_resource_manager_data_source_get_data_format__buffer;
     pDataSource->dataBuffer.pDataBuffer   = pDataBuffer;
     pDataSource->dataBuffer.connectorType = ma_resource_manager_data_buffer_connector_unknown; /* The backend type hasn't been determined yet - that happens when it's initialized properly by the job thread. */
     pDataSource->result                   = MA_BUSY;
@@ -3310,6 +3378,25 @@ MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_man
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex)
 {
     return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
+}
+
+MA_API ma_result ma_resource_manager_data_source_get_available_frames(const ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames)
+{
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_get_available_frames(pDataSource->pResourceManager, &pDataSource->dataStream.stream, pAvailableFrames);
+    } else {
+        return ma_resource_manager_data_buffer_get_available_frames(pDataSource->pResourceManager, pDataSource->dataBuffer.pDataBuffer, pAvailableFrames);
+    }
 }
 
 
