@@ -1,6 +1,6 @@
 /*
 FLAC audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_flac - v0.12.16 - 2020-07-25
+dr_flac - v0.12.17 - 2020-08-02
 
 David Reid - mackron@gmail.com
 
@@ -232,45 +232,44 @@ extern "C" {
 
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  16
+#define DRFLAC_VERSION_REVISION  17
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
 
-/* Sized types. Prefer built-in types. Fall back to stdint. */
-#ifdef _MSC_VER
-    #if defined(__clang__)
+/* Sized types. */
+typedef   signed char           drflac_int8;
+typedef unsigned char           drflac_uint8;
+typedef   signed short          drflac_int16;
+typedef unsigned short          drflac_uint16;
+typedef   signed int            drflac_int32;
+typedef unsigned int            drflac_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    drflac_int64;
+    typedef unsigned __int64    drflac_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
-        #pragma GCC diagnostic ignored "-Wlong-long"        
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #pragma GCC diagnostic ignored "-Wlong-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  drflac_int8;
-    typedef unsigned __int8  drflac_uint8;
-    typedef   signed __int16 drflac_int16;
-    typedef unsigned __int16 drflac_uint16;
-    typedef   signed __int32 drflac_int32;
-    typedef unsigned __int32 drflac_uint32;
-    typedef   signed __int64 drflac_int64;
-    typedef unsigned __int64 drflac_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  drflac_int64;
+    typedef unsigned long long  drflac_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #include <stdint.h>
-    typedef int8_t           drflac_int8;
-    typedef uint8_t          drflac_uint8;
-    typedef int16_t          drflac_int16;
-    typedef uint16_t         drflac_uint16;
-    typedef int32_t          drflac_int32;
-    typedef uint32_t         drflac_uint32;
-    typedef int64_t          drflac_int64;
-    typedef uint64_t         drflac_uint64;
 #endif
-typedef drflac_uint8         drflac_bool8;
-typedef drflac_uint32        drflac_bool32;
-#define DRFLAC_TRUE          1
-#define DRFLAC_FALSE         0
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef drflac_uint64       drflac_uintptr;
+#else
+    typedef drflac_uint32       drflac_uintptr;
+#endif
+typedef drflac_uint8            drflac_bool8;
+typedef drflac_uint32           drflac_bool32;
+#define DRFLAC_TRUE             1
+#define DRFLAC_FALSE            0
 
 #if !defined(DRFLAC_API)
     #if defined(DRFLAC_DLL)
@@ -11752,6 +11751,9 @@ DRFLAC_API drflac_bool32 drflac_next_cuesheet_track(drflac_cuesheet_track_iterat
 /*
 REVISION HISTORY
 ================
+v0.12.17 - 2020-08-02
+  - Simplify sized types.
+
 v0.12.16 - 2020-07-25
   - Fix a compilation warning.
 
