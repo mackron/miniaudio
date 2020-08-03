@@ -1967,153 +1967,6 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
     }
 }
 
-static ma_result ma_resource_manager_data_buffer__data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
-{
-    ma_result result;
-    ma_uint64 framesRead;
-    ma_bool32 skipBusyCheck = MA_FALSE;
-
-    ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
-    MA_ASSERT(pDataBuffer        != NULL);
-    MA_ASSERT(pDataBuffer->pNode != NULL);
-
-    /*
-    We cannot be using the data buffer after it's been uninitialized. If you trigger this assert it means you're trying to read from the data buffer after
-    it's been uninitialized or is in the process of uninitializing.
-    */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
-
-    /* If we haven't yet got a connector we need to abort. */
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
-        return MA_BUSY; /* Still loading. */
-    }
-
-    if (pDataBuffer->seekToCursorOnNextRead) {
-        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
-
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    if (skipBusyCheck == MA_FALSE) {
-        if (ma_resource_manager_data_buffer_is_busy(pDataBuffer, frameCount)) {
-            return MA_BUSY;
-        }
-    }
-
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, pDataBuffer->isLooping);
-    pDataBuffer->cursor += framesRead;
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
-    }
-
-    return result;
-}
-
-static ma_result ma_resource_manager_data_buffer__data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
-{
-    ma_result result;
-    ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
-    MA_ASSERT(pDataBuffer        != NULL);
-    MA_ASSERT(pDataBuffer->pNode != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
-
-    /* If we haven't yet got a connector we need to abort. */
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
-        pDataBuffer->cursor = frameIndex;
-        pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
-        return MA_BUSY; /* Still loading. */
-    }
-
-    result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameIndex);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pDataBuffer->cursor = frameIndex;
-    pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_data_buffer__data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    ma_result result;
-    ma_bool32 skipBusyCheck = MA_FALSE;
-
-    ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
-    MA_ASSERT(pDataBuffer        != NULL);
-    MA_ASSERT(pDataBuffer->pNode != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
-
-    /* If we haven't yet got a connector we need to abort. */
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
-        return MA_BUSY; /* Still loading. */
-    }
-
-    if (pDataBuffer->seekToCursorOnNextRead) {
-        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
-
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    if (skipBusyCheck == MA_FALSE) {
-        if (ma_resource_manager_data_buffer_is_busy(pDataSource, *pFrameCount)) {
-            return MA_BUSY;
-        }
-    }
-
-    /* The frame cursor is incremented in unmap(). */
-    return ma_data_source_map(ma_resource_manager_data_buffer_get_connector(pDataBuffer), ppFramesOut, pFrameCount);
-}
-
-static ma_result ma_resource_manager_data_buffer__data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
-{
-    ma_result result;
-    ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
-    MA_ASSERT(pDataBuffer        != NULL);
-    MA_ASSERT(pDataBuffer->pNode != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
-
-    /* NOTE: Don't do the same MA_BUSY status check here. If we were able to map, we want to unmap regardless of status. */
-
-    result = ma_data_source_unmap(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameCount);
-    if (result == MA_SUCCESS) {
-        pDataBuffer->cursor += frameCount;
-    }
-
-    return result;
-}
-
-static ma_result ma_resource_manager_data_buffer__data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
-{
-    ma_resource_manager_data_buffer* pDataBuffer = (ma_resource_manager_data_buffer*)pDataSource;
-    MA_ASSERT(pDataBuffer        != NULL);
-    MA_ASSERT(pDataBuffer->pNode != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
-
-    /* If we haven't yet got a connector we need to abort. */
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
-        return MA_BUSY; /* Still loading. */
-    }
-
-    return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels);
-}
-
 static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
@@ -2127,11 +1980,11 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     MA_ASSERT(pDataBuffer      != NULL);
 
     MA_ZERO_OBJECT(pDataBuffer);
-    pDataBuffer->ds.onRead          = ma_resource_manager_data_buffer__data_source_read;
-    pDataBuffer->ds.onSeek          = ma_resource_manager_data_buffer__data_source_seek;
-    pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer__data_source_map;
-    pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer__data_source_unmap;
-    pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer__data_source_get_data_format;
+    pDataBuffer->ds.onRead          = ma_resource_manager_data_buffer_read_pcm_frames;
+    pDataBuffer->ds.onSeek          = ma_resource_manager_data_buffer_seek_to_pcm_frame;
+    pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer_map_pcm_frames;
+    pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer_unmap_pcm_frames;
+    pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer_get_data_format;
 
     pDataBuffer->pResourceManager   = pResourceManager;
     pDataBuffer->flags              = flags;
@@ -2516,27 +2369,129 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
 
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_data_source_read_pcm_frames(pDataBuffer, pFramesOut, frameCount, pFramesRead, pDataBuffer->isLooping);
+    ma_result result;
+    ma_uint64 framesRead;
+    ma_bool32 skipBusyCheck = MA_FALSE;
+
+    /*
+    We cannot be using the data buffer after it's been uninitialized. If you trigger this assert it means you're trying to read from the data buffer after
+    it's been uninitialized or is in the process of uninitializing.
+    */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    /* If we haven't yet got a connector we need to abort. */
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        return MA_BUSY; /* Still loading. */
+    }
+
+    if (pDataBuffer->seekToCursorOnNextRead) {
+        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
+
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (skipBusyCheck == MA_FALSE) {
+        if (ma_resource_manager_data_buffer_is_busy(pDataBuffer, frameCount)) {
+            return MA_BUSY;
+        }
+    }
+
+    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, pDataBuffer->isLooping);
+    pDataBuffer->cursor += framesRead;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex)
 {
-    return ma_data_source_seek_to_pcm_frame(pDataBuffer, frameIndex);
+    ma_result result;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    /* If we haven't yet got a connector we need to abort. */
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        pDataBuffer->cursor = frameIndex;
+        pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
+        return MA_BUSY; /* Still loading. */
+    }
+
+    result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameIndex);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataBuffer->cursor = frameIndex;
+    pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_map_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void** ppFramesOut, ma_uint64* pFrameCount)
 {
-    return ma_data_source_map(pDataBuffer, ppFramesOut, pFrameCount);
+    ma_result result;
+    ma_bool32 skipBusyCheck = MA_FALSE;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    /* If we haven't yet got a connector we need to abort. */
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        return MA_BUSY; /* Still loading. */
+    }
+
+    if (pDataBuffer->seekToCursorOnNextRead) {
+        pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
+
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (skipBusyCheck == MA_FALSE) {
+        if (ma_resource_manager_data_buffer_is_busy(pDataBuffer, *pFrameCount)) {
+            return MA_BUSY;
+        }
+    }
+
+    /* The frame cursor is incremented in unmap(). */
+    return ma_data_source_map(ma_resource_manager_data_buffer_get_connector(pDataBuffer), ppFramesOut, pFrameCount);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_unmap_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameCount)
 {
-    return ma_data_source_unmap(pDataBuffer, frameCount);
+    ma_result result;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    result = ma_data_source_unmap(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameCount);
+    if (result == MA_SUCCESS) {
+        pDataBuffer->cursor += frameCount;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels)
 {
-    return ma_data_source_get_data_format(pDataBuffer, pFormat, pChannels);
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    /* If we haven't yet got a connector we need to abort. */
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        return MA_BUSY; /* Still loading. */
+    }
+
+    return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
