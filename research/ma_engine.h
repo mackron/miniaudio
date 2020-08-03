@@ -640,9 +640,12 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
 /* Data Buffers. */
 MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
-MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
+MA_API ma_result ma_resource_manager_data_buffer_map_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_resource_manager_data_buffer_unmap_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameCount);
+MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping);
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(const ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
@@ -650,23 +653,25 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(const ma_r
 /* Data Streams. */
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream);
-MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
-MA_API ma_result ma_resource_manager_data_stream_set_looping( ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
-MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
-MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
-MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
+MA_API ma_result ma_resource_manager_data_stream_map_pcm_frames(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_resource_manager_data_stream_unmap_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
+MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
-MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
+MA_API ma_result ma_resource_manager_data_source_map_pcm_frames(ma_resource_manager_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_resource_manager_data_source_unmap_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64 frameCount);
+MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
 MA_API ma_result ma_resource_manager_data_source_get_available_frames(const ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
@@ -2509,15 +2514,6 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
     return result;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
-{
-    if (pDataBuffer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return pDataBuffer->pNode->result;
-}
-
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     return ma_data_source_read_pcm_frames(pDataBuffer, pFramesOut, frameCount, pFramesRead, pDataBuffer->isLooping);
@@ -2526,6 +2522,30 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex)
 {
     return ma_data_source_seek_to_pcm_frame(pDataBuffer, frameIndex);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_map_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    return ma_data_source_map(pDataBuffer, ppFramesOut, pFrameCount);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_unmap_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameCount)
+{
+    return ma_data_source_unmap(pDataBuffer, frameCount);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels)
+{
+    return ma_data_source_get_data_format(pDataBuffer, pFormat, pChannels);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
+{
+    if (pDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pDataBuffer->pNode->result;
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping)
@@ -2722,63 +2742,6 @@ static ma_uint32 ma_resource_manager_data_stream_next_execution_order(ma_resourc
 }
 
 
-static ma_result ma_resource_manager_data_stream__data_source_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
-{
-    ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
-    MA_ASSERT(pDataStream != NULL);
-
-    /*
-    We cannot be using the data source after it's been uninitialized. If you trigger this assert it means you're trying to read from the data source after
-    it's been uninitialized or is in the process of uninitializing.
-    */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    return ma_resource_manager_data_stream_read_pcm_frames(pDataStream, pFramesOut, frameCount, pFramesRead);
-}
-
-static ma_result ma_resource_manager_data_stream__data_source_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
-{
-    ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
-    MA_ASSERT(pDataStream != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    return ma_resource_manager_data_stream_seek_to_pcm_frame(pDataStream, frameIndex);
-}
-
-static ma_result ma_resource_manager_data_stream__data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
-    MA_ASSERT(pDataStream != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    return ma_resource_manager_data_stream_map_paged_pcm_frames(pDataStream, ppFramesOut, pFrameCount);
-}
-
-static ma_result ma_resource_manager_data_stream__data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
-{
-    ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
-    MA_ASSERT(pDataStream != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    return ma_resource_manager_data_stream_unmap_paged_pcm_frames(pDataStream, frameCount);
-}
-
-static ma_result ma_resource_manager_data_stream__data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
-{
-    ma_resource_manager_data_stream* pDataStream = (ma_resource_manager_data_stream*)pDataSource;
-    MA_ASSERT(pDataStream != NULL);
-
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    return ma_resource_manager_data_stream_get_data_format(pDataStream, pFormat, pChannels);
-}
 
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream)
 {
@@ -2795,11 +2758,11 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     }
 
     MA_ZERO_OBJECT(pDataStream);
-    pDataStream->ds.onRead          = ma_resource_manager_data_stream__data_source_read;
-    pDataStream->ds.onSeek          = ma_resource_manager_data_stream__data_source_seek;
-    pDataStream->ds.onMap           = ma_resource_manager_data_stream__data_source_map;
-    pDataStream->ds.onUnmap         = ma_resource_manager_data_stream__data_source_unmap;
-    pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream__data_source_get_data_format;
+    pDataStream->ds.onRead          = ma_resource_manager_data_stream_read_pcm_frames;
+    pDataStream->ds.onSeek          = ma_resource_manager_data_stream_seek_to_pcm_frame;
+    pDataStream->ds.onMap           = ma_resource_manager_data_stream_map_pcm_frames;
+    pDataStream->ds.onUnmap         = ma_resource_manager_data_stream_unmap_pcm_frames;
+    pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream_get_data_format;
 
     pDataStream->pResourceManager   = pResourceManager;
     pDataStream->flags              = flags;
@@ -2875,89 +2838,6 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream)
-{
-    if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return pDataStream->result;
-}
-
-MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
-{
-    if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    We cannot be using the data source after it's been uninitialized. If you trigger this assert it means you're trying to read from the data source after
-    it's been uninitialized or is in the process of uninitializing.
-    */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    /* For streams, we can only be read from paged data because any extra data hasn't been loaded yet. */
-    return ma_resource_manager_data_stream_read_paged_pcm_frames(pDataStream, pFramesOut, frameCount, pFramesRead);
-}
-
-MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
-{
-    ma_job job;
-
-    if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pDataStream->result != MA_SUCCESS && pDataStream->result != MA_BUSY) {
-        return MA_INVALID_OPERATION;
-    }
-
-    /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
-    c89atomic_fetch_add_32(&pDataStream->seekCounter, 1);
-
-    /*
-    We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
-    API and will be ignored by the seek job. The seek job will operate on the assumption that both pages have been marked as invalid and the cursor is at the start of
-    the first page.
-    */
-    pDataStream->relativeCursor   = 0;
-    pDataStream->currentPageIndex = 0;
-    c89atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
-    c89atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
-
-    /*
-    The public API is not allowed to touch the internal decoder so we need to use a job to perform the seek. When seeking, the job thread will assume both pages
-    are invalid and any content contained within them will be discarded and replaced with newly decoded data.
-    */
-    job = ma_job_init(MA_JOB_SEEK_DATA_STREAM);
-    job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.seekDataStream.pDataStream = pDataStream;
-    job.seekDataStream.frameIndex  = frameIndex;
-    return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
-}
-
-MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
-{
-    if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_exchange_32(&pDataStream->isLooping, isLooping);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping)
-{
-    if (pDataStream == NULL || pIsLooping == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pIsLooping = pDataStream->isLooping;
-
-    return MA_SUCCESS;
-}
-
 
 static ma_uint32 ma_resource_manager_data_stream_get_page_size_in_frames(ma_resource_manager_data_stream* pDataStream)
 {
@@ -3027,13 +2907,15 @@ static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_
     }
 }
 
-
-MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesProcessed;
     ma_format format;
     ma_uint32 channels;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
@@ -3057,7 +2939,7 @@ MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resour
         ma_uint64 mappedFrameCount;
 
         mappedFrameCount = frameCount - totalFramesProcessed;
-        result = ma_resource_manager_data_stream_map_paged_pcm_frames(pDataStream, &pMappedFrames, &mappedFrameCount);
+        result = ma_resource_manager_data_stream_map_pcm_frames(pDataStream, &pMappedFrames, &mappedFrameCount);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -3069,7 +2951,7 @@ MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resour
 
         totalFramesProcessed += mappedFrameCount;
 
-        result = ma_resource_manager_data_stream_unmap_paged_pcm_frames(pDataStream, mappedFrameCount);
+        result = ma_resource_manager_data_stream_unmap_pcm_frames(pDataStream, mappedFrameCount);
         if (result != MA_SUCCESS) {
             break;  /* This is really bad - will only get an error here if we failed to post a job to the queue for loading the next page. */
         }
@@ -3082,10 +2964,13 @@ MA_API ma_result ma_resource_manager_data_stream_read_paged_pcm_frames(ma_resour
     return result;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount)
+MA_API ma_result ma_resource_manager_data_stream_map_pcm_frames(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount)
 {
     ma_uint64 framesAvailable;
     ma_uint64 frameCount = 0;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
 
     if (pFrameCount != NULL) {
         frameCount = *pFrameCount;
@@ -3141,11 +3026,14 @@ MA_API ma_result ma_resource_manager_data_stream_map_paged_pcm_frames(ma_resourc
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount)
+MA_API ma_result ma_resource_manager_data_stream_unmap_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount)
 {
     ma_uint32 newRelativeCursor;
     ma_uint32 pageSizeInFrames;
     ma_job job;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
@@ -3189,8 +3077,50 @@ MA_API ma_result ma_resource_manager_data_stream_unmap_paged_pcm_frames(ma_resou
     }
 }
 
+MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
+{
+    ma_job job;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS && pDataStream->result != MA_BUSY) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
+    c89atomic_fetch_add_32(&pDataStream->seekCounter, 1);
+
+    /*
+    We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
+    API and will be ignored by the seek job. The seek job will operate on the assumption that both pages have been marked as invalid and the cursor is at the start of
+    the first page.
+    */
+    pDataStream->relativeCursor   = 0;
+    pDataStream->currentPageIndex = 0;
+    c89atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
+    c89atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
+
+    /*
+    The public API is not allowed to touch the internal decoder so we need to use a job to perform the seek. When seeking, the job thread will assume both pages
+    are invalid and any content contained within them will be discarded and replaced with newly decoded data.
+    */
+    job = ma_job_init(MA_JOB_SEEK_DATA_STREAM);
+    job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
+    job.seekDataStream.pDataStream = pDataStream;
+    job.seekDataStream.frameIndex  = frameIndex;
+    return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
+}
+
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels)
 {
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -3204,6 +3134,37 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
     such that the application is responsible for ensuring it's not called while uninitializing so it should be safe.
     */
     return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels);
+}
+
+MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream)
+{
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pDataStream->result;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
+{
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_32(&pDataStream->isLooping, isLooping);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping)
+{
+    if (pDataStream == NULL || pIsLooping == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pIsLooping = pDataStream->isLooping;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
@@ -3277,19 +3238,6 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data
     }
 }
 
-MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource)
-{
-    if (pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_result(&pDataSource->stream);
-    } else {
-        return ma_resource_manager_data_buffer_result(&pDataSource->buffer);
-    }
-}
-
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     if (pDataSource == NULL) {
@@ -3313,6 +3261,58 @@ MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_m
         return ma_resource_manager_data_stream_seek_to_pcm_frame(&pDataSource->stream, frameIndex);
     } else {
         return ma_resource_manager_data_buffer_seek_to_pcm_frame(&pDataSource->buffer, frameIndex);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_map_pcm_frames(ma_resource_manager_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_map_pcm_frames(&pDataSource->stream, ppFramesOut, pFrameCount);
+    } else {
+        return ma_resource_manager_data_buffer_map_pcm_frames(&pDataSource->buffer, ppFramesOut, pFrameCount);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_unmap_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64 frameCount)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_unmap_pcm_frames(&pDataSource->stream, frameCount);
+    } else {
+        return ma_resource_manager_data_buffer_unmap_pcm_frames(&pDataSource->buffer, frameCount);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_get_data_format(&pDataSource->stream, pFormat, pChannels);
+    } else {
+        return ma_resource_manager_data_buffer_get_data_format(&pDataSource->buffer, pFormat, pChannels);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_result(&pDataSource->stream);
+    } else {
+        return ma_resource_manager_data_buffer_result(&pDataSource->buffer);
     }
 }
 
