@@ -5197,31 +5197,31 @@ Helper for applying a volume factor to samples.
 
 Note that the source and destination buffers can be the same, in which case it'll perform the operation in-place.
 */
-MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint64 sampleCount, float factor);
 
-MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint64 sampleCount, float factor);
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor);
 
-MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor);
 
 
 /*
@@ -32026,9 +32026,9 @@ MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
 }
 
 
-MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -32039,9 +32039,9 @@ MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_u
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -32052,9 +32052,9 @@ MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
     ma_uint8* pSamplesOut8;
     ma_uint8* pSamplesIn8;
 
@@ -32077,9 +32077,9 @@ MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* p
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -32090,9 +32090,9 @@ MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -32103,57 +32103,57 @@ MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float*
     }
 }
 
-MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_u8(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s16(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s24(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s32(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_f32(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_u8(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s16(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s24(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_f32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor)
 {
     switch (format)
     {
@@ -32166,32 +32166,32 @@ MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, cons
     }
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_u8(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s16(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s24(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_f32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames(pPCMFrames, pPCMFrames, frameCount, format, channels, factor);
 }
@@ -62361,6 +62361,7 @@ v0.10.16 - TBD
   - Fix some compilation warnings when no decoders are enabled.
   - Add ma_audio_buffer_get_available_frames()
   - Add ma_decoder_get_available_frames()
+  - Change volume APIs to take 64-bit frame counts.
   - Updates to documentation.
 
 v0.10.15 - 2020-07-15
