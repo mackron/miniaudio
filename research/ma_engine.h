@@ -2052,7 +2052,7 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
     }
 }
 
-static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_resource_manager_memory_buffer* pExistingData, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
     ma_resource_manager_data_buffer_node* pInsertPoint;
@@ -2123,198 +2123,180 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         }
 
         /*
-        The new data buffer has been inserted into the BST. If the data for the item is owned by the application we don't need to do anything except
-        set the necessary data pointers. Otherwise we need to load the data. If we are loading synchronously we need to load everything from the
-        calling thread because we may be in a situation where there are no job threads running and therefore the data will never get loaded. If we
-        are loading asynchronously, we can assume at least one job thread exists and we can do everything from there.
+        The new data buffer has been inserted into the BST. We now need to load the data. If we are loading synchronously we need to load
+        everything from the calling thread because we may be in a situation where there are no job threads running and therefore the data
+        will never get loaded. If we are loading asynchronously, we can assume at least one job thread exists and we can do everything
+        from there.
         */
-        if (pExistingData != NULL) {
-            /* We don't need to do anything if the data is owned by the application except set the necessary data pointers. */
-            MA_ASSERT(dataBufferType == pExistingData->type);
+        pDataBuffer->pNode->isDataOwnedByResourceManager = MA_TRUE;
+        pDataBuffer->pNode->result = MA_BUSY;
 
-            pDataBuffer->pNode->isDataOwnedByResourceManager = MA_FALSE;
-            pDataBuffer->pNode->data = *pExistingData;
-            pDataBuffer->pNode->result = MA_SUCCESS;
+        if (async) {
+            /* Asynchronous. Post to the job thread. */
+            ma_job job;
 
-            /* Fire the event if we have one. */
-            if (pNotification != NULL) {
-                ma_async_notification_signal(pNotification);
-            }
-        } else {
-            /*
-            The data needs to be loaded. If we're loading synchronously we need to do everything here on the calling thread. Otherwise we post
-            a job and get one of the job threads to do it for us.
-            */
-            pDataBuffer->pNode->isDataOwnedByResourceManager = MA_TRUE;
-            pDataBuffer->pNode->result = MA_BUSY;
-
-            if (async) {
-                /* Asynchronous. Post to the job thread. */
-                ma_job job;
-
-                /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
-                pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-                if (pFilePathCopy == NULL) {
-                    if (pNotification != NULL) {
-                        ma_async_notification_signal(pNotification);
-                    }
-
-                    ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
-                    ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
-                    return MA_OUT_OF_MEMORY;
-                }
-
-                /* We now have everything we need to post the job to the job thread. */
-                job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
-                job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-                job.loadDataBuffer.pDataBuffer   = pDataBuffer;
-                job.loadDataBuffer.pFilePath     = pFilePathCopy;
-                job.loadDataBuffer.pNotification = pNotification;
-                result = ma_resource_manager_post_job(pResourceManager, &job);
-                if (result != MA_SUCCESS) {
-                    /* Failed to post the job to the queue. Probably ran out of space. */
-                    if (pNotification != NULL) {
-                        ma_async_notification_signal(pNotification);
-                    }
-
-                    ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
-                    ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
-                    ma__free_from_callbacks(pFilePathCopy,      &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-                    return result;
-                }
-            } else {
-                /* Synchronous. Do everything here. */
-                if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
-                    /* No decoding. Just store the file contents in memory. */
-                    void* pData;
-                    size_t sizeInBytes;
-                    result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
-                    if (result == MA_SUCCESS) {
-                        pDataBuffer->pNode->data.encoded.pData       = pData;
-                        pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
-                    }
-                } else  {
-                    /* Decoding. */
-                    ma_decoder decoder;
-
-                    result = ma_resource_manager__init_decoder(pResourceManager, pFilePath, &decoder);
-                    if (result == MA_SUCCESS) {
-                        ma_uint64 totalFrameCount;
-                        ma_uint64 dataSizeInBytes;
-                        void* pData = NULL;
-
-                        pDataBuffer->pNode->data.decoded.format     = decoder.outputFormat;
-                        pDataBuffer->pNode->data.decoded.channels   = decoder.outputChannels;
-                        pDataBuffer->pNode->data.decoded.sampleRate = decoder.outputSampleRate;
-
-                        totalFrameCount = ma_decoder_get_length_in_pcm_frames(&decoder);
-                        if (totalFrameCount > 0) {
-                            /* It's a known length. We can use an optimized allocation strategy in this case. */
-                            dataSizeInBytes = totalFrameCount * ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
-                            if (dataSizeInBytes <= MA_SIZE_MAX) {
-                                pData = ma__malloc_from_callbacks((size_t)dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-                                if (pData != NULL) {
-                                    totalFrameCount = ma_decoder_read_pcm_frames(&decoder, pData, totalFrameCount);
-                                } else {
-                                    result = MA_OUT_OF_MEMORY;
-                                }
-                            } else {
-                                result = MA_TOO_BIG;
-                            }
-                        } else {
-                            /* It's an unknown length. We need to dynamically expand the buffer as we decode. To start with we allocate space for one page. We'll then double it as we need more space. */
-                            ma_uint64 bytesPerFrame;
-                            ma_uint64 pageSizeInFrames;
-                            ma_uint64 dataSizeInFrames;
-                            
-                            bytesPerFrame    = ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
-                            pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (decoder.outputSampleRate/1000);
-                            dataSizeInFrames = 0;
-
-                            /* Keep loading, page-by-page. */
-                            for (;;) {
-                                ma_uint64 framesRead;
-
-                                /* Expand the buffer if need be. */
-                                if (totalFrameCount + pageSizeInFrames > dataSizeInFrames) {                                    
-                                    ma_uint64 oldDataSizeInFrames;
-                                    ma_uint64 oldDataSizeInBytes;
-                                    ma_uint64 newDataSizeInFrames;
-                                    ma_uint64 newDataSizeInBytes;
-                                    void* pNewData;
-
-                                    oldDataSizeInFrames = (dataSizeInFrames);
-                                    newDataSizeInFrames = (dataSizeInFrames == 0) ? pageSizeInFrames : dataSizeInFrames * 2;
-
-                                    oldDataSizeInBytes = bytesPerFrame * oldDataSizeInFrames;
-                                    newDataSizeInBytes = bytesPerFrame * newDataSizeInFrames;
-
-                                    if (newDataSizeInBytes > MA_SIZE_MAX) {
-                                        result = MA_TOO_BIG;
-                                        break;
-                                    }
-
-                                    pNewData = ma__realloc_from_callbacks(pData, (size_t)newDataSizeInBytes, (size_t)oldDataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-                                    if (pNewData == NULL) {
-                                        ma__free_from_callbacks(pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-                                        result = MA_OUT_OF_MEMORY;
-                                        break;
-                                    }
-
-                                    pData            = pNewData;
-                                    dataSizeInFrames = newDataSizeInFrames;
-                                }
-
-                                framesRead = ma_decoder_read_pcm_frames(&decoder, ma_offset_ptr(pData, bytesPerFrame * totalFrameCount), pageSizeInFrames);
-                                totalFrameCount += framesRead;
-
-                                if (framesRead < pageSizeInFrames) {
-                                    /* We've reached the end. As we were loading we were doubling the size of the buffer each time we needed more memory. Let's try reducing this by doing a final realloc(). */
-                                    size_t newDataSizeInBytes = (size_t)(totalFrameCount  * bytesPerFrame);
-                                    size_t oldDataSizeInBytes = (size_t)(dataSizeInFrames * bytesPerFrame);
-                                    void* pNewData = ma__realloc_from_callbacks(pData, newDataSizeInBytes, oldDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
-                                    if (pNewData != NULL) {
-                                        pData = pNewData;
-                                    }
-
-                                    /* We're done, so get out of the loop. */
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (result == MA_SUCCESS) {
-                            pDataBuffer->pNode->data.decoded.pData             = pData;
-                            pDataBuffer->pNode->data.decoded.frameCount        = totalFrameCount;
-                            pDataBuffer->pNode->data.decoded.decodedFrameCount = totalFrameCount;  /* We've decoded everything. */
-                        } else {
-                            pDataBuffer->pNode->data.decoded.pData             = NULL;
-                            pDataBuffer->pNode->data.decoded.frameCount        = 0;
-                            pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
-                        }
-
-                        ma_decoder_uninit(&decoder);
-                    }
-                }
-
-                /* When loading synchronously we need to initialize the connector straight away. */
-                if (result == MA_SUCCESS) {
-                    result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
-                }
-
-                pDataBuffer->pNode->result = result;
-            }
-
-            /* If we failed to initialize make sure we fire the event and free memory. */
-            if (result != MA_SUCCESS) {
+            /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
+            pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+            if (pFilePathCopy == NULL) {
                 if (pNotification != NULL) {
                     ma_async_notification_signal(pNotification);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
                 ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            /* We now have everything we need to post the job to the job thread. */
+            job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
+            job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
+            job.loadDataBuffer.pDataBuffer   = pDataBuffer;
+            job.loadDataBuffer.pFilePath     = pFilePathCopy;
+            job.loadDataBuffer.pNotification = pNotification;
+            result = ma_resource_manager_post_job(pResourceManager, &job);
+            if (result != MA_SUCCESS) {
+                /* Failed to post the job to the queue. Probably ran out of space. */
+                if (pNotification != NULL) {
+                    ma_async_notification_signal(pNotification);
+                }
+
+                ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
+                ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+                ma__free_from_callbacks(pFilePathCopy,      &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 return result;
             }
+        } else {
+            /* Synchronous. Do everything here. */
+            if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_encoded) {
+                /* No decoding. Just store the file contents in memory. */
+                void* pData;
+                size_t sizeInBytes;
+                result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+                if (result == MA_SUCCESS) {
+                    pDataBuffer->pNode->data.encoded.pData       = pData;
+                    pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
+                }
+            } else  {
+                /* Decoding. */
+                ma_decoder decoder;
+
+                result = ma_resource_manager__init_decoder(pResourceManager, pFilePath, &decoder);
+                if (result == MA_SUCCESS) {
+                    ma_uint64 totalFrameCount;
+                    ma_uint64 dataSizeInBytes;
+                    void* pData = NULL;
+
+                    pDataBuffer->pNode->data.decoded.format     = decoder.outputFormat;
+                    pDataBuffer->pNode->data.decoded.channels   = decoder.outputChannels;
+                    pDataBuffer->pNode->data.decoded.sampleRate = decoder.outputSampleRate;
+
+                    totalFrameCount = ma_decoder_get_length_in_pcm_frames(&decoder);
+                    if (totalFrameCount > 0) {
+                        /* It's a known length. We can use an optimized allocation strategy in this case. */
+                        dataSizeInBytes = totalFrameCount * ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
+                        if (dataSizeInBytes <= MA_SIZE_MAX) {
+                            pData = ma__malloc_from_callbacks((size_t)dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+                            if (pData != NULL) {
+                                totalFrameCount = ma_decoder_read_pcm_frames(&decoder, pData, totalFrameCount);
+                            } else {
+                                result = MA_OUT_OF_MEMORY;
+                            }
+                        } else {
+                            result = MA_TOO_BIG;
+                        }
+                    } else {
+                        /* It's an unknown length. We need to dynamically expand the buffer as we decode. To start with we allocate space for one page. We'll then double it as we need more space. */
+                        ma_uint64 bytesPerFrame;
+                        ma_uint64 pageSizeInFrames;
+                        ma_uint64 dataSizeInFrames;
+                            
+                        bytesPerFrame    = ma_get_bytes_per_frame(decoder.outputFormat, decoder.outputChannels);
+                        pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (decoder.outputSampleRate/1000);
+                        dataSizeInFrames = 0;
+
+                        /* Keep loading, page-by-page. */
+                        for (;;) {
+                            ma_uint64 framesRead;
+
+                            /* Expand the buffer if need be. */
+                            if (totalFrameCount + pageSizeInFrames > dataSizeInFrames) {                                    
+                                ma_uint64 oldDataSizeInFrames;
+                                ma_uint64 oldDataSizeInBytes;
+                                ma_uint64 newDataSizeInFrames;
+                                ma_uint64 newDataSizeInBytes;
+                                void* pNewData;
+
+                                oldDataSizeInFrames = (dataSizeInFrames);
+                                newDataSizeInFrames = (dataSizeInFrames == 0) ? pageSizeInFrames : dataSizeInFrames * 2;
+
+                                oldDataSizeInBytes = bytesPerFrame * oldDataSizeInFrames;
+                                newDataSizeInBytes = bytesPerFrame * newDataSizeInFrames;
+
+                                if (newDataSizeInBytes > MA_SIZE_MAX) {
+                                    result = MA_TOO_BIG;
+                                    break;
+                                }
+
+                                pNewData = ma__realloc_from_callbacks(pData, (size_t)newDataSizeInBytes, (size_t)oldDataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+                                if (pNewData == NULL) {
+                                    ma__free_from_callbacks(pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+                                    result = MA_OUT_OF_MEMORY;
+                                    break;
+                                }
+
+                                pData            = pNewData;
+                                dataSizeInFrames = newDataSizeInFrames;
+                            }
+
+                            framesRead = ma_decoder_read_pcm_frames(&decoder, ma_offset_ptr(pData, bytesPerFrame * totalFrameCount), pageSizeInFrames);
+                            totalFrameCount += framesRead;
+
+                            if (framesRead < pageSizeInFrames) {
+                                /* We've reached the end. As we were loading we were doubling the size of the buffer each time we needed more memory. Let's try reducing this by doing a final realloc(). */
+                                size_t newDataSizeInBytes = (size_t)(totalFrameCount  * bytesPerFrame);
+                                size_t oldDataSizeInBytes = (size_t)(dataSizeInFrames * bytesPerFrame);
+                                void* pNewData = ma__realloc_from_callbacks(pData, newDataSizeInBytes, oldDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
+                                if (pNewData != NULL) {
+                                    pData = pNewData;
+                                }
+
+                                /* We're done, so get out of the loop. */
+                                break;
+                            }
+                        }
+                    }
+
+                    if (result == MA_SUCCESS) {
+                        pDataBuffer->pNode->data.decoded.pData             = pData;
+                        pDataBuffer->pNode->data.decoded.frameCount        = totalFrameCount;
+                        pDataBuffer->pNode->data.decoded.decodedFrameCount = totalFrameCount;  /* We've decoded everything. */
+                    } else {
+                        pDataBuffer->pNode->data.decoded.pData             = NULL;
+                        pDataBuffer->pNode->data.decoded.frameCount        = 0;
+                        pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
+                    }
+
+                    ma_decoder_uninit(&decoder);
+                }
+            }
+
+            /* When loading synchronously we need to initialize the connector straight away. */
+            if (result == MA_SUCCESS) {
+                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+            }
+
+            pDataBuffer->pNode->result = result;
+        }
+
+        /* If we failed to initialize make sure we fire the event and free memory. */
+        if (result != MA_SUCCESS) {
+            if (pNotification != NULL) {
+                ma_async_notification_signal(pNotification);
+            }
+
+            ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
+            ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+            return result;
         }
 
         /* It's not really necessary, but for completeness we'll want to fire the event if we have one in synchronous mode. */
@@ -2347,7 +2329,7 @@ MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pReso
     /* At this point we can now enter the critical section. */
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, NULL, pNotification, pDataBuffer);
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, pNotification, pDataBuffer);
     }
     ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
