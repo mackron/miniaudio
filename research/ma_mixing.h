@@ -617,6 +617,9 @@ frameCountIn (in)
     The number of frames to mix. This cannot exceed the number of input frames returned by `ma_mixer_begin()`. If it does, an error will be returned. If it is
     less, silence will be mixed to make up the excess.
 
+pFrameCountOut (out)
+    Receives the number of frames that were processed from the data source.
+
 formatIn (in)
     The sample format of the input data.
 
@@ -642,9 +645,9 @@ See Also
 ma_mixer_begin()
 ma_mixer_end()
 */
-MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_bool32 loop);
-MA_API ma_result ma_mixer_mix_rb(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn); /* Caller is the consumer. */
-MA_API ma_result ma_mixer_mix_pcm_rb(ma_mixer* pMixer, ma_pcm_rb* pRB, ma_uint64 frameCountIn, float volume, ma_effect* pEffect);                                   /* Caller is the consumer. */
+MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_bool32 loop);
+MA_API ma_result ma_mixer_mix_rb(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn); /* Caller is the consumer. */
+MA_API ma_result ma_mixer_mix_pcm_rb(ma_mixer* pMixer, ma_pcm_rb* pRB, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect);                                   /* Caller is the consumer. */
 
 MA_API ma_result ma_mixer_set_volume(ma_mixer* pMixer, float volume);
 MA_API ma_result ma_mixer_get_volume(ma_mixer* pMixer, float* pVolume);
@@ -2475,7 +2478,7 @@ MA_API ma_result ma_mixer_mix_pcm_frames(ma_mixer* pMixer, const void* pFramesIn
     return MA_SUCCESS;
 }
 
-static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
+static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
     ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesProcessed = 0;
@@ -2489,7 +2492,11 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
     MA_ASSERT(pMixer      != NULL);
     MA_ASSERT(pDataSource != NULL);
 
-    if (frameCount > pMixer->mixingState.frameCountIn) {
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = 0;
+    }
+
+    if (frameCountIn > pMixer->mixingState.frameCountIn) {
         return MA_INVALID_ARGS; /* Passing in too many input frames. */
     }
 
@@ -2508,9 +2515,9 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
         preEffectConversionRequired = (formatIn != effectFormatIn || channelsIn != effectChannelsIn);
     }
 
-    while (totalFramesProcessed < frameCount) {
+    while (totalFramesProcessed < frameCountIn) {
         void* pMappedBuffer;
-        ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
+        ma_uint64 framesToProcess = frameCountIn - totalFramesProcessed;
 
         if (pEffect == NULL) {
             /* Fast path. Mix directly from the data source and don't bother applying an effect. */
@@ -2546,7 +2553,7 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
             /* We need to map our input data first. The input data will be either fed directly into the effect, or will be converted first. */
             result = ma_data_source_map(pDataSource, &pMappedBuffer, &framesMapped);
             if (result != MA_SUCCESS) {
-                return result;
+                break;  /* Failed to map. Abort. */
             }
 
             /* We have the data from the data source so no we can apply the effect. */
@@ -2578,15 +2585,19 @@ static ma_result ma_mixer_mix_data_source_mmap(ma_mixer* pMixer, ma_data_source*
                     break;  /* We've reached the end and we're not looping. */
                 }
             } else {
-                return result;  /* An error occurred. */
+                break;  /* An error occurred. */
             }
         }
+    }
+
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = totalFramesProcessed;
     }
 
     return result;
 }
 
-static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCount, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
+static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn, ma_bool32 loop)
 {
     ma_result result = MA_SUCCESS;
     ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
@@ -2602,7 +2613,11 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     MA_ASSERT(pMixer      != NULL);
     MA_ASSERT(pDataSource != NULL);
 
-    if (frameCount > pMixer->mixingState.frameCountIn) {
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = 0;
+    }
+
+    if (frameCountIn > pMixer->mixingState.frameCountIn) {
         return MA_INVALID_ARGS; /* Passing in too many input frames. */
     }
 
@@ -2629,9 +2644,9 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     totalFramesProcessed = 0;
     pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
 
-    while (totalFramesProcessed < frameCount) {
+    while (totalFramesProcessed < frameCountIn) {
         ma_uint64 framesRead;
-        ma_uint64 framesToRead = frameCount - totalFramesProcessed;
+        ma_uint64 framesToRead = frameCountIn - totalFramesProcessed;
         if (framesToRead > preMixBufferCap) {
             framesToRead = preMixBufferCap;
         }
@@ -2692,10 +2707,14 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
         }
     }
 
+    if (pFrameCountOut != NULL) {
+        *pFrameCountOut = totalFramesProcessed;
+    }
+
     return result;
 }
 
-MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_bool32 loop)
+MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDataSource, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_bool32 loop)
 {
     ma_result result;
     ma_format formatIn;
@@ -2719,10 +2738,10 @@ MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDat
 
     if (supportsMMap) {
         /* Fast path. This is memory mapping mode. */
-        return ma_mixer_mix_data_source_mmap(pMixer, pDataSourceCallbacks, frameCountIn, volume, pEffect, formatIn, channelsIn, loop);
+        return ma_mixer_mix_data_source_mmap(pMixer, pDataSourceCallbacks, frameCountIn, pFrameCountOut, volume, pEffect, formatIn, channelsIn, loop);
     } else {
         /* Slow path. This is reading mode. */
-        return ma_mixer_mix_data_source_read(pMixer, pDataSourceCallbacks, frameCountIn, volume, pEffect, formatIn, channelsIn, loop);
+        return ma_mixer_mix_data_source_read(pMixer, pDataSourceCallbacks, frameCountIn, pFrameCountOut, volume, pEffect, formatIn, channelsIn, loop);
     }
 }
 
@@ -2796,18 +2815,18 @@ static ma_result ma_rb_data_source_init(ma_rb* pRB, ma_format format, ma_uint32 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_mixer_mix_rb(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn)
+MA_API ma_result ma_mixer_mix_rb(ma_mixer* pMixer, ma_rb* pRB, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect, ma_format formatIn, ma_uint32 channelsIn)
 {
     /* Ring buffer mixing can be implemented in terms of a memory mapped data source. */
     ma_rb_data_source ds;
     ma_rb_data_source_init(pRB, formatIn, channelsIn, &ds); /* Will never fail and does not require an uninit() implementation. */
 
-    return ma_mixer_mix_data_source(pMixer, &ds, frameCountIn, volume, pEffect, MA_TRUE);   /* Ring buffers always loop, but the loop parameter will never actually be used because ma_rb_data_source__on_unmap() will never return MA_AT_END. */
+    return ma_mixer_mix_data_source(pMixer, &ds, frameCountIn, pFrameCountOut, volume, pEffect, MA_TRUE);   /* Ring buffers always loop, but the loop parameter will never actually be used because ma_rb_data_source__on_unmap() will never return MA_AT_END. */
 }
 
-MA_API ma_result ma_mixer_mix_pcm_rb(ma_mixer* pMixer, ma_pcm_rb* pRB, ma_uint64 frameCountIn, float volume, ma_effect* pEffect)
+MA_API ma_result ma_mixer_mix_pcm_rb(ma_mixer* pMixer, ma_pcm_rb* pRB, ma_uint64 frameCountIn, ma_uint64* pFrameCountOut, float volume, ma_effect* pEffect)
 {
-    return ma_mixer_mix_rb(pMixer, &pRB->rb, frameCountIn, volume, pEffect, pRB->format, pRB->channels);
+    return ma_mixer_mix_rb(pMixer, &pRB->rb, frameCountIn, pFrameCountOut, volume, pEffect, pRB->format, pRB->channels);
 }
 
 

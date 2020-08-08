@@ -4980,6 +4980,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
     {
         if (pSound->isPlaying) {
             ma_result result = MA_SUCCESS;
+            ma_uint64 framesProcessed;
 
             /* If the pitch has changed we need to update the resampler. */
             if (pSound->effect.oldPitch != pSound->effect.pitch) {
@@ -4998,10 +4999,10 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             effect we need to make sure we run it through the mixer because it may require us to update internal state for things like echo effects.
             */
             if (pSound->volume > 0 || ma_engine_effect_is_passthrough(&pSound->effect) == MA_FALSE) {
-                result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, pSound->volume, &pSound->effect, pSound->isLooping);
+                result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
             } else {
                 /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
-                result = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, NULL, pSound->isLooping);
+                result = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, &framesProcessed, pSound->isLooping);
             }
 
             /* If fading out we need to stop the sound if it's done fading. */

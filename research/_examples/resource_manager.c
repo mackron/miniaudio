@@ -37,7 +37,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         {
             size_t iDataSource;
             for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
-                ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], frameCountIn, 1, NULL, MA_TRUE);
+                ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], frameCountIn, NULL, 1, NULL, MA_TRUE);
             }
         }
         ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * bpf));
@@ -182,6 +182,7 @@ int main(int argc, char** argv)
             &resourceManager,
             argv[iFile+1],
             MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/,
+            NULL,   /* Async notification. */
             &g_dataSources[iFile]);
 
         if (result != MA_SUCCESS) {
@@ -212,7 +213,7 @@ int main(int argc, char** argv)
     
     /* Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do it for us. */
     for (iFile = 0; (size_t)iFile < g_dataSourceCount; iFile += 1) {
-        ma_resource_manager_data_source_uninit(&resourceManager, &g_dataSources[iFile]);
+        ma_resource_manager_data_source_uninit(&g_dataSources[iFile]);
     }
 
     /* Uninitialize the resource manager after each data source. */
