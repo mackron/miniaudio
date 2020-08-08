@@ -830,8 +830,8 @@ typedef struct
     ma_spatializer spatializer;
     float pitch;
     float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    ma_data_converter converter;    /* For pitch shift. May change this to just a resampler later. */
-    ma_bool32 isSpatial;            /* Set the false by default. When set to false, with not have spatialisation applied. */
+    ma_data_converter converter;    /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_bool32 isSpatial;            /* Set the false by default. When set to false, will not have spatialisation applied. */
 } ma_engine_effect;
 
 struct ma_sound
