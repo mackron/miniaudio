@@ -648,7 +648,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping);
-MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(const ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
+MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
 
 /* Data Streams. */
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
@@ -661,7 +661,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
-MA_API ma_result ma_resource_manager_data_stream_get_available_frames(const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
+MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
@@ -674,7 +674,7 @@ MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_man
 MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
-MA_API ma_result ma_resource_manager_data_source_get_available_frames(const ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
+MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
 
 /* Job management. */
 MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
@@ -2525,10 +2525,8 @@ MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_m
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(const ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames)
+MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames)
 {
-    ma_uint64 availableFrames = 0;
-
     if (pAvailableFrames == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -2539,16 +2537,19 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(const ma_r
         return MA_INVALID_ARGS;
     }
 
-    if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-        if (pDataBuffer->pNode->data.decoded.decodedFrameCount > pDataBuffer->cursor) {
-            availableFrames = pDataBuffer->pNode->data.decoded.decodedFrameCount - pDataBuffer->cursor;
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        if (ma_resource_manager_data_buffer_result(pDataBuffer) == MA_BUSY) {
+            return MA_BUSY;
+        } else {
+            return MA_INVALID_OPERATION;    /* No connector. */
         }
-    } else {
-        /* TODO: Implement the encoded case. Need to draw this from the ma_decoder object. */
     }
 
-    *pAvailableFrames = availableFrames;
-    return MA_SUCCESS;
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+        return ma_audio_buffer_get_available_frames(&pDataBuffer->connector.buffer, pAvailableFrames);
+    } else {
+        return ma_decoder_get_available_frames(&pDataBuffer->connector.decoder, pAvailableFrames);
+    }
 }
 
 
@@ -3122,7 +3123,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_m
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_get_available_frames(const ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
+MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
 {
     volatile ma_uint32 pageIndex0;
     volatile ma_uint32 pageIndex1;
@@ -3297,7 +3298,7 @@ MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_m
     }
 }
 
-MA_API ma_result ma_resource_manager_data_source_get_available_frames(const ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames)
+MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames)
 {
     if (pAvailableFrames == NULL) {
         return MA_INVALID_ARGS;
