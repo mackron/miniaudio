@@ -3246,7 +3246,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 
     pageIndex0     =  pDataStream->currentPageIndex;
     pageIndex1     = (pDataStream->currentPageIndex + 1) & 0x01;
-    relativeCursor = pDataStream->relativeCursor;
+    relativeCursor =  pDataStream->relativeCursor;
 
     availableFrames = 0;
     if (pDataStream->isPageValid[pageIndex0]) {
@@ -4574,6 +4574,372 @@ MA_API ma_bool32 ma_fader_is_time_past_fade_end(const ma_fader* pFader)
 Engine
 
 **************************************************************************************************************************************************************/
+static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_uint64 frameCount;
+    ma_bool32 isFading = MA_FALSE;
+
+    /*
+    This will be called if either there is no pre-effect nor pitch shift, or the pre-effect and pitch shift have already been processed. In this case it's allowed for
+    pFramesIn to be equal to pFramesOut as from here on we support in-place processing. Also, the input and output frame counts should always be equal.
+    */
+    frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
+
+    /* If the current time on the fader has past the end we don't need to keep running it. We just need to ensure that when we reboot it that we set the current time properly. */
+    if (pEngineEffect->fader.timeInFramesCur < pEngineEffect->fader.timeInFramesEnd) {
+        isFading = MA_TRUE; /* <-- Comment out this line to always run the fader. */
+    }
+
+    /* Panning. This is a no-op when the engine has only 1 channel or the pan is 0. */
+    if (pEngineEffect->pEngine->channels == 1 || pEngineEffect->panner.pan == 0) {
+        /* Fast path. No panning. */
+        if (pEngineEffect->isSpatial == MA_FALSE) {
+            /* Fast path. No spatialization. */
+            if (isFading == MA_FALSE) {
+                /* Fast path. No fading. */
+                if (pFramesIn == pFramesOut) {
+                    /* Super fast path. No-op. */
+                } else {
+                    /* Slow path. Copy. */
+                    ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pEngineEffect->pEngine->format, pEngineEffect->pEngine->channels);
+                }
+            } else {
+                /* Slow path. Fading required. */
+                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesIn, frameCount);
+            }
+        } else {
+            /* Slow path. Spatialization required. */
+            ma_spatializer_process_pcm_frames(&pEngineEffect->spatializer, pFramesOut, pFramesIn, frameCount);
+
+            if (isFading) {
+                /* Fast path. No fading. */
+            } else {
+                /* Slow path. Fading required. The spatialization processed moved data into the output buffer so we need to do this in-place. */
+                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
+            }
+        }
+    } else {
+        /* Slow path. Panning required. */
+        ma_panner_process_pcm_frames(&pEngineEffect->panner, pFramesOut, pFramesIn, frameCount);
+
+        if (pEngineEffect->isSpatial == MA_FALSE) {
+            /* Fast path. No spatialization. Don't do anything - the panning step above moved data into the output buffer for us. */
+        } else {
+            /* Slow path. Spatialization required. Note that we just panned which means the output buffer currently contains valid data. We can spatialize in-place. */
+            ma_spatializer_process_pcm_frames(&pEngineEffect->spatializer, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
+        }
+
+        if (isFading) {
+            /* Fast path. No fading. */
+        } else {
+            /* Slow path. Fading required. */
+            ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
+        }
+    }
+
+    *pFrameCountIn  = frameCount;
+    *pFrameCountOut = frameCount;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_bool32 isPitchingRequired = MA_TRUE;
+
+    /*
+    This will be called if either there is no pre-effect or the pre-effect has already been processed. We can safely assume the input and output data in the engine's format so no
+    data conversion should be necessary here.
+    */
+
+    /* Fast path for when no pitching is required. */
+    if (isPitchingRequired == MA_FALSE) {
+        /* Fast path. No pitch shifting. */
+        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        /* Slow path. Pitch shifting required. We need to run everything through our data converter first. */
+
+        /*
+        We can output straight into the output buffer. The remaining effects support in-place processing so when we process those we'll just pass in the output buffer
+        as the input buffer as well and the effect will operate on the buffer in-place.
+        */
+        ma_result result;
+        ma_uint64 frameCountIn;
+        ma_uint64 frameCountOut;
+
+        result = ma_data_converter_process_pcm_frames(&pEngineEffect->converter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Here is where we want to apply the remaining effects. These can be processed in-place which means we want to set the input and output buffers to be the same. */
+        frameCountIn  = *pFrameCountOut;  /* Not a mistake. Intentionally set to *pFrameCountOut. */
+        frameCountOut = *pFrameCountOut;
+        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesOut, &frameCountIn, pFramesOut, &frameCountOut);  /* Intentionally setting the input buffer to pFramesOut for in-place processing. */
+    }
+}
+
+static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_result result;
+    ma_uint64 frameCountIn  = *pFrameCountIn;
+    ma_uint64 frameCountOut = *pFrameCountOut;
+    ma_uint64 totalFramesProcessedIn  = 0;
+    ma_uint64 totalFramesProcessedOut = 0;
+    ma_format effectFormat;
+    ma_uint32 effectChannels;
+
+    MA_ASSERT(pEngineEffect  != NULL);
+    MA_ASSERT(pEngineEffect->pPreEffect != NULL);
+    MA_ASSERT(pFramesIn      != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+    MA_ASSERT(pFramesOut     != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+
+    /* The effect's input and output format will be the engine's format. If the pre-effect is of a different format it will need to be converted appropriately. */
+    effectFormat   = pEngineEffect->pEngine->format;
+    effectChannels = pEngineEffect->pEngine->channels;
+    
+    /*
+    Getting here means we have a pre-effect. This must alway be run first. We do this in chunks into an intermediary buffer and then call ma_engine_effect__on_process_pcm_frames__no_pre_effect()
+    against the intermediary buffer. The output of ma_engine_effect__on_process_pcm_frames__no_pre_effect() will be the final output buffer.
+    */
+    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+        ma_uint8  preEffectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* effectFormat / effectChannels */
+        ma_uint32 preEffectOutBufferCap = sizeof(preEffectOutBuffer) / ma_get_bytes_per_frame(effectFormat, effectChannels);
+        const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(effectFormat, effectChannels));
+        /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, totalFramesProcessedOut * ma_get_bytes_per_frame(effectFormat, effectChannels));
+        ma_uint64 frameCountInThisIteration;
+        ma_uint64 frameCountOutThisIteration;
+
+        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;
+        if (frameCountOutThisIteration > preEffectOutBufferCap) {
+            frameCountOutThisIteration = preEffectOutBufferCap;
+        }
+
+        /* We need to ensure we don't read too many input frames that we won't be able to process them all in the next step. */
+        frameCountInThisIteration = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, frameCountOutThisIteration);
+        if (frameCountInThisIteration > (frameCountIn - totalFramesProcessedIn)) {
+            frameCountInThisIteration = (frameCountIn - totalFramesProcessedIn);
+        }
+
+        result = ma_effect_process_pcm_frames_ex(pEngineEffect->pPreEffect, pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        totalFramesProcessedIn += frameCountInThisIteration;
+
+        /* At this point we have run the pre-effect and we can now run it through the main engine effect. */
+        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;   /* Process as many frames as will fit in the output buffer. */
+        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, preEffectOutBuffer, &frameCountInThisIteration, pRunningFramesOut, &frameCountOutThisIteration);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        totalFramesProcessedIn += frameCountOutThisIteration;
+    }
+
+
+    *pFrameCountIn  = totalFramesProcessedIn;
+    *pFrameCountOut = totalFramesProcessedOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
+
+    MA_ASSERT(pEffect != NULL);
+
+    /* Optimized path for when there is no pre-effect. */
+    if (pEngineEffect->pPreEffect == NULL) {
+        return ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    } else {
+        return ma_engine_effect__on_process_pcm_frames__general(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    }
+}
+
+static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount)
+{
+    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
+    ma_uint64 inputFrameCount;
+
+    MA_ASSERT(pEffect != NULL);
+
+    inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
+
+    if (pEngineEffect->pPreEffect != NULL) {
+        ma_uint64 preEffectInputFrameCount = ma_effect_get_required_input_frame_count(pEngineEffect->pPreEffect, outputFrameCount);
+        if (inputFrameCount < preEffectInputFrameCount) {
+            inputFrameCount = preEffectInputFrameCount;
+        }
+    }
+
+    return inputFrameCount;
+}
+
+static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount)
+{
+    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
+    ma_uint64 outputFrameCount;
+
+    MA_ASSERT(pEffect != NULL);
+
+    outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
+
+    if (pEngineEffect->pPreEffect != NULL) {
+        ma_uint64 preEffectOutputFrameCount = ma_effect_get_expected_output_frame_count(pEngineEffect->pPreEffect, inputFrameCount);
+        if (outputFrameCount > preEffectOutputFrameCount) {
+            outputFrameCount = preEffectOutputFrameCount;
+        }
+    }
+
+    return outputFrameCount;
+}
+
+static ma_result ma_engine_effect__on_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
+
+    MA_ASSERT(pEffect != NULL);
+
+    if (pEngineEffect->pPreEffect != NULL) {
+        return ma_engine_effect__on_get_input_data_format(pEffect, pFormat, pChannels, pSampleRate);
+    } else {
+        *pFormat     = pEngineEffect->converter.config.formatIn;
+        *pChannels   = pEngineEffect->converter.config.channelsIn;
+        *pSampleRate = pEngineEffect->converter.config.sampleRateIn;
+
+        return MA_SUCCESS;
+    }
+}
+
+static ma_result ma_engine_effect__on_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
+
+    MA_ASSERT(pEffect != NULL);
+
+    *pFormat     = pEngineEffect->converter.config.formatOut;
+    *pChannels   = pEngineEffect->converter.config.channelsOut;
+    *pSampleRate = pEngineEffect->converter.config.sampleRateOut;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEffect)
+{
+    ma_result result;
+    ma_panner_config pannerConfig;
+    ma_spatializer_config spatializerConfig;
+    ma_fader_config faderConfig;
+    ma_data_converter_config converterConfig;
+
+    MA_ASSERT(pEngine != NULL);
+    MA_ASSERT(pEffect != NULL);
+
+    MA_ZERO_OBJECT(pEffect);
+
+    pEffect->baseEffect.onProcessPCMFrames = ma_engine_effect__on_process_pcm_frames;
+    pEffect->baseEffect.onGetRequiredInputFrameCount  = ma_engine_effect__on_get_required_input_frame_count;
+    pEffect->baseEffect.onGetExpectedOutputFrameCount = ma_engine_effect__on_get_expected_output_frame_count;
+    pEffect->baseEffect.onGetInputDataFormat          = ma_engine_effect__on_get_input_data_format;
+    pEffect->baseEffect.onGetOutputDataFormat         = ma_engine_effect__on_get_output_data_format;
+
+    pEffect->pEngine    = pEngine;
+    pEffect->pPreEffect = NULL;
+    pEffect->pitch      = 1;
+    pEffect->oldPitch   = 1;
+
+    pannerConfig = ma_panner_config_init(pEngine->format, pEngine->channels);
+    result = ma_panner_init(&pannerConfig, &pEffect->panner);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to create the panner. */
+    }
+
+    spatializerConfig = ma_spatializer_config_init(pEngine, pEngine->format, pEngine->channels);
+    result = ma_spatializer_init(&spatializerConfig, &pEffect->spatializer);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to create the spatializer. */
+    }
+
+    faderConfig = ma_fader_config_init(pEngine->format, pEngine->channels, pEngine->sampleRate);
+    result = ma_fader_init(&faderConfig, &pEffect->fader);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to create the fader. */
+    }
+
+
+    /* Our effect processor requires f32 for now, but I may implement an s16 optimized pipeline. */
+    
+
+    converterConfig = ma_data_converter_config_init(pEngine->format, pEngine->format, pEngine->channels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
+
+    /*
+    TODO: A few things to figure out with the resampler:
+        - In order to support dynamic pitch shifting we need to set allowDynamicSampleRate which means the resampler will always be initialized and will always
+          have samples run through it. An optimization would be to have a flag that disables pitch shifting. Can alternatively just skip running samples through
+          the data converter when pitch=1, but this may result in glitching when moving away from pitch=1 due to the internal buffer not being update while the
+          pitch=1 case was in place.
+        - We may want to have customization over resampling properties.
+    */
+    converterConfig.resampling.allowDynamicSampleRate = MA_TRUE;    /* This makes sure a resampler is always initialized. TODO: Need a flag that specifies that no pitch shifting is required for this sound so we can avoid the cost of the resampler. Even when the pitch is 1, samples still run through the resampler. */
+    converterConfig.resampling.algorithm              = ma_resample_algorithm_linear;
+    converterConfig.resampling.linear.lpfOrder        = 0;
+
+    result = ma_data_converter_init(&converterConfig, &pEffect->converter);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_engine_effect_uninit(ma_engine* pEngine, ma_engine_effect* pEffect)
+{
+    MA_ASSERT(pEngine != NULL);
+    MA_ASSERT(pEffect != NULL);
+
+    (void)pEngine;
+    ma_data_converter_uninit(&pEffect->converter);
+}
+
+static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* pEffect)
+{
+    /* This function assumes the data converter was previously initialized and needs to be uninitialized. */
+    MA_ASSERT(pEngine != NULL);
+    MA_ASSERT(pEffect != NULL);
+
+    ma_engine_effect_uninit(pEngine, pEffect);
+
+    return ma_engine_effect_init(pEngine, pEffect);
+}
+
+static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
+{
+    MA_ASSERT(pEffect != NULL);
+
+    /* A pre-effect will require processing. */
+    if (pEffect->pPreEffect != NULL) {
+        return MA_FALSE;
+    }
+
+    /* If pitch shifting we'll need to do processing through the resampler. */
+    if (pEffect->pitch != 1) {
+        return MA_FALSE;
+    }
+
+    /* If we're fading we need to make sure we do processing. */
+    if (ma_fader_is_time_past_fade_end(&pEffect->fader) == MA_FALSE) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
+
+
 static MA_INLINE ma_result ma_engine_sound_stop_internal(ma_engine* pEngine, ma_sound* pSound);
 
 MA_API ma_engine_config ma_engine_config_init_default()
@@ -4620,9 +4986,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             If the sound is muted we still need to move time forward, but we can save time by not mixing as it won't actually affect anything. If there's an
             effect we need to make sure we run it through the mixer because it may require us to update internal state for things like echo effects.
             */
-            /* TODO: ma_engine_effect_is_passthrough(). */
-
-            if (pSound->volume > 0 || pSound->effect.pPreEffect != NULL || pSound->effect.pitch != 1) {
+            if (pSound->volume > 0 || ma_engine_effect_is_passthrough(&pSound->effect) == MA_FALSE) {
                 result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, pSound->volume, &pSound->effect, pSound->isLooping);
             } else {
                 /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
@@ -5078,348 +5442,6 @@ static ma_result ma_engine_sound_attach(ma_engine* pEngine, ma_sound* pSound, ma
 }
 
 
-static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_uint64 frameCount;
-    ma_bool32 isFading = MA_FALSE;
-
-    /*
-    This will be called if either there is no pre-effect nor pitch shift, or the pre-effect and pitch shift have already been processed. In this case it's allowed for
-    pFramesIn to be equal to pFramesOut as from here on we support in-place processing. Also, the input and output frame counts should always be equal.
-    */
-    frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
-
-    /* If the current time on the fader has past the end we don't need to keep running it. We just need to ensure that when we reboot it that we set the current time properly. */
-    if (pEngineEffect->fader.timeInFramesCur < pEngineEffect->fader.timeInFramesEnd) {
-        isFading = MA_TRUE; /* <-- Comment out this line to always run the fader. */
-    }
-
-    /* Panning. This is a no-op when the engine has only 1 channel or the pan is 0. */
-    if (pEngineEffect->pEngine->channels == 1 || pEngineEffect->panner.pan == 0) {
-        /* Fast path. No panning. */
-        if (pEngineEffect->isSpatial == MA_FALSE) {
-            /* Fast path. No spatialization. */
-            if (isFading == MA_FALSE) {
-                /* Fast path. No fading. */
-                if (pFramesIn == pFramesOut) {
-                    /* Super fast path. No-op. */
-                } else {
-                    /* Slow path. Copy. */
-                    ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pEngineEffect->pEngine->format, pEngineEffect->pEngine->channels);
-                }
-            } else {
-                /* Slow path. Fading required. */
-                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesIn, frameCount);
-            }
-        } else {
-            /* Slow path. Spatialization required. */
-            ma_spatializer_process_pcm_frames(&pEngineEffect->spatializer, pFramesOut, pFramesIn, frameCount);
-
-            if (isFading) {
-                /* Fast path. No fading. */
-            } else {
-                /* Slow path. Fading required. The spatialization processed moved data into the output buffer so we need to do this in-place. */
-                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
-            }
-        }
-    } else {
-        /* Slow path. Panning required. */
-        ma_panner_process_pcm_frames(&pEngineEffect->panner, pFramesOut, pFramesIn, frameCount);
-
-        if (pEngineEffect->isSpatial == MA_FALSE) {
-            /* Fast path. No spatialization. Don't do anything - the panning step above moved data into the output buffer for us. */
-        } else {
-            /* Slow path. Spatialization required. Note that we just panned which means the output buffer currently contains valid data. We can spatialize in-place. */
-            ma_spatializer_process_pcm_frames(&pEngineEffect->spatializer, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
-        }
-
-        if (isFading) {
-            /* Fast path. No fading. */
-        } else {
-            /* Slow path. Fading required. */
-            ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
-        }
-    }
-
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_bool32 isPitchingRequired = MA_TRUE;
-
-    /*
-    This will be called if either there is no pre-effect or the pre-effect has already been processed. We can safely assume the input and output data in the engine's format so no
-    data conversion should be necessary here.
-    */
-
-    /* Fast path for when no pitching is required. */
-    if (isPitchingRequired == MA_FALSE) {
-        /* Fast path. No pitch shifting. */
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    } else {
-        /* Slow path. Pitch shifting required. We need to run everything through our data converter first. */
-
-        /*
-        We can output straight into the output buffer. The remaining effects support in-place processing so when we process those we'll just pass in the output buffer
-        as the input buffer as well and the effect will operate on the buffer in-place.
-        */
-        ma_result result;
-        ma_uint64 frameCountIn;
-        ma_uint64 frameCountOut;
-
-        result = ma_data_converter_process_pcm_frames(&pEngineEffect->converter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        /* Here is where we want to apply the remaining effects. These can be processed in-place which means we want to set the input and output buffers to be the same. */
-        frameCountIn  = *pFrameCountOut;  /* Not a mistake. Intentionally set to *pFrameCountOut. */
-        frameCountOut = *pFrameCountOut;
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesOut, &frameCountIn, pFramesOut, &frameCountOut);  /* Intentionally setting the input buffer to pFramesOut for in-place processing. */
-    }
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_result result;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 totalFramesProcessedIn  = 0;
-    ma_uint64 totalFramesProcessedOut = 0;
-    ma_format effectFormat;
-    ma_uint32 effectChannels;
-
-    MA_ASSERT(pEngineEffect  != NULL);
-    MA_ASSERT(pEngineEffect->pPreEffect != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
-    MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
-    MA_ASSERT(pFrameCountOut != NULL);
-
-    /* The effect's input and output format will be the engine's format. If the pre-effect is of a different format it will need to be converted appropriately. */
-    effectFormat   = pEngineEffect->pEngine->format;
-    effectChannels = pEngineEffect->pEngine->channels;
-    
-    /*
-    Getting here means we have a pre-effect. This must alway be run first. We do this in chunks into an intermediary buffer and then call ma_engine_effect__on_process_pcm_frames__no_pre_effect()
-    against the intermediary buffer. The output of ma_engine_effect__on_process_pcm_frames__no_pre_effect() will be the final output buffer.
-    */
-    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
-        ma_uint8  preEffectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* effectFormat / effectChannels */
-        ma_uint32 preEffectOutBufferCap = sizeof(preEffectOutBuffer) / ma_get_bytes_per_frame(effectFormat, effectChannels);
-        const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(effectFormat, effectChannels));
-        /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, totalFramesProcessedOut * ma_get_bytes_per_frame(effectFormat, effectChannels));
-        ma_uint64 frameCountInThisIteration;
-        ma_uint64 frameCountOutThisIteration;
-
-        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;
-        if (frameCountOutThisIteration > preEffectOutBufferCap) {
-            frameCountOutThisIteration = preEffectOutBufferCap;
-        }
-
-        /* We need to ensure we don't read too many input frames that we won't be able to process them all in the next step. */
-        frameCountInThisIteration = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, frameCountOutThisIteration);
-        if (frameCountInThisIteration > (frameCountIn - totalFramesProcessedIn)) {
-            frameCountInThisIteration = (frameCountIn - totalFramesProcessedIn);
-        }
-
-        result = ma_effect_process_pcm_frames_ex(pEngineEffect->pPreEffect, pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        totalFramesProcessedIn += frameCountInThisIteration;
-
-        /* At this point we have run the pre-effect and we can now run it through the main engine effect. */
-        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;   /* Process as many frames as will fit in the output buffer. */
-        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, preEffectOutBuffer, &frameCountInThisIteration, pRunningFramesOut, &frameCountOutThisIteration);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        totalFramesProcessedIn += frameCountOutThisIteration;
-    }
-
-
-    *pFrameCountIn  = totalFramesProcessedIn;
-    *pFrameCountOut = totalFramesProcessedOut;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-
-    MA_ASSERT(pEffect != NULL);
-
-    /* Optimized path for when there is no pre-effect. */
-    if (pEngineEffect->pPreEffect == NULL) {
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    } else {
-        return ma_engine_effect__on_process_pcm_frames__general(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    }
-}
-
-static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-    ma_uint64 inputFrameCount;
-
-    MA_ASSERT(pEffect != NULL);
-
-    inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
-
-    if (pEngineEffect->pPreEffect != NULL) {
-        ma_uint64 preEffectInputFrameCount = ma_effect_get_required_input_frame_count(pEngineEffect->pPreEffect, outputFrameCount);
-        if (inputFrameCount < preEffectInputFrameCount) {
-            inputFrameCount = preEffectInputFrameCount;
-        }
-    }
-
-    return inputFrameCount;
-}
-
-static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-    ma_uint64 outputFrameCount;
-
-    MA_ASSERT(pEffect != NULL);
-
-    outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
-
-    if (pEngineEffect->pPreEffect != NULL) {
-        ma_uint64 preEffectOutputFrameCount = ma_effect_get_expected_output_frame_count(pEngineEffect->pPreEffect, inputFrameCount);
-        if (outputFrameCount > preEffectOutputFrameCount) {
-            outputFrameCount = preEffectOutputFrameCount;
-        }
-    }
-
-    return outputFrameCount;
-}
-
-static ma_result ma_engine_effect__on_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-
-    MA_ASSERT(pEffect != NULL);
-
-    if (pEngineEffect->pPreEffect != NULL) {
-        return ma_engine_effect__on_get_input_data_format(pEffect, pFormat, pChannels, pSampleRate);
-    } else {
-        *pFormat     = pEngineEffect->converter.config.formatIn;
-        *pChannels   = pEngineEffect->converter.config.channelsIn;
-        *pSampleRate = pEngineEffect->converter.config.sampleRateIn;
-
-        return MA_SUCCESS;
-    }
-}
-
-static ma_result ma_engine_effect__on_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-
-    MA_ASSERT(pEffect != NULL);
-
-    *pFormat     = pEngineEffect->converter.config.formatOut;
-    *pChannels   = pEngineEffect->converter.config.channelsOut;
-    *pSampleRate = pEngineEffect->converter.config.sampleRateOut;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEffect)
-{
-    ma_result result;
-    ma_panner_config pannerConfig;
-    ma_spatializer_config spatializerConfig;
-    ma_fader_config faderConfig;
-    ma_data_converter_config converterConfig;
-
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    MA_ZERO_OBJECT(pEffect);
-
-    pEffect->baseEffect.onProcessPCMFrames = ma_engine_effect__on_process_pcm_frames;
-    pEffect->baseEffect.onGetRequiredInputFrameCount  = ma_engine_effect__on_get_required_input_frame_count;
-    pEffect->baseEffect.onGetExpectedOutputFrameCount = ma_engine_effect__on_get_expected_output_frame_count;
-    pEffect->baseEffect.onGetInputDataFormat          = ma_engine_effect__on_get_input_data_format;
-    pEffect->baseEffect.onGetOutputDataFormat         = ma_engine_effect__on_get_output_data_format;
-
-    pEffect->pEngine    = pEngine;
-    pEffect->pPreEffect = NULL;
-    pEffect->pitch      = 1;
-    pEffect->oldPitch   = 1;
-
-    pannerConfig = ma_panner_config_init(pEngine->format, pEngine->channels);
-    result = ma_panner_init(&pannerConfig, &pEffect->panner);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the panner. */
-    }
-
-    spatializerConfig = ma_spatializer_config_init(pEngine, pEngine->format, pEngine->channels);
-    result = ma_spatializer_init(&spatializerConfig, &pEffect->spatializer);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the spatializer. */
-    }
-
-    faderConfig = ma_fader_config_init(pEngine->format, pEngine->channels, pEngine->sampleRate);
-    result = ma_fader_init(&faderConfig, &pEffect->fader);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the fader. */
-    }
-
-
-    /* Our effect processor requires f32 for now, but I may implement an s16 optimized pipeline. */
-    
-
-    converterConfig = ma_data_converter_config_init(pEngine->format, pEngine->format, pEngine->channels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
-
-    /*
-    TODO: A few things to figure out with the resampler:
-        - In order to support dynamic pitch shifting we need to set allowDynamicSampleRate which means the resampler will always be initialized and will always
-          have samples run through it. An optimization would be to have a flag that disables pitch shifting. Can alternatively just skip running samples through
-          the data converter when pitch=1, but this may result in glitching when moving away from pitch=1 due to the internal buffer not being update while the
-          pitch=1 case was in place.
-        - We may want to have customization over resampling properties.
-    */
-    converterConfig.resampling.allowDynamicSampleRate = MA_TRUE;    /* This makes sure a resampler is always initialized. TODO: Need a flag that specifies that no pitch shifting is required for this sound so we can avoid the cost of the resampler. Even when the pitch is 1, samples still run through the resampler. */
-    converterConfig.resampling.algorithm              = ma_resample_algorithm_linear;
-    converterConfig.resampling.linear.lpfOrder        = 0;
-
-    result = ma_data_converter_init(&converterConfig, &pEffect->converter);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_engine_effect_uninit(ma_engine* pEngine, ma_engine_effect* pEffect)
-{
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    (void)pEngine;
-    ma_data_converter_uninit(&pEffect->converter);
-}
-
-static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* pEffect)
-{
-    /* This function assumes the data converter was previously initialized and needs to be uninitialized. */
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    ma_engine_effect_uninit(pEngine, pEffect);
-
-    return ma_engine_effect_init(pEngine, pEffect);
-}
 
 static ma_result ma_engine_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
