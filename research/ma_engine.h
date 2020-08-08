@@ -878,6 +878,7 @@ struct ma_sound
     ma_sound* pNextSoundInGroup;
     ma_engine_effect effect;        /* The effect containing all of the information for spatialization, pitching, etc. */
     float volume;
+    ma_uint64 seekTarget;           /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     ma_bool32 isPlaying;            /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
     ma_bool32 isFadingOut;          /* Set to true to indicate that a fade out before stopping is in effect. */
     ma_bool32 isMixing;
@@ -963,6 +964,7 @@ MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSou
 MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
+MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
 MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
@@ -4575,6 +4577,8 @@ MA_API ma_bool32 ma_fader_is_time_past_fade_end(const ma_fader* pFader)
 Engine
 
 **************************************************************************************************************************************************************/
+#define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
+
 static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_uint64 frameCount;
@@ -4981,6 +4985,12 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             if (pSound->effect.oldPitch != pSound->effect.pitch) {
                 pSound->effect.oldPitch  = pSound->effect.pitch;
                 ma_data_converter_set_rate_ratio(&pSound->effect.converter, pSound->effect.pitch);
+            }
+
+            /* If we're seeking, do so now before reading. */
+            if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
+                ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
+                pSound->seekTarget = MA_SEEK_TARGET_NONE;
             }
 
             /*
@@ -5463,6 +5473,7 @@ static ma_result ma_engine_sound_init_from_data_source_internal(ma_engine* pEngi
 
     pSound->pDataSource = pDataSource;
     pSound->volume      = 1;
+    pSound->seekTarget  = MA_SEEK_TARGET_NONE;
 
     if (pGroup == NULL) {
         pGroup = &pEngine->masterSoundGroup;
@@ -5727,6 +5738,28 @@ MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSou
     }
 
     return pSound->atEnd;
+}
+
+MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    Resource manager data sources are thread safe which means we can just seek immediately. However, we cannot guarantee that other data sources are
+    thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
+        return ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+    }
+#endif
+
+    /* Getting here means the data source is not a resource manager data source so we'll need to get the mixing thread to do the seeking for us. */
+    pSound->seekTarget = frameIndex;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
