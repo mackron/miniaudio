@@ -2707,7 +2707,7 @@ MA_API ma_result ma_mixer_mix_data_source(ma_mixer* pMixer, ma_data_source* pDat
         return MA_INVALID_ARGS;
     }
     
-    result = ma_data_source_get_data_format(pDataSource, &formatIn, &channelsIn);
+    result = ma_data_source_get_data_format(pDataSource, &formatIn, &channelsIn, NULL);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -2767,12 +2767,13 @@ static ma_result ma_rb_data_source__on_unmap(ma_data_source* pDataSource, ma_uin
     return result;  /* We never actually return MA_AT_END here because a ring buffer doesn't have any notion of an end. */
 }
 
-static ma_result ma_rb_data_source__on_get_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_rb_data_source__on_get_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_rb_data_source* pRB = (ma_rb_data_source*)pDataSource;
 
-    *pFormat   = pRB->format;
-    *pChannels = pRB->channels;
+    *pFormat     = pRB->format;
+    *pChannels   = pRB->channels;
+    *pSampleRate = 0;   /* No sample rate. */
 
     return MA_SUCCESS;
 }

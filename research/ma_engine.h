@@ -665,7 +665,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_resource_manager_data_buffer_map(ma_resource_manager_data_buffer* pDataBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameCount);
-MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping);
@@ -678,7 +678,7 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
 MA_API ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
-MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
@@ -691,7 +691,7 @@ MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_man
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_resource_manager_data_source_map(ma_resource_manager_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_source_unmap(ma_resource_manager_data_source* pDataSource, ma_uint64 frameCount);
-MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
@@ -2585,7 +2585,7 @@ MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_
     return result;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
@@ -2595,7 +2595,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
         return MA_BUSY; /* Still loading. */
     }
 
-    return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels);
+    return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels, pSampleRate);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
@@ -2990,7 +2990,7 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
         return MA_BUSY;
     }
 
-    ma_resource_manager_data_stream_get_data_format(pDataStream, &format, &channels);
+    ma_resource_manager_data_stream_get_data_format(pDataStream, &format, &channels, NULL);
 
     /* Reading is implemented in terms of map/unmap. We need to run this in a loop because mapping is clamped against page boundaries. */
     totalFramesProcessed = 0;
@@ -3176,7 +3176,7 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
 }
 
-MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
@@ -3193,7 +3193,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
     We're being a little bit naughty here and accessing the internal decoder from the public API. The output data format is constant, and we've defined this function
     such that the application is responsible for ensuring it's not called while uninitializing so it should be safe.
     */
-    return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels);
+    return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels, pSampleRate);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream)
@@ -3350,16 +3350,16 @@ MA_API ma_result ma_resource_manager_data_source_unmap(ma_resource_manager_data_
     }
 }
 
-MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
 
     if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_data_format(&pDataSource->stream, pFormat, pChannels);
+        return ma_resource_manager_data_stream_get_data_format(&pDataSource->stream, pFormat, pChannels, pSampleRate);
     } else {
-        return ma_resource_manager_data_buffer_get_data_format(&pDataSource->buffer, pFormat, pChannels);
+        return ma_resource_manager_data_buffer_get_data_format(&pDataSource->buffer, pFormat, pChannels, pSampleRate);
     }
 }
 
@@ -4452,14 +4452,15 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
             ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pFader->format, pFader->channels, pFader->volumeEnd);
         }
     } else {
+        ma_uint64 lo = pFader->timeInFramesBeg;
+        ma_uint64 hi = pFader->timeInFramesEnd;
+        ma_uint64 dt = (pFader->timeInFramesEnd - pFader->timeInFramesBeg);
+
         /* Only supporting f32 for the moment while we figure this out. */
         if (pFader->format == ma_format_f32) {
             const float* pFramesInF32  = (const float*)pFramesIn;
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
             float volumeCur = 1;
-            ma_uint64 lo = pFader->timeInFramesBeg;
-            ma_uint64 hi = pFader->timeInFramesEnd;
-            ma_uint64 dt = (pFader->timeInFramesEnd - pFader->timeInFramesBeg);
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 /* The volume to apply is just a mix between the begin and end volume depending on the current time. */
@@ -4842,7 +4843,7 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
 
     MA_ZERO_OBJECT(pEffect);
 
-    pEffect->baseEffect.onProcessPCMFrames = ma_engine_effect__on_process_pcm_frames;
+    pEffect->baseEffect.onProcessPCMFrames            = ma_engine_effect__on_process_pcm_frames;
     pEffect->baseEffect.onGetRequiredInputFrameCount  = ma_engine_effect__on_get_required_input_frame_count;
     pEffect->baseEffect.onGetExpectedOutputFrameCount = ma_engine_effect__on_get_expected_output_frame_count;
     pEffect->baseEffect.onGetInputDataFormat          = ma_engine_effect__on_get_input_data_format;

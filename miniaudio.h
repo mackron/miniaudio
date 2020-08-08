@@ -5243,7 +5243,7 @@ typedef struct
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
     ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
-    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 } ma_data_source_callbacks;
 
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
@@ -5251,7 +5251,7 @@ MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 
 
 typedef struct
@@ -41202,7 +41202,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     } else {
         ma_format format;
         ma_uint32 channels;
-        if (ma_data_source_get_data_format(pDataSource, &format, &channels) != MA_SUCCESS) {
+        ma_uint32 sampleRate;
+        if (ma_data_source_get_data_format(pDataSource, &format, &channels, &sampleRate) != MA_SUCCESS) {
             return pCallbacks->onRead(pDataSource, pFramesOut, frameCount, pFramesRead); /* We don't have a way to retrieve the data format which means we don't know how to offset the output buffer. Just read as much as we can. */
         } else {
             ma_result result = MA_SUCCESS;
@@ -41284,18 +41285,19 @@ MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 fra
     return pCallbacks->onUnmap(pDataSource, frameCount);
 }
 
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_result result;
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
 
     if (pCallbacks == NULL || pCallbacks->onGetDataFormat == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    result = pCallbacks->onGetDataFormat(pDataSource, &format, &channels);
+    result = pCallbacks->onGetDataFormat(pDataSource, &format, &channels, &sampleRate);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -41305,6 +41307,9 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     }
     if (pChannels != NULL) {
         *pChannels = channels;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = sampleRate;
     }
 
     return MA_SUCCESS;
@@ -41357,12 +41362,13 @@ static ma_result ma_audio_buffer__data_source_on_unmap(ma_data_source* pDataSour
     return ma_audio_buffer_unmap((ma_audio_buffer*)pDataSource, frameCount);
 }
 
-static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
 
-    *pFormat   = pAudioBuffer->format;
-    *pChannels = pAudioBuffer->channels;
+    *pFormat     = pAudioBuffer->format;
+    *pChannels   = pAudioBuffer->channels;
+    *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
 
     return MA_SUCCESS;
 }
@@ -44416,12 +44422,13 @@ static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma
     return ma_decoder_seek_to_pcm_frame((ma_decoder*)pDataSource, frameIndex);
 }
 
-static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_decoder* pDecoder = (ma_decoder*)pDataSource;
 
-    *pFormat   = pDecoder->outputFormat;
-    *pChannels = pDecoder->outputChannels;
+    *pFormat     = pDecoder->outputFormat;
+    *pChannels   = pDecoder->outputChannels;
+    *pSampleRate = pDecoder->outputSampleRate;
 
     return MA_SUCCESS;
 }
@@ -46202,12 +46209,13 @@ static ma_result ma_waveform__data_source_on_seek(ma_data_source* pDataSource, m
     return ma_waveform_seek_to_pcm_frame((ma_waveform*)pDataSource, frameIndex);
 }
 
-static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_waveform* pWaveform = (ma_waveform*)pDataSource;
 
-    *pFormat   = pWaveform->config.format;
-    *pChannels = pWaveform->config.channels;
+    *pFormat     = pWaveform->config.format;
+    *pChannels   = pWaveform->config.channels;
+    *pSampleRate = pWaveform->config.sampleRate;
 
     return MA_SUCCESS;
 }
@@ -46222,9 +46230,9 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     pWaveform->ds.onRead          = ma_waveform__data_source_on_read;
     pWaveform->ds.onSeek          = ma_waveform__data_source_on_seek;
     pWaveform->ds.onGetDataFormat = ma_waveform__data_source_on_get_data_format;
-    pWaveform->config  = *pConfig;
-    pWaveform->advance = 1.0 / pWaveform->config.sampleRate;
-    pWaveform->time    = 0;
+    pWaveform->config             = *pConfig;
+    pWaveform->advance            = 1.0 / pWaveform->config.sampleRate;
+    pWaveform->time               = 0;
 
     return MA_SUCCESS;
 }
@@ -46581,12 +46589,13 @@ static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_u
     return MA_SUCCESS;
 }
 
-static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_noise* pNoise = (ma_noise*)pDataSource;
 
-    *pFormat   = pNoise->config.format;
-    *pChannels = pNoise->config.channels;
+    *pFormat     = pNoise->config.format;
+    *pChannels   = pNoise->config.channels;
+    *pSampleRate = 0;   /* There is no notion of sample rate with noise generation. */
 
     return MA_SUCCESS;
 }
@@ -46610,7 +46619,7 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     pNoise->ds.onRead          = ma_noise__data_source_on_read;
     pNoise->ds.onSeek          = ma_noise__data_source_on_seek;  /* <-- No-op for noise. */
     pNoise->ds.onGetDataFormat = ma_noise__data_source_on_get_data_format;
-    pNoise->config = *pConfig;
+    pNoise->config             = *pConfig;
     ma_lcg_seed(&pNoise->lcg, pConfig->seed);
 
     if (pNoise->config.type == ma_noise_type_pink) {
@@ -62359,8 +62368,9 @@ v0.10.16 - TBD
   - Fix a bug in ma_data_source_read_pcm_frames() where looping doesn't work.
   - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
   - Fix some compilation warnings when no decoders are enabled.
-  - Add ma_audio_buffer_get_available_frames()
-  - Add ma_decoder_get_available_frames()
+  - Add ma_audio_buffer_get_available_frames().
+  - Add ma_decoder_get_available_frames().
+  - Add sample rate to ma_data_source_get_data_format().
   - Change volume APIs to take 64-bit frame counts.
   - Updates to documentation.
 
