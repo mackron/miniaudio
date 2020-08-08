@@ -5288,7 +5288,7 @@ MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
 MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
-
+MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
 
 
 
@@ -5407,7 +5407,8 @@ struct ma_decoder
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
     void* pUserData;
-    ma_uint64  readPointer; /* Used for returning back to a previous position after analysing the stream or whatnot. */
+    ma_uint64  readPointerInBytes;          /* In internal encoded data. */
+    ma_uint64  readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
     ma_format  internalFormat;
     ma_uint32  internalChannels;
     ma_uint32  internalSampleRate;
@@ -5510,6 +5511,17 @@ Seeks to a PCM frame based on it's absolute index.
 This is not thread safe without your own synchronization.
 */
 MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
+
+/*
+Retrieves the number of frames that can be read before reaching the end.
+
+This calls `ma_decoder_get_length_in_pcm_frames()` so you need to be aware of the rules for that function, in
+particular ensuring you do not call it on streams of an undefined length, such as internet radio.
+
+If the total length of the decoder cannot be retrieved, such as with Vorbis decoders, `MA_NOT_IMPLEMENTED` will be
+returned.
+*/
+MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames);
 
 /*
 Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with ma_free(). On input,
@@ -41616,6 +41628,27 @@ MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
     return pAudioBuffer->cursor == pAudioBuffer->sizeInFrames;
 }
 
+MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames)
+{
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pAudioBuffer->sizeInFrames <= pAudioBuffer->cursor) {
+        *pAvailableFrames = 0;
+    } else {
+        *pAvailableFrames = pAudioBuffer->sizeInFrames - pAudioBuffer->cursor;
+    }
+
+    return MA_SUCCESS;
+}
+
 
 
 /**************************************************************************************************************************************************************
@@ -43427,7 +43460,7 @@ static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size
     MA_ASSERT(pBufferOut != NULL);
 
     bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
-    pDecoder->readPointer += bytesRead;
+    pDecoder->readPointerInBytes += bytesRead;
 
     return bytesRead;
 }
@@ -43441,9 +43474,9 @@ static ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_
     wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
     if (wasSuccessful) {
         if (origin == ma_seek_origin_start) {
-            pDecoder->readPointer = (ma_uint64)byteOffset;
+            pDecoder->readPointerInBytes = (ma_uint64)byteOffset;
         } else {
-            pDecoder->readPointer += byteOffset;
+            pDecoder->readPointerInBytes += byteOffset;
         }
     }
 
@@ -45609,67 +45642,69 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
     /* Fast path. */
     if (pDecoder->converter.isPassthrough) {
-        return pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
-    }
-
-    /*
-    Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
-    need to run through each sample because we need to ensure it's internal cache is updated.
-    */
-    if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
-        return pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
-    }
-
-    /* Slow path. Need to run everything through the data converter. */
-    totalFramesReadOut = 0;
-    totalFramesReadIn  = 0;
-    pRunningFramesOut  = pFramesOut;
-    
-    while (totalFramesReadOut < frameCount) {
-        ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
-        ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-        ma_uint64 framesToReadThisIterationIn;
-        ma_uint64 framesReadThisIterationIn;
-        ma_uint64 framesToReadThisIterationOut;
-        ma_uint64 framesReadThisIterationOut;
-        ma_uint64 requiredInputFrameCount;
-
-        framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
-        framesToReadThisIterationIn = framesToReadThisIterationOut;
-        if (framesToReadThisIterationIn > intermediaryBufferCap) {
-            framesToReadThisIterationIn = intermediaryBufferCap;
-        }
-
-        requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
-        if (framesToReadThisIterationIn > requiredInputFrameCount) {
-            framesToReadThisIterationIn = requiredInputFrameCount;
-        }
-
-        if (requiredInputFrameCount > 0) {
-            framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
-            totalFramesReadIn += framesReadThisIterationIn;
-        }
-
+        totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
+    } else {
         /*
-        At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
-        input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+        Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
+        need to run through each sample because we need to ensure it's internal cache is updated.
         */
-        framesReadThisIterationOut = framesToReadThisIterationOut;
-        result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
-        if (result != MA_SUCCESS) {
-            break;
-        }
+        if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
+            totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
+        } else {
+            /* Slow path. Need to run everything through the data converter. */
+            totalFramesReadOut = 0;
+            totalFramesReadIn  = 0;
+            pRunningFramesOut  = pFramesOut;
+    
+            while (totalFramesReadOut < frameCount) {
+                ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
+                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+                ma_uint64 framesToReadThisIterationIn;
+                ma_uint64 framesReadThisIterationIn;
+                ma_uint64 framesToReadThisIterationOut;
+                ma_uint64 framesReadThisIterationOut;
+                ma_uint64 requiredInputFrameCount;
 
-        totalFramesReadOut += framesReadThisIterationOut;
+                framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                framesToReadThisIterationIn = framesToReadThisIterationOut;
+                if (framesToReadThisIterationIn > intermediaryBufferCap) {
+                    framesToReadThisIterationIn = intermediaryBufferCap;
+                }
 
-        if (pRunningFramesOut != NULL) {
-            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
-        }
+                requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
+                if (framesToReadThisIterationIn > requiredInputFrameCount) {
+                    framesToReadThisIterationIn = requiredInputFrameCount;
+                }
 
-        if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
-            break;  /* We're done. */
+                if (requiredInputFrameCount > 0) {
+                    framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
+                    totalFramesReadIn += framesReadThisIterationIn;
+                }
+
+                /*
+                At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
+                input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+                */
+                framesReadThisIterationOut = framesToReadThisIterationOut;
+                result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+
+                totalFramesReadOut += framesReadThisIterationOut;
+
+                if (pRunningFramesOut != NULL) {
+                    pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+                }
+
+                if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
+                    break;  /* We're done. */
+                }
+            }
         }
     }
+
+    pDecoder->readPointerInPCMFrames += totalFramesReadOut;
 
     return totalFramesReadOut;
 }
@@ -45681,6 +45716,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
     }
 
     if (pDecoder->onSeekToPCMFrame) {
+        ma_result result;
         ma_uint64 internalFrameIndex;
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             internalFrameIndex = frameIndex;
@@ -45688,11 +45724,42 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
             internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
-        return pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        result = pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        if (result == MA_SUCCESS) {
+            pDecoder->readPointerInPCMFrames = frameIndex;
+        }
     }
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
     return MA_INVALID_ARGS;
+}
+
+MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames)
+{
+    ma_uint64 totalFrameCount;
+
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    totalFrameCount = ma_decoder_get_length_in_pcm_frames(pDecoder);
+    if (totalFrameCount == 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    if (totalFrameCount <= pDecoder->readPointerInPCMFrames) {
+        *pAvailableFrames = 0;
+    } else {
+        *pAvailableFrames = totalFrameCount - pDecoder->readPointerInPCMFrames;
+    }
+
+    return MA_SUCCESS;   /* No frames available. */
 }
 
 
@@ -62292,6 +62359,8 @@ v0.10.16 - TBD
   - Fix a bug in ma_data_source_read_pcm_frames() where looping doesn't work.
   - Fix some compilation warnings on Windows when both DirectSound and WinMM are disabled.
   - Fix some compilation warnings when no decoders are enabled.
+  - Add ma_audio_buffer_get_available_frames()
+  - Add ma_decoder_get_available_frames()
   - Updates to documentation.
 
 v0.10.15 - 2020-07-15
