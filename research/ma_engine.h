@@ -410,6 +410,27 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
 
+typedef void ma_async_notification;
+
+typedef struct
+{
+    void (* onSignal)(ma_async_notification* pNotification);
+} ma_async_notification_callbacks;
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
+
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_event e;
+} ma_async_notification_event;
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
+
+
 typedef struct
 {
     union
@@ -432,39 +453,39 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             char* pFilePath;
-            ma_event* pEvent;
+            ma_async_notification* pNotification;   /* Signalled when the data buffer has been fully decoded. */
         } loadDataBuffer;
         struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
-            ma_event* pEvent;
+            ma_async_notification* pNotification;
         } freeDataBuffer;
         struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             ma_decoder* pDecoder;
-            ma_event* pCompletedEvent;  /* Signalled when the data buffer has been fully decoded. */
+            ma_async_notification* pCompletedNotification;  /* Signalled when the data buffer has been fully decoded. */
             void* pData;
             size_t dataSizeInBytes;
             ma_uint64 decodedFrameCount;
-            ma_bool32 isUnknownLength;  /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
+            ma_bool32 isUnknownLength;              /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
         } pageDataBuffer;
 
         struct
         {
             ma_resource_manager_data_stream* pDataStream;
-            char* pFilePath;            /* Allocated when the job is posted, freed by the job thread after loading. */
-            ma_event* pEvent;
+            char* pFilePath;                        /* Allocated when the job is posted, freed by the job thread after loading. */
+            ma_async_notification* pNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
         } loadDataStream;
         struct
         {
             ma_resource_manager_data_stream* pDataStream;
-            ma_event* pEvent;
+            ma_async_notification* pNotification;
         } freeDataStream;
         struct
         {
             ma_resource_manager_data_stream* pDataStream;
-            ma_uint32 pageIndex;        /* The index of the page to decode into. */
+            ma_uint32 pageIndex;                    /* The index of the page to decode into. */
         } pageDataStream;
         struct
         {
@@ -638,7 +659,7 @@ MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* 
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
 
 /* Data Buffers. */
-MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
@@ -651,7 +672,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_m
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
 
 /* Data Streams. */
-MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
@@ -664,7 +685,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
-MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
@@ -1060,6 +1081,72 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 }
 
 
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification)
+{
+    ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification*)pNotification;
+
+    if (pNotification == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pNotificationCallbacks->onSignal == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    pNotificationCallbacks->onSignal(pNotification);
+    return MA_INVALID_ARGS;
+}
+
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent)
+{
+    ma_result result;
+
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNotificationEvent->cb.onSignal = ma_async_notification_event_signal;
+    
+    result = ma_event_init(&pNotificationEvent->e);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_event_uninit(&pNotificationEvent->e);
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_event_wait(&pNotificationEvent->e);
+}
+
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_event_signal(&pNotificationEvent->e);
+}
+
+
+
 #define MA_JOB_ID_NONE  ~((ma_uint64)0)
 
 static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
@@ -1122,8 +1209,6 @@ MA_API ma_result ma_job_queue_init(ma_uint32 flags, ma_job_queue* pQueue)
     ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
     pQueue->jobs[ma_job_extract_slot(pQueue->head)].next = MA_JOB_ID_NONE;
     pQueue->tail = pQueue->head;
-
-    
 
     return MA_SUCCESS;
 }
@@ -1967,7 +2052,7 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
     }
 }
 
-static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_resource_manager_memory_buffer* pExistingData, ma_event* pEvent, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_resource_manager_memory_buffer* pExistingData, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
     ma_resource_manager_data_buffer_node* pInsertPoint;
@@ -2016,8 +2101,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
 
-        if (pEvent != NULL) {
-            ma_event_signal(pEvent);
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification);
         }
     } else {
         /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
@@ -2052,8 +2137,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             pDataBuffer->pNode->result = MA_SUCCESS;
 
             /* Fire the event if we have one. */
-            if (pEvent != NULL) {
-                ma_event_signal(pEvent);
+            if (pNotification != NULL) {
+                ma_async_notification_signal(pNotification);
             }
         } else {
             /*
@@ -2070,8 +2155,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
                 pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 if (pFilePathCopy == NULL) {
-                    if (pEvent != NULL) {
-                        ma_event_signal(pEvent);
+                    if (pNotification != NULL) {
+                        ma_async_notification_signal(pNotification);
                     }
 
                     ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -2082,14 +2167,14 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 /* We now have everything we need to post the job to the job thread. */
                 job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
                 job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-                job.loadDataBuffer.pDataBuffer = pDataBuffer;
-                job.loadDataBuffer.pFilePath   = pFilePathCopy;
-                job.loadDataBuffer.pEvent      = pEvent;
+                job.loadDataBuffer.pDataBuffer   = pDataBuffer;
+                job.loadDataBuffer.pFilePath     = pFilePathCopy;
+                job.loadDataBuffer.pNotification = pNotification;
                 result = ma_resource_manager_post_job(pResourceManager, &job);
                 if (result != MA_SUCCESS) {
                     /* Failed to post the job to the queue. Probably ran out of space. */
-                    if (pEvent != NULL) {
-                        ma_event_signal(pEvent);
+                    if (pNotification != NULL) {
+                        ma_async_notification_signal(pNotification);
                     }
 
                     ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -2222,8 +2307,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
             /* If we failed to initialize make sure we fire the event and free memory. */
             if (result != MA_SUCCESS) {
-                if (pEvent != NULL) {
-                    ma_event_signal(pEvent);
+                if (pNotification != NULL) {
+                    ma_async_notification_signal(pNotification);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -2234,8 +2319,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
         /* It's not really necessary, but for completeness we'll want to fire the event if we have one in synchronous mode. */
         if (async == MA_FALSE) {
-            if (pEvent != NULL) {
-                ma_event_signal(pEvent);
+            if (pNotification != NULL) {
+                ma_async_notification_signal(pNotification);
             }
         }
     }
@@ -2243,7 +2328,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_buffer* pDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
     ma_uint32 hashedName32;
@@ -2262,7 +2347,7 @@ MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pReso
     /* At this point we can now enter the critical section. */
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, NULL, pEvent, pDataBuffer);
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, NULL, pNotification, pDataBuffer);
     }
     ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
@@ -2323,27 +2408,27 @@ static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manag
             be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
             to get processed before returning.
             */
-            ma_event waitEvent;
+            ma_async_notification_event waitEvent;
             ma_job job;
 
-            result = ma_event_init(&waitEvent);
+            result = ma_async_notification_event_init(&waitEvent);
             if (result != MA_SUCCESS) {
                 return result;  /* Failed to create the wait event. This should rarely if ever happen. */
             }
 
             job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            job.freeDataBuffer.pDataBuffer = pDataBuffer;
-            job.freeDataBuffer.pEvent      = &waitEvent;
+            job.freeDataBuffer.pDataBuffer   = pDataBuffer;
+            job.freeDataBuffer.pNotification = &waitEvent;
 
             result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
             if (result != MA_SUCCESS) {
-                ma_event_uninit(&waitEvent);
+                ma_async_notification_event_uninit(&waitEvent);
                 return result;
             }
 
-            ma_event_wait(&waitEvent);
-            ma_event_uninit(&waitEvent);
+            ma_async_notification_event_wait(&waitEvent);
+            ma_async_notification_event_uninit(&waitEvent);
         }
     }
 
@@ -2699,15 +2784,15 @@ static ma_uint32 ma_resource_manager_data_stream_next_execution_order(ma_resourc
 
 
 
-MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_event* pEvent, ma_resource_manager_data_stream* pDataStream)
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
     char* pFilePathCopy;
     ma_job job;
 
     if (pDataStream == NULL) {
-        if (pEvent != NULL) {
-            ma_event_signal(pEvent);
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_INVALID_ARGS;
@@ -2725,8 +2810,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     pDataStream->result             = MA_BUSY;
 
     if (pResourceManager == NULL || pFilePath == NULL) {
-        if (pEvent != NULL) {
-            ma_event_signal(pEvent);
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_INVALID_ARGS;
@@ -2737,8 +2822,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
     pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
     if (pFilePathCopy == NULL) {
-        if (pEvent != NULL) {
-            ma_event_signal(pEvent);
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_OUT_OF_MEMORY;
@@ -2747,13 +2832,13 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_job_init(MA_JOB_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.loadDataStream.pDataStream = pDataStream;
-    job.loadDataStream.pFilePath   = pFilePathCopy;
-    job.loadDataStream.pEvent      = pEvent;
+    job.loadDataStream.pDataStream   = pDataStream;
+    job.loadDataStream.pFilePath     = pFilePathCopy;
+    job.loadDataStream.pNotification = pNotification;
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
-        if (pEvent != NULL) {
-            ma_event_signal(pEvent);
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification);
         }
 
         ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
@@ -2765,7 +2850,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream)
 {
-    ma_event freeEvent;
+    ma_async_notification_event freeEvent;
     ma_job job;
 
     if (pDataStream == NULL) {
@@ -2779,17 +2864,17 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     We need to post a job to ensure we're not in the middle or decoding or anything. Because the object is owned by the caller, we'll need
     to wait for it to complete before returning which means we need an event.
     */
-    ma_event_init(&freeEvent);
+    ma_async_notification_event_init(&freeEvent);
 
     job = ma_job_init(MA_JOB_FREE_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.freeDataStream.pDataStream = pDataStream;
-    job.freeDataStream.pEvent      = &freeEvent;
+    job.freeDataStream.pDataStream   = pDataStream;
+    job.freeDataStream.pNotification = &freeEvent;
     ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
 
     /* We need to wait for the job to finish processing before we return. */
-    ma_event_wait(&freeEvent);
-    ma_event_uninit(&freeEvent);
+    ma_async_notification_event_wait(&freeEvent);
+    ma_async_notification_event_uninit(&freeEvent);
 
     return MA_SUCCESS;
 }
@@ -3158,7 +3243,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 
 
 
-MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource)
 {
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
@@ -3174,9 +3259,9 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
 
     /* The data source itself is just a data stream or a data buffer. */
     if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_init(pResourceManager, pName, flags, NULL, &pDataSource->stream);
+        return ma_resource_manager_data_stream_init(pResourceManager, pName, flags, pNotification, &pDataSource->stream);
     } else {
-        return ma_resource_manager_data_buffer_init(pResourceManager, pName, flags, NULL, &pDataSource->buffer);
+        return ma_resource_manager_data_buffer_init(pResourceManager, pName, flags, pNotification, &pDataSource->buffer);
     }
 }
 
@@ -3509,13 +3594,13 @@ done:
         MA_ASSERT(pData    != NULL);
 
         pageDataBufferJob = ma_job_init(MA_JOB_PAGE_DATA_BUFFER);
-        pageDataBufferJob.order                            = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-        pageDataBufferJob.pageDataBuffer.pDataBuffer       = pDataBuffer;
-        pageDataBufferJob.pageDataBuffer.pDecoder          = pDecoder;
-        pageDataBufferJob.pageDataBuffer.pCompletedEvent   = pJob->loadDataBuffer.pEvent;
-        pageDataBufferJob.pageDataBuffer.pData             = pData;
-        pageDataBufferJob.pageDataBuffer.dataSizeInBytes   = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
-        pageDataBufferJob.pageDataBuffer.decodedFrameCount = framesRead;
+        pageDataBufferJob.order                                 = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
+        pageDataBufferJob.pageDataBuffer.pDataBuffer            = pDataBuffer;
+        pageDataBufferJob.pageDataBuffer.pDecoder               = pDecoder;
+        pageDataBufferJob.pageDataBuffer.pCompletedNotification = pJob->loadDataBuffer.pNotification;
+        pageDataBufferJob.pageDataBuffer.pData                  = pData;
+        pageDataBufferJob.pageDataBuffer.dataSizeInBytes        = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
+        pageDataBufferJob.pageDataBuffer.decodedFrameCount      = framesRead;
 
         if (totalFrameCount > 0) {
             pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_FALSE;
@@ -3555,15 +3640,15 @@ done:
         }
             
         /* We want to make sure we don't signal the event here. It needs to be delayed until the last page. */
-        pJob->loadDataBuffer.pEvent = NULL;
+        pJob->loadDataBuffer.pNotification = NULL;
 
         /* Make sure the buffer's status is updated appropriately, but make sure we never move away from a MA_BUSY state to ensure we don't overwrite any error codes. */
         c89atomic_compare_and_swap_32(&pDataBuffer->pNode->result, MA_BUSY, result);
     }
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
-    if (pJob->loadDataBuffer.pEvent != NULL) {
-        ma_event_signal(pJob->loadDataBuffer.pEvent);
+    if (pJob->loadDataBuffer.pNotification != NULL) {
+        ma_async_notification_signal(pJob->loadDataBuffer.pNotification);
     }
 
     c89atomic_fetch_add_32(&pDataBuffer->pNode->executionPointer, 1);
@@ -3585,8 +3670,8 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     ma_resource_manager_data_buffer_uninit_internal(pJob->freeDataBuffer.pDataBuffer);
 
     /* The event needs to be signalled last. */
-    if (pJob->freeDataBuffer.pEvent != NULL) {
-        ma_event_signal(pJob->freeDataBuffer.pEvent);
+    if (pJob->freeDataBuffer.pNotification != NULL) {
+        ma_async_notification_event_signal(pJob->freeDataBuffer.pNotification);
     }
 
     /*c89atomic_fetch_add_32(&pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer, 1);*/
@@ -3712,8 +3797,8 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
         c89atomic_compare_and_swap_32(&pDataBuffer->pNode->result, MA_BUSY, result);
 
         /* We need to signal an event to indicate that we're done. */
-        if (jobCopy.pageDataBuffer.pCompletedEvent != NULL) {
-            ma_event_signal(jobCopy.pageDataBuffer.pCompletedEvent);
+        if (jobCopy.pageDataBuffer.pCompletedNotification != NULL) {
+            ma_async_notification_signal(jobCopy.pageDataBuffer.pCompletedNotification);
         }
     }
 
@@ -3777,8 +3862,8 @@ done:
     c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
-    if (pJob->loadDataStream.pEvent != NULL) {
-        ma_event_signal(pJob->loadDataStream.pEvent);
+    if (pJob->loadDataStream.pNotification != NULL) {
+        ma_async_notification_signal(pJob->loadDataStream.pNotification);
     }
 
     c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -3812,8 +3897,8 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     }
 
     /* The event needs to be signalled last. */
-    if (pJob->freeDataStream.pEvent != NULL) {
-        ma_event_signal(pJob->freeDataStream.pEvent);
+    if (pJob->freeDataStream.pNotification != NULL) {
+        ma_async_notification_signal(pJob->freeDataStream.pNotification);
     }
 
     /*c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);*/
@@ -5094,7 +5179,7 @@ MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* 
     }
 
     /* We need to user the resource manager to load the data source. */
-    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, &pSound->resourceManagerDataSource);
+    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -5359,7 +5444,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         }
 
         /* The old data source has been uninitialized so now we need to initialize the new one. */
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, dataSourceFlags, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, dataSourceFlags, NULL, &pSound->resourceManagerDataSource);
         if (result != MA_SUCCESS) {
             /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
             c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
