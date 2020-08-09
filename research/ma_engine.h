@@ -2655,7 +2655,14 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
     }
 
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
-        return ma_audio_buffer_get_available_frames(&pDataBuffer->connector.buffer, pAvailableFrames);
+        /* Retrieve the available frames based on how many frames we've currently decoded, and *not* the total capacity of the audio buffer. */
+        if (pDataBuffer->pNode->data.decoded.decodedFrameCount > pDataBuffer->cursor) {
+            *pAvailableFrames = pDataBuffer->pNode->data.decoded.decodedFrameCount - pDataBuffer->cursor;
+        } else {
+            *pAvailableFrames = 0;
+        }
+
+        return MA_SUCCESS;
     } else {
         return ma_decoder_get_available_frames(&pDataBuffer->connector.decoder, pAvailableFrames);
     }
@@ -5802,6 +5809,7 @@ MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSou
     Setting the fade out is annoying because we may not know the length of the sound. The only reliable way of doing this is to do it when some
     frames are available, at which point the length of the data source should be known.
     */
+    (void)fadeTimeInMilliseconds;
 
     return MA_SUCCESS;
 }
