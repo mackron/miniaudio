@@ -819,40 +819,40 @@ MA_API ma_result ma_spatializer_set_position(ma_spatializer* pSpatializer, ma_ve
 MA_API ma_result ma_spatializer_set_rotation(ma_spatializer* pSpatializer, ma_quat rotation);
 
 
-/* Fader. */
+
+/* Dual Fader. Used for separating fading in and fading out. */
 typedef struct
 {
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
-    float volumeBeg;
-    float volumeEnd;
-    ma_uint64 timeInFramesBeg;
-    ma_uint64 timeInFramesEnd;
-} ma_fader_config;
+    struct
+    {
+        float volumeBeg;
+        float volumeEnd;
+        ma_uint64 timeInFramesBeg;
+        ma_uint64 timeInFramesEnd;
+    } state[2];
+} ma_dual_fader_config;
 
-MA_API ma_fader_config ma_fader_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
+MA_API ma_dual_fader_config ma_dual_fader_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
 
 typedef struct
 {
     ma_effect_base effect;
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    float volumeBeg;
-    float volumeEnd;
-    ma_uint64 timeInFramesBeg;  /* Time to begin fading in frames. */
-    ma_uint64 timeInFramesEnd;  /* Time to end fading in frames. */
+    ma_dual_fader_config config;
     ma_uint64 timeInFramesCur;  /* The current time in frames. Incremented by ma_fader_process_pcm_frames(). */
-} ma_fader;
+} ma_dual_fader;
 
-MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader);
-MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_result ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
-MA_API ma_result ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
-MA_API ma_result ma_fader_set_time(ma_fader* pFader, ma_uint64 currentTimeInFrames);
-MA_API ma_result ma_fader_get_time(ma_fader* pFader, ma_uint64* pCurrentTimeInFrames);
-MA_API ma_bool32 ma_fader_is_time_past_fade_end(const ma_fader* pFader);
+MA_API ma_result ma_dual_fader_init(const ma_dual_fader_config* pConfig, ma_dual_fader* pFader);
+MA_API ma_result ma_dual_fader_process_pcm_frames(ma_dual_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_dual_fader_get_data_format(const ma_dual_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_dual_fader_set_fade(ma_dual_fader* pFader, ma_uint32 index, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
+MA_API ma_result ma_dual_fader_set_time(ma_dual_fader* pFader, ma_uint64 currentTimeInFrames);
+MA_API ma_result ma_dual_fader_get_time(const ma_dual_fader* pFader, ma_uint64* pCurrentTimeInFrames);
+MA_API ma_result ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index);
+MA_API ma_result ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader);
+MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index);      /* Essentially disables fading for one of the sub-fades. To enable again, call ma_dual_fader_set_fade(). */
 
 
 /* All of the proprties supported by the engine are handled via an effect. */
@@ -863,7 +863,7 @@ typedef struct
     ma_effect* pPreEffect;          /* The application-defined effect that will be applied before spationalization, etc. */
     ma_panner panner;
     ma_spatializer spatializer;
-    ma_fader fader;                 /* For fading in and out when starting and stopping. */
+    ma_dual_fader fader;            /* For fading in and out when starting and stopping. */
     float pitch;
     float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
     ma_data_converter converter;    /* For pitch shift. May change this to ma_linear_resampler later. */
@@ -4359,33 +4359,38 @@ MA_API ma_result ma_spatializer_set_rotation(ma_spatializer* pSpatializer, ma_qu
 
 
 
-MA_API ma_fader_config ma_fader_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+
+MA_API ma_dual_fader_config ma_dual_fader_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
-    ma_fader_config config;
+    ma_dual_fader_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.format          = format;
-    config.channels        = channels;
-    config.sampleRate      = sampleRate;
-    config.volumeBeg       = 1;
-    config.volumeEnd       = 1;
-    config.timeInFramesBeg = 0;
-    config.timeInFramesEnd = 0;
+    config.format                   = format;
+    config.channels                 = channels;
+    config.sampleRate               = sampleRate;
+    config.state[0].volumeBeg       = 1;
+    config.state[0].volumeEnd       = 1;
+    config.state[0].timeInFramesBeg = 0;
+    config.state[0].timeInFramesEnd = 0;
+    config.state[1].volumeBeg       = 1;
+    config.state[1].volumeEnd       = 1;
+    config.state[1].timeInFramesBeg = 0;
+    config.state[1].timeInFramesEnd = 0;
 
     return config;
 }
 
 
-static ma_result ma_fader_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_dual_fader_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
-    ma_fader* pFader = (ma_fader*)pEffect;
+    ma_dual_fader* pFader = (ma_dual_fader*)pEffect;
     ma_result result;
     ma_uint64 frameCount;
 
     /* The fader has a 1:1 relationship between input and output frame counts. */
     frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
 
-    result = ma_fader_process_pcm_frames(pFader, pFramesOut, pFramesIn, frameCount);
+    result = ma_dual_fader_process_pcm_frames(pFader, pFramesOut, pFramesIn, frameCount);
 
     *pFrameCountIn  = frameCount;
     *pFrameCountOut = frameCount;
@@ -4393,7 +4398,7 @@ static ma_result ma_fader_effect__on_process_pcm_frames(ma_effect* pEffect, cons
     return result;
 }
 
-MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader)
+MA_API ma_result ma_dual_fader_init(const ma_dual_fader_config* pConfig, ma_dual_fader* pFader)
 {
     if (pFader == NULL) {
         return MA_INVALID_ARGS;
@@ -4405,61 +4410,67 @@ MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader)
         return MA_INVALID_ARGS;
     }
 
-    pFader->effect.onProcessPCMFrames            = ma_fader_effect__on_process_pcm_frames;
+    pFader->effect.onProcessPCMFrames            = ma_dual_fader_effect__on_process_pcm_frames;
     pFader->effect.onGetRequiredInputFrameCount  = NULL;
     pFader->effect.onGetExpectedOutputFrameCount = NULL;
-    pFader->effect.onGetInputDataFormat          = ma_fader_get_data_format;
-    pFader->effect.onGetOutputDataFormat         = ma_fader_get_data_format;
-    
-    pFader->format          = pConfig->format;
-    pFader->channels        = pConfig->channels;
-    pFader->sampleRate      = pConfig->sampleRate;
-    pFader->volumeBeg       = pConfig->volumeBeg;
-    pFader->volumeEnd       = pConfig->volumeEnd;
-    pFader->timeInFramesBeg = pConfig->timeInFramesBeg;
-    pFader->timeInFramesEnd = pConfig->timeInFramesEnd;
+    pFader->effect.onGetInputDataFormat          = ma_dual_fader_get_data_format;
+    pFader->effect.onGetOutputDataFormat         = ma_dual_fader_get_data_format;
+
+    pFader->config          = *pConfig;
     pFader->timeInFramesCur = 0;
 
     /* If the start time comes after the end time, just swap the fade parameters. */
-    if (pFader->timeInFramesBeg > pFader->timeInFramesEnd) {
+    if (pFader->config.state[0].timeInFramesBeg > pFader->config.state[0].timeInFramesEnd) {
         ma_uint64 timeTemp;
         float volumeTemp;
 
-        timeTemp = pFader->timeInFramesBeg;
-        pFader->timeInFramesBeg = pFader->timeInFramesEnd;
-        pFader->timeInFramesEnd = timeTemp;
+        timeTemp = pFader->config.state[0].timeInFramesBeg;
+        pFader->config.state[0].timeInFramesBeg = pFader->config.state[0].timeInFramesEnd;
+        pFader->config.state[0].timeInFramesEnd = timeTemp;
 
-        volumeTemp = pFader->volumeBeg;
-        pFader->volumeBeg = pFader->volumeEnd;
-        pFader->volumeEnd = volumeTemp;
+        volumeTemp = pFader->config.state[0].volumeBeg;
+        pFader->config.state[0].volumeBeg = pFader->config.state[0].volumeEnd;
+        pFader->config.state[0].volumeEnd = volumeTemp;
+    }
+
+    if (pFader->config.state[1].timeInFramesBeg > pFader->config.state[1].timeInFramesEnd) {
+        ma_uint64 timeTemp;
+        float volumeTemp;
+
+        timeTemp = pFader->config.state[0].timeInFramesBeg;
+        pFader->config.state[1].timeInFramesBeg = pFader->config.state[1].timeInFramesEnd;
+        pFader->config.state[1].timeInFramesEnd = timeTemp;
+
+        volumeTemp = pFader->config.state[0].volumeBeg;
+        pFader->config.state[1].volumeBeg = pFader->config.state[1].volumeEnd;
+        pFader->config.state[1].volumeEnd = volumeTemp;
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+
+MA_API ma_result ma_dual_fader_process_pcm_frames_by_index(ma_dual_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount, ma_uint32 index)
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
 
-    if (pFader == NULL) {
-        return MA_INVALID_ARGS;
-    }
+    MA_ASSERT(pFader != NULL);
 
     /* Optimized path when the current time has passed end of the fading period. */
-    if (pFader->timeInFramesCur >= pFader->timeInFramesEnd) {
+    if (pFader->timeInFramesCur >= pFader->config.state[index].timeInFramesEnd) {
         if (pFramesOut == pFramesIn) {
             /* No-op. */
         } else {
-            ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pFader->format, pFader->channels, pFader->volumeEnd);
+            ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pFader->config.format, pFader->config.channels, pFader->config.state[index].volumeEnd);
         }
     } else {
-        ma_uint64 lo = pFader->timeInFramesBeg;
-        ma_uint64 hi = pFader->timeInFramesEnd;
-        ma_uint64 dt = (pFader->timeInFramesEnd - pFader->timeInFramesBeg);
+        ma_uint64 lo =  pFader->config.state[index].timeInFramesBeg;
+        ma_uint64 hi =  pFader->config.state[index].timeInFramesEnd;
+        ma_uint64 dt = (pFader->config.state[index].timeInFramesEnd - pFader->config.state[index].timeInFramesBeg);
 
         /* Only supporting f32 for the moment while we figure this out. */
-        if (pFader->format == ma_format_f32) {
+        if (pFader->config.format == ma_format_f32) {
             const float* pFramesInF32  = (const float*)pFramesIn;
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
             float volumeCur = 1;
@@ -4479,10 +4490,10 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
                     a = (ma_clamp(x, lo, hi) - lo) / (float)dt;
                 }
 
-                volumeCur = ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, a);
+                volumeCur = ma_mix_f32_fast(pFader->config.state[index].volumeBeg, pFader->config.state[index].volumeEnd, a);
 
-                for (iChannel = 0; iChannel < pFader->channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pFader->channels + iChannel] = pFramesInF32[iFrame*pFader->channels + iChannel] * volumeCur;
+                for (iChannel = 0; iChannel < pFader->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pFader->config.channels + iChannel] = pFramesInF32[iFrame*pFader->config.channels + iChannel] * volumeCur;
                 }
             }
         } else {
@@ -4490,49 +4501,66 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
         }
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_dual_fader_process_pcm_frames(ma_dual_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pFader == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* For now all we're doing is processing one sub-fade after the other. The second one operates on the output buffer in-place. */
+    ma_dual_fader_process_pcm_frames_by_index(pFader, pFramesOut, pFramesIn,  frameCount, 0);
+    ma_dual_fader_process_pcm_frames_by_index(pFader, pFramesOut, pFramesOut, frameCount, 1);   /* <-- Intentionally using the output buffer for both input and output because the first one will have written to the output. */
+
     /* Move time forward. */
     pFader->timeInFramesCur += frameCount;
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+MA_API ma_result ma_dual_fader_get_data_format(const ma_dual_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     if (pFader == NULL) {
         return MA_INVALID_ARGS;
     }
 
     if (pFormat != NULL) {
-        *pFormat = pFader->format;
+        *pFormat = pFader->config.format;
     }
 
     if (pChannels != NULL) {
-        *pChannels = pFader->channels;
+        *pChannels = pFader->config.channels;
     }
 
     if (pSampleRate != NULL) {
-        *pSampleRate = pFader->sampleRate;
+        *pSampleRate = pFader->config.sampleRate;
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
+MA_API ma_result ma_dual_fader_set_fade(ma_dual_fader* pFader, ma_uint32 index, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
 {
     if (pFader == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pFader->volumeBeg       = volumeBeg;
-    pFader->volumeEnd       = volumeEnd;
-    pFader->timeInFramesBeg = timeInFramesBeg;
-    pFader->timeInFramesEnd = timeInFramesEnd;
+    pFader->config.state[index].volumeBeg       = volumeBeg;
+    pFader->config.state[index].volumeEnd       = volumeEnd;
+    pFader->config.state[index].timeInFramesBeg = timeInFramesBeg;
+    pFader->config.state[index].timeInFramesEnd = timeInFramesEnd;
     
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_fader_set_time(ma_fader* pFader, ma_uint64 currentTimeInFrames)
+MA_API ma_result ma_dual_fader_set_time(ma_dual_fader* pFader, ma_uint64 currentTimeInFrames)
 {
+    if (pFader == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pFader == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -4542,7 +4570,7 @@ MA_API ma_result ma_fader_set_time(ma_fader* pFader, ma_uint64 currentTimeInFram
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_fader_get_time(ma_fader* pFader, ma_uint64* pCurrentTimeInFrames)
+MA_API ma_result ma_dual_fader_get_time(const ma_dual_fader* pFader, ma_uint64* pCurrentTimeInFrames)
 {
     if (pCurrentTimeInFrames == NULL) {
         return MA_INVALID_ARGS;
@@ -4559,15 +4587,34 @@ MA_API ma_result ma_fader_get_time(ma_fader* pFader, ma_uint64* pCurrentTimeInFr
     return MA_SUCCESS;
 }
 
-MA_API ma_bool32 ma_fader_is_time_past_fade_end(const ma_fader* pFader)
+MA_API ma_result ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index)
 {
     if (pFader == NULL) {
         return MA_FALSE;
     }
 
-    return pFader->timeInFramesCur >= pFader->timeInFramesEnd;
+    return pFader->timeInFramesCur >= pFader->config.state[index].timeInFramesEnd;
 }
 
+MA_API ma_result ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader)
+{
+    return ma_dual_fader_is_time_past_fade(pFader, 0) && ma_dual_fader_is_time_past_fade(pFader, 1);
+}
+
+MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index)
+{
+    if (pFader == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Just reset back to defaults. */
+    pFader->config.state[index].volumeBeg = 1;
+    pFader->config.state[index].volumeEnd = 1;
+    pFader->config.state[index].timeInFramesBeg = 0;
+    pFader->config.state[index].timeInFramesEnd = 0;
+
+    return MA_SUCCESS;
+}
 
 
 
@@ -4591,7 +4638,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
     frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
 
     /* If the current time on the fader has past the end we don't need to keep running it. We just need to ensure that when we reboot it that we set the current time properly. */
-    if (pEngineEffect->fader.timeInFramesCur < pEngineEffect->fader.timeInFramesEnd) {
+    if (ma_dual_fader_is_time_past_both_fades(&pEngineEffect->fader) == MA_FALSE) {
         isFading = MA_TRUE; /* <-- Comment out this line to always run the fader. */
     }
 
@@ -4610,7 +4657,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
                 }
             } else {
                 /* Slow path. Fading required. */
-                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesIn, frameCount);
+                ma_dual_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesIn, frameCount);
             }
         } else {
             /* Slow path. Spatialization required. */
@@ -4620,7 +4667,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
                 /* Fast path. No fading. */
             } else {
                 /* Slow path. Fading required. The spatialization processed moved data into the output buffer so we need to do this in-place. */
-                ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
+                ma_dual_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
             }
         }
     } else {
@@ -4638,7 +4685,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
             /* Fast path. No fading. */
         } else {
             /* Slow path. Fading required. */
-            ma_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
+            ma_dual_fader_process_pcm_frames(&pEngineEffect->fader, pFramesOut, pFramesOut, frameCount); /* <-- Intentionally set both input and output buffers to pFramesOut because we want this to be in-place. */
         }
     }
 
@@ -4839,7 +4886,7 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
     ma_result result;
     ma_panner_config pannerConfig;
     ma_spatializer_config spatializerConfig;
-    ma_fader_config faderConfig;
+    ma_dual_fader_config faderConfig;
     ma_data_converter_config converterConfig;
 
     MA_ASSERT(pEngine != NULL);
@@ -4870,8 +4917,8 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
         return result;  /* Failed to create the spatializer. */
     }
 
-    faderConfig = ma_fader_config_init(pEngine->format, pEngine->channels, pEngine->sampleRate);
-    result = ma_fader_init(&faderConfig, &pEffect->fader);
+    faderConfig = ma_dual_fader_config_init(pEngine->format, pEngine->channels, pEngine->sampleRate);
+    result = ma_dual_fader_init(&faderConfig, &pEffect->fader);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the fader. */
     }
@@ -4937,7 +4984,7 @@ static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
     }
 
     /* If we're fading we need to make sure we do processing. */
-    if (ma_fader_is_time_past_fade_end(&pEffect->fader) == MA_FALSE) {
+    if (ma_dual_fader_is_time_past_both_fades(&pEffect->fader) == MA_FALSE) {
         return MA_FALSE;
     }
 
@@ -5007,7 +5054,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
             /* If fading out we need to stop the sound if it's done fading. */
             if (pSound->isFadingOut) {
-                if (ma_fader_is_time_past_fade_end(&pSound->effect.fader)) {
+                if (ma_dual_fader_is_time_past_both_fades(&pSound->effect.fader)) {
                     ma_engine_sound_stop_internal(pEngine, pSound);
                 }
             }
@@ -5015,7 +5062,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             /* If we reached the end of the sound we'll want to mark it as at the end and not playing. */
             if (result == MA_AT_END) {
                 ma_engine_sound_stop_internal(pEngine, pSound);
-                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE);         /* Set to false in ma_engine_sound_start(). */
+                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* Set to false in ma_engine_sound_start(). */
             }
         }
     }
@@ -5599,7 +5646,7 @@ MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound, ma_
 
     /* Fading in. */
     if (fadeTimeInMilliseconds > 0) {
-        ma_fader_set_fade(&pSound->effect.fader, 0, 1, 0, (fadeTimeInMilliseconds * pSound->effect.fader.sampleRate) / 1000);
+        ma_dual_fader_set_fade(&pSound->effect.fader, 0, 0, 1, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
     }
 
     /* Make sure we reset the fading out status so the mixer thread doesn't get confused and try to stop the sound. */
@@ -5632,8 +5679,9 @@ MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound, ma_u
         ma_engine_sound_stop_internal(pEngine, pSound);
     } else {
         /* Fade out and then stop. Stopping will happen on the mixing thread. */
-        ma_fader_set_time(&pSound->effect.fader, 0);    /* <-- Important that we reset the time. */
-        ma_fader_set_fade(&pSound->effect.fader, 1, 0, 0, (fadeTimeInMilliseconds * pSound->effect.fader.sampleRate) / 1000);
+        ma_dual_fader_reset_fade(&pSound->effect.fader, 0);             /* <-- Reset the fade in to ensure we don't end up coming the fading in with the fading out. */
+        ma_dual_fader_set_time(&pSound->effect.fader, 0);               /* <-- Important that we reset the time. */
+        ma_dual_fader_set_fade(&pSound->effect.fader, 1, 1, 0, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
         c89atomic_exchange_32(&pSound->isFadingOut, MA_TRUE);
     }    
 
