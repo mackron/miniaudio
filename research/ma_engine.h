@@ -963,6 +963,8 @@ MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSou
 MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation);
 MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
+MA_API ma_result ma_engine_sound_set_fade_in(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
+MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
 MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
 MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
@@ -5776,6 +5778,29 @@ MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSoun
         ma_resource_manager_data_source_set_looping(pSound->pDataSource, isLooping);
     }
 #endif
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_sound_set_fade_in(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_dual_fader_set_fade(&pSound->effect.fader, 0, 0, 1, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
+}
+
+MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    Setting the fade out is annoying because we may not know the length of the sound. The only reliable way of doing this is to do it when some
+    frames are available, at which point the length of the data source should be known.
+    */
 
     return MA_SUCCESS;
 }
