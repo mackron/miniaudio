@@ -5244,14 +5244,18 @@ typedef struct
     ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
     ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+    ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
+    ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
 } ma_data_source_callbacks;
 
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
 
 
 typedef struct
@@ -41315,6 +41319,48 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pCursor = 0;
+
+    if (pCallbacks == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onGetCursor == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onGetCursor(pDataSource, pCursor);
+}
+
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pLength = 0;
+
+    if (pCallbacks == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onGetLength == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onGetLength(pDataSource, pLength);
+}
+
 
 
 MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -41373,6 +41419,24 @@ static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source*
     return MA_SUCCESS;
 }
 
+static ma_result ma_audio_buffer__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
+
+    *pCursor = pAudioBuffer->cursor;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_audio_buffer__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
+
+    *pLength = pAudioBuffer->sizeInFrames;
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, ma_bool32 doCopy, ma_audio_buffer* pAudioBuffer)
 {
     if (pAudioBuffer == NULL) {
@@ -41394,6 +41458,8 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
     pAudioBuffer->ds.onMap           = ma_audio_buffer__data_source_on_map;
     pAudioBuffer->ds.onUnmap         = ma_audio_buffer__data_source_on_unmap;
     pAudioBuffer->ds.onGetDataFormat = ma_audio_buffer__data_source_on_get_data_format;
+    pAudioBuffer->ds.onGetCursor     = ma_audio_buffer__data_source_on_get_cursor;
+    pAudioBuffer->ds.onGetLength     = ma_audio_buffer__data_source_on_get_length;
     pAudioBuffer->format             = pConfig->format;
     pAudioBuffer->channels           = pConfig->channels;
     pAudioBuffer->cursor             = 0;
@@ -44433,6 +44499,27 @@ static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDat
     return MA_SUCCESS;
 }
 
+static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
+
+    *pCursor = pDecoder->readPointerInPCMFrames;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
+
+    *pLength = ma_decoder_get_length_in_pcm_frames(pDecoder);
+    if (*pLength == 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
@@ -44452,6 +44539,8 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->ds.onRead          = ma_decoder__data_source_on_read;
     pDecoder->ds.onSeek          = ma_decoder__data_source_on_seek;
     pDecoder->ds.onGetDataFormat = ma_decoder__data_source_on_get_data_format;
+    pDecoder->ds.onGetCursor     = ma_decoder__data_source_on_get_cursor;
+    pDecoder->ds.onGetLength     = ma_decoder__data_source_on_get_length;
 
     pDecoder->onRead    = onRead;
     pDecoder->onSeek    = onSeek;
@@ -46220,6 +46309,15 @@ static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDa
     return MA_SUCCESS;
 }
 
+static ma_result ma_waveform__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_waveform* pWaveform = (ma_waveform*)pDataSource;
+
+    *pCursor = (ma_uint64)(pWaveform->time / pWaveform->advance);
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform)
 {
     if (pWaveform == NULL) {
@@ -46230,6 +46328,8 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     pWaveform->ds.onRead          = ma_waveform__data_source_on_read;
     pWaveform->ds.onSeek          = ma_waveform__data_source_on_seek;
     pWaveform->ds.onGetDataFormat = ma_waveform__data_source_on_get_data_format;
+    pWaveform->ds.onGetCursor     = ma_waveform__data_source_on_get_cursor;
+    pWaveform->ds.onGetLength     = NULL;   /* Intentionally set to NULL since there's no notion of a length in waveforms. */
     pWaveform->config             = *pConfig;
     pWaveform->advance            = 1.0 / pWaveform->config.sampleRate;
     pWaveform->time               = 0;
@@ -46619,6 +46719,8 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     pNoise->ds.onRead          = ma_noise__data_source_on_read;
     pNoise->ds.onSeek          = ma_noise__data_source_on_seek;  /* <-- No-op for noise. */
     pNoise->ds.onGetDataFormat = ma_noise__data_source_on_get_data_format;
+    pNoise->ds.onGetCursor     = NULL;  /* No notion of a cursor for noise. */
+    pNoise->ds.onGetLength     = NULL;  /* No notion of a length for noise. */
     pNoise->config             = *pConfig;
     ma_lcg_seed(&pNoise->lcg, pConfig->seed);
 

@@ -594,7 +594,9 @@ struct ma_resource_manager_data_stream
     ma_uint32 flags;                        /* The flags that were passed used to initialize the stream. */
     ma_decoder decoder;                     /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
     ma_bool32 isDecoderInitialized;         /* Required for determining whether or not the decoder should be uninitialized in MA_JOB_FREE_DATA_STREAM. */
+    ma_uint64 totalLengthInPCMFrames;       /* This is calculated when first loaded by the MA_JOB_LOAD_DATA_STREAM. */
     ma_uint32 relativeCursor;               /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
+    ma_uint64 absoluteCursor;               /* The playback cursor, in absolute position starting from the start of the file. */
     ma_uint32 currentPageIndex;             /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
     ma_uint32 executionCounter;             /* For allocating execution orders for jobs. */
     ma_uint32 executionPointer;             /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
@@ -666,6 +668,8 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_buffer_map(ma_resource_manager_data_buffer* pDataBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping);
@@ -679,6 +683,8 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_stream* pDataStream, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pCursor);
+MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
@@ -692,6 +698,8 @@ MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_source_map(ma_resource_manager_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_resource_manager_data_source_unmap(ma_resource_manager_data_source* pDataSource, ma_uint64 frameCount);
 MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_manager_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_resource_manager_data_source_get_cursor_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pCursor);
+MA_API ma_result ma_resource_manager_data_source_get_length_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
@@ -2603,6 +2611,43 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
     return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels, pSampleRate);
 }
 
+MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor)
+{
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    if (pDataBuffer == NULL || pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = pDataBuffer->cursor;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength)
+{
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+
+    if (pDataBuffer == NULL || pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
+        return MA_BUSY; /* Still loading. */
+    }
+
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+        *pLength = pDataBuffer->pNode->data.decoded.frameCount;
+    } else {
+        /* TODO: This needs to change. This is too inefficient to be used generally because it may involve scanning the entire file. */
+        *pLength = ma_decoder_get_length_in_pcm_frames(&pDataBuffer->connector.decoder);
+    }
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer)
 {
     if (pDataBuffer == NULL) {
@@ -3122,6 +3167,9 @@ MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
+    /* The absolute cursor needs to be updated. */
+    pDataStream->absoluteCursor += frameCount;
+
     /* Here is where we need to check if we need to load a new page, and if so, post a job to load it. */
     newRelativeCursor = pDataStream->relativeCursor + (ma_uint32)frameCount;
 
@@ -3206,6 +3254,49 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
     such that the application is responsible for ensuring it's not called while uninitializing so it should be safe.
     */
     return ma_data_source_get_data_format(&pDataStream->decoder, pFormat, pChannels, pSampleRate);
+}
+
+MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pCursor)
+{
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+
+    if (pDataStream == NULL || pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    *pCursor = pDataStream->absoluteCursor;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength)
+{
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDataStream->result != MA_SUCCESS) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /*
+    We most definitely do not want to be calling ma_decoder_get_length_in_pcm_frames() directly. Instead we want to use a cached value that we
+    calculated when we initialized it on the job thread.
+    */
+    *pLength = pDataStream->totalLengthInPCMFrames;
+    if (*pLength == 0) {
+        return MA_NOT_IMPLEMENTED;  /* Some decoders may not have a known length. */
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream)
@@ -3372,6 +3463,32 @@ MA_API ma_result ma_resource_manager_data_source_get_data_format(ma_resource_man
         return ma_resource_manager_data_stream_get_data_format(&pDataSource->stream, pFormat, pChannels, pSampleRate);
     } else {
         return ma_resource_manager_data_buffer_get_data_format(&pDataSource->buffer, pFormat, pChannels, pSampleRate);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_get_cursor_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pCursor)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_get_cursor_in_pcm_frames(&pDataSource->stream, pCursor);
+    } else {
+        return ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(&pDataSource->buffer, pCursor);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_get_length_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pLength)
+{
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if ((pDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_get_length_in_pcm_frames(&pDataSource->stream, pLength);
+    } else {
+        return ma_resource_manager_data_buffer_get_length_in_pcm_frames(&pDataSource->buffer, pLength);
     }
 }
 
@@ -3868,6 +3985,13 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
         goto done;
     }
 
+    /* Retrieve the total length of the file before marking the decoder are loaded. */
+    pDataStream->totalLengthInPCMFrames = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder);
+
+    /*
+    Only mark the decoder as initialized when the length of the decoder has been retrieved because that can possibly require a scan over the whole file
+    and we don't want to have another thread trying to access the decoder while it's scanning.
+    */
     pDataStream->isDecoderInitialized = MA_TRUE;
 
     /* We have the decoder so we can now initialize our page buffer. */
