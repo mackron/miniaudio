@@ -262,7 +262,7 @@ miniaudio is a single file library for audio playback and capture. To use it, do
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 </pre></div><p>
 
-You can do <span style="font-family:monospace;">#include miniaudio.h</span> in other parts of the program just like any other header.
+You can do <span style="font-family:monospace;">#include &quot;miniaudio.h&quot;</span> in other parts of the program just like any other header.
 </p>
 <p>
 
@@ -537,22 +537,22 @@ backends and enumerating devices. The example below shows how to enumerate devic
     <span style="color:#009900">// Error.</span>
 }
 
-<span style="color:#0099cc">ma_device_info</span>* pPlaybackDeviceInfos;
-<span style="color:#0099cc">ma_uint32</span> playbackDeviceCount;
-<span style="color:#0099cc">ma_device_info</span>* pCaptureDeviceInfos;
-<span style="color:#0099cc">ma_uint32</span> captureDeviceCount;
-<span style="color:#0033ff">if</span> (ma_context_get_devices(&amp;context, &amp;pPlaybackDeviceInfos, &amp;playbackDeviceCount, &amp;pCaptureDeviceInfos, &amp;captureDeviceCount) != MA_SUCCESS) {
+<span style="color:#0099cc">ma_device_info</span>* pPlaybackInfos;
+<span style="color:#0099cc">ma_uint32</span> playbackCount;
+<span style="color:#0099cc">ma_device_info</span>* pCaptureInfos;
+<span style="color:#0099cc">ma_uint32</span> captureCount;
+<span style="color:#0033ff">if</span> (ma_context_get_devices(&amp;context, &amp;pPlaybackInfos, &amp;playbackCount, &amp;pCaptureInfos, &amp;captureCount) != MA_SUCCESS) {
     <span style="color:#009900">// Error.</span>
 }
 
-<span style="color:#009900">// Loop over each device info and do something with it. Here we just print the name with their index. You may want to give the user the</span>
-<span style="color:#009900">// opportunity to choose which device they&#39;d prefer.</span>
-<span style="color:#0033ff">for</span> (<span style="color:#0099cc">ma_uint32</span> iDevice = 0; iDevice &lt; playbackDeviceCount; iDevice += 1) {
-    printf(<span style="color:#cc3300">&quot;%d - %s\n&quot;</span>, iDevice, pPlaybackDeviceInfos[iDevice].name);
+<span style="color:#009900">// Loop over each device info and do something with it. Here we just print the name with their index. You may want</span>
+<span style="color:#009900">// to give the user the opportunity to choose which device they&#39;d prefer.</span>
+<span style="color:#0033ff">for</span> (<span style="color:#0099cc">ma_uint32</span> iDevice = 0; iDevice &lt; playbackCount; iDevice += 1) {
+    printf(<span style="color:#cc3300">&quot;%d - %s\n&quot;</span>, iDevice, pPlaybackInfos[iDevice].name);
 }
 
 <span style="color:#0099cc">ma_device_config</span> config = ma_device_config_init(ma_device_type_playback);
-config.playback.pDeviceID = &amp;pPlaybackDeviceInfos[chosenPlaybackDeviceIndex].id;
+config.playback.pDeviceID = &amp;pPlaybackInfos[chosenPlaybackDeviceIndex].id;
 config.playback.format    = MY_FORMAT;
 config.playback.channels  = MY_CHANNEL_COUNT;
 config.sampleRate         = MY_SAMPLE_RATE;
@@ -1098,8 +1098,68 @@ All formats are native-endian.
 </p>
 <h1 id="Decoding" class="man">4. Decoding</h1>
 <p>
-The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. Built in support is included for WAV, FLAC and MP3. Support for Vorbis is enabled via stb_vorbis which
-can be enabled by including the header section before the implementation of miniaudio, like the following:
+The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. The following formats are supported:
+</p>
+<p>
+
+</p>
+<table class="doc"><tr>
+<th class="doc" valign="top"><p>
+Format</p>
+</th>
+<th class="doc" valign="top"><p>
+Decoding Backend</p>
+</th>
+<th class="doc" valign="top"><p>
+Built-In</p>
+</th>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+WAV</p>
+</td>
+<td class="doc" valign="top"><p>
+dr_wav</p>
+</td>
+<td class="doc" valign="top"><p>
+Yes</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MP3</p>
+</td>
+<td class="doc" valign="top"><p>
+dr_mp3</p>
+</td>
+<td class="doc" valign="top"><p>
+Yes</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+FLAC</p>
+</td>
+<td class="doc" valign="top"><p>
+dr_flac</p>
+</td>
+<td class="doc" valign="top"><p>
+Yes</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+Vorbis</p>
+</td>
+<td class="doc" valign="top"><p>
+stb_vorbis</p>
+</td>
+<td class="doc" valign="top"><p>
+No</p>
+</td>
+</tr>
+</table><p>
+Vorbis is supported via stb_vorbis which can be enabled by including the header section before the implementation of miniaudio, like the following:
 </p>
 <p>
 
@@ -1120,19 +1180,19 @@ A copy of stb_vorbis is included in the &quot;extras&quot; folder in the miniaud
 </p>
 <p>
 
-Built-in decoders are implemented via dr_wav, dr_flac and dr_mp3. These are amalgamated into the implementation section of miniaudio. You can disable the
-built-in decoders by specifying one or more of the following options before the miniaudio implementation:
+Built-in decoders are amalgamated into the implementation section of miniaudio. You can disable the built-in decoders by specifying one or more of the
+following options before the miniaudio implementation:
 </p>
 <p>
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
 <span style="color:#666666">#define</span> MA_NO_WAV
-<span style="color:#666666">#define</span> MA_NO_FLAC
 <span style="color:#666666">#define</span> MA_NO_MP3
+<span style="color:#666666">#define</span> MA_NO_FLAC
 </pre></div><p>
 
-Disabling built-in versions of dr_wav, dr_flac and dr_mp3 is useful if you use these libraries independantly of the <span style="font-family:monospace;">ma_decoder</span> API.
+Disabling built-in decoding libraries is useful if you use these libraries independantly of the <span style="font-family:monospace;">ma_decoder</span> API.
 </p>
 <p>
 
@@ -1404,7 +1464,14 @@ conversion. Below is an example of initializing a simple channel converter which
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_channel_converter_config</span> config = ma_channel_converter_config_init(ma_format, 1, NULL, 2, NULL, ma_channel_mix_mode_default, NULL);
+<span style="color:#0099cc">ma_channel_converter_config</span> config = ma_channel_converter_config_init(
+    ma_format,                      <span style="color:#009900">// Sample format</span>
+    1,                              <span style="color:#009900">// Input channels</span>
+    NULL,                           <span style="color:#009900">// Input channel map</span>
+    2,                              <span style="color:#009900">// Output channels</span>
+    NULL,                           <span style="color:#009900">// Output channel map</span>
+    ma_channel_mix_mode_default);   <span style="color:#009900">// The mixing algorithm to use when combining channels.</span>
+
 result = ma_channel_converter_init(&amp;config, &amp;converter);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#009900">// Error.</span>
@@ -1442,7 +1509,7 @@ Input and output PCM frames are always interleaved. Deinterleaved layouts are no
 </p>
 <h2 id="ChannelMapping" class="man">6.2.1. Channel Mapping</h2>
 <p>
-In addition to converting from one channel count to another, like the example above, The channel converter can also be used to rearrange channels. When
+In addition to converting from one channel count to another, like the example above, the channel converter can also be used to rearrange channels. When
 initializing the channel converter, you can optionally pass in channel maps for both the input and output frames. If the channel counts are the same, and each
 channel map contains the same channel positions with the exception that they&#39;re in a different order, a simple shuffling of the channels will be performed. If,
 however, there is not a 1:1 mapping of channel positions, or the channel counts differ, the input channels will be mixed based on a mixing mode which is
@@ -1546,7 +1613,7 @@ FreeBSD&#39;s sound(4).</p>
 ma_standard_channel_map_sndio</p>
 </td>
 <td class="doc" valign="top"><p>
-sndio channel map. http://www.sndio.org/tips.html</p>
+sndio channel map. <a href="http://www.sndio.org/tips.html">http://www.sndio.org/tips.html</a>.</p>
 </td>
 </tr>
 <tr>
@@ -1554,7 +1621,7 @@ sndio channel map. http://www.sndio.org/tips.html</p>
 ma_standard_channel_map_webaudio</p>
 </td>
 <td class="doc" valign="top"><p>
-https://webaudio.github.io/web-audio-api/#ChannelOrdering</p>
+<a href="https://webaudio.github.io/web-audio-api/#ChannelOrdering">https://webaudio.github.io/web-audio-api/#ChannelOrdering</a></p>
 </td>
 </tr>
 </table><p>
@@ -1735,7 +1802,13 @@ Resampling is achieved with the <span style="font-family:monospace;">ma_resample
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_resampler_config</span> config = ma_resampler_config_init(ma_format_s16, channels, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
+<span style="color:#0099cc">ma_resampler_config</span> config = ma_resampler_config_init(
+    ma_format_s16,
+    channels,
+    sampleRateIn,
+    sampleRateOut,
+    ma_resample_algorithm_linear);
+
 <span style="color:#0099cc">ma_resampler</span> resampler;
 <span style="color:#0099cc">ma_result</span> result = ma_resampler_init(&amp;config, &amp;resampler);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -2429,7 +2502,13 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_waveform_config</span> config = ma_waveform_config_init(FORMAT, CHANNELS, SAMPLE_RATE, ma_waveform_type_sine, amplitude, frequency);
+<span style="color:#0099cc">ma_waveform_config</span> config = ma_waveform_config_init(
+    FORMAT,
+    CHANNELS,
+    SAMPLE_RATE,
+    ma_waveform_type_sine,
+    amplitude,
+    frequency);
 
 <span style="color:#0099cc">ma_waveform</span> waveform;
 <span style="color:#0099cc">ma_result</span> result = ma_waveform_init(&amp;config, &amp;waveform);
@@ -2447,7 +2526,7 @@ The amplitude, frequency and sample rate can be changed dynamically with <span s
 </p>
 <p>
 
-You can reverse the waveform by setting the amplitude to a negative value. You can use this to control whether or not a sawtooth has a positive or negative
+You can invert the waveform by setting the amplitude to a negative value. You can use this to control whether or not a sawtooth has a positive or negative
 ramp, for example.
 </p>
 <p>
@@ -2496,7 +2575,12 @@ miniaudio supports generation of white, pink and Brownian noise via the <span st
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_noise_config</span> config = ma_noise_config_init(FORMAT, CHANNELS, ma_noise_type_white, SEED, amplitude);
+<span style="color:#0099cc">ma_noise_config</span> config = ma_noise_config_init(
+    FORMAT,
+    CHANNELS,
+    ma_noise_type_white,
+    SEED,
+    amplitude);
 
 <span style="color:#0099cc">ma_noise</span> noise;
 <span style="color:#0099cc">ma_result</span> result = ma_noise_init(&amp;config, &amp;noise);
@@ -2557,8 +2641,8 @@ ma_noise_type_brownian</p>
 </p>
 <h1 id="AudioBuffers" class="man">9. Audio Buffers</h1>
 <p>
-miniaudio supports reading from a buffer of raw audio data via the <span style="font-family:monospace;">ma_audio_buffer</span> API. This can read from both memory that&#39;s managed by the application, but
-can also handle the memory management for you internally. The way memory is managed is flexible and should support most use cases.
+miniaudio supports reading from a buffer of raw audio data via the <span style="font-family:monospace;">ma_audio_buffer</span> API. This can read from memory that&#39;s managed by the application, but
+can also handle the memory management for you internally. Memory management is flexible and should support most use cases.
 </p>
 <p>
 
@@ -2568,7 +2652,13 @@ Audio buffers are initialised using the standard configuration system used every
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
+<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(
+    format,
+    channels,
+    sizeInFrames,
+    pExistingData,
+    &amp;allocationCallbacks);
+
 <span style="color:#0099cc">ma_audio_buffer</span> buffer;
 result = ma_audio_buffer_init(&amp;config, &amp;buffer);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -2580,8 +2670,8 @@ result = ma_audio_buffer_init(&amp;config, &amp;buffer);
 ma_audio_buffer_uninit(&amp;buffer);
 </pre></div><p>
 
-In the example above, the memory pointed to by <span style="font-family:monospace;">pExistingData</span> will _not_ be copied which is how an application can handle memory allocations themselves. If
-you would rather make a copy of the data, use <span style="font-family:monospace;">ma_audio_buffer_init_copy()</span>. To uninitialize the buffer, use <span style="font-family:monospace;">ma_audio_buffer_uninit()</span>.
+In the example above, the memory pointed to by <span style="font-family:monospace;">pExistingData</span> will _not_ be copied and is how an application can do self-managed memory allocation. If you
+would rather make a copy of the data, use <span style="font-family:monospace;">ma_audio_buffer_init_copy()</span>. To uninitialize the buffer, use <span style="font-family:monospace;">ma_audio_buffer_uninit()</span>.
 </p>
 <p>
 
@@ -2592,7 +2682,13 @@ the raw audio data will be located immediately after the <span style="font-famil
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%">
-<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(format, channels, sizeInFrames, pExistingData, &amp;allocationCallbacks);
+<span style="color:#0099cc">ma_audio_buffer_config</span> config = ma_audio_buffer_config_init(
+    format,
+    channels,
+    sizeInFrames,
+    pExistingData,
+    &amp;allocationCallbacks);
+
 <span style="color:#0099cc">ma_audio_buffer</span>* pBuffer
 result = ma_audio_buffer_alloc_and_init(&amp;config, &amp;pBuffer);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -2691,8 +2787,8 @@ routines. Passing in <span style="font-family:monospace;">NULL</span> for this r
 </p>
 <p>
 
-Use <span style="font-family:monospace;">ma_pcm_rb_init_ex()</span> if you need a deinterleaved buffer. The data for each sub-buffer is offset from each other based on the stride. To manage your sub-
-buffers you can use <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_stride()</span>, <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_offset()</span> and <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_ptr()</span>.
+Use <span style="font-family:monospace;">ma_pcm_rb_init_ex()</span> if you need a deinterleaved buffer. The data for each sub-buffer is offset from each other based on the stride. To manage your
+sub-buffers you can use <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_stride()</span>, <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_offset()</span> and <span style="font-family:monospace;">ma_pcm_rb_get_subbuffer_ptr()</span>.
 </p>
 <p>
 
@@ -2717,7 +2813,7 @@ there is too little space between the pointers, move the write pointer forward.
 <p>
 
 You can use a ring buffer at the byte level instead of the PCM frame level by using the <span style="font-family:monospace;">ma_rb</span> API. This is exactly the same, only you will use the <span style="font-family:monospace;">ma_rb</span>
-functions instead of <span style="font-family:monospace;">ma_pcm_rb</span> and instead of frame counts pass around byte counts.
+functions instead of <span style="font-family:monospace;">ma_pcm_rb</span> and instead of frame counts you will pass around byte counts.
 </p>
 <p>
 
