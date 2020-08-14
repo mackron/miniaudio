@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.16 - 2020-08-14
+miniaudio - v0.10.17 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1423,7 +1423,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 16
+#define MA_VERSION_REVISION 17
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -5485,6 +5485,11 @@ MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_d
 MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
+
+/*
+Retrieves the current position of the read cursor in PCM frames.
+*/
+MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor);
 
 /*
 Retrieves the length of the decoder in PCM frames.
@@ -44499,15 +44504,6 @@ static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDat
     return MA_SUCCESS;
 }
 
-static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
-
-    *pCursor = pDecoder->readPointerInPCMFrames;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
 {
     ma_decoder* pDecoder = (ma_decoder*)pDataSource;
@@ -44539,7 +44535,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->ds.onRead          = ma_decoder__data_source_on_read;
     pDecoder->ds.onSeek          = ma_decoder__data_source_on_seek;
     pDecoder->ds.onGetDataFormat = ma_decoder__data_source_on_get_data_format;
-    pDecoder->ds.onGetCursor     = ma_decoder__data_source_on_get_cursor;
+    pDecoder->ds.onGetCursor     = ma_decoder_get_cursor_in_pcm_frames;
     pDecoder->ds.onGetLength     = ma_decoder__data_source_on_get_length;
 
     pDecoder->onRead    = onRead;
@@ -45699,6 +45695,23 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 
     ma_data_converter_uninit(&pDecoder->converter);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = pDecoder->readPointerInPCMFrames;
 
     return MA_SUCCESS;
 }
@@ -62461,6 +62474,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.17 - TBD
+  - Add ma_decoder_get_cursor_in_pcm_frames()
+
 v0.10.16 - 2020-08-14
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
   - OpenSL: Enable runtime linking.

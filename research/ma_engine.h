@@ -3012,7 +3012,7 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
             /* Loop back to the start if we reached the end. We'll also have a known length at this point as well. */
             if (framesRead < framesRemaining) {
                 if (pDataStream->totalLengthInPCMFrames == 0) {
-                    ma_data_source_get_cursor_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
+                    ma_decoder_get_cursor_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
                 }
 
                 ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
