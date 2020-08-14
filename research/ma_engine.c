@@ -39,12 +39,13 @@ int main(int argc, char** argv)
     ma_engine_sound_set_pitch(&engine, &sound, 1.0f);
     ma_engine_sound_set_pan(&engine, &sound, 0.0f);
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
-    ma_engine_sound_start(&engine, &sound, 4000);
-
-    ma_engine_sound_seek_to_pcm_frame(&engine, &sound, 1000000);
+    //ma_engine_sound_seek_to_pcm_frame(&engine, &sound, 6000000);
+    ma_engine_sound_set_fade_in(&engine, &sound, 2000);
+    ma_engine_sound_set_fade_out(&engine, &sound, 2000);
+    ma_engine_sound_start(&engine, &sound);
 
     ma_sleep(5000);
-    ma_engine_sound_stop(&engine, &sound, 4000);
+    //ma_engine_sound_stop(&engine, &sound);
 #endif
 
 #if 1

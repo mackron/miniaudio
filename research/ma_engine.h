@@ -576,7 +576,8 @@ struct ma_resource_manager_data_buffer
     ma_resource_manager* pResourceManager;          /* A pointer to the resource manager that owns this buffer. */
     ma_uint32 flags;                                /* The flags that were passed used to initialize the buffer. */
     ma_resource_manager_data_buffer_node* pNode;    /* The data node. This is reference counted. */
-    ma_uint64 cursor;                               /* Only updated by the public API. Never written nor read from the job thread. */
+    ma_uint64 cursorInPCMFrames;                    /* Only updated by the public API. Never written nor read from the job thread. */
+    ma_uint64 lengthInPCMFrames;                    /* The total length of the sound in PCM frames. This is set at load time. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
     ma_bool32 isLooping;
     ma_resource_manager_data_buffer_connector connectorType;
@@ -858,8 +859,9 @@ MA_API ma_result ma_dual_fader_get_data_format(const ma_dual_fader* pFader, ma_f
 MA_API ma_result ma_dual_fader_set_fade(ma_dual_fader* pFader, ma_uint32 index, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
 MA_API ma_result ma_dual_fader_set_time(ma_dual_fader* pFader, ma_uint64 currentTimeInFrames);
 MA_API ma_result ma_dual_fader_get_time(const ma_dual_fader* pFader, ma_uint64* pCurrentTimeInFrames);
-MA_API ma_result ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index);
-MA_API ma_result ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader);
+MA_API ma_bool32 ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index);
+MA_API ma_bool32 ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader);
+MA_API ma_bool32 ma_dual_fader_is_in_fade(const ma_dual_fader* pFader, ma_uint32 index);
 MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index);      /* Essentially disables fading for one of the sub-fades. To enable again, call ma_dual_fader_set_fade(). */
 
 
@@ -887,8 +889,10 @@ struct ma_sound
     ma_engine_effect effect;        /* The effect containing all of the information for spatialization, pitching, etc. */
     float volume;
     ma_uint64 seekTarget;           /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
+    ma_uint64 fadeOutTimeInFrames;
     ma_bool32 isPlaying;            /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
     ma_bool32 isFadingOut;          /* Set to true to indicate that a fade out before stopping is in effect. */
+    ma_bool32 isSettingFadeOut;     /* Whether or not a new fade out needs to be set. Fade outs are set on the mixer thread because it depends on the length of the sound which may not be known immediately. */
     ma_bool32 isMixing;
     ma_bool32 atEnd;
     ma_bool32 isLooping;            /* False by default. */
@@ -961,8 +965,8 @@ MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* 
 #endif
 MA_API ma_result ma_engine_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound);
-MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadeTimeInMilliseconds);
-MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadeTimeInMilliseconds);
+MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound);
+MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume);
 MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
 MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan);
@@ -976,6 +980,8 @@ MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSou
 MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
 MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_engine_sound_get_data_format(ma_engine* pEngine, ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_engine_sound_get_cursor_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pCursor);
+MA_API ma_result ma_engine_sound_get_length_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pLength);
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
 MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
@@ -2021,6 +2027,8 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         ma_audio_buffer_config config;
         config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels, pDataBuffer->pNode->data.decoded.frameCount, pDataBuffer->pNode->data.encoded.pData, NULL);
         result = ma_audio_buffer_init(&config, &pDataBuffer->connector.buffer);
+
+        pDataBuffer->lengthInPCMFrames = pDataBuffer->connector.buffer.sizeInFrames;
     } else {
         ma_decoder_config configOut;
         configOut = ma_decoder_config_init(pDataBuffer->pResourceManager->config.decodedFormat, pDataBuffer->pResourceManager->config.decodedChannels, pDataBuffer->pResourceManager->config.decodedSampleRate);
@@ -2037,9 +2045,18 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
             } else {
                 result = ma_decoder_init_memory_raw(pDataBuffer->pNode->data.decoded.pData, (size_t)sizeInBytes, &configIn, &configOut, &pDataBuffer->connector.decoder);  /* Safe cast thanks to the check above. */
             }
+
+            /*
+            We will know the length for decoded sounds. Don't use ma_decoder_get_length_in_pcm_frames() as it may return 0 for sounds where the length
+            is not known until it has been fully decoded which we've just done at a higher level.
+            */
+            pDataBuffer->lengthInPCMFrames = pDataBuffer->pNode->data.decoded.frameCount;
         } else {
             configOut.allocationCallbacks = pDataBuffer->pResourceManager->config.allocationCallbacks;
             result = ma_decoder_init_memory(pDataBuffer->pNode->data.encoded.pData, pDataBuffer->pNode->data.encoded.sizeInBytes, &configOut, &pDataBuffer->connector.decoder);
+
+            /* Our only option is to use ma_decoder_get_length_in_pcm_frames() when loading from an encoded data source. */
+            pDataBuffer->lengthInPCMFrames = ma_decoder_get_length_in_pcm_frames(&pDataBuffer->connector.decoder);
         }
     }
 
@@ -2120,6 +2137,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer_map;
     pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer_unmap;
     pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer_get_data_format;
+    pDataBuffer->ds.onGetCursor     = ma_resource_manager_data_buffer_get_cursor_in_pcm_frames;
+    pDataBuffer->ds.onGetLength     = ma_resource_manager_data_buffer_get_length_in_pcm_frames;
 
     pDataBuffer->pResourceManager   = pResourceManager;
     pDataBuffer->flags              = flags;
@@ -2504,7 +2523,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     if (pDataBuffer->seekToCursorOnNextRead) {
         pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
 
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursorInPCMFrames);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -2517,7 +2536,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     }
 
     result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, pDataBuffer->isLooping);
-    pDataBuffer->cursor += framesRead;
+    pDataBuffer->cursorInPCMFrames += framesRead;
 
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
@@ -2535,7 +2554,7 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
 
     /* If we haven't yet got a connector we need to abort. */
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
-        pDataBuffer->cursor = frameIndex;
+        pDataBuffer->cursorInPCMFrames = frameIndex;
         pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
         return MA_BUSY; /* Still loading. */
     }
@@ -2545,7 +2564,7 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
         return result;
     }
 
-    pDataBuffer->cursor = frameIndex;
+    pDataBuffer->cursorInPCMFrames = frameIndex;
     pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
 
     return MA_SUCCESS;
@@ -2567,7 +2586,7 @@ MA_API ma_result ma_resource_manager_data_buffer_map(ma_resource_manager_data_bu
     if (pDataBuffer->seekToCursorOnNextRead) {
         pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
 
-        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursor);
+        result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->cursorInPCMFrames);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -2592,7 +2611,7 @@ MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_
 
     result = ma_data_source_unmap(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameCount);
     if (result == MA_SUCCESS) {
-        pDataBuffer->cursor += frameCount;
+        pDataBuffer->cursorInPCMFrames += frameCount;
     }
 
     return result;
@@ -2620,7 +2639,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_res
         return MA_INVALID_ARGS;
     }
 
-    *pCursor = pDataBuffer->cursor;
+    *pCursor = pDataBuffer->cursorInPCMFrames;
 
     return MA_SUCCESS;
 }
@@ -2638,11 +2657,9 @@ MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_res
         return MA_BUSY; /* Still loading. */
     }
 
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
-        *pLength = pDataBuffer->pNode->data.decoded.frameCount;
-    } else {
-        /* TODO: This needs to change. This is too inefficient to be used generally because it may involve scanning the entire file. */
-        *pLength = ma_decoder_get_length_in_pcm_frames(&pDataBuffer->connector.decoder);
+    *pLength = pDataBuffer->lengthInPCMFrames;
+    if (*pLength == 0) {
+        return MA_NOT_IMPLEMENTED;
     }
 
     return MA_SUCCESS;
@@ -2701,8 +2718,8 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
 
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
         /* Retrieve the available frames based on how many frames we've currently decoded, and *not* the total capacity of the audio buffer. */
-        if (pDataBuffer->pNode->data.decoded.decodedFrameCount > pDataBuffer->cursor) {
-            *pAvailableFrames = pDataBuffer->pNode->data.decoded.decodedFrameCount - pDataBuffer->cursor;
+        if (pDataBuffer->pNode->data.decoded.decodedFrameCount > pDataBuffer->cursorInPCMFrames) {
+            *pAvailableFrames = pDataBuffer->pNode->data.decoded.decodedFrameCount - pDataBuffer->cursorInPCMFrames;
         } else {
             *pAvailableFrames = 0;
         }
@@ -2880,6 +2897,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     pDataStream->ds.onMap           = ma_resource_manager_data_stream_map;
     pDataStream->ds.onUnmap         = ma_resource_manager_data_stream_unmap;
     pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream_get_data_format;
+    pDataStream->ds.onGetCursor     = ma_resource_manager_data_stream_get_cursor_in_pcm_frames;
+    pDataStream->ds.onGetLength     = ma_resource_manager_data_stream_get_length_in_pcm_frames;
 
     pDataStream->pResourceManager   = pResourceManager;
     pDataStream->flags              = flags;
@@ -2990,8 +3009,12 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
             framesRead = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining);
             totalFramesReadForThisPage += framesRead;
 
-            /* Loop back to the start if we reached the end. */
+            /* Loop back to the start if we reached the end. We'll also have a known length at this point as well. */
             if (framesRead < framesRemaining) {
+                if (pDataStream->totalLengthInPCMFrames == 0) {
+                    ma_data_source_get_cursor_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
+                }
+
                 ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
             }
         }
@@ -3167,8 +3190,11 @@ MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    /* The absolute cursor needs to be updated. */
+    /* The absolute cursor needs to be updated. We want to make sure to loop if possible. */
     pDataStream->absoluteCursor += frameCount;
+    if (pDataStream->absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
+        pDataStream->absoluteCursor = pDataStream->absoluteCursor % pDataStream->totalLengthInPCMFrames;
+    }
 
     /* Here is where we need to check if we need to load a new page, and if so, post a job to load it. */
     newRelativeCursor = pDataStream->relativeCursor + (ma_uint32)frameCount;
@@ -3284,7 +3310,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_res
     }
 
     if (pDataStream->result != MA_SUCCESS) {
-        return MA_INVALID_OPERATION;
+        return pDataStream->result;
     }
 
     /*
@@ -4721,7 +4747,7 @@ MA_API ma_result ma_dual_fader_get_time(const ma_dual_fader* pFader, ma_uint64* 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index)
+MA_API ma_bool32 ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma_uint32 index)
 {
     if (pFader == NULL) {
         return MA_FALSE;
@@ -4730,9 +4756,28 @@ MA_API ma_result ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma
     return pFader->timeInFramesCur >= pFader->config.state[index].timeInFramesEnd;
 }
 
-MA_API ma_result ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader)
+MA_API ma_bool32 ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader)
 {
     return ma_dual_fader_is_time_past_fade(pFader, 0) && ma_dual_fader_is_time_past_fade(pFader, 1);
+}
+
+MA_API ma_bool32 ma_dual_fader_is_in_fade(const ma_dual_fader* pFader, ma_uint32 index)
+{
+    if (pFader == NULL) {
+        return MA_FALSE;
+    }
+
+    /* We're never fading if there's no time between the begin and the end. */
+    if (pFader->config.state[index].volumeBeg == pFader->config.state[index].volumeEnd && pFader->config.state[index].timeInFramesBeg == pFader->config.state[index].timeInFramesEnd) {
+        return MA_FALSE;
+    }
+
+    /* Getting here means a fade is happening. */
+    if (index == 0) {
+        return pFader->timeInFramesCur <= pFader->config.state[index].timeInFramesEnd;
+    } else {
+        return pFader->timeInFramesCur >= pFader->config.state[index].timeInFramesBeg;
+    }
 }
 
 MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index)
@@ -4759,6 +4804,7 @@ Engine
 
 **************************************************************************************************************************************************************/
 #define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
+#define MA_FADE_TIME_NONE   (~(ma_uint64)0)
 
 static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
@@ -5125,6 +5171,15 @@ static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
     return MA_TRUE;
 }
 
+static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 timeInFrames)
+{
+    MA_ASSERT(pEffect != NULL);
+
+    ma_dual_fader_set_time(&pEffect->fader, timeInFrames);
+
+    return MA_SUCCESS;
+}
+
 
 static MA_INLINE ma_result ma_engine_sound_stop_internal(ma_engine* pEngine, ma_sound* pSound);
 
@@ -5171,8 +5226,30 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
             /* If we're seeking, do so now before reading. */
             if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
+                pSound->seekTarget  = MA_SEEK_TARGET_NONE;
                 ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
-                pSound->seekTarget = MA_SEEK_TARGET_NONE;
+                
+                /* Any time-dependant effects need to have their times updated. */
+                ma_engine_effect_set_time(&pSound->effect, pSound->seekTarget);
+            }
+
+            /* If we're wanting to fade out and we have a known length we can configure the fader. */
+            if (pSound->isSettingFadeOut) {
+                if (pSound->fadeOutTimeInFrames == MA_FADE_TIME_NONE) {
+                    ma_dual_fader_reset_fade(&pSound->effect.fader, 1); /* Disable the fade out. */
+                    pSound->isSettingFadeOut = MA_FALSE;
+                } else {
+                    ma_uint64 lengthInPCMFrames;
+                    result = ma_engine_sound_get_length_in_pcm_frames(pEngine, pSound, &lengthInPCMFrames);
+                    if (result == MA_SUCCESS) {
+                        ma_dual_fader_set_fade(&pSound->effect.fader, 1, 1, 0, lengthInPCMFrames - pSound->fadeOutTimeInFrames, lengthInPCMFrames);
+                        pSound->isSettingFadeOut = MA_FALSE;
+                    } else {
+                        if (result != MA_BUSY) {
+                            pSound->isSettingFadeOut = MA_FALSE;    /* An error occurred. Don't keep attempting to set the fade out. */
+                        }
+                    }
+                }
             }
 
             /*
@@ -5191,12 +5268,24 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 if (ma_dual_fader_is_time_past_both_fades(&pSound->effect.fader)) {
                     ma_engine_sound_stop_internal(pEngine, pSound);
                 }
+            } else {
+                /*
+                We're not fading out. For the benefit of looping sounds, we need to make sure the timer is set properly on the fader so that fading in and out works
+                across loop transitions.
+                */
+                if (pSound->isLooping) {
+                    ma_uint64 currentTimeInFrames;
+                    result = ma_engine_sound_get_cursor_in_pcm_frames(pEngine, pSound, &currentTimeInFrames);
+                    if (result == MA_SUCCESS) {
+                        ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
+                    }
+                }
             }
 
-            /* If we reached the end of the sound we'll want to mark it as at the end and not playing. */
+            /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
             if (result == MA_AT_END) {
                 ma_engine_sound_stop_internal(pEngine, pSound);
-                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* Set to false in ma_engine_sound_start(). */
+                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_engine_sound_start(). */
             }
         }
     }
@@ -5653,9 +5742,10 @@ static ma_result ma_engine_sound_init_from_data_source_internal(ma_engine* pEngi
         return result;
     }
 
-    pSound->pDataSource = pDataSource;
-    pSound->volume      = 1;
-    pSound->seekTarget  = MA_SEEK_TARGET_NONE;
+    pSound->pDataSource         = pDataSource;
+    pSound->volume              = 1;
+    pSound->seekTarget          = MA_SEEK_TARGET_NONE;
+    pSound->fadeOutTimeInFrames = MA_FADE_TIME_NONE;    /* No fade out by default. */
 
     if (pGroup == NULL) {
         pGroup = &pEngine->masterSoundGroup;
@@ -5727,7 +5817,8 @@ MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
     }
 
     /* Make sure the sound is stopped as soon as possible to reduce the chance that it gets locked by the mixer. We also need to stop it before detaching from the group. */
-    result = ma_engine_sound_stop(pEngine, pSound, 0);
+    ma_engine_sound_set_fade_out(pEngine, pSound, MA_FADE_TIME_NONE);   /* <-- Ensures the sound stops immediately. */
+    result = ma_engine_sound_stop(pEngine, pSound);
     if (result != MA_SUCCESS) {
         return;
     }
@@ -5759,7 +5850,7 @@ MA_API void ma_engine_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
 #endif
 }
 
-MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadeTimeInMilliseconds)
+MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound)
 {
     if (pEngine == NULL || pSound == NULL) {
         return MA_INVALID_ARGS;
@@ -5776,11 +5867,6 @@ MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound, ma_
         if (result != MA_SUCCESS) {
             return result;  /* Failed to seek back to the start. */
         }
-    }
-
-    /* Fading in. */
-    if (fadeTimeInMilliseconds > 0) {
-        ma_dual_fader_set_fade(&pSound->effect.fader, 0, 0, 1, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
     }
 
     /* Make sure we reset the fading out status so the mixer thread doesn't get confused and try to stop the sound. */
@@ -5802,20 +5888,27 @@ static MA_INLINE ma_result ma_engine_sound_stop_internal(ma_engine* pEngine, ma_
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadeTimeInMilliseconds)
+MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound)
 {
     if (pEngine == NULL || pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
     /* Stop immediately if we're not fading out. */
-    if (fadeTimeInMilliseconds == 0) {
+    if (pSound->fadeOutTimeInFrames == MA_FADE_TIME_NONE) {
         ma_engine_sound_stop_internal(pEngine, pSound);
     } else {
-        /* Fade out and then stop. Stopping will happen on the mixing thread. */
-        ma_dual_fader_reset_fade(&pSound->effect.fader, 0);             /* <-- Reset the fade in to ensure we don't end up coming the fading in with the fading out. */
-        ma_dual_fader_set_time(&pSound->effect.fader, 0);               /* <-- Important that we reset the time. */
-        ma_dual_fader_set_fade(&pSound->effect.fader, 1, 1, 0, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
+        /*
+        Fade out and then stop. Stopping will happen on the mixing thread. Note that it's important that we don't reset any fading state if we're already in the process
+        of fading out. This will happen if the sound is being stopped while in the middle of fading out naturally. In this case we just leave the fader as is and just
+        set the isFadingOut property to try to ensure the sound is stopped as per normal.
+        */
+        if (ma_dual_fader_is_in_fade(&pSound->effect.fader, 1) == MA_FALSE) {
+            ma_dual_fader_reset_fade(&pSound->effect.fader, 0);             /* <-- Reset the fade in to ensure we don't end up combining the fading in with the fading out. */
+            ma_dual_fader_set_time(&pSound->effect.fader, 0);               /* <-- Important that we reset the time. */
+            ma_dual_fader_set_fade(&pSound->effect.fader, 1, 1, 0, 0, pSound->fadeOutTimeInFrames);
+        }
+
         c89atomic_exchange_32(&pSound->isFadingOut, MA_TRUE);
     }    
 
@@ -5920,7 +6013,7 @@ MA_API ma_result ma_engine_sound_set_fade_in(ma_engine* pEngine, ma_sound* pSoun
         return MA_INVALID_ARGS;
     }
 
-    return ma_dual_fader_set_fade(&pSound->effect.fader, 0, 0, 1, 0, (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
+    return ma_dual_fader_set_fade(&pSound->effect.fader, 0, 0, 1, pSound->effect.fader.timeInFramesCur, pSound->effect.fader.timeInFramesCur + (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
 }
 
 MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds)
@@ -5933,7 +6026,11 @@ MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSou
     Setting the fade out is annoying because we may not know the length of the sound. The only reliable way of doing this is to do it when some
     frames are available, at which point the length of the data source should be known.
     */
-    (void)fadeTimeInMilliseconds;
+    pSound->fadeOutTimeInFrames = (fadeTimeInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000;
+
+    /* Make sure this is set _after_ fadeOutTimeInFrames to ensure the mixer thread doesn't prematurely set the fade out. */
+    c89atomic_compiler_fence();
+    c89atomic_exchange_32(&pSound->isSettingFadeOut, MA_TRUE);
 
     return MA_SUCCESS;
 }
@@ -5959,7 +6056,13 @@ MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound*
     */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        return ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Time dependant effects need to have their timers updated. */
+        return ma_engine_effect_set_time(&pSound->effect, frameIndex);
     }
 #endif
 
@@ -5976,6 +6079,24 @@ MA_API ma_result ma_engine_sound_get_data_format(ma_engine* pEngine, ma_sound* p
     }
 
     return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+}
+
+MA_API ma_result ma_engine_sound_get_cursor_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pCursor)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
+}
+
+MA_API ma_result ma_engine_sound_get_length_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pLength)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
 }
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
@@ -6069,7 +6190,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
     }
 
     /* Finally we can start playing the sound. */
-    result = ma_engine_sound_start(pEngine, pSound, 0);
+    result = ma_engine_sound_start(pEngine, pSound);
     if (result != MA_SUCCESS) {
         /* Failed to start the sound. We need to uninitialize it and return an error. */
         ma_engine_sound_uninit(pEngine, pSound);
