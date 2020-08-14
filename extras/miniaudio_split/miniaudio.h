@@ -1,11 +1,12 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.15 - 2020-07-15
+miniaudio - v0.10.16 - 2020-08-14
 
 David Reid - davidreidsoftware@gmail.com
 
-Website: https://miniaud.io
-GitHub:  https://github.com/dr-soft/miniaudio
+Website:       https://miniaud.io
+Documentation: https://miniaud.io/docs
+GitHub:        https://github.com/dr-soft/miniaudio
 */
 #ifndef miniaudio_h
 #define miniaudio_h
@@ -19,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 15
+#define MA_VERSION_REVISION 16
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -69,56 +70,34 @@ extern "C" {
 
 #include <stddef.h> /* For size_t. */
 
-/* Sized types. Prefer built-in types. Fall back to stdint. */
-#ifdef _MSC_VER
-    #if defined(__clang__)
+/* Sized types. */
+typedef   signed char           ma_int8;
+typedef unsigned char           ma_uint8;
+typedef   signed short          ma_int16;
+typedef unsigned short          ma_uint16;
+typedef   signed int            ma_int32;
+typedef unsigned int            ma_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    ma_int64;
+    typedef unsigned __int64    ma_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
         #pragma GCC diagnostic ignored "-Wlong-long"
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  ma_int8;
-    typedef unsigned __int8  ma_uint8;
-    typedef   signed __int16 ma_int16;
-    typedef unsigned __int16 ma_uint16;
-    typedef   signed __int32 ma_int32;
-    typedef unsigned __int32 ma_uint32;
-    typedef   signed __int64 ma_int64;
-    typedef unsigned __int64 ma_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  ma_int64;
+    typedef unsigned long long  ma_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #define MA_HAS_STDINT
-    #include <stdint.h>
-    typedef int8_t   ma_int8;
-    typedef uint8_t  ma_uint8;
-    typedef int16_t  ma_int16;
-    typedef uint16_t ma_uint16;
-    typedef int32_t  ma_int32;
-    typedef uint32_t ma_uint32;
-    typedef int64_t  ma_int64;
-    typedef uint64_t ma_uint64;
 #endif
-
-#ifdef MA_HAS_STDINT
-    typedef uintptr_t ma_uintptr;
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef ma_uint64           ma_uintptr;
 #else
-    #if defined(_WIN32)
-        #if defined(_WIN64)
-            typedef ma_uint64 ma_uintptr;
-        #else
-            typedef ma_uint32 ma_uintptr;
-        #endif
-    #elif defined(__GNUC__)
-        #if defined(__LP64__)
-            typedef ma_uint64 ma_uintptr;
-        #else
-            typedef ma_uint32 ma_uintptr;
-        #endif
-    #else
-        typedef ma_uint64 ma_uintptr;   /* Fallback. */
-    #endif
+    typedef ma_uint32           ma_uintptr;
 #endif
 
 typedef ma_uint8    ma_bool8;
@@ -543,7 +522,7 @@ MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevisio
 /*
 Retrieves the version of miniaudio as a string which can be useful for logging purposes.
 */
-MA_API const char* ma_version_string();
+MA_API const char* ma_version_string(void);
 
 
 /**************************************************************************************************************************************************************
@@ -1807,6 +1786,8 @@ typedef struct
     {
         ma_ios_session_category sessionCategory;
         ma_uint32 sessionCategoryOptions;
+        ma_bool32 noAudioSessionActivate;   /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization. */
+        ma_bool32 noAudioSessionDeactivate; /* iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:false] on uninitialization. */
     } coreaudio;
     struct
     {
@@ -2075,6 +2056,8 @@ struct ma_context
             ma_proc AudioUnitRender;
             
             /*AudioComponent*/ ma_ptr component;
+            
+            ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not the iOS audio session should be explicitly deactivated. Set from the config in ma_context_init__coreaudio(). */
         } coreaudio;
 #endif
 #ifdef MA_SUPPORT_SNDIO
@@ -2147,7 +2130,14 @@ struct ma_context
 #ifdef MA_SUPPORT_OPENSL
         struct
         {
-            int _unused;
+            ma_handle libOpenSLES;
+            ma_handle SL_IID_ENGINE;
+            ma_handle SL_IID_AUDIOIODEVICECAPABILITIES;
+            ma_handle SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+            ma_handle SL_IID_RECORD;
+            ma_handle SL_IID_PLAY;
+            ma_handle SL_IID_OUTPUTMIX;
+            ma_proc   slCreateEngine;
         } opensl;
 #endif
 #ifdef MA_SUPPORT_WEBAUDIO
@@ -2248,6 +2238,7 @@ struct ma_device
     } resampling;
     struct
     {
+        ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_bool32 usingDefaultFormat     : 1;
@@ -2266,6 +2257,7 @@ struct ma_device
     } playback;
     struct
     {
+        ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_bool32 usingDefaultFormat     : 1;
@@ -3802,31 +3794,31 @@ Helper for applying a volume factor to samples.
 
 Note that the source and destination buffers can be the same, in which case it'll perform the operation in-place.
 */
-MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor);
-MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint64 sampleCount, float factor);
+MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint64 sampleCount, float factor);
 
-MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor);
-MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint64 sampleCount, float factor);
+MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint64 sampleCount, float factor);
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor);
 
-MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint32 frameCount, ma_uint32 channels, float factor);
-MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
+MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor);
 
 
 /*
@@ -3848,15 +3840,19 @@ typedef struct
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
     ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
     ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
-    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+    ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
+    ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
 } ma_data_source_callbacks;
 
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels);
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
 
 
 typedef struct
@@ -3893,7 +3889,7 @@ MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
 MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
-
+MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
 
 
 
@@ -4012,7 +4008,8 @@ struct ma_decoder
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
     void* pUserData;
-    ma_uint64  readPointer; /* Used for returning back to a previous position after analysing the stream or whatnot. */
+    ma_uint64  readPointerInBytes;          /* In internal encoded data. */
+    ma_uint64  readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
     ma_format  internalFormat;
     ma_uint32  internalChannels;
     ma_uint32  internalSampleRate;
@@ -4115,6 +4112,17 @@ Seeks to a PCM frame based on it's absolute index.
 This is not thread safe without your own synchronization.
 */
 MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
+
+/*
+Retrieves the number of frames that can be read before reaching the end.
+
+This calls `ma_decoder_get_length_in_pcm_frames()` so you need to be aware of the rules for that function, in
+particular ensuring you do not call it on streams of an undefined length, such as internet radio.
+
+If the total length of the decoder cannot be retrieved, such as with Vorbis decoders, `MA_NOT_IMPLEMENTED` will be
+returned.
+*/
+MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames);
 
 /*
 Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with ma_free(). On input,

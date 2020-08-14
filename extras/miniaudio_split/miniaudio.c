@@ -1,11 +1,12 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.15 - 2020-07-15
+miniaudio - v0.10.16 - 2020-08-14
 
 David Reid - davidreidsoftware@gmail.com
 
-Website: https://miniaud.io
-GitHub:  https://github.com/dr-soft/miniaudio
+Website:       https://miniaud.io
+Documentation: https://miniaud.io/docs
+GitHub:        https://github.com/dr-soft/miniaudio
 */
 #include "miniaudio.h"
 
@@ -651,7 +652,7 @@ MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevisio
     }
 }
 
-MA_API const char* ma_version_string()
+MA_API const char* ma_version_string(void)
 {
     return MA_VERSION_STRING;
 }
@@ -1922,32 +1923,32 @@ Atomics
 #if defined(__cplusplus)
 extern "C" {
 #endif
-#if defined(__GNUC__)
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wlong-long"
-    #if defined(__clang__)
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+typedef   signed char           c89atomic_int8;
+typedef unsigned char           c89atomic_uint8;
+typedef   signed short          c89atomic_int16;
+typedef unsigned short          c89atomic_uint16;
+typedef   signed int            c89atomic_int32;
+typedef unsigned int            c89atomic_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    c89atomic_int64;
+    typedef unsigned __int64    c89atomic_uint64;
+#else
+    #if defined(__GNUC__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wlong-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
+    #endif
+    typedef   signed long long  c89atomic_int64;
+    typedef unsigned long long  c89atomic_uint64;
+    #if defined(__GNUC__)
+        #pragma GCC diagnostic pop
     #endif
 #endif
-typedef   signed char      c89atomic_int8;
-typedef unsigned char      c89atomic_uint8;
-typedef   signed short     c89atomic_int16;
-typedef unsigned short     c89atomic_uint16;
-typedef   signed int       c89atomic_int32;
-typedef unsigned int       c89atomic_uint32;
-#if defined(_MSC_VER)
-typedef   signed __int64   c89atomic_int64;
-typedef unsigned __int64   c89atomic_uint64;
-#else
-typedef unsigned long long c89atomic_int64;
-typedef unsigned long long c89atomic_uint64;
-#endif
-#if defined(__GNUC__)
-    #pragma GCC diagnostic pop
-#endif
-typedef int                c89atomic_memory_order;
-typedef unsigned char      c89atomic_bool;
-typedef unsigned char      c89atomic_flag;
+typedef int                     c89atomic_memory_order;
+typedef unsigned char           c89atomic_bool;
+typedef unsigned char           c89atomic_flag;
 #if !defined(C89ATOMIC_64BIT) && !defined(C89ATOMIC_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -2032,6 +2033,7 @@ typedef unsigned char      c89atomic_flag;
             static C89ATOMIC_INLINE void __stdcall c89atomic_thread_fence(int order)
             {
                 volatile c89atomic_uint32 barrier;
+                (void)order;
                 __asm {
                     xchg barrier, eax
                 }
@@ -2170,7 +2172,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue - src;
+            newValue = (c89atomic_uint8)(oldValue - src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2181,7 +2183,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue - src;
+            newValue = (c89atomic_uint16)(oldValue - src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2214,7 +2216,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue & src;
+            newValue = (c89atomic_uint8)(oldValue & src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2225,7 +2227,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue & src;
+            newValue = (c89atomic_uint16)(oldValue & src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2258,7 +2260,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue ^ src;
+            newValue = (c89atomic_uint8)(oldValue ^ src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2269,7 +2271,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue ^ src;
+            newValue = (c89atomic_uint16)(oldValue ^ src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2302,7 +2304,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint8 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue | src;
+            newValue = (c89atomic_uint8)(oldValue | src);
         } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -2313,7 +2315,7 @@ typedef unsigned char      c89atomic_flag;
         volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-            newValue = oldValue | src;
+            newValue = (c89atomic_uint16)(oldValue | src);
         } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
@@ -4755,7 +4757,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_INVALID_OPERATION);
+            c89atomic_exchange_32(&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
         }
@@ -5394,8 +5396,6 @@ typedef struct
 #define WAVE_FORMAT_IEEE_FLOAT  0x0003
 #endif
 
-static GUID MA_GUID_NULL = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-
 /* Converts an individual Win32-style channel identifier (SPEAKER_FRONT_LEFT, etc.) to miniaudio. */
 static ma_uint8 ma_channel_id_to_ma__win32(DWORD id)
 {
@@ -5500,6 +5500,12 @@ static ma_bool32 ma_is_guid_equal(const void* a, const void* b)
 #else
 #define ma_is_guid_equal(a, b) IsEqualGUID((const GUID*)a, (const GUID*)b)
 #endif
+
+static MA_INLINE ma_bool32 ma_is_guid_null(const void* guid)
+{
+    static GUID nullguid = {0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+    return ma_is_guid_equal(guid, &nullguid);
+}
 
 static ma_format ma_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
 {
@@ -6214,16 +6220,38 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
     return (ULONG)newRefCount;
 }
 
-
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
+    ma_bool32 isThisDevice = MA_FALSE;
+
 #ifdef MA_DEBUG_OUTPUT
     /*printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);*/
 #endif
 
-    (void)pThis;
-    (void)pDeviceID;
-    (void)dwNewState;
+    if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
+        return S_OK;
+    }
+
+    /*
+    There have been reports of a hang when a playback device is disconnected. The idea with this code is to explicitly stop the device if we detect
+    that the device is disabled or has been unplugged.
+    */
+    if (pThis->pDevice->wasapi.allowCaptureAutoStreamRouting && (pThis->pDevice->type == ma_device_type_capture || pThis->pDevice->type == ma_device_type_duplex || pThis->pDevice->type == ma_device_type_loopback)) {
+        if (wcscmp(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
+            isThisDevice = MA_TRUE;
+        }
+    }
+
+    if (pThis->pDevice->wasapi.allowPlaybackAutoStreamRouting && (pThis->pDevice->type == ma_device_type_playback || pThis->pDevice->type == ma_device_type_duplex)) {
+        if (wcscmp(pThis->pDevice->playback.id.wasapi, pDeviceID) == 0) {
+            isThisDevice = MA_TRUE;
+        }
+    }
+
+    if (isThisDevice) {
+        ma_device_stop(pThis->pDevice);
+    }
+    
     return S_OK;
 }
 
@@ -6502,6 +6530,8 @@ static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pCont
 
     MA_ASSERT(pContext           != NULL);
     MA_ASSERT(ppDeviceEnumerator != NULL);
+
+    *ppDeviceEnumerator = NULL; /* Safety. */
 
     hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
@@ -7517,6 +7547,8 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
+    HRESULT hr;
+    ma_IMMDeviceEnumerator* pDeviceEnumerator;
 
     (void)pContext;
 
@@ -7685,8 +7717,9 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
     }
 
     /*
-    We need to get notifications of when the default device changes. We do this through a device enumerator by
-    registering a IMMNotificationClient with it. We only care about this if it's the default device.
+    We need to register a notification client to detect when the device has been disabled, unplugged or re-routed (when the default device changes). When
+    we are connecting to the default device we want to do automatic stream routing when the device is disabled or unplugged. Otherwise we want to just
+    stop the device outright and let the application handle it.
     */
 #ifdef MA_WIN32_DESKTOP
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
@@ -7696,27 +7729,24 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
         if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
+    }
 
-        if (pDevice->wasapi.allowCaptureAutoStreamRouting || pDevice->wasapi.allowPlaybackAutoStreamRouting) {
-            ma_IMMDeviceEnumerator* pDeviceEnumerator;
-            HRESULT hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-            if (FAILED(hr)) {
-                ma_device_uninit__wasapi(pDevice);
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
-            }
+    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    if (FAILED(hr)) {
+        ma_device_uninit__wasapi(pDevice);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
+    }
 
-            pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
-            pDevice->wasapi.notificationClient.counter = 1;
-            pDevice->wasapi.notificationClient.pDevice = pDevice;
+    pDevice->wasapi.notificationClient.lpVtbl  = (void*)&g_maNotificationCientVtbl;
+    pDevice->wasapi.notificationClient.counter = 1;
+    pDevice->wasapi.notificationClient.pDevice = pDevice;
 
-            hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-            if (SUCCEEDED(hr)) {
-                pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
-            } else {
-                /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
-                ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
-            }
-        }
+    hr = pDeviceEnumerator->lpVtbl->RegisterEndpointNotificationCallback(pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+    if (SUCCEEDED(hr)) {
+        pDevice->wasapi.pDeviceEnumerator = (ma_ptr)pDeviceEnumerator;
+    } else {
+        /* Not the end of the world if we fail to register the notification callback. We just won't support automatic stream routing. */
+        ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
     }
 #endif
 
@@ -7812,11 +7842,17 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     /*
-    We need to explicitly signal the capture event in loopback mode to ensure we return from WaitForSingleObject() when nothing is being played. When nothing
+    It's possible for the main loop to get stuck if the device is disconnected.
+    
+    In loopback mode it's possible for WaitForSingleObject() to get stuck in a deadlock when nothing is being played. When nothing
     is being played, the event is never signalled internally by WASAPI which means we will deadlock when stopping the device.
     */
-    if (pDevice->type == ma_device_type_loopback) {
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_duplex) {
         SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        SetEvent((HANDLE)pDevice->wasapi.hEventPlayback);
     }
 
     return MA_SUCCESS;
@@ -7889,7 +7925,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 if (pMappedDeviceBufferPlayback == NULL) {
                     /* WASAPI is weird with exclusive mode. You need to wait on the event _before_ querying the available frames. */
                     if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                             return MA_ERROR;   /* Wait failed. */
                         }
                     }
@@ -7913,7 +7949,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     if (framesAvailablePlayback == 0) {
                         /* In exclusive mode we waited at the top. */
                         if (pDevice->playback.shareMode != ma_share_mode_exclusive) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -7938,7 +7974,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     /* Try grabbing some captured data if we haven't already got a mapped buffer. */
                     if (pMappedDeviceBufferCapture == NULL) {
                         if (pDevice->capture.shareMode == ma_share_mode_shared) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -7955,7 +7991,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                         if (framesAvailableCapture == 0) {
                             /* In exclusive mode we waited at the top. */
                             if (pDevice->capture.shareMode != ma_share_mode_shared) {
-                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                                     return MA_ERROR;   /* Wait failed. */
                                 }
                             }
@@ -8198,7 +8234,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
 
                 /* Wait for data to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) == WAIT_FAILED) {
+                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
                     exitLoop = MA_TRUE;
                     break;   /* Wait failed. */
                 }
@@ -8296,7 +8332,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                 ma_uint32 framesAvailablePlayback;
 
                 /* Wait for space to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) == WAIT_FAILED) {
+                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
                     exitLoop = MA_TRUE;
                     break;   /* Wait failed. */
                 }
@@ -8384,8 +8420,11 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
         if (pDevice->wasapi.isStartedPlayback) {
+            /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
+            DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
+
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
             } else {
                 ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
                 ma_uint32 framesAvailablePlayback;
@@ -8408,7 +8447,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
                     }
                     prevFramesAvaialablePlayback = framesAvailablePlayback;
 
-                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE);
+                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
                     ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
                 }
             }
@@ -9156,7 +9195,7 @@ static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, 
     ma_context_get_device_info_callback_data__dsound* pData = (ma_context_get_device_info_callback_data__dsound*)lpContext;
     MA_ASSERT(pData != NULL);
 
-    if ((pData->pDeviceID == NULL || ma_is_guid_equal(pData->pDeviceID->dsound, &MA_GUID_NULL)) && (lpGuid == NULL || ma_is_guid_equal(lpGuid, &MA_GUID_NULL))) {
+    if ((pData->pDeviceID == NULL || ma_is_guid_null(pData->pDeviceID->dsound)) && (lpGuid == NULL || ma_is_guid_null(lpGuid))) {
         /* Default device. */
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
         pData->found = MA_TRUE;
@@ -10515,7 +10554,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
       usually fit within the 31 characters of the fixed sized buffer, so what I'm going to do is parse that string for the component
       name, and then concatenate the name from the registry.
     */
-    if (!ma_is_guid_equal(&pCaps->NameGuid, &MA_GUID_NULL)) {
+    if (!ma_is_guid_null(&pCaps->NameGuid)) {
         wchar_t guidStrW[256];
         if (((MA_PFN_StringFromGUID2)pContext->win32.StringFromGUID2)(&pCaps->NameGuid, guidStrW, ma_countof(guidStrW)) > 0) {
             char guidStr[256];
@@ -17940,6 +17979,15 @@ static ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, 
     return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
 }
 
+#if !defined(MA_APPLE_DESKTOP)
+static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDescription* pPortDesc, ma_device_info* pInfo)
+{
+    MA_ZERO_OBJECT(pInfo);
+    ma_strncpy_s(pInfo->name,         sizeof(pInfo->name),         [pPortDesc.portName UTF8String], (size_t)-1);
+    ma_strncpy_s(pInfo->id.coreaudio, sizeof(pInfo->id.coreaudio), [pPortDesc.UID      UTF8String], (size_t)-1);
+}
+#endif
+
 static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
 #if defined(MA_APPLE_DESKTOP)
@@ -17979,19 +18027,22 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
     
     ma_free(pDeviceObjectIDs, &pContext->allocationCallbacks);
 #else
-    /* Only supporting default devices on non-Desktop platforms. */
     ma_device_info info;
+    NSArray *pInputs  = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+    NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
     
-    MA_ZERO_OBJECT(&info);
-    ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-    if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
-        return MA_SUCCESS;
+    for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
+        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+        if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
+            return MA_SUCCESS;
+        }
     }
     
-    MA_ZERO_OBJECT(&info);
-    ma_strncpy_s(info.name, sizeof(info.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-    if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
-        return MA_SUCCESS;
+    for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, &info);
+        if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
+            return MA_SUCCESS;
+        }
     }
 #endif
     
@@ -18107,12 +18158,41 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         AudioUnitElement formatElement;
         AudioStreamBasicDescription bestFormat;
         UInt32 propSize;
-
-        if (deviceType == ma_device_type_playback) {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        
+        /* We want to ensure we use a consistent device name to device enumeration. */
+        if (pDeviceID != NULL) {
+            ma_bool32 found = MA_FALSE;
+            if (deviceType == ma_device_type_playback) {
+                NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
+                for (AVAudioSessionPortDescription* pPortDesc in pOutputs) {
+                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
+                        found = MA_TRUE;
+                        break;
+                    }
+                }
+            } else {
+                NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+                for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+                    if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                        ma_AVAudioSessionPortDescription_to_device_info(pPortDesc, pDeviceInfo);
+                        found = MA_TRUE;
+                        break;
+                    }
+                }
+            }
+            
+            if (!found) {
+                return MA_DOES_NOT_EXIST;
+            }
         } else {
-            ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            if (deviceType == ma_device_type_playback) {
+                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            } else {
+                ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            }
         }
+        
     
         /*
         Retrieving device information is more annoying on mobile than desktop. For simplicity I'm locking this down to whatever format is
@@ -18914,6 +18994,28 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
         return ma_result_from_OSStatus(result);
     }
+#else
+    /*
+    For some reason it looks like Apple is only allowing selection of the input device. There does not appear to be any way to change
+    the default output route. I have no idea why this is like this, but for now we'll only be able to configure capture devices.
+    */
+    if (pDeviceID != NULL) {
+        if (deviceType == ma_device_type_capture) {
+            ma_bool32 found = MA_FALSE;
+            NSArray *pInputs = [[[AVAudioSession sharedInstance] currentRoute] inputs];
+            for (AVAudioSessionPortDescription* pPortDesc in pInputs) {
+                if (strcmp(pDeviceID->coreaudio, [pPortDesc.UID UTF8String]) == 0) {
+                    [[AVAudioSession sharedInstance] setPreferredInput:pPortDesc error:nil];
+                    found = MA_TRUE;
+                    break;
+                }
+            }
+            
+            if (found == MA_FALSE) {
+                return MA_DOES_NOT_EXIST;
+            }
+        }
+    }
 #endif
     
     /*
@@ -19504,6 +19606,14 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_coreaudio);
     
+#if defined(MA_APPLE_MOBILE)
+    if (!pContext->coreaudio.noAudioSessionDeactivate) {
+        if (![[AVAudioSession sharedInstance] setActive:false error:nil]) {
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to deactivate audio session.", MA_FAILED_TO_INIT_BACKEND);
+        }
+    }
+#endif
+    
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
     ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
     ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
@@ -19541,7 +19651,9 @@ static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_catego
 
 static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+#if !defined(MA_APPLE_MOBILE)
     ma_result result;
+#endif
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pContext != NULL);
@@ -19576,6 +19688,12 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
                 if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pConfig->coreaudio.sessionCategory) withOptions:options error:nil]) {
                     return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
+            }
+        }
+        
+        if (!pConfig->coreaudio.noAudioSessionActivate) {
+            if (![pAudioSession setActive:true error:nil]) {
+                return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to activate audio session.", MA_FAILED_TO_INIT_BACKEND);
             }
         }
     }
@@ -19709,6 +19827,8 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
         return result;
     }
 #endif
+
+    pContext->coreaudio.noAudioSessionDeactivate = pConfig->coreaudio.noAudioSessionDeactivate;
 
     return MA_SUCCESS;
 }
@@ -23115,10 +23235,13 @@ OpenSL|ES Backend
 #include <SLES/OpenSLES_Android.h>
 #endif
 
+typedef SLresult (SLAPIENTRY * ma_slCreateEngine_proc)(SLObjectItf* pEngine, SLuint32 numOptions, SLEngineOption* pEngineOptions, SLuint32 numInterfaces, SLInterfaceID* pInterfaceIds, SLboolean* pInterfaceRequired);
+
 /* OpenSL|ES has one-per-application objects :( */
-SLObjectItf g_maEngineObjectSL = NULL;
-SLEngineItf g_maEngineSL = NULL;
-ma_uint32 g_maOpenSLInitCounter = 0;
+static SLObjectItf g_maEngineObjectSL    = NULL;
+static SLEngineItf g_maEngineSL          = NULL;
+static ma_uint32   g_maOpenSLInitCounter = 0;
+static ma_spinlock g_maOpenSLSpinlock    = 0;   /* For init/uninit. */
 
 #define MA_OPENSL_OBJ(p)         (*((SLObjectItf)(p)))
 #define MA_OPENSL_OUTPUTMIX(p)   (*((SLOutputMixItf)(p)))
@@ -23334,7 +23457,7 @@ static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_e
     SLint32 deviceCount = sizeof(pDeviceIDs) / sizeof(pDeviceIDs[0]);
 
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         /* The interface may not be supported so just report a default device. */
         goto return_default_device;
@@ -23440,7 +23563,7 @@ static ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_dev
     */
 #if 0 && !defined(MA_ANDROID)
     SLAudioIODeviceCapabilitiesItf deviceCaps;
-    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
+    SLresult resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES, &deviceCaps);
     if (resultSL != SL_RESULT_SUCCESS) {
         /* The interface may not be supported so just report a default device. */
         goto return_default_device;
@@ -23729,7 +23852,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     SLresult resultSL;
     ma_uint32 periodSizeInFrames;
     size_t bufferSizeInBytes;
-    const SLInterfaceID itfIDs1[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
+    SLInterfaceID itfIDs1[1];
     const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
 #endif
 
@@ -23750,6 +23873,8 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     queues).
     */
 #ifdef MA_ANDROID
+    itfIDs1[0] = (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+
     /* No exclusive mode with OpenSL|ES. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
         ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
@@ -23806,13 +23931,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio recorder.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -23865,7 +23990,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, (SLInterfaceID)pContext->opensl.SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", ma_result_from_OpenSL(resultSL));
@@ -23909,13 +24034,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -24114,9 +24239,52 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
     (void)pContext;
 
     /* Uninit global data. */
-    if (g_maOpenSLInitCounter > 0) {
-        if (c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1) == 1) {
+    ma_spinlock_lock(&g_maOpenSLSpinlock);
+    {
+        MA_ASSERT(g_maOpenSLInitCounter > 0);   /* If you've triggered this, it means you have ma_context_init/uninit mismatch. Each successful call to ma_context_init() must be matched up with a call to ma_context_uninit(). */
+
+        g_maOpenSLInitCounter -= 1;
+        if (g_maOpenSLInitCounter == 0) {
             (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
+        }
+    }
+    ma_spinlock_unlock(&g_maOpenSLSpinlock);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, const char* pName, ma_handle* pHandle)
+{
+    /* We need to return an error if the symbol cannot be found. This is important because there have been reports that some symbols do not exist. */
+    ma_handle* p = (ma_handle*)ma_dlsym(pContext, pContext->opensl.libOpenSLES, pName);
+    if (p == NULL) {
+        ma_post_log_messagef(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol %s", pName);
+        return MA_NO_BACKEND;
+    }
+
+    *pHandle = *p;
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext)
+{
+    g_maOpenSLInitCounter += 1;
+    if (g_maOpenSLInitCounter == 1) {
+        SLresult resultSL;
+
+        resultSL = ((ma_slCreateEngine_proc)pContext->opensl.slCreateEngine)(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            g_maOpenSLInitCounter -= 1;
+            return ma_result_from_OpenSL(resultSL);
+        }
+
+        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
+
+        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, (SLInterfaceID)pContext->opensl.SL_IID_ENGINE, &g_maEngineSL);
+        if (resultSL != SL_RESULT_SUCCESS) {
+            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
+            g_maOpenSLInitCounter -= 1;
+            return ma_result_from_OpenSL(resultSL);
         }
     }
 
@@ -24125,27 +24293,81 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
 
 static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_result result;
+    size_t i;
+    const char* libOpenSLESNames[] = {
+        "libOpenSLES.so"
+    };
+
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
-    /* Initialize global data first if applicable. */
-    if (c89atomic_fetch_add_32(&g_maOpenSLInitCounter, 1) == 0) {
-        SLresult resultSL = slCreateEngine(&g_maEngineObjectSL, 0, NULL, 0, NULL, NULL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
-            return ma_result_from_OpenSL(resultSL);
-        }
-
-        (*g_maEngineObjectSL)->Realize(g_maEngineObjectSL, SL_BOOLEAN_FALSE);
-
-        resultSL = (*g_maEngineObjectSL)->GetInterface(g_maEngineObjectSL, SL_IID_ENGINE, &g_maEngineSL);
-        if (resultSL != SL_RESULT_SUCCESS) {
-            (*g_maEngineObjectSL)->Destroy(g_maEngineObjectSL);
-            c89atomic_fetch_sub_32(&g_maOpenSLInitCounter, 1);
-            return ma_result_from_OpenSL(resultSL);
+    /*
+    Dynamically link against libOpenSLES.so. I have now had multiple reports that SL_IID_ANDROIDSIMPLEBUFFERQUEUE cannot be found. One
+    report was happening at compile time and another at runtime. To try working around this, I'm going to link to libOpenSLES at runtime
+    and extract the symbols rather than reference them directly. This should, hopefully, fix these issues as the compiler won't see any
+    references to the symbols and will hopefully skip the checks.
+    */
+    for (i = 0; i < ma_countof(libOpenSLESNames); i += 1) {
+        pContext->opensl.libOpenSLES = ma_dlopen(pContext, libOpenSLESNames[i]);
+        if (pContext->opensl.libOpenSLES != NULL) {
+            break;
         }
     }
+
+    if (pContext->opensl.libOpenSLES == NULL) {
+        return MA_NO_BACKEND;   /* Couldn't find libOpenSLES.so */
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ENGINE", &pContext->opensl.SL_IID_ENGINE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_AUDIOIODEVICECAPABILITIES", &pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDSIMPLEBUFFERQUEUE", &pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_RECORD", &pContext->opensl.SL_IID_RECORD);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_PLAY", &pContext->opensl.SL_IID_PLAY);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_OUTPUTMIX", &pContext->opensl.SL_IID_OUTPUTMIX);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(pContext, pContext->opensl.libOpenSLES, "slCreateEngine");
+    if (pContext->opensl.slCreateEngine == NULL) {
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
+        return MA_NO_BACKEND;
+    }
+
+
+    /* Initialize global data first if applicable. */
+    ma_spinlock_lock(&g_maOpenSLSpinlock);
+    {
+        result = ma_context_init_engine_nolock__opensl(pContext);
+    }
+    ma_spinlock_unlock(&g_maOpenSLSpinlock);
+
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the OpenSL engine. */
+    }
+
 
     pContext->isBackendAsynchronous = MA_TRUE;
 
@@ -25595,6 +25817,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
     }
 
+    if (config.playback.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->playback.id, config.playback.pDeviceID, sizeof(pDevice->playback.id));
+    }
+    if (config.capture.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->capture.id, config.capture.pDeviceID, sizeof(pDevice->capture.id));
+    }
+
     pDevice->noPreZeroedOutputBuffer = config.noPreZeroedOutputBuffer;
     pDevice->noClip = config.noClip;
     pDevice->masterVolumeFactor = 1;
@@ -25966,7 +26195,6 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         ma_device__set_state(pDevice, MA_STATE_STOPPING);
 
         /* There's no need to wake up the thread like we do when starting. */
-
         if (pDevice->pContext->onDeviceStop) {
             result = pDevice->pContext->onDeviceStop(pDevice);
         } else {
@@ -26122,9 +26350,9 @@ MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
 }
 
 
-MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_uint8* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -26135,9 +26363,9 @@ MA_API void ma_copy_and_apply_volume_factor_u8(ma_uint8* pSamplesOut, const ma_u
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_int16* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -26148,9 +26376,9 @@ MA_API void ma_copy_and_apply_volume_factor_s16(ma_int16* pSamplesOut, const ma_
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
     ma_uint8* pSamplesOut8;
     ma_uint8* pSamplesIn8;
 
@@ -26173,9 +26401,9 @@ MA_API void ma_copy_and_apply_volume_factor_s24(void* pSamplesOut, const void* p
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_int32* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -26186,9 +26414,9 @@ MA_API void ma_copy_and_apply_volume_factor_s32(ma_int32* pSamplesOut, const ma_
     }
 }
 
-MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint32 sampleCount, float factor)
+MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float* pSamplesIn, ma_uint64 sampleCount, float factor)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
     if (pSamplesOut == NULL || pSamplesIn == NULL) {
         return;
@@ -26199,57 +26427,57 @@ MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float*
     }
 }
 
-MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_u8(ma_uint8* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_u8(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s16(ma_int16* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s16(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s24(void* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s24(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_s32(ma_int32* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_s32(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint32 sampleCount, float factor)
+MA_API void ma_apply_volume_factor_f32(float* pSamples, ma_uint64 sampleCount, float factor)
 {
     ma_copy_and_apply_volume_factor_f32(pSamples, pSamples, sampleCount, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFramesOut, const ma_uint8* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_u8(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFramesOut, const ma_int16* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s16(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s24(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s24(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFramesOut, const ma_int32* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_s32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames_f32(float* pPCMFramesOut, const float* pPCMFramesIn, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_f32(pPCMFramesOut, pPCMFramesIn, frameCount*channels, factor);
 }
 
-MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, const void* pPCMFramesIn, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor)
 {
     switch (format)
     {
@@ -26262,32 +26490,32 @@ MA_API void ma_copy_and_apply_volume_factor_pcm_frames(void* pPCMFramesOut, cons
     }
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_u8(ma_uint8* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_u8(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s16(ma_int16* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s16(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s24(void* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s24(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_s32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pPCMFrames, ma_uint32 frameCount, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pPCMFrames, ma_uint64 frameCount, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames_f32(pPCMFrames, pPCMFrames, frameCount, channels, factor);
 }
 
-MA_API void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint32 frameCount, ma_format format, ma_uint32 channels, float factor)
+MA_API void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor)
 {
     ma_copy_and_apply_volume_factor_pcm_frames(pPCMFrames, pPCMFrames, frameCount, format, channels, factor);
 }
@@ -35298,7 +35526,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     } else {
         ma_format format;
         ma_uint32 channels;
-        if (ma_data_source_get_data_format(pDataSource, &format, &channels) != MA_SUCCESS) {
+        ma_uint32 sampleRate;
+        if (ma_data_source_get_data_format(pDataSource, &format, &channels, &sampleRate) != MA_SUCCESS) {
             return pCallbacks->onRead(pDataSource, pFramesOut, frameCount, pFramesRead); /* We don't have a way to retrieve the data format which means we don't know how to offset the output buffer. Just read as much as we can. */
         } else {
             ma_result result = MA_SUCCESS;
@@ -35317,7 +35546,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 If we encounted an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
                 not necessarily considered an error. 
                 */
-                if (result != MA_SUCCESS) {
+                if (result != MA_SUCCESS && result != MA_AT_END) {
                     break;
                 }
 
@@ -35325,7 +35554,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 We can determine if we've reached the end by checking the return value of the onRead() callback. If it's less than what we requested it means
                 we've reached the end. To loop back to the start, all we need to do is seek back to the first frame.
                 */
-                if (framesProcessed < framesRemaining) {
+                if (framesProcessed < framesRemaining || result == MA_AT_END) {
                     if (ma_data_source_seek_to_pcm_frame(pDataSource, 0) != MA_SUCCESS) {
                         break;
                     }
@@ -35336,7 +35565,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 }
             }
 
-            *pFramesRead = totalFramesProcessed;
+            if (pFramesRead != NULL) {
+                *pFramesRead = totalFramesProcessed;
+            }
+
             return result;
         }
     }
@@ -35377,18 +35609,19 @@ MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 fra
     return pCallbacks->onUnmap(pDataSource, frameCount);
 }
 
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_result result;
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
 
     if (pCallbacks == NULL || pCallbacks->onGetDataFormat == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    result = pCallbacks->onGetDataFormat(pDataSource, &format, &channels);
+    result = pCallbacks->onGetDataFormat(pDataSource, &format, &channels, &sampleRate);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -35399,8 +35632,53 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     if (pChannels != NULL) {
         *pChannels = channels;
     }
+    if (pSampleRate != NULL) {
+        *pSampleRate = sampleRate;
+    }
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pCallbacks == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onGetCursor == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onGetCursor(pDataSource, pCursor);
+}
+
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    if (pCallbacks == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pCallbacks->onGetLength == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pCallbacks->onGetLength(pDataSource, pLength);
 }
 
 
@@ -35450,12 +35728,31 @@ static ma_result ma_audio_buffer__data_source_on_unmap(ma_data_source* pDataSour
     return ma_audio_buffer_unmap((ma_audio_buffer*)pDataSource, frameCount);
 }
 
-static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
 
-    *pFormat   = pAudioBuffer->format;
-    *pChannels = pAudioBuffer->channels;
+    *pFormat     = pAudioBuffer->format;
+    *pChannels   = pAudioBuffer->channels;
+    *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_audio_buffer__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
+
+    *pCursor = pAudioBuffer->cursor;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_audio_buffer__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_audio_buffer* pAudioBuffer = (ma_audio_buffer*)pDataSource;
+
+    *pLength = pAudioBuffer->sizeInFrames;
 
     return MA_SUCCESS;
 }
@@ -35481,6 +35778,8 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
     pAudioBuffer->ds.onMap           = ma_audio_buffer__data_source_on_map;
     pAudioBuffer->ds.onUnmap         = ma_audio_buffer__data_source_on_unmap;
     pAudioBuffer->ds.onGetDataFormat = ma_audio_buffer__data_source_on_get_data_format;
+    pAudioBuffer->ds.onGetCursor     = ma_audio_buffer__data_source_on_get_cursor;
+    pAudioBuffer->ds.onGetLength     = ma_audio_buffer__data_source_on_get_length;
     pAudioBuffer->format             = pConfig->format;
     pAudioBuffer->channels           = pConfig->channels;
     pAudioBuffer->cursor             = 0;
@@ -35719,6 +36018,27 @@ MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
     }
 
     return pAudioBuffer->cursor == pAudioBuffer->sizeInFrames;
+}
+
+MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames)
+{
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pAudioBuffer->sizeInFrames <= pAudioBuffer->cursor) {
+        *pAvailableFrames = 0;
+    } else {
+        *pAvailableFrames = pAudioBuffer->sizeInFrames - pAudioBuffer->cursor;
+    }
+
+    return MA_SUCCESS;
 }
 
 
@@ -36542,42 +36862,41 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  7
+#define DRWAV_VERSION_REVISION  9
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
-#ifdef _MSC_VER
-    #if defined(__clang__)
+typedef   signed char           drwav_int8;
+typedef unsigned char           drwav_uint8;
+typedef   signed short          drwav_int16;
+typedef unsigned short          drwav_uint16;
+typedef   signed int            drwav_int32;
+typedef unsigned int            drwav_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    drwav_int64;
+    typedef unsigned __int64    drwav_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
         #pragma GCC diagnostic ignored "-Wlong-long"
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  drwav_int8;
-    typedef unsigned __int8  drwav_uint8;
-    typedef   signed __int16 drwav_int16;
-    typedef unsigned __int16 drwav_uint16;
-    typedef   signed __int32 drwav_int32;
-    typedef unsigned __int32 drwav_uint32;
-    typedef   signed __int64 drwav_int64;
-    typedef unsigned __int64 drwav_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  drwav_int64;
+    typedef unsigned long long  drwav_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #include <stdint.h>
-    typedef int8_t           drwav_int8;
-    typedef uint8_t          drwav_uint8;
-    typedef int16_t          drwav_int16;
-    typedef uint16_t         drwav_uint16;
-    typedef int32_t          drwav_int32;
-    typedef uint32_t         drwav_uint32;
-    typedef int64_t          drwav_int64;
-    typedef uint64_t         drwav_uint64;
 #endif
-typedef drwav_uint8          drwav_bool8;
-typedef drwav_uint32         drwav_bool32;
-#define DRWAV_TRUE           1
-#define DRWAV_FALSE          0
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef drwav_uint64        drwav_uintptr;
+#else
+    typedef drwav_uint32        drwav_uintptr;
+#endif
+typedef drwav_uint8             drwav_bool8;
+typedef drwav_uint32            drwav_bool32;
+#define DRWAV_TRUE              1
+#define DRWAV_FALSE             0
 #if !defined(DRWAV_API)
     #if defined(DRWAV_DLL)
         #if defined(_WIN32)
@@ -36673,7 +36992,7 @@ typedef drwav_int32 drwav_result;
 #endif
 #define DRWAV_SEQUENTIAL            0x00000001
 DRWAV_API void drwav_version(drwav_uint32* pMajor, drwav_uint32* pMinor, drwav_uint32* pRevision);
-DRWAV_API const char* drwav_version_string();
+DRWAV_API const char* drwav_version_string(void);
 typedef enum
 {
     drwav_seek_origin_start,
@@ -36915,42 +37234,41 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  15
+#define DRFLAC_VERSION_REVISION  18
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
-#ifdef _MSC_VER
-    #if defined(__clang__)
+typedef   signed char           drflac_int8;
+typedef unsigned char           drflac_uint8;
+typedef   signed short          drflac_int16;
+typedef unsigned short          drflac_uint16;
+typedef   signed int            drflac_int32;
+typedef unsigned int            drflac_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    drflac_int64;
+    typedef unsigned __int64    drflac_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
         #pragma GCC diagnostic ignored "-Wlong-long"
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  drflac_int8;
-    typedef unsigned __int8  drflac_uint8;
-    typedef   signed __int16 drflac_int16;
-    typedef unsigned __int16 drflac_uint16;
-    typedef   signed __int32 drflac_int32;
-    typedef unsigned __int32 drflac_uint32;
-    typedef   signed __int64 drflac_int64;
-    typedef unsigned __int64 drflac_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  drflac_int64;
+    typedef unsigned long long  drflac_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #include <stdint.h>
-    typedef int8_t           drflac_int8;
-    typedef uint8_t          drflac_uint8;
-    typedef int16_t          drflac_int16;
-    typedef uint16_t         drflac_uint16;
-    typedef int32_t          drflac_int32;
-    typedef uint32_t         drflac_uint32;
-    typedef int64_t          drflac_int64;
-    typedef uint64_t         drflac_uint64;
 #endif
-typedef drflac_uint8         drflac_bool8;
-typedef drflac_uint32        drflac_bool32;
-#define DRFLAC_TRUE          1
-#define DRFLAC_FALSE         0
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef drflac_uint64       drflac_uintptr;
+#else
+    typedef drflac_uint32       drflac_uintptr;
+#endif
+typedef drflac_uint8            drflac_bool8;
+typedef drflac_uint32           drflac_bool32;
+#define DRFLAC_TRUE             1
+#define DRFLAC_FALSE            0
 #if !defined(DRFLAC_API)
     #if defined(DRFLAC_DLL)
         #if defined(_WIN32)
@@ -36993,7 +37311,7 @@ typedef drflac_uint32        drflac_bool32;
     #define DRFLAC_DEPRECATED
 #endif
 DRFLAC_API void drflac_version(drflac_uint32* pMajor, drflac_uint32* pMinor, drflac_uint32* pRevision);
-DRFLAC_API const char* drflac_version_string();
+DRFLAC_API const char* drflac_version_string(void);
 #ifndef DR_FLAC_BUFFER_SIZE
 #define DR_FLAC_BUFFER_SIZE   4096
 #endif
@@ -37277,42 +37595,41 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  13
+#define DRMP3_VERSION_REVISION  16
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
-#ifdef _MSC_VER
-    #if defined(__clang__)
+typedef   signed char           drmp3_int8;
+typedef unsigned char           drmp3_uint8;
+typedef   signed short          drmp3_int16;
+typedef unsigned short          drmp3_uint16;
+typedef   signed int            drmp3_int32;
+typedef unsigned int            drmp3_uint32;
+#if defined(_MSC_VER)
+    typedef   signed __int64    drmp3_int64;
+    typedef unsigned __int64    drmp3_uint64;
+#else
+    #if defined(__GNUC__)
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
         #pragma GCC diagnostic ignored "-Wlong-long"
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef   signed __int8  drmp3_int8;
-    typedef unsigned __int8  drmp3_uint8;
-    typedef   signed __int16 drmp3_int16;
-    typedef unsigned __int16 drmp3_uint16;
-    typedef   signed __int32 drmp3_int32;
-    typedef unsigned __int32 drmp3_uint32;
-    typedef   signed __int64 drmp3_int64;
-    typedef unsigned __int64 drmp3_uint64;
-    #if defined(__clang__)
+    typedef   signed long long  drmp3_int64;
+    typedef unsigned long long  drmp3_uint64;
+    #if defined(__GNUC__)
         #pragma GCC diagnostic pop
     #endif
-#else
-    #include <stdint.h>
-    typedef int8_t           drmp3_int8;
-    typedef uint8_t          drmp3_uint8;
-    typedef int16_t          drmp3_int16;
-    typedef uint16_t         drmp3_uint16;
-    typedef int32_t          drmp3_int32;
-    typedef uint32_t         drmp3_uint32;
-    typedef int64_t          drmp3_int64;
-    typedef uint64_t         drmp3_uint64;
 #endif
-typedef drmp3_uint8          drmp3_bool8;
-typedef drmp3_uint32         drmp3_bool32;
-#define DRMP3_TRUE           1
-#define DRMP3_FALSE          0
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__)
+    typedef drmp3_uint64        drmp3_uintptr;
+#else
+    typedef drmp3_uint32        drmp3_uintptr;
+#endif
+typedef drmp3_uint8             drmp3_bool8;
+typedef drmp3_uint32            drmp3_bool32;
+#define DRMP3_TRUE              1
+#define DRMP3_FALSE             0
 #if !defined(DRMP3_API)
     #if defined(DRMP3_DLL)
         #if defined(_WIN32)
@@ -37410,7 +37727,7 @@ typedef drmp3_int32 drmp3_result;
     #define DRMP3_INLINE
 #endif
 DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_uint32* pRevision);
-DRMP3_API const char* drmp3_version_string();
+DRMP3_API const char* drmp3_version_string(void);
 typedef struct
 {
     int frame_bytes, channels, hz, layer, bitrate_kbps;
@@ -37535,7 +37852,7 @@ static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size
     MA_ASSERT(pBufferOut != NULL);
 
     bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
-    pDecoder->readPointer += bytesRead;
+    pDecoder->readPointerInBytes += bytesRead;
 
     return bytesRead;
 }
@@ -37549,9 +37866,9 @@ static ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_
     wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
     if (wasSuccessful) {
         if (origin == ma_seek_origin_start) {
-            pDecoder->readPointer = (ma_uint64)byteOffset;
+            pDecoder->readPointerInBytes = (ma_uint64)byteOffset;
         } else {
-            pDecoder->readPointer += byteOffset;
+            pDecoder->readPointerInBytes += byteOffset;
         }
     }
 
@@ -38491,12 +38808,34 @@ static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma
     return ma_decoder_seek_to_pcm_frame((ma_decoder*)pDataSource, frameIndex);
 }
 
-static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_decoder* pDecoder = (ma_decoder*)pDataSource;
 
-    *pFormat   = pDecoder->outputFormat;
-    *pChannels = pDecoder->outputChannels;
+    *pFormat     = pDecoder->outputFormat;
+    *pChannels   = pDecoder->outputChannels;
+    *pSampleRate = pDecoder->outputSampleRate;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
+
+    *pCursor = pDecoder->readPointerInPCMFrames;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
+
+    *pLength = ma_decoder_get_length_in_pcm_frames(pDecoder);
+    if (*pLength == 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
 
     return MA_SUCCESS;
 }
@@ -38520,6 +38859,8 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->ds.onRead          = ma_decoder__data_source_on_read;
     pDecoder->ds.onSeek          = ma_decoder__data_source_on_seek;
     pDecoder->ds.onGetDataFormat = ma_decoder__data_source_on_get_data_format;
+    pDecoder->ds.onGetCursor     = ma_decoder__data_source_on_get_cursor;
+    pDecoder->ds.onGetLength     = ma_decoder__data_source_on_get_length;
 
     pDecoder->onRead    = onRead;
     pDecoder->onSeek    = onSeek;
@@ -38974,6 +39315,16 @@ MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, 
     return ma_decoder__postinit(&config, pDecoder);
 }
 
+
+#if defined(MA_HAS_WAV)    || \
+    defined(MA_HAS_MP3)    || \
+    defined(MA_HAS_FLAC)   || \
+    defined(MA_HAS_VORBIS) || \
+    defined(MA_HAS_OPUS)
+#define MA_HAS_PATH_API
+#endif
+
+#if defined(MA_HAS_PATH_API)
 static const char* ma_path_file_name(const char* path)
 {
     const char* fileName;
@@ -39140,6 +39491,7 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     }
 #endif
 }
+#endif  /* MA_HAS_PATH_API */
 
 
 
@@ -39706,67 +40058,69 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
     /* Fast path. */
     if (pDecoder->converter.isPassthrough) {
-        return pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
-    }
-
-    /*
-    Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
-    need to run through each sample because we need to ensure it's internal cache is updated.
-    */
-    if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
-        return pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
-    }
-
-    /* Slow path. Need to run everything through the data converter. */
-    totalFramesReadOut = 0;
-    totalFramesReadIn  = 0;
-    pRunningFramesOut  = pFramesOut;
-    
-    while (totalFramesReadOut < frameCount) {
-        ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
-        ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
-        ma_uint64 framesToReadThisIterationIn;
-        ma_uint64 framesReadThisIterationIn;
-        ma_uint64 framesToReadThisIterationOut;
-        ma_uint64 framesReadThisIterationOut;
-        ma_uint64 requiredInputFrameCount;
-
-        framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
-        framesToReadThisIterationIn = framesToReadThisIterationOut;
-        if (framesToReadThisIterationIn > intermediaryBufferCap) {
-            framesToReadThisIterationIn = intermediaryBufferCap;
-        }
-
-        requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
-        if (framesToReadThisIterationIn > requiredInputFrameCount) {
-            framesToReadThisIterationIn = requiredInputFrameCount;
-        }
-
-        if (requiredInputFrameCount > 0) {
-            framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
-            totalFramesReadIn += framesReadThisIterationIn;
-        }
-
+        totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
+    } else {
         /*
-        At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
-        input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+        Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
+        need to run through each sample because we need to ensure it's internal cache is updated.
         */
-        framesReadThisIterationOut = framesToReadThisIterationOut;
-        result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
-        if (result != MA_SUCCESS) {
-            break;
-        }
+        if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
+            totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
+        } else {
+            /* Slow path. Need to run everything through the data converter. */
+            totalFramesReadOut = 0;
+            totalFramesReadIn  = 0;
+            pRunningFramesOut  = pFramesOut;
+    
+            while (totalFramesReadOut < frameCount) {
+                ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
+                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+                ma_uint64 framesToReadThisIterationIn;
+                ma_uint64 framesReadThisIterationIn;
+                ma_uint64 framesToReadThisIterationOut;
+                ma_uint64 framesReadThisIterationOut;
+                ma_uint64 requiredInputFrameCount;
 
-        totalFramesReadOut += framesReadThisIterationOut;
+                framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                framesToReadThisIterationIn = framesToReadThisIterationOut;
+                if (framesToReadThisIterationIn > intermediaryBufferCap) {
+                    framesToReadThisIterationIn = intermediaryBufferCap;
+                }
 
-        if (pRunningFramesOut != NULL) {
-            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
-        }
+                requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
+                if (framesToReadThisIterationIn > requiredInputFrameCount) {
+                    framesToReadThisIterationIn = requiredInputFrameCount;
+                }
 
-        if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
-            break;  /* We're done. */
+                if (requiredInputFrameCount > 0) {
+                    framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
+                    totalFramesReadIn += framesReadThisIterationIn;
+                }
+
+                /*
+                At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
+                input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+                */
+                framesReadThisIterationOut = framesToReadThisIterationOut;
+                result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
+
+                totalFramesReadOut += framesReadThisIterationOut;
+
+                if (pRunningFramesOut != NULL) {
+                    pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+                }
+
+                if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
+                    break;  /* We're done. */
+                }
+            }
         }
     }
+
+    pDecoder->readPointerInPCMFrames += totalFramesReadOut;
 
     return totalFramesReadOut;
 }
@@ -39778,6 +40132,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
     }
 
     if (pDecoder->onSeekToPCMFrame) {
+        ma_result result;
         ma_uint64 internalFrameIndex;
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             internalFrameIndex = frameIndex;
@@ -39785,11 +40140,42 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
             internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
-        return pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        result = pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        if (result == MA_SUCCESS) {
+            pDecoder->readPointerInPCMFrames = frameIndex;
+        }
     }
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
     return MA_INVALID_ARGS;
+}
+
+MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames)
+{
+    ma_uint64 totalFrameCount;
+
+    if (pAvailableFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pAvailableFrames = 0;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    totalFrameCount = ma_decoder_get_length_in_pcm_frames(pDecoder);
+    if (totalFrameCount == 0) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    if (totalFrameCount <= pDecoder->readPointerInPCMFrames) {
+        *pAvailableFrames = 0;
+    } else {
+        *pAvailableFrames = totalFrameCount - pDecoder->readPointerInPCMFrames;
+    }
+
+    return MA_SUCCESS;   /* No frames available. */
 }
 
 
@@ -40232,12 +40618,22 @@ static ma_result ma_waveform__data_source_on_seek(ma_data_source* pDataSource, m
     return ma_waveform_seek_to_pcm_frame((ma_waveform*)pDataSource, frameIndex);
 }
 
-static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_waveform* pWaveform = (ma_waveform*)pDataSource;
 
-    *pFormat   = pWaveform->config.format;
-    *pChannels = pWaveform->config.channels;
+    *pFormat     = pWaveform->config.format;
+    *pChannels   = pWaveform->config.channels;
+    *pSampleRate = pWaveform->config.sampleRate;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_waveform__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    ma_waveform* pWaveform = (ma_waveform*)pDataSource;
+
+    *pCursor = (ma_uint64)(pWaveform->time / pWaveform->advance);
 
     return MA_SUCCESS;
 }
@@ -40252,9 +40648,11 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     pWaveform->ds.onRead          = ma_waveform__data_source_on_read;
     pWaveform->ds.onSeek          = ma_waveform__data_source_on_seek;
     pWaveform->ds.onGetDataFormat = ma_waveform__data_source_on_get_data_format;
-    pWaveform->config  = *pConfig;
-    pWaveform->advance = 1.0 / pWaveform->config.sampleRate;
-    pWaveform->time    = 0;
+    pWaveform->ds.onGetCursor     = ma_waveform__data_source_on_get_cursor;
+    pWaveform->ds.onGetLength     = NULL;   /* Intentionally set to NULL since there's no notion of a length in waveforms. */
+    pWaveform->config             = *pConfig;
+    pWaveform->advance            = 1.0 / pWaveform->config.sampleRate;
+    pWaveform->time               = 0;
 
     return MA_SUCCESS;
 }
@@ -40611,12 +41009,13 @@ static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_u
     return MA_SUCCESS;
 }
 
-static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels)
+static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_noise* pNoise = (ma_noise*)pDataSource;
 
-    *pFormat   = pNoise->config.format;
-    *pChannels = pNoise->config.channels;
+    *pFormat     = pNoise->config.format;
+    *pChannels   = pNoise->config.channels;
+    *pSampleRate = 0;   /* There is no notion of sample rate with noise generation. */
 
     return MA_SUCCESS;
 }
@@ -40640,7 +41039,9 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     pNoise->ds.onRead          = ma_noise__data_source_on_read;
     pNoise->ds.onSeek          = ma_noise__data_source_on_seek;  /* <-- No-op for noise. */
     pNoise->ds.onGetDataFormat = ma_noise__data_source_on_get_data_format;
-    pNoise->config = *pConfig;
+    pNoise->ds.onGetCursor     = NULL;  /* No notion of a cursor for noise. */
+    pNoise->ds.onGetLength     = NULL;  /* No notion of a length for noise. */
+    pNoise->config             = *pConfig;
     ma_lcg_seed(&pNoise->lcg, pConfig->seed);
 
     if (pNoise->config.type == ma_noise_type_pink) {
@@ -41074,7 +41475,7 @@ DRWAV_API void drwav_version(drwav_uint32* pMajor, drwav_uint32* pMinor, drwav_u
         *pRevision = DRWAV_VERSION_REVISION;
     }
 }
-DRWAV_API const char* drwav_version_string()
+DRWAV_API const char* drwav_version_string(void)
 {
     return DRWAV_VERSION_STRING;
 }
@@ -44848,7 +45249,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse41(void)
     return DRFLAC_FALSE;
 #endif
 }
-#if defined(_MSC_VER) && _MSC_VER >= 1500 && (defined(DRFLAC_X86) || defined(DRFLAC_X64))
+#if defined(_MSC_VER) && _MSC_VER >= 1500 && (defined(DRFLAC_X86) || defined(DRFLAC_X64)) && !defined(__clang__)
     #define DRFLAC_HAS_LZCNT_INTRINSIC
 #elif (defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
     #define DRFLAC_HAS_LZCNT_INTRINSIC
@@ -44859,7 +45260,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse41(void)
         #endif
     #endif
 #endif
-#if defined(_MSC_VER) && _MSC_VER >= 1400
+#if defined(_MSC_VER) && _MSC_VER >= 1400 && !defined(__clang__)
     #define DRFLAC_HAS_BYTESWAP16_INTRINSIC
     #define DRFLAC_HAS_BYTESWAP32_INTRINSIC
     #define DRFLAC_HAS_BYTESWAP64_INTRINSIC
@@ -44987,7 +45388,7 @@ DRFLAC_API void drflac_version(drflac_uint32* pMajor, drflac_uint32* pMinor, drf
         *pRevision = DRFLAC_VERSION_REVISION;
     }
 }
-DRFLAC_API const char* drflac_version_string()
+DRFLAC_API const char* drflac_version_string(void)
 {
     return DRFLAC_VERSION_STRING;
 }
@@ -45060,7 +45461,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_little_endian(void)
 static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP16_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_ushort(n);
     #elif defined(__GNUC__) || defined(__clang__)
         return __builtin_bswap16(n);
@@ -45075,7 +45476,7 @@ static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP32_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_ulong(n);
     #elif defined(__GNUC__) || defined(__clang__)
         #if defined(DRFLAC_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 6) && !defined(DRFLAC_64BIT)
@@ -45104,7 +45505,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 static DRFLAC_INLINE drflac_uint64 drflac__swap_endian_uint64(drflac_uint64 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP64_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_uint64(n);
     #elif defined(__GNUC__) || defined(__clang__)
         return __builtin_bswap64(n);
@@ -45720,7 +46121,7 @@ static drflac_bool32 drflac__find_and_seek_to_next_sync_code(drflac_bs* bs)
 #if defined(DRFLAC_HAS_LZCNT_INTRINSIC)
 #define DRFLAC_IMPLEMENT_CLZ_LZCNT
 #endif
-#if  defined(_MSC_VER) && _MSC_VER >= 1400 && (defined(DRFLAC_X64) || defined(DRFLAC_X86))
+#if  defined(_MSC_VER) && _MSC_VER >= 1400 && (defined(DRFLAC_X64) || defined(DRFLAC_X86)) && !defined(__clang__)
 #define DRFLAC_IMPLEMENT_CLZ_MSVC
 #endif
 static DRFLAC_INLINE drflac_uint32 drflac__clz_software(drflac_cache_t x)
@@ -45767,7 +46168,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_lzcnt_supported(void)
 }
 static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
 {
-#if defined(_MSC_VER) && !defined(__clang__)
+#if defined(_MSC_VER)
     #ifdef DRFLAC_64BIT
         return (drflac_uint32)__lzcnt64(x);
     #else
@@ -45779,7 +46180,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
             {
                 drflac_uint64 r;
                 __asm__ __volatile__ (
-                    "lzcnt{ %1, %0| %0, %1}" : "=r"(r) : "r"(x)
+                    "lzcnt{ %1, %0| %0, %1}" : "=r"(r) : "r"(x) : "cc"
                 );
                 return (drflac_uint32)r;
             }
@@ -45787,7 +46188,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
             {
                 drflac_uint32 r;
                 __asm__ __volatile__ (
-                    "lzcnt{l %1, %0| %0, %1}" : "=r"(r) : "r"(x)
+                    "lzcnt{l %1, %0| %0, %1}" : "=r"(r) : "r"(x) : "cc"
                 );
                 return r;
             }
@@ -52849,7 +53250,7 @@ DRMP3_API void drmp3_version(drmp3_uint32* pMajor, drmp3_uint32* pMinor, drmp3_u
         *pRevision = DRMP3_VERSION_REVISION;
     }
 }
-DRMP3_API const char* drmp3_version_string()
+DRMP3_API const char* drmp3_version_string(void)
 {
     return DRMP3_VERSION_STRING;
 }
@@ -54727,7 +55128,9 @@ static drmp3_uint32 drmp3_decode_next_frame_ex__callbacks(drmp3* pMP3, drmp3d_sa
         drmp3dec_frame_info info;
         if (pMP3->dataSize < DRMP3_MIN_DATA_CHUNK_SIZE) {
             size_t bytesRead;
-            memmove(pMP3->pData, pMP3->pData + pMP3->dataConsumed, pMP3->dataSize);
+            if (pMP3->pData != NULL) {
+                memmove(pMP3->pData, pMP3->pData + pMP3->dataConsumed, pMP3->dataSize);
+            }
             pMP3->dataConsumed = 0;
             if (pMP3->dataCapacity < DRMP3_DATA_CHUNK_SIZE) {
                 drmp3_uint8* pNewData;

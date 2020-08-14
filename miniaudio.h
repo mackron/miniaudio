@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.16 - TBD
+miniaudio - v0.10.16 - 2020-08-14
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -62461,7 +62461,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.16 - TBD
+v0.10.16 - 2020-08-14
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
   - OpenSL: Enable runtime linking.
   - OpenSL: Fix a multithreading bug when initializing and uninitializing multiple contexts at the same time.
