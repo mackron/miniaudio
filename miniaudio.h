@@ -42914,7 +42914,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  17
+#define DRFLAC_VERSION_REVISION  18
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -50929,7 +50929,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse41(void)
     return DRFLAC_FALSE;
 #endif
 }
-#if defined(_MSC_VER) && _MSC_VER >= 1500 && (defined(DRFLAC_X86) || defined(DRFLAC_X64))
+#if defined(_MSC_VER) && _MSC_VER >= 1500 && (defined(DRFLAC_X86) || defined(DRFLAC_X64)) && !defined(__clang__)
     #define DRFLAC_HAS_LZCNT_INTRINSIC
 #elif (defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
     #define DRFLAC_HAS_LZCNT_INTRINSIC
@@ -50940,7 +50940,7 @@ static DRFLAC_INLINE drflac_bool32 drflac_has_sse41(void)
         #endif
     #endif
 #endif
-#if defined(_MSC_VER) && _MSC_VER >= 1400
+#if defined(_MSC_VER) && _MSC_VER >= 1400 && !defined(__clang__)
     #define DRFLAC_HAS_BYTESWAP16_INTRINSIC
     #define DRFLAC_HAS_BYTESWAP32_INTRINSIC
     #define DRFLAC_HAS_BYTESWAP64_INTRINSIC
@@ -51141,7 +51141,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_little_endian(void)
 static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP16_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_ushort(n);
     #elif defined(__GNUC__) || defined(__clang__)
         return __builtin_bswap16(n);
@@ -51156,7 +51156,7 @@ static DRFLAC_INLINE drflac_uint16 drflac__swap_endian_uint16(drflac_uint16 n)
 static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP32_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_ulong(n);
     #elif defined(__GNUC__) || defined(__clang__)
         #if defined(DRFLAC_ARM) && (defined(__ARM_ARCH) && __ARM_ARCH >= 6) && !defined(DRFLAC_64BIT)
@@ -51185,7 +51185,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__swap_endian_uint32(drflac_uint32 n)
 static DRFLAC_INLINE drflac_uint64 drflac__swap_endian_uint64(drflac_uint64 n)
 {
 #ifdef DRFLAC_HAS_BYTESWAP64_INTRINSIC
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) && !defined(__clang__)
         return _byteswap_uint64(n);
     #elif defined(__GNUC__) || defined(__clang__)
         return __builtin_bswap64(n);
@@ -51801,7 +51801,7 @@ static drflac_bool32 drflac__find_and_seek_to_next_sync_code(drflac_bs* bs)
 #if defined(DRFLAC_HAS_LZCNT_INTRINSIC)
 #define DRFLAC_IMPLEMENT_CLZ_LZCNT
 #endif
-#if  defined(_MSC_VER) && _MSC_VER >= 1400 && (defined(DRFLAC_X64) || defined(DRFLAC_X86))
+#if  defined(_MSC_VER) && _MSC_VER >= 1400 && (defined(DRFLAC_X64) || defined(DRFLAC_X86)) && !defined(__clang__)
 #define DRFLAC_IMPLEMENT_CLZ_MSVC
 #endif
 static DRFLAC_INLINE drflac_uint32 drflac__clz_software(drflac_cache_t x)
@@ -51848,7 +51848,7 @@ static DRFLAC_INLINE drflac_bool32 drflac__is_lzcnt_supported(void)
 }
 static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
 {
-#if defined(_MSC_VER) && !defined(__clang__)
+#if defined(_MSC_VER)
     #ifdef DRFLAC_64BIT
         return (drflac_uint32)__lzcnt64(x);
     #else
@@ -51860,7 +51860,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
             {
                 drflac_uint64 r;
                 __asm__ __volatile__ (
-                    "lzcnt{ %1, %0| %0, %1}" : "=r"(r) : "r"(x)
+                    "lzcnt{ %1, %0| %0, %1}" : "=r"(r) : "r"(x) : "cc"
                 );
                 return (drflac_uint32)r;
             }
@@ -51868,7 +51868,7 @@ static DRFLAC_INLINE drflac_uint32 drflac__clz_lzcnt(drflac_cache_t x)
             {
                 drflac_uint32 r;
                 __asm__ __volatile__ (
-                    "lzcnt{l %1, %0| %0, %1}" : "=r"(r) : "r"(x)
+                    "lzcnt{l %1, %0| %0, %1}" : "=r"(r) : "r"(x) : "cc"
                 );
                 return r;
             }
