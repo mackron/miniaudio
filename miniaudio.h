@@ -41327,7 +41327,7 @@ MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSo
         return MA_INVALID_ARGS;
     }
 
-    pCursor = 0;
+    *pCursor = 0;
 
     if (pCallbacks == NULL) {
         return MA_INVALID_ARGS;
@@ -41348,7 +41348,7 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
         return MA_INVALID_ARGS;
     }
 
-    pLength = 0;
+    *pLength = 0;
 
     if (pCallbacks == NULL) {
         return MA_INVALID_ARGS;
