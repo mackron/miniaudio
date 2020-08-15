@@ -883,21 +883,23 @@ typedef struct
 struct ma_sound
 {
     ma_data_source* pDataSource;
-    ma_sound_group* pGroup;         /* The group the sound is attached to. */
+    ma_sound_group* pGroup;                 /* The group the sound is attached to. */
     ma_sound* pPrevSoundInGroup;
     ma_sound* pNextSoundInGroup;
-    ma_engine_effect effect;        /* The effect containing all of the information for spatialization, pitching, etc. */
+    ma_engine_effect effect;                /* The effect containing all of the information for spatialization, pitching, etc. */
     float volume;
-    ma_uint64 seekTarget;           /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    ma_uint64 fadeOutTimeInFrames;
-    ma_bool32 isPlaying;            /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
-    ma_bool32 isFadingOut;          /* Set to true to indicate that a fade out before stopping is in effect. */
-    ma_bool32 isSettingFadeOut;     /* Whether or not a new fade out needs to be set. Fade outs are set on the mixer thread because it depends on the length of the sound which may not be known immediately. */
+    ma_uint64 runningTimeInEngineFrames;    /* The amount of time the sound has been running in engine frames, including start delays. */
+    ma_uint64 seekTarget;                   /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
+    ma_uint64 fadeOutTimeInFrames;          /* In the sound's sample rate. */
+    ma_uint64 startDelayInEngineFrames;     /* In the engine's sample rate. */
+    ma_bool32 isPlaying;                    /* False by default. Sounds need to be explicitly started with ma_engine_sound_start() and stopped with ma_engine_sound_stop(). */
+    ma_bool32 isFadingOut;                  /* Set to true to indicate that a fade out before stopping is in effect. */
+    ma_bool32 isSettingFadeOut;             /* Whether or not a new fade out needs to be set. Fade outs are set on the mixer thread because it depends on the length of the sound which may not be known immediately. */
     ma_bool32 isMixing;
     ma_bool32 atEnd;
-    ma_bool32 isLooping;            /* False by default. */
+    ma_bool32 isLooping;                    /* False by default. */
     ma_bool32 ownsDataSource;
-    ma_bool32 _isInternal;          /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
+    ma_bool32 _isInternal;                  /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
     ma_resource_manager_data_source resourceManagerDataSource;
 };
 
@@ -907,7 +909,7 @@ struct ma_sound_group
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
-    ma_sound* pFirstSoundInGroup;   /* Marked as volatile because we need to be very explicit with when we make copies of this and we can't have the compiler optimize it out. */
+    ma_sound* pFirstSoundInGroup;
     ma_mixer mixer;
     ma_mutex lock;                  /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
     ma_bool32 isPlaying;            /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
@@ -977,6 +979,7 @@ MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_result ma_engine_sound_set_fade_in(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
 MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
+MA_API ma_result ma_engine_sound_set_start_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds);
 MA_API ma_bool32 ma_engine_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
 MA_API ma_result ma_engine_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_engine_sound_get_data_format(ma_engine* pEngine, ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
@@ -5252,40 +5255,56 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 }
             }
 
-            /*
-            If the sound is muted we still need to move time forward, but we can save time by not mixing as it won't actually affect anything. If there's an
-            effect we need to make sure we run it through the mixer because it may require us to update internal state for things like echo effects.
-            */
-            if (pSound->volume > 0 || ma_engine_effect_is_passthrough(&pSound->effect) == MA_FALSE) {
-                result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, frameCount, &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
-            } else {
-                /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
-                result = ma_data_source_seek_pcm_frames(pSound->pDataSource, frameCount, &framesProcessed, pSound->isLooping);
-            }
-
-            /* If fading out we need to stop the sound if it's done fading. */
-            if (pSound->isFadingOut) {
-                if (ma_dual_fader_is_time_past_both_fades(&pSound->effect.fader)) {
-                    ma_engine_sound_stop_internal(pEngine, pSound);
+            /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
+            if ((pSound->runningTimeInEngineFrames + frameCount) > pSound->startDelayInEngineFrames) {
+                /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
+                ma_uint64 offsetInFrames = 0;
+                if (pSound->startDelayInEngineFrames > pSound->runningTimeInEngineFrames) {
+                    offsetInFrames = pSound->startDelayInEngineFrames - pSound->runningTimeInEngineFrames;
                 }
-            } else {
+
+                MA_ASSERT(offsetInFrames < frameCount);
+
                 /*
-                We're not fading out. For the benefit of looping sounds, we need to make sure the timer is set properly on the fader so that fading in and out works
-                across loop transitions.
+                If the sound is muted we still need to move time forward, but we can save time by not mixing as it won't actually affect anything. If there's an
+                effect we need to make sure we run it through the mixer because it may require us to update internal state for things like echo effects.
                 */
-                if (pSound->isLooping) {
-                    ma_uint64 currentTimeInFrames;
-                    result = ma_engine_sound_get_cursor_in_pcm_frames(pEngine, pSound, &currentTimeInFrames);
-                    if (result == MA_SUCCESS) {
-                        ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
+                if (pSound->volume > 0 || ma_engine_effect_is_passthrough(&pSound->effect) == MA_FALSE) {
+                    result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
+                } else {
+                    /* The sound is muted. We want to move time forward, but it be made faster by simply seeking instead of reading. We also want to bypass mixing completely. */
+                    result = ma_data_source_seek_pcm_frames(pSound->pDataSource, (frameCount - offsetInFrames), &framesProcessed, pSound->isLooping);
+                }
+
+                /* If fading out we need to stop the sound if it's done fading. */
+                if (pSound->isFadingOut) {
+                    if (ma_dual_fader_is_time_past_both_fades(&pSound->effect.fader)) {
+                        ma_engine_sound_stop_internal(pEngine, pSound);
+                    }
+                } else {
+                    /*
+                    We're not fading out. For the benefit of looping sounds, we need to make sure the timer is set properly on the fader so that fading in and out works
+                    across loop transitions.
+                    */
+                    if (pSound->isLooping) {
+                        ma_uint64 currentTimeInFrames;
+                        result = ma_engine_sound_get_cursor_in_pcm_frames(pEngine, pSound, &currentTimeInFrames);
+                        if (result == MA_SUCCESS) {
+                            ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
+                        }
                     }
                 }
-            }
 
-            /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-            if (result == MA_AT_END) {
-                ma_engine_sound_stop_internal(pEngine, pSound);
-                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_engine_sound_start(). */
+                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+                if (result == MA_AT_END) {
+                    ma_engine_sound_stop_internal(pEngine, pSound);
+                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_engine_sound_start(). */
+                }
+
+                pSound->runningTimeInEngineFrames += framesProcessed;
+            } else {
+                /* The sound hasn't started yet. Just keep advancing time forward, but leave the data source alone. */
+                pSound->runningTimeInEngineFrames += frameCount;
             }
         }
     }
@@ -6031,6 +6050,21 @@ MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSou
     /* Make sure this is set _after_ fadeOutTimeInFrames to ensure the mixer thread doesn't prematurely set the fade out. */
     c89atomic_compiler_fence();
     c89atomic_exchange_32(&pSound->isSettingFadeOut, MA_TRUE);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_sound_set_start_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    It's important that the delay be timed based on the engine's sample rate and not the rate of the sound. The reason is that no processing will be happening
+    by the sound before playback has actually begun and we won't have accurate frame counters due to resampling.
+    */
+    pSound->startDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
