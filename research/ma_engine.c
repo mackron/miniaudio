@@ -37,8 +37,9 @@ int main(int argc, char** argv)
 
     //ma_engine_sound_group_set_pan(&engine, NULL, -1);
     ma_engine_sound_group_set_pitch(&engine, NULL, 1.0f);
-    ma_engine_sound_group_set_fade_in(&engine, NULL, 4000);
-    ma_engine_sound_group_set_start_delay(&engine, NULL, 2000);
+    ma_engine_sound_group_set_fade_in(&engine, NULL, 2000);
+    ma_engine_sound_group_set_fade_out(&engine, NULL, 2000);
+    //ma_engine_sound_group_set_start_delay(&engine, NULL, 2000);
     
     /*ma_engine_sound_set_volume(&engine, &sound, 0.25f);*/
     //ma_engine_sound_set_pitch(&engine, &sound, 2.0f);
@@ -50,8 +51,9 @@ int main(int argc, char** argv)
     //ma_engine_sound_set_fade_out(&engine, &sound, 2000);
     ma_engine_sound_start(&engine, &sound);
 
-    //ma_sleep(5000);
+    ma_sleep(2000);
     //ma_engine_sound_stop(&engine, &sound);
+    ma_engine_sound_group_stop(&engine, NULL);
 #endif
 
 #if 1

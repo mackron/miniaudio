@@ -915,7 +915,9 @@ struct ma_sound_group
     ma_mutex lock;                          /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
     ma_uint64 runningTimeInEngineFrames;    /* The amount of time the sound has been running in engine frames, including start delays. */
     ma_uint64 startDelayInEngineFrames;
+    ma_uint64 fadeOutTimeInEngineFrames;
     ma_bool32 isPlaying;                    /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
+    ma_bool32 isFadingOut;                  /* Set to true to indicate that a fade out before stopping is in effect. */
 };
 
 struct ma_listener
@@ -1000,6 +1002,7 @@ MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_g
 MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds);
+MA_API ma_result ma_engine_sound_group_set_fade_out(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds);
 MA_API ma_result ma_engine_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
@@ -4646,7 +4649,7 @@ MA_API ma_result ma_dual_fader_process_pcm_frames_by_index(ma_dual_fader* pFader
         if (pFramesOut == pFramesIn) {
             /* No-op. */
         } else {
-            ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pFader->config.format, pFader->config.channels, pFader->config.state[index].volumeEnd);
+            ma_copy_and_apply_volume_factor_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->config.state[index].volumeEnd);
         }
     } else {
         ma_uint64 lo =  pFader->config.state[index].timeInFramesBeg;
@@ -5229,6 +5232,7 @@ static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 
 
 
 static MA_INLINE ma_result ma_engine_sound_stop_internal(ma_engine* pEngine, ma_sound* pSound);
+static MA_INLINE ma_result ma_engine_sound_group_stop_internal(ma_engine* pEngine, ma_sound_group* pGroup);
 
 MA_API ma_engine_config ma_engine_config_init_default()
 {
@@ -5316,7 +5320,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
                 /* If fading out we need to stop the sound if it's done fading. */
                 if (pSound->isFadingOut) {
-                    if (ma_dual_fader_is_time_past_both_fades(&pSound->effect.fader)) {
+                    if (ma_dual_fader_is_time_past_fade(&pSound->effect.fader, 1)) {
                         ma_engine_sound_stop_internal(pEngine, pSound);
                     }
                 } else {
@@ -5324,6 +5328,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                     We're not fading out. For the benefit of looping sounds, we need to make sure the timer is set properly on the fader so that fading in and out works
                     across loop transitions.
                     */
+                    /* TODO: Add support for controlling fading between loop transitions. Maybe have an auto-reset flag in ma_dual_fader which resets the fade once it's got past the fade time? */
                     if (pSound->isLooping) {
                         ma_uint64 currentTimeInFrames;
                         result = ma_engine_sound_get_cursor_in_pcm_frames(pEngine, pSound, &currentTimeInFrames);
@@ -5416,6 +5421,12 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
             }
 
             totalFramesProcessed += frameCountOut;
+        }
+
+        if (pGroup->isFadingOut) {
+            if (ma_dual_fader_is_time_past_fade(&pGroup->effect.fader, 1)) {
+                ma_engine_sound_group_stop_internal(pEngine, pGroup);
+            }
         }
 
         pGroup->runningTimeInEngineFrames += offsetInFrames + totalFramesProcessed;
@@ -6386,6 +6397,7 @@ MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* 
         pParentGroup = &pEngine->masterSoundGroup;
     }
 
+    pGroup->fadeOutTimeInEngineFrames = MA_FADE_TIME_NONE;
 
     /* TODO: Look at the possibility of allowing groups to use a different format to the primary data format. Makes mixing and group management much more complicated. */
 
@@ -6457,6 +6469,7 @@ MA_API void ma_engine_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGr
 {
     ma_result result;
 
+    ma_engine_sound_group_set_fade_out(pEngine, pGroup, MA_FADE_TIME_NONE); /* <-- Make sure we disable fading out so the sound group is stopped immediately. */
     result = ma_engine_sound_group_stop(pEngine, pGroup);
     if (result != MA_SUCCESS) {
         MA_ASSERT(MA_FALSE);    /* Should never happen. Trigger an assert for debugging, but don't stop uninitializing in production to ensure we free memory down below. */
@@ -6491,6 +6504,16 @@ MA_API ma_result ma_engine_sound_group_start(ma_engine* pEngine, ma_sound_group*
     return MA_SUCCESS;
 }
 
+static MA_INLINE ma_result ma_engine_sound_group_stop_internal(ma_engine* pEngine, ma_sound_group* pGroup)
+{
+    MA_ASSERT(pEngine != NULL);
+    MA_ASSERT(pGroup  != NULL);
+
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_engine_sound_group_stop(ma_engine* pEngine, ma_sound_group* pGroup)
 {
     if (pEngine == NULL) {
@@ -6501,7 +6524,23 @@ MA_API ma_result ma_engine_sound_group_stop(ma_engine* pEngine, ma_sound_group* 
         pGroup = &pEngine->masterSoundGroup;
     }
 
-    c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
+    /* Stop immediately if we're not fading out. */
+    if (pGroup->fadeOutTimeInEngineFrames == MA_FADE_TIME_NONE) {
+        ma_engine_sound_group_stop_internal(pEngine, pGroup);
+    } else {
+        /*
+        Fade out and then stop. Stopping will happen on the mixing thread. Note that it's important that we don't reset any fading state if we're already in the process
+        of fading out. This will happen if the sound is being stopped while in the middle of fading out naturally. In this case we just leave the fader as is and just
+        set the isFadingOut property to try to ensure the sound is stopped as per normal.
+        */
+        if (ma_dual_fader_is_in_fade(&pGroup->effect.fader, 1) == MA_FALSE) {
+            ma_dual_fader_reset_fade(&pGroup->effect.fader, 0);             /* <-- Reset the fade in to ensure we don't end up combining the fading in with the fading out. */
+            ma_dual_fader_set_time(&pGroup->effect.fader, 0);               /* <-- Important that we reset the time. */
+            ma_dual_fader_set_fade(&pGroup->effect.fader, 1, 1, 0, 0, pGroup->fadeOutTimeInEngineFrames);
+        }
+
+        c89atomic_exchange_32(&pGroup->isFadingOut, MA_TRUE);
+    }    
 
     return MA_SUCCESS;
 }
@@ -6585,6 +6624,21 @@ MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_
     }
 
     return ma_dual_fader_set_fade(&pGroup->effect.fader, 0, 0, 1, pGroup->effect.fader.timeInFramesCur, pGroup->effect.fader.timeInFramesCur + (fadeTimeInMilliseconds * pGroup->effect.fader.config.sampleRate) / 1000);
+}
+
+MA_API ma_result ma_engine_sound_group_set_fade_out(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    pGroup->fadeOutTimeInEngineFrames = (fadeTimeInMilliseconds * pGroup->effect.fader.config.sampleRate) / 1000;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_engine_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
