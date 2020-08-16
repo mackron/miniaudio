@@ -996,6 +996,7 @@ MA_API ma_result ma_engine_sound_group_set_volume(ma_engine* pEngine, ma_sound_g
 MA_API ma_result ma_engine_sound_group_set_gain_db(ma_engine* pEngine, ma_sound_group* pGroup, float gainDB);
 MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* pGroup, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
+MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
@@ -4825,6 +4826,16 @@ Engine
 #define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
 #define MA_FADE_TIME_NONE   (~(ma_uint64)0)
 
+static void ma_engine_effect__update_resampler_for_pitching(ma_engine_effect* pEngineEffect)
+{
+    MA_ASSERT(pEngineEffect != NULL);
+
+    if (pEngineEffect->oldPitch != pEngineEffect->pitch) {
+        pEngineEffect->oldPitch  = pEngineEffect->pitch;
+        ma_data_converter_set_rate_ratio(&pEngineEffect->converter, pEngineEffect->pitch);
+    }
+}
+
 static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_uint64 frameCount;
@@ -5008,6 +5019,9 @@ static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, con
 
     MA_ASSERT(pEffect != NULL);
 
+    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
+    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
+
     /* Optimized path for when there is no pre-effect. */
     if (pEngineEffect->pPreEffect == NULL) {
         return ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
@@ -5022,6 +5036,9 @@ static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* 
     ma_uint64 inputFrameCount;
 
     MA_ASSERT(pEffect != NULL);
+
+    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
+    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
 
@@ -5041,6 +5058,9 @@ static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect*
     ma_uint64 outputFrameCount;
 
     MA_ASSERT(pEffect != NULL);
+
+    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
+    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
 
@@ -5241,12 +5261,6 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             ma_result result = MA_SUCCESS;
             ma_uint64 framesProcessed;
 
-            /* If the pitch has changed we need to update the resampler. */
-            if (pSound->effect.oldPitch != pSound->effect.pitch) {
-                pSound->effect.oldPitch  = pSound->effect.pitch;
-                ma_data_converter_set_rate_ratio(&pSound->effect.converter, pSound->effect.pitch);
-            }
-
             /* If we're seeking, do so now before reading. */
             if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
                 pSound->seekTarget  = MA_SEEK_TARGET_NONE;
@@ -5337,6 +5351,7 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
     ma_mixer* pParentMixer = NULL;
     ma_uint64 frameCountOut;
     ma_uint64 frameCountIn;
+    ma_uint64 totalFramesProcessed;
     ma_sound_group* pNextChildGroup;
     ma_sound* pNextSound;
 
@@ -5356,28 +5371,37 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
     frameCountOut = frameCount;
     frameCountIn  = frameCount;
 
-    /* Before can mix the group we need to mix it's children. */
-    result = ma_mixer_begin(&pGroup->mixer, pParentMixer, &frameCountOut, &frameCountIn);
-    if (result != MA_SUCCESS) {
-        return;
-    }
+    /* We need to loop here to ensure we fill every frame. This won't necessarily be able to be done in one iteration due to resampling within the effect. */
+    totalFramesProcessed = 0;
+    while (totalFramesProcessed < frameCount) {
+        frameCountOut = frameCount - totalFramesProcessed;
+        frameCountIn  = frameCount - totalFramesProcessed;
 
-    MA_ASSERT(frameCountIn < 0xFFFFFFFF);
+        /* Before can mix the group we need to mix it's children. */
+        result = ma_mixer_begin(&pGroup->mixer, pParentMixer, &frameCountOut, &frameCountIn);
+        if (result != MA_SUCCESS) {
+            return;
+        }
 
-    /* Child groups need to be mixed based on the parent's input frame count. */
-    for (pNextChildGroup = pGroup->pFirstChild; pNextChildGroup != NULL; pNextChildGroup = pNextChildGroup->pNextSibling) {
-        ma_engine_mix_sound_group(pEngine, pNextChildGroup, NULL, (ma_uint32)frameCountIn); /* Safe cast. */
-    }
+        MA_ASSERT(frameCountIn < 0xFFFFFFFF);
 
-    /* Sounds in the group can now be mixed. This is where the real mixing work is done. */
-    for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
-        ma_engine_mix_sound(pEngine, pGroup, pNextSound, (ma_uint32)frameCountIn);          /* Safe cast. */
-    }
+        /* Child groups need to be mixed based on the parent's input frame count. */
+        for (pNextChildGroup = pGroup->pFirstChild; pNextChildGroup != NULL; pNextChildGroup = pNextChildGroup->pNextSibling) {
+            ma_engine_mix_sound_group(pEngine, pNextChildGroup, NULL, (ma_uint32)frameCountIn); /* Safe cast. */
+        }
 
-    /* Now mix into the parent. */
-    result = ma_mixer_end(&pGroup->mixer, pParentMixer, pFramesOut);
-    if (result != MA_SUCCESS) {
-        return;
+        /* Sounds in the group can now be mixed. This is where the real mixing work is done. */
+        for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
+            ma_engine_mix_sound(pEngine, pGroup, pNextSound, (ma_uint32)frameCountIn);          /* Safe cast. */
+        }
+
+        /* Now mix into the parent. */
+        result = ma_mixer_end(&pGroup->mixer, pParentMixer, pFramesOut, totalFramesProcessed);
+        if (result != MA_SUCCESS) {
+            return;
+        }
+
+        totalFramesProcessed += frameCountOut;
     }
 }
 
@@ -6513,6 +6537,21 @@ MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_grou
     }
 
     return ma_panner_set_pan(&pGroup->effect.panner, pan);
+}
+
+MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    pGroup->effect.pitch = pitch;
+
+    return MA_SUCCESS;
 }
 
 
