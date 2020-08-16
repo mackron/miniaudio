@@ -553,7 +553,7 @@ ma_mixer_get_volume()
 ma_mixer_set_effect()
 ma_mixer_get_effect()
 */
-MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pFramesOut);
+MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pFramesOut, ma_uint64 outputOffsetInFrames);
 
 
 /*
@@ -2365,10 +2365,10 @@ MA_API ma_result ma_mixer_begin(ma_mixer* pMixer, ma_mixer* pParentMixer, ma_uin
             */
             ma_uint64 newFrameCountOut;
             newFrameCountOut = ma_effect_get_expected_output_frame_count(pMixer->pEffect, pMixer->accumulationBufferSizeInFrames);
-            MA_ASSERT(newFrameCountOut < frameCountOut);
+            MA_ASSERT(newFrameCountOut <= frameCountOut);
 
             frameCountOut = newFrameCountOut;
-            frameCountIn  = pMixer->accumulationBufferSizeInFrames;
+            frameCountIn  = ma_effect_get_required_input_frame_count(pMixer->pEffect, frameCountOut);
         }
     } else {
         frameCountIn = frameCountOut;
@@ -2400,7 +2400,7 @@ MA_API ma_result ma_mixer_begin(ma_mixer* pMixer, ma_mixer* pParentMixer, ma_uin
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pFramesOut)
+MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pFramesOut, ma_uint64 outputOffsetInFrames)
 {
     if (pMixer == NULL) {
         return MA_INVALID_ARGS;
@@ -2427,6 +2427,7 @@ MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pF
         ma_uint32 localChannelsOut;
         ma_format parentFormatIn;
         ma_uint32 parentChannelsIn;
+        void* pDst;
 
         /*
         We need to accumulate the output of pMixer straight into the accumulation buffer of pParentMixer. If the output format of pMixer is different
@@ -2438,21 +2439,27 @@ MA_API ma_result ma_mixer_end(ma_mixer* pMixer, ma_mixer* pParentMixer, void* pF
         /* A reminder that the output frame count of pMixer must match the input frame count of pParentMixer. */
         MA_ASSERT(pMixer->mixingState.frameCountOut == pParentMixer->mixingState.frameCountIn);
 
+        pDst = ma_offset_ptr(pParentMixer->pAccumulationBuffer, outputOffsetInFrames * ma_get_accumulation_bytes_per_frame(parentFormatIn, parentChannelsIn));
+
         if (pMixer->pEffect == NULL) {
             /* No effect. Input needs to come straight from the accumulation buffer. */
-            ma_mix_accumulation_buffers_ex(pParentMixer->pAccumulationBuffer, parentFormatIn, parentChannelsIn, pMixer->pAccumulationBuffer, localFormatOut, localChannelsOut, pMixer->mixingState.frameCountOut, pMixer->volume);
+            ma_mix_accumulation_buffers_ex(pDst, parentFormatIn, parentChannelsIn, pMixer->pAccumulationBuffer, localFormatOut, localChannelsOut, pMixer->mixingState.frameCountOut, pMixer->volume);
         } else {
             /* With effect. Input needs to be pre-processed from the effect. */
-            ma_volume_and_clip_and_effect_pcm_frames(pParentMixer->pAccumulationBuffer, parentFormatIn, parentChannelsIn, pParentMixer->mixingState.frameCountIn, pMixer->pAccumulationBuffer, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountIn, pMixer->volume, pMixer->pEffect, /*isAccumulation*/ MA_TRUE);
+            ma_volume_and_clip_and_effect_pcm_frames(pDst, parentFormatIn, parentChannelsIn, pParentMixer->mixingState.frameCountIn, pMixer->pAccumulationBuffer, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountIn, pMixer->volume, pMixer->pEffect, /*isAccumulation*/ MA_TRUE);
         }
     } else {
         /* We're not submixing so we can overwite. */
+        void* pDst;
+
+        pDst = ma_offset_ptr(pFramesOut, outputOffsetInFrames * ma_get_bytes_per_frame(pMixer->format, pMixer->channels));
+
         if (pMixer->pEffect == NULL) {
             /* All we need to do is convert the accumulation buffer to the output format. */
-            ma_volume_and_clip_pcm_frames(pFramesOut, pMixer->pAccumulationBuffer, pMixer->mixingState.frameCountOut, pMixer->format, pMixer->channels, pMixer->volume);
+            ma_volume_and_clip_pcm_frames(pDst, pMixer->pAccumulationBuffer, pMixer->mixingState.frameCountOut, pMixer->format, pMixer->channels, pMixer->volume);
         } else {
             /* We need to run our accumulation through the effect. */
-            ma_volume_and_clip_and_effect_pcm_frames(pFramesOut, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountOut, pMixer->pAccumulationBuffer, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountIn, pMixer->volume, pMixer->pEffect, /*isAccumulation*/ MA_FALSE);
+            ma_volume_and_clip_and_effect_pcm_frames(pDst, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountOut, pMixer->pAccumulationBuffer, pMixer->format, pMixer->channels, pMixer->mixingState.frameCountIn, pMixer->volume, pMixer->pEffect, /*isAccumulation*/ MA_FALSE);
         }
     }
 
