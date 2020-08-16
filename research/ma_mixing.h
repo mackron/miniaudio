@@ -1884,11 +1884,11 @@ static ma_result ma_volume_and_clip_and_effect_pcm_frames(void* pDst, ma_format 
         otherwise we need to convert.
         */
         if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
-            /* Fast path. No data conversion required for output data. Just accumulate. */
+            /* Fast path. No data conversion required for output data. Just accumulate or overwrite. */
             if (isAccumulation) {
                 ma_unclipped_accumulate_pcm_frames(pRunningDst, effectBufferOut, effectFrameCountOut, effectFormatOut, effectChannelsOut);
             } else {
-                ma_clipped_accumulate_pcm_frames(pRunningDst, effectBufferOut, effectFrameCountOut, effectFormatOut, effectChannelsOut);
+                ma_clip_pcm_frames(pRunningDst, effectBufferOut, effectFrameCountOut, effectFormatOut, effectChannelsOut);
             }
         } else {
             /* Slow path. Data conversion required before accumulating. */
