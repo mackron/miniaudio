@@ -38,6 +38,7 @@ int main(int argc, char** argv)
     //ma_engine_sound_group_set_pan(&engine, NULL, -1);
     ma_engine_sound_group_set_pitch(&engine, NULL, 1.0f);
     ma_engine_sound_group_set_fade_in(&engine, NULL, 4000);
+    ma_engine_sound_group_set_start_delay(&engine, NULL, 2000);
     
     /*ma_engine_sound_set_volume(&engine, &sound, 0.25f);*/
     //ma_engine_sound_set_pitch(&engine, &sound, 2.0f);

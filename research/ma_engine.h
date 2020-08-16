@@ -910,10 +910,12 @@ struct ma_sound_group
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
     ma_sound* pFirstSoundInGroup;
-    ma_engine_effect effect;        /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
+    ma_engine_effect effect;                /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
     ma_mixer mixer;
-    ma_mutex lock;                  /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
-    ma_bool32 isPlaying;            /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
+    ma_mutex lock;                          /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
+    ma_uint64 runningTimeInEngineFrames;    /* The amount of time the sound has been running in engine frames, including start delays. */
+    ma_uint64 startDelayInEngineFrames;
+    ma_bool32 isPlaying;                    /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
 };
 
 struct ma_listener
@@ -998,6 +1000,7 @@ MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_g
 MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds);
+MA_API ma_result ma_engine_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
@@ -5336,7 +5339,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                     c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_engine_sound_start(). */
                 }
 
-                pSound->runningTimeInEngineFrames += framesProcessed;
+                pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
             } else {
                 /* The sound hasn't started yet. Just keep advancing time forward, but leave the data source alone. */
                 pSound->runningTimeInEngineFrames += frameCount;
@@ -5372,37 +5375,53 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
     frameCountOut = frameCount;
     frameCountIn  = frameCount;
 
-    /* We need to loop here to ensure we fill every frame. This won't necessarily be able to be done in one iteration due to resampling within the effect. */
-    totalFramesProcessed = 0;
-    while (totalFramesProcessed < frameCount) {
-        frameCountOut = frameCount - totalFramesProcessed;
-        frameCountIn  = frameCount - totalFramesProcessed;
-
-        /* Before can mix the group we need to mix it's children. */
-        result = ma_mixer_begin(&pGroup->mixer, pParentMixer, &frameCountOut, &frameCountIn);
-        if (result != MA_SUCCESS) {
-            return;
+    /* If the group is being delayed we don't want to mix anything. */
+    if ((pGroup->runningTimeInEngineFrames + frameCount) > pGroup->startDelayInEngineFrames) {
+        /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
+        ma_uint64 offsetInFrames = 0;
+        if (pGroup->startDelayInEngineFrames > pGroup->runningTimeInEngineFrames) {
+            offsetInFrames = pGroup->startDelayInEngineFrames - pGroup->runningTimeInEngineFrames;
         }
 
-        MA_ASSERT(frameCountIn < 0xFFFFFFFF);
+        MA_ASSERT(offsetInFrames < frameCount);
 
-        /* Child groups need to be mixed based on the parent's input frame count. */
-        for (pNextChildGroup = pGroup->pFirstChild; pNextChildGroup != NULL; pNextChildGroup = pNextChildGroup->pNextSibling) {
-            ma_engine_mix_sound_group(pEngine, pNextChildGroup, NULL, (ma_uint32)frameCountIn); /* Safe cast. */
+        /* We need to loop here to ensure we fill every frame. This won't necessarily be able to be done in one iteration due to resampling within the effect. */
+        totalFramesProcessed = 0;
+        while (totalFramesProcessed < (frameCount - offsetInFrames)) {
+            frameCountOut = frameCount - offsetInFrames - totalFramesProcessed;
+            frameCountIn  = frameCount - offsetInFrames - totalFramesProcessed;
+
+            /* Before can mix the group we need to mix it's children. */
+            result = ma_mixer_begin(&pGroup->mixer, pParentMixer, &frameCountOut, &frameCountIn);
+            if (result != MA_SUCCESS) {
+                break;
+            }
+
+            MA_ASSERT(frameCountIn < 0xFFFFFFFF);
+
+            /* Child groups need to be mixed based on the parent's input frame count. */
+            for (pNextChildGroup = pGroup->pFirstChild; pNextChildGroup != NULL; pNextChildGroup = pNextChildGroup->pNextSibling) {
+                ma_engine_mix_sound_group(pEngine, pNextChildGroup, NULL, (ma_uint32)frameCountIn); /* Safe cast. */
+            }
+
+            /* Sounds in the group can now be mixed. This is where the real mixing work is done. */
+            for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
+                ma_engine_mix_sound(pEngine, pGroup, pNextSound, (ma_uint32)frameCountIn);          /* Safe cast. */
+            }
+
+            /* Now mix into the parent. */
+            result = ma_mixer_end(&pGroup->mixer, pParentMixer, pFramesOut, offsetInFrames + totalFramesProcessed);
+            if (result != MA_SUCCESS) {
+                break;
+            }
+
+            totalFramesProcessed += frameCountOut;
         }
 
-        /* Sounds in the group can now be mixed. This is where the real mixing work is done. */
-        for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
-            ma_engine_mix_sound(pEngine, pGroup, pNextSound, (ma_uint32)frameCountIn);          /* Safe cast. */
-        }
-
-        /* Now mix into the parent. */
-        result = ma_mixer_end(&pGroup->mixer, pParentMixer, pFramesOut, totalFramesProcessed);
-        if (result != MA_SUCCESS) {
-            return;
-        }
-
-        totalFramesProcessed += frameCountOut;
+        pGroup->runningTimeInEngineFrames += offsetInFrames + totalFramesProcessed;
+    } else {
+        /* The group hasn't started yet. Just keep advancing time forward, but leave the data source alone. */
+        pGroup->runningTimeInEngineFrames += frameCount;
     }
 }
 
@@ -6566,6 +6585,21 @@ MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_
     }
 
     return ma_dual_fader_set_fade(&pGroup->effect.fader, 0, 0, 1, pGroup->effect.fader.timeInFramesCur, pGroup->effect.fader.timeInFramesCur + (fadeTimeInMilliseconds * pGroup->effect.fader.config.sampleRate) / 1000);
+}
+
+MA_API ma_result ma_engine_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    pGroup->startDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
+
+    return MA_SUCCESS;
 }
 
 
