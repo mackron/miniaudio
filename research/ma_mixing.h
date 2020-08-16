@@ -527,6 +527,9 @@ pFramesOut (in, optional)
     used to initialized it. The required size in frames is defined by the output frame count returned by `ma_mixer_begin()`. It is an error for `pFramesOut`
     and `pParentMixer` to both be non-NULL.
 
+outputOffsetInFrames (in)
+    The offset in frames to start writing the output data to the destination buffer.
+
 
 Return Value
 ------------
