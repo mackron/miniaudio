@@ -997,6 +997,7 @@ MA_API ma_result ma_engine_sound_group_set_gain_db(ma_engine* pEngine, ma_sound_
 MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* pGroup, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch);
+MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
@@ -6552,6 +6553,19 @@ MA_API ma_result ma_engine_sound_group_set_pitch(ma_engine* pEngine, ma_sound_gr
     pGroup->effect.pitch = pitch;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_sound_group_set_fade_in(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 fadeTimeInMilliseconds)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    return ma_dual_fader_set_fade(&pGroup->effect.fader, 0, 0, 1, pGroup->effect.fader.timeInFramesCur, pGroup->effect.fader.timeInFramesCur + (fadeTimeInMilliseconds * pGroup->effect.fader.config.sampleRate) / 1000);
 }
 
 
