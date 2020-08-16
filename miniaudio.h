@@ -42536,7 +42536,7 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 Decoding and Encoding Headers. These are auto-generated from a tool.
 
 **************************************************************************************************************************************************************/
-#if !defined(MA_NO_WAV) && !defined(MA_NO_DECODING) && !defined(MA_NO_ENCODING)
+#if !defined(MA_NO_WAV) && (!defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING))
 /* dr_wav_h begin */
 #ifndef dr_wav_h
 #define dr_wav_h
@@ -47064,7 +47064,7 @@ code below please report the bug to the respective repository for the relevant p
 
 ***************************************************************************************************************************************************************
 **************************************************************************************************************************************************************/
-#if !defined(MA_NO_WAV) && !defined(MA_NO_DECODING) && !defined(MA_NO_ENCODING)
+#if !defined(MA_NO_WAV) && (!defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING))
 #if !defined(DR_WAV_IMPLEMENTATION) && !defined(DRWAV_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
 /* dr_wav_c begin */
 #ifndef dr_wav_c
