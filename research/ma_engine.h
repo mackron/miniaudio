@@ -910,6 +910,7 @@ struct ma_sound_group
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
     ma_sound* pFirstSoundInGroup;
+    ma_engine_effect effect;        /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
     ma_mixer mixer;
     ma_mutex lock;                  /* Only used by ma_engine_sound_init_*() and ma_engine_sound_uninit(). Not used in the mixing thread. */
     ma_bool32 isPlaying;            /* True by default. Sound groups can be stopped with ma_engine_sound_stop() and resumed with ma_engine_sound_start(). Also affects children. */
@@ -971,11 +972,11 @@ MA_API ma_result ma_engine_sound_start(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_stop(ma_engine* pEngine, ma_sound* pSound);
 MA_API ma_result ma_engine_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume);
 MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
+MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan);
 MA_API ma_result ma_engine_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch);
 MA_API ma_result ma_engine_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation);
-MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_result ma_engine_sound_set_fade_in(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
 MA_API ma_result ma_engine_sound_set_fade_out(ma_engine* pEngine, ma_sound* pSound, ma_uint64 fadeTimeInMilliseconds);
@@ -994,6 +995,7 @@ MA_API ma_result ma_engine_sound_group_stop(ma_engine* pEngine, ma_sound_group* 
 MA_API ma_result ma_engine_sound_group_set_volume(ma_engine* pEngine, ma_sound_group* pGroup, float volume);
 MA_API ma_result ma_engine_sound_group_set_gain_db(ma_engine* pEngine, ma_sound_group* pGroup, float gainDB);
 MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* pGroup, ma_effect* pEffect);
+MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
@@ -4279,13 +4281,27 @@ static void ma_stereo_balance_pcm_frames_f32(float* pFramesOut, const float* pFr
 
     if (pan > 0) {
         float factor = 1.0f - pan;
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] * factor;
+        if (pFramesOut == pFramesIn) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] * factor;
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0] * factor;
+                pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame*2 + 1];
+            }
         }
     } else {
         float factor = 1.0f + pan;
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame*2 + 1] * factor;
+        if (pFramesOut == pFramesIn) {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame*2 + 1] * factor;
+            }
+        } else {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame*2 + 0];
+                pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame*2 + 1] * factor;
+            }
         }
     }
 }
@@ -4880,7 +4896,11 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
 
 static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
-    ma_bool32 isPitchingRequired = MA_TRUE;
+    ma_bool32 isPitchingRequired = MA_FALSE;
+
+    if (pEngineEffect->converter.hasResampler && pEngineEffect->pitch != 1) {
+        isPitchingRequired = MA_TRUE;
+    }
 
     /*
     This will be called if either there is no pre-effect or the pre-effect has already been processed. We can safely assume the input and output data in the engine's format so no
@@ -5954,6 +5974,17 @@ MA_API ma_result ma_engine_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSoun
     return ma_engine_sound_set_volume(pEngine, pSound, ma_gain_db_to_factor(gainDB));
 }
 
+MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)
+{
+    if (pEngine == NULL || pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->effect.pPreEffect = pEffect;
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_engine_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch)
 {
     if (pEngine == NULL || pSound == NULL) {
@@ -5990,17 +6021,6 @@ MA_API ma_result ma_engine_sound_set_rotation(ma_engine* pEngine, ma_sound* pSou
     }
 
     return ma_spatializer_set_rotation(&pSound->effect.spatializer, rotation);
-}
-
-MA_API ma_result ma_engine_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->effect.pPreEffect = pEffect;
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_engine_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping)
@@ -6325,18 +6345,30 @@ MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* 
 
     /* TODO: Look at the possibility of allowing groups to use a different format to the primary data format. Makes mixing and group management much more complicated. */
 
+    /* For handling panning, etc. we'll need an engine effect. */
+    result = ma_engine_effect_init(pEngine, &pGroup->effect);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the engine effect. */
+    }
+
     /* The sound group needs a mixer. */
     mixerConfig = ma_mixer_config_init(pEngine->format, pEngine->channels, pEngine->periodSizeInFrames, NULL, &pEngine->allocationCallbacks);
     result = ma_mixer_init(&mixerConfig, &pGroup->mixer);
     if (result != MA_SUCCESS) {
+        ma_engine_effect_uninit(pEngine, &pGroup->effect);
         return result;
     }
+
+    /* The mixer's effect is always set to the main engine effect. */
+    ma_mixer_set_effect(&pGroup->mixer, &pGroup->effect);
+
 
     /* Attach the sound group to it's parent if it has one (this will only happen if it's the master group). */
     if (pParentGroup != NULL) {
         result = ma_engine_sound_group_attach(pEngine, pGroup, pParentGroup);
         if (result != MA_SUCCESS) {
             ma_mixer_uninit(&pGroup->mixer);
+            ma_engine_effect_uninit(pEngine, &pGroup->effect);
             return result;
         }
     } else {
@@ -6351,6 +6383,7 @@ MA_API ma_result ma_engine_sound_group_init(ma_engine* pEngine, ma_sound_group* 
     if (result != MA_SUCCESS) {
         ma_engine_sound_group_detach(pEngine, pGroup);
         ma_mixer_uninit(&pGroup->mixer);
+        ma_engine_effect_uninit(pEngine, &pGroup->effect);
         return result;
     }
 
@@ -6395,6 +6428,8 @@ MA_API void ma_engine_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGr
 
     ma_mixer_uninit(&pGroup->mixer);
     ma_mutex_uninit(&pGroup->lock);
+
+    ma_engine_effect_uninit(pEngine, &pGroup->effect);
 }
 
 MA_API ma_result ma_engine_sound_group_start(ma_engine* pEngine, ma_sound_group* pGroup)
@@ -6462,12 +6497,23 @@ MA_API ma_result ma_engine_sound_group_set_effect(ma_engine* pEngine, ma_sound_g
         pGroup = &pEngine->masterSoundGroup;
     }
 
-    /* The effect is set on the mixer. */
-    ma_mixer_set_effect(&pGroup->mixer, pEffect);
+    pGroup->effect.pPreEffect = pEffect;
 
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_engine_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    return ma_panner_set_pan(&pGroup->effect.panner, pan);
+}
 
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position)
