@@ -62475,6 +62475,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.17 - TBD
+  - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
   - Add ma_decoder_get_cursor_in_pcm_frames()
 
 v0.10.16 - 2020-08-14
