@@ -44504,6 +44504,13 @@ static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDat
     return MA_SUCCESS;
 }
 
+static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
+
+    return ma_decoder_get_cursor_in_pcm_frames(pDecoder, pLength);
+}
+
 static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
 {
     ma_decoder* pDecoder = (ma_decoder*)pDataSource;
@@ -44535,7 +44542,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
     pDecoder->ds.onRead          = ma_decoder__data_source_on_read;
     pDecoder->ds.onSeek          = ma_decoder__data_source_on_seek;
     pDecoder->ds.onGetDataFormat = ma_decoder__data_source_on_get_data_format;
-    pDecoder->ds.onGetCursor     = ma_decoder_get_cursor_in_pcm_frames;
+    pDecoder->ds.onGetCursor     = ma_decoder__data_source_on_get_cursor;
     pDecoder->ds.onGetLength     = ma_decoder__data_source_on_get_length;
 
     pDecoder->onRead    = onRead;
@@ -62476,7 +62483,8 @@ REVISION HISTORY
 ================
 v0.10.17 - TBD
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
-  - Add ma_decoder_get_cursor_in_pcm_frames()
+  - Fix compilation error on Android.
+  - Add ma_decoder_get_cursor_in_pcm_frames().
 
 v0.10.16 - 2020-08-14
   - WASAPI: Fix a potential crash due to using an uninitialized variable.
