@@ -6,11 +6,32 @@
 #include "../miniaudio.h"
 #include "ma_engine.h"
 
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_engine* pEngine;
+    ma_sound* pSound;
+} sound_loaded_notification;
+
+void on_sound_loaded(ma_async_notification* pNotification)
+{
+    sound_loaded_notification* pLoadedNotification = (sound_loaded_notification*)pNotification;
+    ma_uint64 lengthInPCMFrames;
+
+    /*
+    This will be fired when the sound has finished loading. We should be able to retrieve the length of the sound at this point. Here we'll just set
+    the fade out time.
+    */
+    ma_engine_sound_get_length_in_pcm_frames(pLoadedNotification->pEngine, pLoadedNotification->pSound, &lengthInPCMFrames);
+    ma_engine_sound_set_fade_point_in_frames(pLoadedNotification->pEngine, pLoadedNotification->pSound, 1, 1, 0, lengthInPCMFrames - 192000, lengthInPCMFrames);
+}
+
 int main(int argc, char** argv)
 {
     ma_result result;
     ma_engine engine;
     ma_sound sound;
+    sound_loaded_notification loadNotification;
     
 
     if (argc < 2) {
@@ -26,7 +47,10 @@ int main(int argc, char** argv)
 
 
 #if 1
-    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, NULL, &sound);
+    loadNotification.pEngine = &engine;
+    loadNotification.pSound  = &sound;
+
+    result = ma_engine_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, &loadNotification, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -36,9 +60,7 @@ int main(int argc, char** argv)
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
     //ma_engine_sound_group_set_pan(&engine, NULL, -1);
-    ma_engine_sound_group_set_pitch(&engine, NULL, 1.0f);
-    ma_engine_sound_group_set_fade_in(&engine, NULL, 2000);
-    ma_engine_sound_group_set_fade_out(&engine, NULL, 2000);
+    //ma_engine_sound_group_set_pitch(&engine, NULL, 1.0f);
     //ma_engine_sound_group_set_start_delay(&engine, NULL, 2000);
     
     /*ma_engine_sound_set_volume(&engine, &sound, 0.25f);*/
@@ -47,13 +69,14 @@ int main(int argc, char** argv)
     ma_engine_sound_set_looping(&engine, &sound, MA_TRUE);
     //ma_engine_sound_seek_to_pcm_frame(&engine, &sound, 6000000);
     //ma_engine_sound_set_start_delay(&engine, &sound, 1110);
-    //ma_engine_sound_set_fade_in(&engine, &sound, 2000);
-    //ma_engine_sound_set_fade_out(&engine, &sound, 2000);
+    ma_engine_sound_set_fade_point_in_milliseconds(&engine, &sound, 0, 0, 1, 0, 2000);
+    ma_engine_sound_set_stop_delay(&engine, &sound, 1000);
     ma_engine_sound_start(&engine, &sound);
 
     ma_sleep(2000);
-    //ma_engine_sound_stop(&engine, &sound);
-    ma_engine_sound_group_stop(&engine, NULL);
+    printf("Stopping...\n");
+    ma_engine_sound_stop(&engine, &sound);
+    //ma_engine_sound_group_stop(&engine, NULL);
 #endif
 
 #if 1
