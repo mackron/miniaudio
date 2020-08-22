@@ -967,6 +967,9 @@ MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
+MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
+
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
@@ -1008,9 +1011,6 @@ MA_API ma_result ma_engine_sound_group_set_fade_point_in_milliseconds(ma_engine*
 MA_API ma_result ma_engine_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_engine_sound_group_set_stop_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_engine_sound_group_get_time_in_frames(ma_engine* pEngine, const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
-
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
-MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
 
 #ifdef __cplusplus
 }
@@ -5728,6 +5728,29 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 }
 
 
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pEngine->listener.position = position;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pEngine->listener.rotation = rotation;
+
+    return MA_SUCCESS;
+}
+
+
 static ma_result ma_engine_sound_detach(ma_engine* pEngine, ma_sound* pSound)
 {
     ma_sound_group* pGroup;
@@ -6697,29 +6720,6 @@ MA_API ma_result ma_engine_sound_group_get_time_in_frames(ma_engine* pEngine, co
     }
 
     *pTimeInFrames = pGroup->effect.timeInFrames;
-
-    return MA_SUCCESS;
-}
-
-
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position)
-{
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pEngine->listener.position = position;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation)
-{
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pEngine->listener.rotation = rotation;
 
     return MA_SUCCESS;
 }
