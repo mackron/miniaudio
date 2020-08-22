@@ -607,9 +607,6 @@ To perform the conversion simply call `ma_channel_converter_process_pcm_frames()
 
 It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM frames.
 
-The only formats supported are `ma_format_s16` and `ma_format_f32`. If you need another format you need to convert your data manually which you can do with
-`ma_pcm_convert()`, etc.
-
 Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
 
 
