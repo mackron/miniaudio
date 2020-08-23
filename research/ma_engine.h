@@ -841,6 +841,7 @@ typedef struct
         float volumeEnd;
         ma_uint64 timeInFramesBeg;
         ma_uint64 timeInFramesEnd;
+        ma_bool32 autoReset;        /* Controls whether or not the fade point should automatically reset once the end of the fade point has been reached. */
     } state[2];
 } ma_dual_fader_config;
 
@@ -863,6 +864,7 @@ MA_API ma_bool32 ma_dual_fader_is_time_past_fade(const ma_dual_fader* pFader, ma
 MA_API ma_bool32 ma_dual_fader_is_time_past_both_fades(const ma_dual_fader* pFader);
 MA_API ma_bool32 ma_dual_fader_is_in_fade(const ma_dual_fader* pFader, ma_uint32 index);
 MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index);      /* Essentially disables fading for one of the sub-fades. To enable again, call ma_dual_fader_set_fade(). */
+MA_API ma_result ma_dual_fader_set_auto_reset(ma_dual_fader* pFader, ma_uint32 index, ma_bool32 autoReset);
 
 
 /* All of the proprties supported by the engine are handled via an effect. */
@@ -994,6 +996,7 @@ MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_result ma_sound_set_fade_point_in_frames(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
 MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
+MA_API ma_result ma_sound_set_fade_point_auto_reset(ma_sound* pSound, ma_uint32 fadePointIndex, ma_bool32 autoReset);
 MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
@@ -1014,6 +1017,7 @@ MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_sound_group_set_fade_point_in_frames(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
 MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
+MA_API ma_result ma_sound_group_set_fade_point_auto_reset(ma_sound_group* pGroup, ma_uint32 fadePointIndex, ma_bool32 autoReset);
 MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
@@ -4569,10 +4573,12 @@ MA_API ma_dual_fader_config ma_dual_fader_config_init(ma_format format, ma_uint3
     config.state[0].volumeEnd       = 1;
     config.state[0].timeInFramesBeg = 0;
     config.state[0].timeInFramesEnd = 0;
+    config.state[0].autoReset       = MA_TRUE;
     config.state[1].volumeBeg       = 1;
     config.state[1].volumeEnd       = 1;
     config.state[1].timeInFramesBeg = 0;
     config.state[1].timeInFramesEnd = 0;
+    config.state[1].autoReset       = MA_TRUE;
 
     return config;
 }
@@ -4696,6 +4702,10 @@ MA_API ma_result ma_dual_fader_process_pcm_frames_by_index(ma_dual_fader* pFader
         } else {
             return MA_NOT_IMPLEMENTED;
         }
+    }
+
+    if (pFader->config.state[index].autoReset && ma_dual_fader_is_time_past_fade(pFader, index)) {
+        ma_dual_fader_reset_fade(pFader, index);
     }
 
     return MA_SUCCESS;
@@ -4831,6 +4841,17 @@ MA_API ma_result ma_dual_fader_reset_fade(ma_dual_fader* pFader, ma_uint32 index
     pFader->config.state[index].volumeEnd = 1;
     pFader->config.state[index].timeInFramesBeg = 0;
     pFader->config.state[index].timeInFramesEnd = 0;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_dual_fader_set_auto_reset(ma_dual_fader* pFader, ma_uint32 index, ma_bool32 autoReset)
+{
+    if (pFader == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pFader->config.state[index].autoReset = autoReset;
 
     return MA_SUCCESS;
 }
@@ -5300,7 +5321,10 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
             if ((pSound->runningTimeInEngineFrames + frameCount) > pSound->startDelayInEngineFrames) {
                 /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
-                ma_uint64 offsetInFrames = 0;
+                ma_uint64 currentTimeInFrames;
+                ma_uint64 offsetInFrames;
+
+                offsetInFrames = 0;
                 if (pSound->startDelayInEngineFrames > pSound->runningTimeInEngineFrames) {
                     offsetInFrames = pSound->startDelayInEngineFrames - pSound->runningTimeInEngineFrames;
                 }
@@ -5314,17 +5338,14 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 */
                 result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
 
-#if 0
-                /* We're not fading out. For the benefit of looping sounds, we need to make sure the timer is set properly on the fader so that fading works across loop transitions. */
-                /* TODO: Add support for controlling fading between loop transitions. Maybe have an auto-reset flag in ma_dual_fader which resets the fade once it's got past the fade time? */
-                if (pSound->isLooping) {
-                    ma_uint64 currentTimeInFrames;
-                    result = ma_sound_get_cursor_in_pcm_frames(pEngine, pSound, &currentTimeInFrames);
-                    if (result == MA_SUCCESS) {
-                        ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
-                    }
+                /*
+                For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
+                support loop transitions properly.
+                */
+                result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
+                if (result == MA_SUCCESS) {
+                    ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
                 }
-#endif
 
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
@@ -5532,7 +5553,7 @@ static ma_result ma_engine_listener_init(ma_engine* pEngine, const ma_device_id*
     deviceConfig.periodSizeInFrames       = pEngine->periodSizeInFrames;
     deviceConfig.periodSizeInMilliseconds = pEngine->periodSizeInMilliseconds;
     deviceConfig.noPreZeroedOutputBuffer  = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
-    deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine here will do clipping for us. */
+    deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine will do clipping itself. */
 
     result = ma_device_init(&pEngine->context, &deviceConfig, &pListener->device);
     if (result != MA_SUCCESS) {
@@ -6261,6 +6282,15 @@ MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_sound* pSound, ma_ui
     return ma_sound_set_fade_point_in_frames(pSound, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
 }
 
+MA_API ma_result ma_sound_set_fade_point_auto_reset(ma_sound* pSound, ma_uint32 fadePointIndex, ma_bool32 autoReset)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_dual_fader_set_auto_reset(&pSound->effect.fader, fadePointIndex, autoReset);
+}
+
 MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
 {
     if (pSound == NULL) {
@@ -6664,6 +6694,15 @@ MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_sound_group* p
     timeInFramesEnd = (timeInMillisecondsEnd * pGroup->effect.fader.config.sampleRate) / 1000;
 
     return ma_sound_group_set_fade_point_in_frames(pGroup, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
+}
+
+MA_API ma_result ma_sound_group_set_fade_point_auto_reset(ma_sound_group* pGroup, ma_uint32 fadePointIndex, ma_bool32 autoReset)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_dual_fader_set_auto_reset(&pGroup->effect.fader, fadePointIndex, autoReset);
 }
 
 MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
