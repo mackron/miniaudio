@@ -883,6 +883,7 @@ typedef struct
 
 struct ma_sound
 {
+    ma_engine* pEngine;                         /* A pointer to the object that owns this sound. */
     ma_data_source* pDataSource;
     ma_sound_group* pGroup;                     /* The group the sound is attached to. */
     ma_sound* pPrevSoundInGroup;
@@ -905,6 +906,7 @@ struct ma_sound
 
 struct ma_sound_group
 {
+    ma_engine* pEngine;                         /* A pointer to the engine that owns this sound group. */
     ma_sound_group* pParent;
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
@@ -970,32 +972,34 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
 
+MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
+
+
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
-MA_API void ma_sound_uninit(ma_engine* pEngine, ma_sound* pSound);
-MA_API ma_result ma_sound_start(ma_engine* pEngine, ma_sound* pSound);
-MA_API ma_result ma_sound_stop(ma_engine* pEngine, ma_sound* pSound);
-MA_API ma_result ma_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume);
-MA_API ma_result ma_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB);
-MA_API ma_result ma_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect);
-MA_API ma_result ma_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan);
-MA_API ma_result ma_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch);
-MA_API ma_result ma_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position);
-MA_API ma_result ma_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation);
-MA_API ma_result ma_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping);
-MA_API ma_result ma_sound_set_fade_point_in_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
-MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
-MA_API ma_result ma_sound_set_start_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds);
-MA_API ma_result ma_sound_set_stop_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds);
-MA_API ma_bool32 ma_sound_at_end(ma_engine* pEngine, const ma_sound* pSound);
-MA_API ma_result ma_sound_get_time_in_frames(ma_engine* pEngine, const ma_sound* pSound, ma_uint64* pTimeInFrames);
-MA_API ma_result ma_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
-MA_API ma_result ma_sound_get_data_format(ma_engine* pEngine, ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
-MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pCursor);
-MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pLength);
-MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
+MA_API void ma_sound_uninit(ma_sound* pSound);
+MA_API ma_result ma_sound_start(ma_sound* pSound);
+MA_API ma_result ma_sound_stop(ma_sound* pSound);
+MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
+MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
+MA_API ma_result ma_sound_set_effect(ma_sound* pSound, ma_effect* pEffect);
+MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
+MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
+MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
+MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
+MA_API ma_result ma_sound_set_fade_point_in_frames(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
+MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
+MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
+MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
+MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
+MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
+MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
 MA_API void ma_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup);   /* Not thread-safe. */
@@ -5244,7 +5248,7 @@ static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 
 }
 
 
-static MA_INLINE ma_result ma_sound_stop_internal(ma_engine* pEngine, ma_sound* pSound);
+static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound);
 static MA_INLINE ma_result ma_sound_group_stop_internal(ma_engine* pEngine, ma_sound_group* pGroup);
 
 MA_API ma_engine_config ma_engine_config_init_default()
@@ -5322,7 +5326,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
-                    ma_sound_stop_internal(pEngine, pSound);
+                    ma_sound_stop_internal(pSound);
                     c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
                 }
 
@@ -5342,7 +5346,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
                 /* Stop the sound if the delay has been reached. */
                 if (pSound->stopDelayInEngineFramesRemaining == 0) {
-                    ma_sound_stop_internal(pEngine, pSound);
+                    ma_sound_stop_internal(pSound);
                 }
             }
         }
@@ -5751,503 +5755,6 @@ MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rot
 }
 
 
-static ma_result ma_sound_detach(ma_engine* pEngine, ma_sound* pSound)
-{
-    ma_sound_group* pGroup;
-
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pSound  != NULL);
-
-    pGroup = pSound->pGroup;
-    MA_ASSERT(pGroup != NULL);
-
-    /*
-    The sound should never be in a playing state when this is called. It *can*, however, but in the middle of mixing in the mixing thread. It needs to finish
-    mixing before being uninitialized completely, but that is done at a higher level to this function.
-    */
-    MA_ASSERT(pSound->isPlaying == MA_FALSE);
-
-    /*
-    We want the creation and deletion of sounds to be supported across multiple threads. An application may have any thread that want's to call
-    ma_engine_play_sound(), for example. The application would expect this to just work. The problem, however, is that the mixing thread will be iterating over
-    the list at the same time. We need to be careful with how we remove a sound from the list because we'll essentially be taking the sound out from under the
-    mixing thread and the mixing thread must continue to work. Normally you would wrap the iteration in a lock as well, however an added complication is that
-    the mixing thread cannot be locked as it's running on the audio thread, and locking in the audio thread is a no-no).
-
-    To start with, ma_sound_detach() (this function) and ma_sound_attach() need to be wrapped in a lock. This lock will *not* be used by the
-    mixing thread. We therefore need to craft this in a very particular way so as to ensure the mixing thread does not lose track of it's iteration state. What
-    we don't want to do is clear the pNextSoundInGroup variable to NULL. This need to be maintained to ensure the mixing thread can continue iteration even
-    after the sound has been removed from the group. This is acceptable because sounds are fixed to their group for the entire life, and this function will
-    only ever be called when the sound is being uninitialized which therefore means it'll never be iterated again.
-    */
-    ma_mutex_lock(&pGroup->lock);
-    {
-        if (pSound->pPrevSoundInGroup == NULL) {
-            /* The sound is the head of the list. All we need to do is change the pPrevSoundInGroup member of the next sound to NULL and make it the new head. */
-
-            /* Make a new head. */
-            c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pSound->pNextSoundInGroup);
-        } else {
-            /*
-            The sound is not the head. We need to remove the sound from the group by simply changing the pNextSoundInGroup member of the previous sound. This is
-            the important part. This is the part that allows the mixing thread to continue iteration without locking.
-            */
-            c89atomic_exchange_ptr(&pSound->pPrevSoundInGroup->pNextSoundInGroup, pSound->pNextSoundInGroup);
-        }
-
-        /* This doesn't really need to be done atomically because we've wrapped this in a lock and it's not used by the mixing thread. */
-        if (pSound->pNextSoundInGroup != NULL) {
-            c89atomic_exchange_ptr(&pSound->pNextSoundInGroup->pPrevSoundInGroup, pSound->pPrevSoundInGroup);
-        }
-    }
-    ma_mutex_unlock(&pGroup->lock);
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_sound_attach(ma_engine* pEngine, ma_sound* pSound, ma_sound_group* pGroup)
-{
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pSound  != NULL);
-    MA_ASSERT(pGroup  != NULL);
-    MA_ASSERT(pSound->pGroup == NULL);
-
-    /* This should only ever be called when the sound is first initialized which means we should never be in a playing state. */
-    MA_ASSERT(pSound->isPlaying == MA_FALSE);
-
-    /* We can set the group at the start. */
-    pSound->pGroup = pGroup;
-
-    /*
-    The sound will become the new head of the list. If we were only adding we could do this lock-free, but unfortunately we need to support fast, constant
-    time removal of sounds from the list. This means we need to update two pointers, not just one, which means we can't use a standard compare-and-swap.
-
-    One of our requirements is that the mixer thread must be able to iterate over the list *without* locking. We don't really need to do anything special
-    here to support this, but we will want to use an atomic assignment.
-    */
-    ma_mutex_lock(&pGroup->lock);
-    {
-        ma_sound* pNewFirstSoundInGroup = pSound;
-        ma_sound* pOldFirstSoundInGroup = pGroup->pFirstSoundInGroup;
-
-        pNewFirstSoundInGroup->pNextSoundInGroup = pOldFirstSoundInGroup;
-        if (pOldFirstSoundInGroup != NULL) {
-            pOldFirstSoundInGroup->pPrevSoundInGroup = pNewFirstSoundInGroup;
-        }
-
-        c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pNewFirstSoundInGroup);
-    }
-    ma_mutex_unlock(&pGroup->lock);
-
-    return MA_SUCCESS;
-}
-
-
-
-static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
-{
-    ma_result result;
-
-    (void)flags;
-
-    if (pEngine == NULL || pDataSource == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* Do no clear pSound to zero. Otherwise it may overwrite some members we set earlier. */
-
-    result = ma_engine_effect_init(pEngine, &pSound->effect);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pSound->pDataSource = pDataSource;
-    pSound->volume      = 1;
-    pSound->seekTarget  = MA_SEEK_TARGET_NONE;
-
-    if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
-    }
-
-    /* By default the sound needs to be added to the master group. */
-    result = ma_sound_attach(pEngine, pSound, pGroup);
-    if (result != MA_SUCCESS) {
-        return result;  /* Should never happen. Failed to attach the sound to the group. */
-    }
-
-    return MA_SUCCESS;
-}
-
-#ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
-{
-    ma_result result;
-    ma_data_source* pDataSource;
-
-    /*
-    TODO: Plug in the notification system into ma_resource_manager_data_source_init(). This requires a refactor to ensure ma_resource_manager_data_source_init()
-          is the very last thing to be called, thereby ensuring the source object is fully initialized before the notification is triggered.
-    */
-    (void)pNotification;
-
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSound);
-
-    if (pEngine == NULL || pFilePath == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* We need to user the resource manager to load the data source. */
-    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pDataSource = &pSound->resourceManagerDataSource;
-
-    /* Now that we have our data source we can create the sound using our generic function. */
-    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need to tell the engine that we own the data source so that it knows to delete it when deleting the sound. This needs to be done after creating the sound with ma_engine_create_sound_from_data_source(). */
-    pSound->ownsDataSource = MA_TRUE;
-
-    return MA_SUCCESS;
-}
-#endif
-
-MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSound);
-
-    return ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
-}
-
-MA_API void ma_sound_uninit(ma_engine* pEngine, ma_sound* pSound)
-{
-    ma_result result;
-
-    if (pEngine == NULL || pSound == NULL) {
-        return;
-    }
-
-    /* Make sure the sound is stopped as soon as possible to reduce the chance that it gets locked by the mixer. We also need to stop it before detaching from the group. */
-    ma_sound_set_stop_delay(pEngine, pSound, 0);   /* <-- Ensures the sound stops immediately. */
-    result = ma_sound_stop(pEngine, pSound);
-    if (result != MA_SUCCESS) {
-        return;
-    }
-
-    /* The sound needs to removed from the group to ensure it doesn't get iterated again and cause things to break again. This is thread-safe. */
-    result = ma_sound_detach(pEngine, pSound);
-    if (result != MA_SUCCESS) {
-        return;
-    }
-
-    /*
-    The sound is detached from the group, but it may still be in the middle of mixing which means our data source is locked. We need to wait for
-    this to finish before deleting from the resource manager.
-
-    We could define this so that we don't wait if the sound does not own the underlying data source, but this might end up being dangerous because
-    the application may think it's safe to destroy the data source when it actually isn't. It just feels untidy doing it like that.
-    */
-    ma_sound_mix_wait(pSound);
-
-
-    /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->ownsDataSource) {
-        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
-        pSound->pDataSource = NULL;
-    }
-#else
-    MA_ASSERT(pSound->ownsDataSource == MA_FALSE);
-#endif
-}
-
-MA_API ma_result ma_sound_start(ma_engine* pEngine, ma_sound* pSound)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* If the sound is already playing, do nothing. */
-    if (pSound->isPlaying) {
-        return MA_SUCCESS;
-    }
-
-    /* If the sound is at the end it means we want to start from the start again. */
-    if (pSound->atEnd) {
-        ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
-        if (result != MA_SUCCESS) {
-            return result;  /* Failed to seek back to the start. */
-        }
-    }
-
-    /* Once everything is set up we can tell the mixer thread about it. */
-    c89atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
-
-    return MA_SUCCESS;
-}
-
-static MA_INLINE ma_result ma_sound_stop_internal(ma_engine* pEngine, ma_sound* pSound)
-{
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pSound  != NULL);
-
-    c89atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_stop(ma_engine* pEngine, ma_sound* pSound)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->stopDelayInEngineFramesRemaining = pSound->stopDelayInEngineFrames;
-
-    /* Stop immediately if we don't have a delay. */
-    if (pSound->stopDelayInEngineFrames == 0) {
-        ma_sound_stop_internal(pEngine, pSound);
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_volume(ma_engine* pEngine, ma_sound* pSound, float volume)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->volume = volume;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_gain_db(ma_engine* pEngine, ma_sound* pSound, float gainDB)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_set_volume(pEngine, pSound, ma_gain_db_to_factor(gainDB));
-}
-
-MA_API ma_result ma_sound_set_effect(ma_engine* pEngine, ma_sound* pSound, ma_effect* pEffect)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->effect.pPreEffect = pEffect;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_pitch(ma_engine* pEngine, ma_sound* pSound, float pitch)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->effect.pitch = pitch;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_pan(ma_engine* pEngine, ma_sound* pSound, float pan)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_panner_set_pan(&pSound->effect.panner, pan);
-}
-
-MA_API ma_result ma_sound_set_position(ma_engine* pEngine, ma_sound* pSound, ma_vec3 position)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_spatializer_set_position(&pSound->effect.spatializer, position);
-}
-
-MA_API ma_result ma_sound_set_rotation(ma_engine* pEngine, ma_sound* pSound, ma_quat rotation)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_spatializer_set_rotation(&pSound->effect.spatializer, rotation);
-}
-
-MA_API ma_result ma_sound_set_looping(ma_engine* pEngine, ma_sound* pSound, ma_bool32 isLooping)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_exchange_32(&pSound->isLooping, isLooping);
-
-    /*
-    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
-    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
-    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
-    generically.
-    */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(pSound->pDataSource, isLooping);
-    }
-#endif
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_fade_point_in_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_dual_fader_set_fade(&pSound->effect.fader, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
-}
-
-MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_engine* pEngine, ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd)
-{
-    ma_uint64 timeInFramesBeg;
-    ma_uint64 timeInFramesEnd;
-
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    timeInFramesBeg = (timeInMillisecondsBeg * pSound->effect.fader.config.sampleRate) / 1000;
-    timeInFramesEnd = (timeInMillisecondsEnd * pSound->effect.fader.config.sampleRate) / 1000;
-
-    return ma_sound_set_fade_point_in_frames(pEngine, pSound, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
-}
-
-MA_API ma_result ma_sound_set_start_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    It's important that the delay be timed based on the engine's sample rate and not the rate of the sound. The reason is that no processing will be happening
-    by the sound before playback has actually begun and we won't have accurate frame counters due to resampling.
-    */
-    pSound->startDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_set_stop_delay(ma_engine* pEngine, ma_sound* pSound, ma_uint64 delayInMilliseconds)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->stopDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_bool32 ma_sound_at_end(ma_engine* pEngine, const ma_sound* pSound)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_FALSE;
-    }
-
-    return pSound->atEnd;
-}
-
-MA_API ma_result ma_sound_get_time_in_frames(ma_engine* pEngine, const ma_sound* pSound, ma_uint64* pTimeInFrames)
-{
-    if (pTimeInFrames == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = 0;
-
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = pSound->effect.timeInFrames;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_seek_to_pcm_frame(ma_engine* pEngine, ma_sound* pSound, ma_uint64 frameIndex)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    Resource manager data sources are thread safe which means we can just seek immediately. However, we cannot guarantee that other data sources are
-    thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
-    */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        /* Time dependant effects need to have their timers updated. */
-        return ma_engine_effect_set_time(&pSound->effect, frameIndex);
-    }
-#endif
-
-    /* Getting here means the data source is not a resource manager data source so we'll need to get the mixing thread to do the seeking for us. */
-    pSound->seekTarget = frameIndex;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_sound_get_data_format(ma_engine* pEngine, ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
-}
-
-MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pCursor)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
-}
-
-MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_engine* pEngine, ma_sound* pSound, ma_uint64* pLength)
-{
-    if (pEngine == NULL || pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
-}
-
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
 {
     ma_result result;
@@ -6318,7 +5825,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         result = ma_engine_effect_reinit(pEngine, &pSound->effect);
         if (result != MA_SUCCESS) {
             /* We failed to reinitialize the effect. The sound is currently in a bad state and we need to delete it and return an error. Should never happen. */
-            ma_sound_uninit(pEngine, pSound);
+            ma_sound_uninit(pSound);
             return result;
         }
     } else {
@@ -6339,15 +5846,519 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
     }
 
     /* Finally we can start playing the sound. */
-    result = ma_sound_start(pEngine, pSound);
+    result = ma_sound_start(pSound);
     if (result != MA_SUCCESS) {
         /* Failed to start the sound. We need to uninitialize it and return an error. */
-        ma_sound_uninit(pEngine, pSound);
+        ma_sound_uninit(pSound);
         return result;
     }
 
     return MA_SUCCESS;
 }
+
+
+
+static ma_result ma_sound_detach(ma_sound* pSound)
+{
+    ma_sound_group* pGroup;
+
+    MA_ASSERT(pSound != NULL);
+
+    pGroup = pSound->pGroup;
+    MA_ASSERT(pGroup != NULL);
+
+    /*
+    The sound should never be in a playing state when this is called. It *can*, however, but in the middle of mixing in the mixing thread. It needs to finish
+    mixing before being uninitialized completely, but that is done at a higher level to this function.
+    */
+    MA_ASSERT(pSound->isPlaying == MA_FALSE);
+
+    /*
+    We want the creation and deletion of sounds to be supported across multiple threads. An application may have any thread that want's to call
+    ma_engine_play_sound(), for example. The application would expect this to just work. The problem, however, is that the mixing thread will be iterating over
+    the list at the same time. We need to be careful with how we remove a sound from the list because we'll essentially be taking the sound out from under the
+    mixing thread and the mixing thread must continue to work. Normally you would wrap the iteration in a lock as well, however an added complication is that
+    the mixing thread cannot be locked as it's running on the audio thread, and locking in the audio thread is a no-no).
+
+    To start with, ma_sound_detach() (this function) and ma_sound_attach() need to be wrapped in a lock. This lock will *not* be used by the
+    mixing thread. We therefore need to craft this in a very particular way so as to ensure the mixing thread does not lose track of it's iteration state. What
+    we don't want to do is clear the pNextSoundInGroup variable to NULL. This need to be maintained to ensure the mixing thread can continue iteration even
+    after the sound has been removed from the group. This is acceptable because sounds are fixed to their group for the entire life, and this function will
+    only ever be called when the sound is being uninitialized which therefore means it'll never be iterated again.
+    */
+    ma_mutex_lock(&pGroup->lock);
+    {
+        if (pSound->pPrevSoundInGroup == NULL) {
+            /* The sound is the head of the list. All we need to do is change the pPrevSoundInGroup member of the next sound to NULL and make it the new head. */
+
+            /* Make a new head. */
+            c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pSound->pNextSoundInGroup);
+        } else {
+            /*
+            The sound is not the head. We need to remove the sound from the group by simply changing the pNextSoundInGroup member of the previous sound. This is
+            the important part. This is the part that allows the mixing thread to continue iteration without locking.
+            */
+            c89atomic_exchange_ptr(&pSound->pPrevSoundInGroup->pNextSoundInGroup, pSound->pNextSoundInGroup);
+        }
+
+        /* This doesn't really need to be done atomically because we've wrapped this in a lock and it's not used by the mixing thread. */
+        if (pSound->pNextSoundInGroup != NULL) {
+            c89atomic_exchange_ptr(&pSound->pNextSoundInGroup->pPrevSoundInGroup, pSound->pPrevSoundInGroup);
+        }
+    }
+    ma_mutex_unlock(&pGroup->lock);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_sound_attach(ma_sound* pSound, ma_sound_group* pGroup)
+{
+    MA_ASSERT(pSound != NULL);
+    MA_ASSERT(pGroup != NULL);
+    MA_ASSERT(pSound->pGroup == NULL);
+
+    /* This should only ever be called when the sound is first initialized which means we should never be in a playing state. */
+    MA_ASSERT(pSound->isPlaying == MA_FALSE);
+
+    /* We can set the group at the start. */
+    pSound->pGroup = pGroup;
+
+    /*
+    The sound will become the new head of the list. If we were only adding we could do this lock-free, but unfortunately we need to support fast, constant
+    time removal of sounds from the list. This means we need to update two pointers, not just one, which means we can't use a standard compare-and-swap.
+
+    One of our requirements is that the mixer thread must be able to iterate over the list *without* locking. We don't really need to do anything special
+    here to support this, but we will want to use an atomic assignment.
+    */
+    ma_mutex_lock(&pGroup->lock);
+    {
+        ma_sound* pNewFirstSoundInGroup = pSound;
+        ma_sound* pOldFirstSoundInGroup = pGroup->pFirstSoundInGroup;
+
+        pNewFirstSoundInGroup->pNextSoundInGroup = pOldFirstSoundInGroup;
+        if (pOldFirstSoundInGroup != NULL) {
+            pOldFirstSoundInGroup->pPrevSoundInGroup = pNewFirstSoundInGroup;
+        }
+
+        c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pNewFirstSoundInGroup);
+    }
+    ma_mutex_unlock(&pGroup->lock);
+
+    return MA_SUCCESS;
+}
+
+
+
+static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_result result;
+
+    (void)flags;
+
+    if (pEngine == NULL || pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Do no clear pSound to zero. Otherwise it may overwrite some members we set earlier. */
+
+    result = ma_engine_effect_init(pEngine, &pSound->effect);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pSound->pDataSource = pDataSource;
+    pSound->volume      = 1;
+    pSound->seekTarget  = MA_SEEK_TARGET_NONE;
+
+    if (pGroup == NULL) {
+        pGroup = &pEngine->masterSoundGroup;
+    }
+
+    /* By default the sound needs to be added to the master group. */
+    result = ma_sound_attach(pSound, pGroup);
+    if (result != MA_SUCCESS) {
+        return result;  /* Should never happen. Failed to attach the sound to the group. */
+    }
+
+    return MA_SUCCESS;
+}
+
+#ifndef MA_NO_RESOURCE_MANAGER
+MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_result result;
+    ma_data_source* pDataSource;
+
+    /*
+    TODO: Plug in the notification system into ma_resource_manager_data_source_init(). This requires a refactor to ensure ma_resource_manager_data_source_init()
+          is the very last thing to be called, thereby ensuring the source object is fully initialized before the notification is triggered.
+    */
+    (void)pNotification;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSound);
+
+    if (pEngine == NULL || pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->pEngine = pEngine;
+
+    /* We need to user the resource manager to load the data source. */
+    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataSource = &pSound->resourceManagerDataSource;
+
+    /* Now that we have our data source we can create the sound using our generic function. */
+    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* We need to tell the engine that we own the data source so that it knows to delete it when deleting the sound. This needs to be done after creating the sound with ma_engine_create_sound_from_data_source(). */
+    pSound->ownsDataSource = MA_TRUE;
+
+    return MA_SUCCESS;
+}
+#endif
+
+MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSound);
+    pSound->pEngine = pEngine;
+
+    return ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
+}
+
+MA_API void ma_sound_uninit(ma_sound* pSound)
+{
+    ma_result result;
+
+    if (pSound == NULL) {
+        return;
+    }
+
+    /* Make sure the sound is stopped as soon as possible to reduce the chance that it gets locked by the mixer. We also need to stop it before detaching from the group. */
+    ma_sound_set_stop_delay(pSound, 0);   /* <-- Ensures the sound stops immediately. */
+    result = ma_sound_stop(pSound);
+    if (result != MA_SUCCESS) {
+        return;
+    }
+
+    /* The sound needs to removed from the group to ensure it doesn't get iterated again and cause things to break again. This is thread-safe. */
+    result = ma_sound_detach(pSound);
+    if (result != MA_SUCCESS) {
+        return;
+    }
+
+    /*
+    The sound is detached from the group, but it may still be in the middle of mixing which means our data source is locked. We need to wait for
+    this to finish before deleting from the resource manager.
+
+    We could define this so that we don't wait if the sound does not own the underlying data source, but this might end up being dangerous because
+    the application may think it's safe to destroy the data source when it actually isn't. It just feels untidy doing it like that.
+    */
+    ma_sound_mix_wait(pSound);
+
+
+    /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->ownsDataSource) {
+        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
+        pSound->pDataSource = NULL;
+    }
+#else
+    MA_ASSERT(pSound->ownsDataSource == MA_FALSE);
+#endif
+}
+
+MA_API ma_result ma_sound_start(ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If the sound is already playing, do nothing. */
+    if (pSound->isPlaying) {
+        return MA_SUCCESS;
+    }
+
+    /* If the sound is at the end it means we want to start from the start again. */
+    if (pSound->atEnd) {
+        ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to seek back to the start. */
+        }
+    }
+
+    /* Once everything is set up we can tell the mixer thread about it. */
+    c89atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
+
+    return MA_SUCCESS;
+}
+
+static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound)
+{
+    MA_ASSERT(pSound != NULL);
+
+    c89atomic_exchange_32(&pSound->isPlaying, MA_FALSE);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_stop(ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->stopDelayInEngineFramesRemaining = pSound->stopDelayInEngineFrames;
+
+    /* Stop immediately if we don't have a delay. */
+    if (pSound->stopDelayInEngineFrames == 0) {
+        ma_sound_stop_internal(pSound);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->volume = volume;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_sound_set_volume(pSound, ma_gain_db_to_factor(gainDB));
+}
+
+MA_API ma_result ma_sound_set_effect(ma_sound* pSound, ma_effect* pEffect)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->effect.pPreEffect = pEffect;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->effect.pitch = pitch;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_panner_set_pan(&pSound->effect.panner, pan);
+}
+
+MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_spatializer_set_position(&pSound->effect.spatializer, position);
+}
+
+MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_spatializer_set_rotation(&pSound->effect.spatializer, rotation);
+}
+
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_32(&pSound->isLooping, isLooping);
+
+    /*
+    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
+    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
+    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
+    generically.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
+        ma_resource_manager_data_source_set_looping(pSound->pDataSource, isLooping);
+    }
+#endif
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_fade_point_in_frames(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_dual_fader_set_fade(&pSound->effect.fader, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
+}
+
+MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_sound* pSound, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd)
+{
+    ma_uint64 timeInFramesBeg;
+    ma_uint64 timeInFramesEnd;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    timeInFramesBeg = (timeInMillisecondsBeg * pSound->effect.fader.config.sampleRate) / 1000;
+    timeInFramesEnd = (timeInMillisecondsEnd * pSound->effect.fader.config.sampleRate) / 1000;
+
+    return ma_sound_set_fade_point_in_frames(pSound, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
+}
+
+MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pSound->pEngine != NULL);
+
+    /*
+    It's important that the delay be timed based on the engine's sample rate and not the rate of the sound. The reason is that no processing will be happening
+    by the sound before playback has actually begun and we won't have accurate frame counters due to resampling.
+    */
+    pSound->startDelayInEngineFrames = (pSound->pEngine->sampleRate * delayInMilliseconds) / 1000;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(pSound->pEngine != NULL);
+
+    pSound->stopDelayInEngineFrames = (pSound->pEngine->sampleRate * delayInMilliseconds) / 1000;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    return pSound->atEnd;
+}
+
+MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames)
+{
+    if (pTimeInFrames == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pTimeInFrames = 0;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pTimeInFrames = pSound->effect.timeInFrames;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    Resource manager data sources are thread safe which means we can just seek immediately. However, we cannot guarantee that other data sources are
+    thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
+        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Time dependant effects need to have their timers updated. */
+        return ma_engine_effect_set_time(&pSound->effect, frameIndex);
+    }
+#endif
+
+    /* Getting here means the data source is not a resource manager data source so we'll need to get the mixing thread to do the seeking for us. */
+    pSound->seekTarget = frameIndex;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+}
+
+MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
+}
+
+MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
+}
+
 
 
 static ma_result ma_sound_group_attach(ma_engine* pEngine, ma_sound_group* pGroup, ma_sound_group* pParentGroup)
@@ -6432,6 +6443,8 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
         return MA_INVALID_ARGS;
     }
 
+    pGroup->pEngine = pEngine;
+
     /* Use the master group if the parent group is NULL, so long as it's not the master group itself. */
     if (pParentGroup == NULL && pGroup != &pEngine->masterSoundGroup) {
         pParentGroup = &pEngine->masterSoundGroup;
@@ -6492,6 +6505,8 @@ static void ma_sound_group_uninit_all_internal_sounds(ma_engine* pEngine, ma_sou
 {
     ma_sound* pCurrentSound;
 
+    (void)pEngine;
+
     /* We need to be careful here that we keep our iteration valid. */
     pCurrentSound = pGroup->pFirstSoundInGroup;
     while (pCurrentSound != NULL) {
@@ -6499,7 +6514,7 @@ static void ma_sound_group_uninit_all_internal_sounds(ma_engine* pEngine, ma_sou
         pCurrentSound = pCurrentSound->pNextSoundInGroup;
 
         if (pSoundToDelete->_isInternal) {
-            ma_sound_uninit(pEngine, pSoundToDelete);
+            ma_sound_uninit(pSoundToDelete);
         }
     }
 }
