@@ -17,7 +17,7 @@ find a copy of this text in extras/speex_resampler/README.md in the miniaudio re
 #define STB_VORBIS_HEADER_ONLY
 #include "../../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
 
-/* Enable Speex resampling, but only if requested on the command line at a build time. */
+/* Enable Speex resampling, but only if requested on the command line at build time. */
 #if defined(ENABLE_SPEEX)
     #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
     #include "../../extras/speex_resampler/ma_speex_resampler.h"
