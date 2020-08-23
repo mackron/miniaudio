@@ -6011,7 +6011,6 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
-    /*ma_data_source* pDataSource;*/
 
     result = ma_sound_preinit(pEngine, flags, pGroup, pSound);
     if (result != MA_SUCCESS) {
