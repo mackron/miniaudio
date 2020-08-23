@@ -5961,24 +5961,31 @@ static ma_result ma_sound_attach(ma_sound* pSound, ma_sound_group* pGroup)
 
 
 
-static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
 
     (void)flags;
 
-    if (pEngine == NULL || pDataSource == NULL) {
+    if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* Do no clear pSound to zero. Otherwise it may overwrite some members we set earlier. */
+    MA_ZERO_OBJECT(pSound);
 
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->pEngine = pEngine;
+
+    /* An effect is used for handling panning, pitching, etc. */
     result = ma_engine_effect_init(pEngine, &pSound->effect);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pSound->pDataSource = pDataSource;
+    pSound->pDataSource = NULL; /* This will be set a higher level outside of this function. */
     pSound->volume      = 1;
     pSound->seekTarget  = MA_SEEK_TARGET_NONE;
 
@@ -5986,9 +5993,14 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
         pGroup = &pEngine->masterSoundGroup;
     }
 
-    /* By default the sound needs to be added to the master group. */
+    /*
+    By default the sound needs to be added to the master group. It's safe to add to the master group before the sound has been fully initialized because
+    the playing flag is set to false which means the group won't be attempting to do anything with it. Also, the sound won't prematurely be recycled
+    because the atEnd flag is also set to false which is the indicator that the sound object is not available for recycling.
+    */
     result = ma_sound_attach(pSound, pGroup);
     if (result != MA_SUCCESS) {
+        ma_engine_effect_uninit(pEngine, &pSound->effect);
         return result;  /* Should never happen. Failed to attach the sound to the group. */
     }
 
@@ -5999,42 +6011,29 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
-    ma_data_source* pDataSource;
+    /*ma_data_source* pDataSource;*/
+
+    result = ma_sound_preinit(pEngine, flags, pGroup, pSound);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     /*
-    TODO: Plug in the notification system into ma_resource_manager_data_source_init(). This requires a refactor to ensure ma_resource_manager_data_source_init()
-          is the very last thing to be called, thereby ensuring the source object is fully initialized before the notification is triggered.
+    The preinitialization process has succeeded so now we need to load the data source from the resource manager. This needs to be the very last part of the
+    process because we want to ensure the notification is only fired when the sound is fully initialized and usable. This is important because the caller may
+    want to do things like query the length of the sound, set fade points, etc.
     */
-    (void)pNotification;
-
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSound);
-
-    if (pEngine == NULL || pFilePath == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->pEngine = pEngine;
-
-    /* We need to user the resource manager to load the data source. */
-    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pDataSource = &pSound->resourceManagerDataSource;
-
-    /* Now that we have our data source we can create the sound using our generic function. */
-    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need to tell the engine that we own the data source so that it knows to delete it when deleting the sound. This needs to be done after creating the sound with ma_engine_create_sound_from_data_source(). */
+    pSound->pDataSource    = &pSound->resourceManagerDataSource;   /* <-- Make sure the pointer to our data source is set before calling into the resource manager. */
     pSound->ownsDataSource = MA_TRUE;
+
+    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, pNotification, &pSound->resourceManagerDataSource);
+    if (result != MA_SUCCESS) {
+        pSound->pDataSource = NULL;
+        pSound->ownsDataSource = MA_FALSE;
+        ma_sound_uninit(pSound);
+        MA_ZERO_OBJECT(pSound);
+        return result;
+    }
 
     return MA_SUCCESS;
 }
@@ -6042,14 +6041,17 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+    ma_result result;
+
+    result = ma_sound_preinit(pEngine, flags, pGroup, pSound);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    MA_ZERO_OBJECT(pSound);
-    pSound->pEngine = pEngine;
+    pSound->pDataSource = pDataSource;
+    pSound->ownsDataSource = MA_FALSE;
 
-    return ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
+    return MA_SUCCESS;
 }
 
 MA_API void ma_sound_uninit(ma_sound* pSound)
