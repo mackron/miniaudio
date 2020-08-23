@@ -54,7 +54,10 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
     MA_ASSERT(pDecoder != NULL);
     MA_ASSERT(pEncoder != NULL);
 
-    /* Now we just read from the decoder, resample, then write to the encoder. */
+    /*
+    All we do is read from the decoder and then write straight to the encoder. All of the neccessary data conversion
+    will happen internally.
+    */
     for (;;) {
         ma_uint8 pRawData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         ma_uint64 framesReadThisIteration;
