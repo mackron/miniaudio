@@ -969,6 +969,8 @@ MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
+MA_API ma_sound_group* ma_engine_get_master_sound_group(ma_engine* pEngine);
+
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
 
@@ -1002,19 +1004,19 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
-MA_API void ma_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup);   /* Not thread-safe. */
-MA_API ma_result ma_sound_group_start(ma_engine* pEngine, ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_stop(ma_engine* pEngine, ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_volume(ma_engine* pEngine, ma_sound_group* pGroup, float volume);
-MA_API ma_result ma_sound_group_set_gain_db(ma_engine* pEngine, ma_sound_group* pGroup, float gainDB);
-MA_API ma_result ma_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* pGroup, ma_effect* pEffect);
-MA_API ma_result ma_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan);
-MA_API ma_result ma_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch);
-MA_API ma_result ma_sound_group_set_fade_point_in_frames(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
-MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
-MA_API ma_result ma_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
-MA_API ma_result ma_sound_group_set_stop_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
-MA_API ma_result ma_sound_group_get_time_in_frames(ma_engine* pEngine, const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
+MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);   /* Not thread-safe. */
+MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume);
+MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB);
+MA_API ma_result ma_sound_group_set_effect(ma_sound_group* pGroup, ma_effect* pEffect);
+MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
+MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
+MA_API ma_result ma_sound_group_set_fade_point_in_frames(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd);
+MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd);
+MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
 
 #ifdef __cplusplus
 }
@@ -5249,7 +5251,7 @@ static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 
 
 
 static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound);
-static MA_INLINE ma_result ma_sound_group_stop_internal(ma_engine* pEngine, ma_sound_group* pGroup);
+static MA_INLINE ma_result ma_sound_group_stop_internal(ma_sound_group* pGroup);
 
 MA_API ma_engine_config ma_engine_config_init_default()
 {
@@ -5437,7 +5439,7 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
 
         /* Stop the sound if the delay has been reached. */
         if (pGroup->stopDelayInEngineFramesRemaining == 0) {
-            ma_sound_group_stop_internal(pEngine, pGroup);
+            ma_sound_group_stop_internal(pGroup);
         }
     }
 }
@@ -5624,7 +5626,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         pEngine->pResourceManager = (ma_resource_manager*)ma__malloc_from_callbacks(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
         if (pEngine->pResourceManager == NULL) {
-            ma_sound_group_uninit(pEngine, &pEngine->masterSoundGroup);
+            ma_sound_group_uninit(&pEngine->masterSoundGroup);
             ma_engine_listener_uninit(pEngine, &pEngine->listener);
             ma_context_uninit(&pEngine->context);
             return MA_OUT_OF_MEMORY;
@@ -5639,7 +5641,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {
             ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
-            ma_sound_group_uninit(pEngine, &pEngine->masterSoundGroup);
+            ma_sound_group_uninit(&pEngine->masterSoundGroup);
             ma_engine_listener_uninit(pEngine, &pEngine->listener);
             ma_context_uninit(&pEngine->context);
             return result;
@@ -5667,7 +5669,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
         return;
     }
 
-    ma_sound_group_uninit(pEngine, &pEngine->masterSoundGroup);
+    ma_sound_group_uninit(&pEngine->masterSoundGroup);
     ma_engine_listener_uninit(pEngine, &pEngine->listener);
     ma_context_uninit(&pEngine->context);
 
@@ -5729,6 +5731,16 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
     }
 
     return ma_device_set_master_gain_db(&pEngine->listener.device, gainDB);
+}
+
+
+MA_API ma_sound_group* ma_engine_get_master_sound_group(ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return NULL;
+    }
+
+    return &pEngine->masterSoundGroup;
 }
 
 
@@ -6361,17 +6373,19 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 
 
 
-static ma_result ma_sound_group_attach(ma_engine* pEngine, ma_sound_group* pGroup, ma_sound_group* pParentGroup)
+static ma_result ma_sound_group_attach(ma_sound_group* pGroup, ma_sound_group* pParentGroup)
 {
     ma_sound_group* pNewFirstChild;
     ma_sound_group* pOldFirstChild;
 
-    if (pEngine == NULL || pGroup == NULL) {
+    if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
+    MA_ASSERT(pGroup->pEngine != NULL);
+
     /* Don't do anything for the master sound group. This should never be attached to anything. */
-    if (pGroup == &pEngine->masterSoundGroup) {
+    if (pGroup == &pGroup->pEngine->masterSoundGroup) {
         return MA_SUCCESS;
     }
 
@@ -6398,14 +6412,16 @@ static ma_result ma_sound_group_attach(ma_engine* pEngine, ma_sound_group* pGrou
     return MA_SUCCESS;
 }
 
-static ma_result ma_sound_group_detach(ma_engine* pEngine, ma_sound_group* pGroup)
+static ma_result ma_sound_group_detach(ma_sound_group* pGroup)
 {
-    if (pEngine == NULL || pGroup == NULL) {
+    if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
+    MA_ASSERT(pGroup->pEngine != NULL);
+
     /* Don't do anything for the master sound group. This should never be detached from anything. */
-    if (pGroup == &pEngine->masterSoundGroup) {
+    if (pGroup == &pGroup->pEngine->masterSoundGroup) {
         return MA_SUCCESS;
     }
 
@@ -6459,7 +6475,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
         return result;  /* Failed to initialize the engine effect. */
     }
 
-    /* The sound group needs a mixer. */
+    /* The sound group needs a mixer. This is what's used to mix each of the sounds contained within the group, and sub-groups. */
     mixerConfig = ma_mixer_config_init(pEngine->format, pEngine->channels, pEngine->periodSizeInFrames, NULL, &pEngine->allocationCallbacks);
     result = ma_mixer_init(&mixerConfig, &pGroup->mixer);
     if (result != MA_SUCCESS) {
@@ -6473,7 +6489,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
 
     /* Attach the sound group to it's parent if it has one (this will only happen if it's the master group). */
     if (pParentGroup != NULL) {
-        result = ma_sound_group_attach(pEngine, pGroup, pParentGroup);
+        result = ma_sound_group_attach(pGroup, pParentGroup);
         if (result != MA_SUCCESS) {
             ma_mixer_uninit(&pGroup->mixer);
             ma_engine_effect_uninit(pEngine, &pGroup->effect);
@@ -6489,7 +6505,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
     */
     result = ma_mutex_init(&pGroup->lock);
     if (result != MA_SUCCESS) {
-        ma_sound_group_detach(pEngine, pGroup);
+        ma_sound_group_detach(pGroup);
         ma_mixer_uninit(&pGroup->mixer);
         ma_engine_effect_uninit(pEngine, &pGroup->effect);
         return result;
@@ -6501,11 +6517,9 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
     return MA_SUCCESS;
 }
 
-static void ma_sound_group_uninit_all_internal_sounds(ma_engine* pEngine, ma_sound_group* pGroup)
+static void ma_sound_group_uninit_all_internal_sounds(ma_sound_group* pGroup)
 {
     ma_sound* pCurrentSound;
-
-    (void)pEngine;
 
     /* We need to be careful here that we keep our iteration valid. */
     pCurrentSound = pGroup->pFirstSoundInGroup;
@@ -6519,20 +6533,20 @@ static void ma_sound_group_uninit_all_internal_sounds(ma_engine* pEngine, ma_sou
     }
 }
 
-MA_API void ma_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup)
+MA_API void ma_sound_group_uninit(ma_sound_group* pGroup)
 {
     ma_result result;
 
-    ma_sound_group_set_stop_delay(pEngine, pGroup, 0); /* <-- Make sure we disable fading out so the sound group is stopped immediately. */
-    result = ma_sound_group_stop(pEngine, pGroup);
+    ma_sound_group_set_stop_delay(pGroup, 0); /* <-- Make sure we disable fading out so the sound group is stopped immediately. */
+    result = ma_sound_group_stop(pGroup);
     if (result != MA_SUCCESS) {
         MA_ASSERT(MA_FALSE);    /* Should never happen. Trigger an assert for debugging, but don't stop uninitializing in production to ensure we free memory down below. */
     }
 
     /* Any in-place sounds need to be uninitialized. */
-    ma_sound_group_uninit_all_internal_sounds(pEngine, pGroup);
+    ma_sound_group_uninit_all_internal_sounds(pGroup);
 
-    result = ma_sound_group_detach(pEngine, pGroup);
+    result = ma_sound_group_detach(pGroup);
     if (result != MA_SUCCESS) {
         MA_ASSERT(MA_FALSE);    /* As above, should never happen, but just in case trigger an assert in debug mode, but continue processing. */
     }
@@ -6540,17 +6554,13 @@ MA_API void ma_sound_group_uninit(ma_engine* pEngine, ma_sound_group* pGroup)
     ma_mixer_uninit(&pGroup->mixer);
     ma_mutex_uninit(&pGroup->lock);
 
-    ma_engine_effect_uninit(pEngine, &pGroup->effect);
+    ma_engine_effect_uninit(pGroup->pEngine, &pGroup->effect);
 }
 
-MA_API ma_result ma_sound_group_start(ma_engine* pEngine, ma_sound_group* pGroup)
+MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
@@ -6558,44 +6568,35 @@ MA_API ma_result ma_sound_group_start(ma_engine* pEngine, ma_sound_group* pGroup
     return MA_SUCCESS;
 }
 
-static MA_INLINE ma_result ma_sound_group_stop_internal(ma_engine* pEngine, ma_sound_group* pGroup)
+static MA_INLINE ma_result ma_sound_group_stop_internal(ma_sound_group* pGroup)
 {
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pGroup  != NULL);
+    MA_ASSERT(pGroup != NULL);
 
     c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_stop(ma_engine* pEngine, ma_sound_group* pGroup)
+MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     pGroup->stopDelayInEngineFramesRemaining = pGroup->stopDelayInEngineFrames;
 
     /* Stop immediately if we're not delaying. */
     if (pGroup->stopDelayInEngineFrames == 0) {
-        ma_sound_group_stop_internal(pEngine, pGroup);
+        ma_sound_group_stop_internal(pGroup);
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_volume(ma_engine* pEngine, ma_sound_group* pGroup, float volume)
+MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     /* The volume is set via the mixer. */
@@ -6604,23 +6605,15 @@ MA_API ma_result ma_sound_group_set_volume(ma_engine* pEngine, ma_sound_group* p
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_gain_db(ma_engine* pEngine, ma_sound_group* pGroup, float gainDB)
+MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_volume(pEngine, pGroup, ma_gain_db_to_factor(gainDB));
+    return ma_sound_group_set_volume(pGroup, ma_gain_db_to_factor(gainDB));
 }
 
-MA_API ma_result ma_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* pGroup, ma_effect* pEffect)
+MA_API ma_result ma_sound_group_set_effect(ma_sound_group* pGroup, ma_effect* pEffect)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     pGroup->effect.pPreEffect = pEffect;
@@ -6628,27 +6621,19 @@ MA_API ma_result ma_sound_group_set_effect(ma_engine* pEngine, ma_sound_group* p
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_pan(ma_engine* pEngine, ma_sound_group* pGroup, float pan)
+MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     return ma_panner_set_pan(&pGroup->effect.panner, pan);
 }
 
-MA_API ma_result ma_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pGroup, float pitch)
+MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     pGroup->effect.pitch = pitch;
@@ -6656,69 +6641,57 @@ MA_API ma_result ma_sound_group_set_pitch(ma_engine* pEngine, ma_sound_group* pG
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_fade_point_in_frames(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
+MA_API ma_result ma_sound_group_set_fade_point_in_frames(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInFramesBeg, ma_uint64 timeInFramesEnd)
 {
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     return ma_dual_fader_set_fade(&pGroup->effect.fader, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
 }
 
-MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd)
+MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_sound_group* pGroup, ma_uint32 fadePointIndex, float volumeBeg, float volumeEnd, ma_uint64 timeInMillisecondsBeg, ma_uint64 timeInMillisecondsEnd)
 {
     ma_uint64 timeInFramesBeg;
     ma_uint64 timeInFramesEnd;
 
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     timeInFramesBeg = (timeInMillisecondsBeg * pGroup->effect.fader.config.sampleRate) / 1000;
     timeInFramesEnd = (timeInMillisecondsEnd * pGroup->effect.fader.config.sampleRate) / 1000;
 
-    return ma_sound_group_set_fade_point_in_frames(pEngine, pGroup, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
+    return ma_sound_group_set_fade_point_in_frames(pGroup, fadePointIndex, volumeBeg, volumeEnd, timeInFramesBeg, timeInFramesEnd);
 }
 
-MA_API ma_result ma_sound_group_set_start_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
 {
-    if (pEngine == NULL) {
+    if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
-    }
+    MA_ASSERT(pGroup->pEngine != NULL);
 
-    pGroup->startDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pGroup->startDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_stop_delay(ma_engine* pEngine, ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
 {
-    if (pEngine == NULL) {
+    if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
-    }
+    MA_ASSERT(pGroup->pEngine != NULL);
 
-    pGroup->stopDelayInEngineFrames = (pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pGroup->stopDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_get_time_in_frames(ma_engine* pEngine, const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
+MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
 {
     if (pTimeInFrames == NULL) {
         return MA_INVALID_ARGS;
@@ -6726,12 +6699,8 @@ MA_API ma_result ma_sound_group_get_time_in_frames(ma_engine* pEngine, const ma_
 
     *pTimeInFrames = 0;
 
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
+        return MA_INVALID_ARGS;
     }
 
     *pTimeInFrames = pGroup->effect.timeInFrames;

@@ -46,6 +46,7 @@ int main(int argc, char** argv)
 
 
 #if 1
+    loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
     result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, &loadNotification, NULL, &sound);
@@ -57,9 +58,9 @@ int main(int argc, char** argv)
 
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
-    //ma_sound_group_set_pan(&engine, NULL, -1);
-    //ma_sound_group_set_pitch(&engine, NULL, 1.0f);
-    //ma_sound_group_set_start_delay(&engine, NULL, 2000);
+    //ma_sound_group_set_pan(ma_engine_get_master_sound_group(&engine), -1);
+    //ma_sound_group_set_pitch(ma_engine_get_master_sound_group(&engine), 1.0f);
+    //ma_sound_group_set_start_delay(ma_engine_get_master_sound_group(&engine), 2000);
     
     /*ma_sound_set_volume(&sound, 0.25f);*/
     //ma_sound_set_pitch(&sound, 2.0f);
@@ -74,7 +75,7 @@ int main(int argc, char** argv)
     ma_sleep(2000);
     printf("Stopping...\n");
     ma_sound_stop(&sound);
-    //ma_sound_group_stop(&engine, NULL);
+    //ma_sound_group_stop(ma_engine_get_master_sound_group(&engine));
 #endif
 
 #if 1
@@ -99,7 +100,7 @@ int main(int argc, char** argv)
             pitchStep = -pitchStep;
         }
 
-        //ma_sound_group_set_pitch(&engine, NULL, pitch);
+        //ma_sound_group_set_pitch(ma_engine_get_master_sound_group(&engine), pitch);
         ma_sound_set_pitch(&sound, pitch);
         printf("Pitch: %f\n", pitch);
 
