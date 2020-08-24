@@ -42544,7 +42544,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  9
+#define DRWAV_VERSION_REVISION  10
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -49104,6 +49104,13 @@ DRWAV_API drwav_bool32 drwav_seek_to_first_pcm_frame(drwav* pWav)
     }
     if (drwav__is_compressed_format_tag(pWav->translatedFormatTag)) {
         pWav->compressed.iCurrentPCMFrame = 0;
+        if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
+            DRWAV_ZERO_OBJECT(&pWav->msadpcm);
+        } else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+            DRWAV_ZERO_OBJECT(&pWav->ima);
+        } else {
+            DRWAV_ASSERT(DRWAV_FALSE);
+        }
     }
     pWav->bytesRemaining = pWav->dataChunkDataSize;
     return DRWAV_TRUE;
@@ -62482,6 +62489,7 @@ v0.10.17 - TBD
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
   - Fix compilation error on Android.
   - Add ma_decoder_get_cursor_in_pcm_frames().
+  - Update WAV codec.
 
 v0.10.16 - 2020-08-14
   - WASAPI: Fix a potential crash due to using an uninitialized variable.

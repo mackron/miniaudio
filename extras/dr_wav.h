@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.9 - 2020-08-02
+dr_wav - v0.12.10 - 2020-08-24
 
 David Reid - mackron@gmail.com
 
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  9
+#define DRWAV_VERSION_REVISION  10
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -3533,6 +3533,15 @@ DRWAV_API drwav_bool32 drwav_seek_to_first_pcm_frame(drwav* pWav)
 
     if (drwav__is_compressed_format_tag(pWav->translatedFormatTag)) {
         pWav->compressed.iCurrentPCMFrame = 0;
+
+        /* Cached data needs to be cleared for compressed formats. */
+        if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
+            DRWAV_ZERO_OBJECT(&pWav->msadpcm);
+        } else if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+            DRWAV_ZERO_OBJECT(&pWav->ima);
+        } else {
+            DRWAV_ASSERT(DRWAV_FALSE);  /* If this assertion is triggered it means I've implemented a new compressed format but forgot to add a branch for it here. */
+        }
     }
     
     pWav->bytesRemaining = pWav->dataChunkDataSize;
@@ -5925,6 +5934,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.10 - 2020-08-24
+  - Fix a bug when seeking with ADPCM formats.
+
 v0.12.9 - 2020-08-02
   - Simplify sized types.
 
