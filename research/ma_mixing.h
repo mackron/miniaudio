@@ -1860,7 +1860,7 @@ static ma_result ma_volume_and_clip_and_effect_pcm_frames(void* pDst, ma_format 
         */
         if (effectFormatIn == formatIn && effectChannelsIn == channelsIn) {
             /* Fast path. No data conversion required for the input data except clipping. */
-            ma_volume_and_clip_pcm_frames(effectBufferIn, pRunningSrc, effectBufferInCapInFrames, formatIn, channelsIn, volume);
+            ma_volume_and_clip_pcm_frames(effectBufferIn, pRunningSrc, effectFrameCountIn, formatIn, channelsIn, volume);
         } else {
             /* Slow path. Data conversion required between the input data and the effect input data. */
             ma_uint8  clippedSrcBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
