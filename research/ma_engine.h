@@ -2197,6 +2197,11 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
 
+        /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
+        while (pDataBuffer->pNode->result == MA_BUSY) {
+            ma_yield();
+        }
+
         result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
         if (result != MA_SUCCESS) {
             ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);

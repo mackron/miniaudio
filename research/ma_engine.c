@@ -21,8 +21,8 @@ void on_sound_loaded(ma_async_notification* pNotification)
     This will be fired when the sound has finished loading. We should be able to retrieve the length of the sound at this point. Here we'll just set
     the fade out time.
     */
-    ma_sound_get_length_in_pcm_frames(pLoadedNotification->pSound, &lengthInPCMFrames);
-    ma_sound_set_fade_point_in_frames(pLoadedNotification->pSound, 1, 1, 0, lengthInPCMFrames - 192000, lengthInPCMFrames);
+    //ma_sound_get_length_in_pcm_frames(pLoadedNotification->pSound, &lengthInPCMFrames);
+    //ma_sound_set_fade_point_in_frames(pLoadedNotification->pSound, 1, 1, 0, lengthInPCMFrames - 192000, lengthInPCMFrames);
 }
 
 int main(int argc, char** argv)
@@ -50,14 +50,14 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
         return -1;
     }
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -76,13 +76,15 @@ int main(int argc, char** argv)
     ma_sound_set_looping(&sound, MA_TRUE);
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_delay(&sound, 1110);
-    ma_sound_set_fade_point_in_milliseconds(&sound, 0, 0, 1, 0, 2000);
-    ma_sound_set_fade_point_auto_reset(&sound, 0, MA_FALSE);    /* Enable fading around loop transitions. */
-    ma_sound_set_fade_point_auto_reset(&sound, 1, MA_FALSE);
+    ma_sound_set_volume(&sound, 0.5f);
+    //ma_sound_set_fade_point_in_milliseconds(&sound, 0, 0, 1, 0, 2000);
+    //ma_sound_set_fade_point_auto_reset(&sound, 0, MA_FALSE);    /* Enable fading around loop transitions. */
+    //ma_sound_set_fade_point_auto_reset(&sound, 1, MA_FALSE);
     ma_sound_set_stop_delay(&sound, 1000);
     ma_sound_start(&sound);
 
     ma_sleep(1000);
+    ma_sound_set_volume(&sound2, 0.5f);
     ma_sound_start(&sound2);
 
     //ma_sleep(2000);
