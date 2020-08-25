@@ -30,6 +30,7 @@ int main(int argc, char** argv)
     ma_result result;
     ma_engine engine;
     ma_sound sound;
+    ma_sound sound2;
     sound_loaded_notification loadNotification;
     
 
@@ -49,7 +50,14 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
+    if (result != MA_SUCCESS) {
+        printf("Failed to load sound: %s\n", argv[1]);
+        ma_engine_uninit(&engine);
+        return -1;
+    }
+
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -73,6 +81,9 @@ int main(int argc, char** argv)
     ma_sound_set_fade_point_auto_reset(&sound, 1, MA_FALSE);
     ma_sound_set_stop_delay(&sound, 1000);
     ma_sound_start(&sound);
+
+    ma_sleep(1000);
+    ma_sound_start(&sound2);
 
     //ma_sleep(2000);
     printf("Stopping...\n");

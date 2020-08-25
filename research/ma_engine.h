@@ -2197,6 +2197,12 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
 
+        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+            return result;
+        }
+
         if (pNotification != NULL) {
             ma_async_notification_signal(pNotification);
         }
