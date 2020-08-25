@@ -42125,7 +42125,16 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    /* No SetFilePointerEx() so restrict to 31 bits. */
+    if (origin > 0x7FFFFFFF) {
+        return MA_OUT_OF_RANGE;
+    }
+
+    result = SetFilePointer((HANDLE)file, (LONG)liDistanceToMove.QuadPart, NULL, dwMoveMethod);
+#else
     result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -42138,12 +42147,20 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     LARGE_INTEGER liZero;
     LARGE_INTEGER liTell;
     BOOL result;
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    LONG tell;
+#endif
 
     (void)pVFS;
 
     liZero.QuadPart = 0;
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    result = SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
+    liTell.QuadPart = tell;
+#else
     result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
