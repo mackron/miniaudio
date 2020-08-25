@@ -2198,6 +2198,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         }
 
         /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
+        /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
         while (pDataBuffer->pNode->result == MA_BUSY) {
             ma_yield();
         }
@@ -5360,8 +5361,12 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
-                    ma_sound_stop_internal(pSound);
-                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                    if (pSound->isLooping) {
+                        ma_sound_seek_to_pcm_frame(pSound, 0);
+                    } else {
+                        ma_sound_stop_internal(pSound);
+                        c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                    }
                 }
 
                 pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
