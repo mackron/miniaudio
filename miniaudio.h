@@ -10180,7 +10180,7 @@ static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, m
             break;
         }
 
-        result = ma_pcm_rb_commit_write(pRB, (ma_uint32)framesProcessedInDeviceFormat, pFramesInClientFormat);  /* Safe cast. */
+        result = ma_pcm_rb_commit_write(pRB, (ma_uint32)framesProcessedInClientFormat, pFramesInClientFormat);  /* Safe cast. */
         if (result != MA_SUCCESS) {
             ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to commit capture PCM frames to ring buffer.", result);
             break;
@@ -62488,6 +62488,7 @@ REVISION HISTORY
 v0.10.17 - TBD
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
   - Fix compilation error on Android.
+  - Core Audio: Fix a bug with full-duplex mode.
   - Add ma_decoder_get_cursor_in_pcm_frames().
   - Update WAV codec.
 
