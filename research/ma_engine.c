@@ -73,17 +73,18 @@ int main(int argc, char** argv)
     /*ma_sound_set_volume(&sound, 0.25f);*/
     //ma_sound_set_pitch(&sound, 2.0f);
     ma_sound_set_pan(&sound, 0.0f);
-    ma_sound_set_looping(&sound, MA_TRUE);
+    //ma_sound_set_looping(&sound, MA_TRUE);
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_delay(&sound, 1110);
-    ma_sound_set_volume(&sound, 0.5f);
+    ma_sound_set_volume(&sound, 0.0f);
     //ma_sound_set_fade_point_in_milliseconds(&sound, 0, 0, 1, 0, 2000);
     //ma_sound_set_fade_point_auto_reset(&sound, 0, MA_FALSE);    /* Enable fading around loop transitions. */
     //ma_sound_set_fade_point_auto_reset(&sound, 1, MA_FALSE);
     ma_sound_set_stop_delay(&sound, 1000);
     ma_sound_start(&sound);
 
-    ma_sleep(1000);
+    //ma_sleep(1000);
+    ma_sound_set_looping(&sound2, MA_TRUE);
     ma_sound_set_volume(&sound2, 0.5f);
     ma_sound_start(&sound2);
 

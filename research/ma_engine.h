@@ -2129,6 +2129,12 @@ static ma_bool32 ma_resource_manager_data_buffer_is_busy(ma_resource_manager_dat
     */
     if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
         ma_uint64 availableFrames;
+
+        /* If the sound has been fully loaded then we'll never be busy. */
+        if (pDataBuffer->pNode->data.decoded.decodedFrameCount == pDataBuffer->pNode->data.decoded.frameCount) {
+            return MA_FALSE;    /* The sound is fully loaded. The buffer will never be busy. */
+        }
+
         if (ma_resource_manager_data_buffer_get_available_frames(pDataBuffer, &availableFrames) == MA_SUCCESS) {
             return availableFrames < requiredFrameCount;
         }
