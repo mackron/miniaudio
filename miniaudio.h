@@ -43907,13 +43907,20 @@ static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig
 
     /*
     dr_flac supports reading as s32, s16 and f32. Try to do a one-to-one mapping if possible, but fall back to s32 if not. s32 is the "native" FLAC format
-    since it's the only one that's truly lossless.
+    since it's the only one that's truly lossless. If the internal bits per sample is <= 16 we will decode to ma_format_s16 to keep it more efficient.
     */
-    pDecoder->internalFormat = ma_format_s32;
-    if (pConfig->format == ma_format_s16) {
-        pDecoder->internalFormat = ma_format_s16;
-    } else if (pConfig->format == ma_format_f32) {
-        pDecoder->internalFormat = ma_format_f32;
+    if (pConfig->format == ma_format_unknown) {
+        if (pFlac->bitsPerSample <= 16) {
+            pDecoder->internalFormat = ma_format_s16;
+        } else {
+            pDecoder->internalFormat = ma_format_s32;
+        }
+    } else {
+        if (pConfig->format == ma_format_s16 || pConfig->format == ma_format_f32) {
+            pDecoder->internalFormat = pConfig->format;
+        } else {
+            pDecoder->internalFormat = ma_format_s32;   /* s32 as the baseline to ensure no loss of precision for 24-bit encoded files. */
+        }
     }
 
     pDecoder->internalChannels = pFlac->channels;
@@ -62509,6 +62516,7 @@ v0.10.18 - TBD
   - Fix a bug in channel converter for s32 format.
   - Change channel converter configs to use the default channel map instead of a blank channel map when no channel map is specified when initializing the
     config. This fixes an issue where the optimized mono expansion path would never get used.
+  - Use a more appropriate default format for FLAC decoders. This will now use ma_format_s16 when the FLAC is encoded as 16-bit.
 
 v0.10.17 - 2020-08-28
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
