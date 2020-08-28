@@ -41624,7 +41624,7 @@ MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, 
         MA_ASSERT(pAudioBuffer->cursor < pAudioBuffer->sizeInFrames);
     }
 
-    return frameCount;
+    return totalFramesRead;
 }
 
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex)
@@ -62487,6 +62487,7 @@ REVISION HISTORY
 ================
 v0.10.17 - TBD
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
+  - Fix a bug in ma_audio_buffer_read_pcm_frames() where it isn't returning the correct number of frames processed.
   - Fix compilation error on Android.
   - Core Audio: Fix a bug with full-duplex mode.
   - Add ma_decoder_get_cursor_in_pcm_frames().
