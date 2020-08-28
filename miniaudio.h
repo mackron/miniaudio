@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.17 - TBD
+miniaudio - v0.10.17 - 2020-08-28
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -62485,7 +62485,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.17 - TBD
+v0.10.17 - 2020-08-28
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
   - Fix a bug in ma_audio_buffer_read_pcm_frames() where it isn't returning the correct number of frames processed.
   - Fix compilation error on Android.

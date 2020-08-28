@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.16 - 2020-08-14
+miniaudio - v0.10.17 - 2020-08-28
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 16
+#define MA_VERSION_REVISION 17
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -4082,6 +4082,11 @@ MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_d
 MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
+
+/*
+Retrieves the current position of the read cursor in PCM frames.
+*/
+MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor);
 
 /*
 Retrieves the length of the decoder in PCM frames.
