@@ -38619,7 +38619,7 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
                 for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
                     for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
                         ma_int64 s = pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut];
-                        s += (pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+                        s += ((ma_int64)pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
 
                         pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s32(s);
                     }
