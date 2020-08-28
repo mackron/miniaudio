@@ -28,7 +28,10 @@ void on_sound_loaded(ma_async_notification* pNotification)
 int main(int argc, char** argv)
 {
     ma_result result;
+    ma_resource_manager resourceManager;
+    ma_resource_manager_config resourceManagerConfig;
     ma_engine engine;
+    ma_engine_config engineConfig;
     ma_sound sound;
     ma_sound sound2;
     sound_loaded_notification loadNotification;
@@ -39,7 +42,18 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    result = ma_engine_init(NULL, &engine);
+    resourceManagerConfig = ma_resource_manager_config_init();
+    //resourceManagerConfig.decodedFormat = ma_format_s16;
+    result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize resource manager.\n");
+        return -1;
+    }
+
+    engineConfig = ma_engine_config_init_default();
+    engineConfig.pResourceManager = &resourceManager;
+
+    result = ma_engine_init(&engineConfig, &engine);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize audio engine.\n");
         return -1;

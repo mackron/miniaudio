@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.17 - 2020-08-28
+miniaudio - v0.10.18 - TBD
 
 David Reid - davidreidsoftware@gmail.com
 
@@ -1420,7 +1420,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 17
+#define MA_VERSION_REVISION 18
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2602,6 +2602,13 @@ Copies a channel map.
 Both input and output channel map buffers must have a capacity of at at least `channels`.
 */
 MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
+
+/*
+Copies a channel map if one is specified, otherwise copies the default channel map.
+
+The output buffer must have a capacity of at least `channels`. If not NULL, the input channel map must also have a capacity of at least `channels`.
+*/
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
 
 
 /*
@@ -37936,8 +37943,8 @@ MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format fo
     config.format      = format;
     config.channelsIn  = channelsIn;
     config.channelsOut = channelsOut;
-    ma_channel_map_copy(config.channelMapIn,  pChannelMapIn,  channelsIn);
-    ma_channel_map_copy(config.channelMapOut, pChannelMapOut, channelsOut);
+    ma_channel_map_copy_or_default(config.channelMapIn,  pChannelMapIn,  channelsIn);
+    ma_channel_map_copy_or_default(config.channelMapOut, pChannelMapOut, channelsOut);
     config.mixingMode  = mixingMode;
 
     return config;
@@ -40226,6 +40233,19 @@ MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint
 {
     if (pOut != NULL && pIn != NULL && channels > 0) {
         MA_COPY_MEMORY(pOut, pIn, sizeof(*pOut) * channels);
+    }
+}
+
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels)
+{
+    if (pOut == NULL || channels == 0) {
+        return;
+    }
+
+    if (pIn != NULL) {
+        ma_channel_map_copy(pOut, pIn, channels);
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, channels, pOut);
     }
 }
 
@@ -62485,6 +62505,11 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.18 - TBD
+  - Fix a bug in channel converter for s32 format.
+  - Change channel converter configs to use the default channel map instead of a blank channel map when no channel map is specified when initializing the
+    config. This fixes an issue where the optimized mono expansion path would never get used.
+
 v0.10.17 - 2020-08-28
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
   - Fix a bug in ma_audio_buffer_read_pcm_frames() where it isn't returning the correct number of frames processed.
