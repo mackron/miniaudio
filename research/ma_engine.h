@@ -914,10 +914,10 @@ struct ma_sound_group
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
     ma_sound* pFirstSoundInGroup;
-    ma_engine_effect effect;                /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
+    ma_engine_effect effect;                    /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
     ma_mixer mixer;
-    ma_mutex lock;                          /* Only used by ma_sound_init_*() and ma_sound_uninit(). Not used in the mixing thread. */
-    ma_uint64 runningTimeInEngineFrames;    /* The amount of time the sound has been running in engine frames, including start delays. */
+    ma_mutex lock;                              /* Only used by ma_sound_init_*() and ma_sound_uninit(). Not used in the mixing thread. */
+    ma_uint64 runningTimeInEngineFrames;        /* The amount of time the sound has been running in engine frames, including start delays. */
     ma_uint64 startDelayInEngineFrames;
     ma_uint64 stopDelayInEngineFrames;          /* In the engine's sample rate. */
     ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
@@ -943,6 +943,7 @@ typedef struct
     ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
+    ma_vfs* pResourceManagerVFS;            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init_default();
@@ -5686,6 +5687,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
         resourceManagerConfig.decodedSampleRate = pEngine->sampleRate;
         ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
+        resourceManagerConfig.pVFS              = pConfig->pResourceManagerVFS;
 
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {

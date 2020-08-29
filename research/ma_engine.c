@@ -44,6 +44,7 @@ int main(int argc, char** argv)
 
     resourceManagerConfig = ma_resource_manager_config_init();
     //resourceManagerConfig.decodedFormat = ma_format_s16;
+    resourceManagerConfig.decodedSampleRate = 48000;
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize resource manager.\n");
@@ -64,7 +65,7 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -72,7 +73,7 @@ int main(int argc, char** argv)
     }
 
 #if 1
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -101,8 +102,8 @@ int main(int argc, char** argv)
 
     //ma_sleep(1000);
     //ma_sound_set_looping(&sound2, MA_TRUE);
-    ma_sound_set_volume(&sound2, 0.5f);
-    ma_sound_start(&sound2);
+    //ma_sound_set_volume(&sound2, 0.5f);
+    //ma_sound_start(&sound2);
 
     //ma_sleep(2000);
     printf("Stopping...\n");
