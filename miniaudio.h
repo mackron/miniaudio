@@ -42123,9 +42123,6 @@ static ma_result ma_default_vfs_write__win32(ma_vfs* pVFS, ma_vfs_file file, con
     return result;
 }
 
-#if !defined(WINVER) || WINVER <= 0x0502
-WINBASEAPI BOOL WINAPI SetFilePointerEx(HANDLE hFile, LARGE_INTEGER liDistanceToMove, LARGE_INTEGER* pNewFilePointer, DWORD dwMoveMethod);
-#endif
 
 static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
 {
