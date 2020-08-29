@@ -10416,7 +10416,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             }
 
             /* Getting here means a suspend or kill operation has been requested. */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;
         }
@@ -10430,7 +10430,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             ma_timer_init(&pDevice->null_device.timer);
 
             /* We're done. */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;
         }
@@ -10438,7 +10438,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_KILL__NULL) {
             c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             break;
         }
@@ -10446,7 +10446,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
         }
@@ -42145,7 +42145,16 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    /* No SetFilePointerEx() so restrict to 31 bits. */
+    if (origin > 0x7FFFFFFF) {
+        return MA_OUT_OF_RANGE;
+    }
+
+    result = SetFilePointer((HANDLE)file, (LONG)liDistanceToMove.QuadPart, NULL, dwMoveMethod);
+#else
     result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -42158,12 +42167,20 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     LARGE_INTEGER liZero;
     LARGE_INTEGER liTell;
     BOOL result;
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    LONG tell;
+#endif
 
     (void)pVFS;
 
     liZero.QuadPart = 0;
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    result = SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
+    liTell.QuadPart = tell;
+#else
     result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
