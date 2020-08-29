@@ -1021,6 +1021,7 @@ MA_API ma_result ma_sound_group_set_fade_point_in_milliseconds(ma_sound_group* p
 MA_API ma_result ma_sound_group_set_fade_point_auto_reset(ma_sound_group* pGroup, ma_uint32 fadePointIndex, ma_bool32 autoReset);
 MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
+MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
 
 #ifdef __cplusplus
@@ -3960,11 +3961,14 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
             pDataBuffer->pNode->data.decoded.decodedFrameCount += framesRead;
         }
 
-        /* If there's more to decode, post a job to keep decoding. */
-        if (result != MA_AT_END) {
-            jobCopy.pageDataBuffer.decodedFrameCount += framesRead;
-            jobCopy.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);   /* We need a fresh execution order. */
+        /*
+        If there's more to decode, post a job to keep decoding. Note that we always increment the decoded frame count in the copy of the job because it'll be
+        referenced below and we'll need to know the new frame count.
+        */
+        jobCopy.pageDataBuffer.decodedFrameCount += framesRead;
 
+        if (result != MA_AT_END) {
+            jobCopy.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);   /* We need a fresh execution order. */
             result = ma_resource_manager_post_job(pResourceManager, &jobCopy);
         }
     }
@@ -5328,6 +5332,12 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
             ma_result result = MA_SUCCESS;
             ma_uint64 framesProcessed;
 
+            /* If we're marked at the end we need to stop the sound and do nothing. */
+            if (pSound->atEnd) {
+                ma_sound_stop_internal(pSound);
+                return;
+            }
+
             /* If we're seeking, do so now before reading. */
             if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
                 pSound->seekTarget  = MA_SEEK_TARGET_NONE;
@@ -5359,7 +5369,6 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 
                 /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
                 if (result == MA_AT_END) {
-                    ma_sound_stop_internal(pSound);
                     c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
                 }
 
@@ -6152,6 +6161,9 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         if (result != MA_SUCCESS) {
             return result;  /* Failed to seek back to the start. */
         }
+
+        /* Make sure we clear the end indicator. */
+        pSound->atEnd = MA_FALSE;
     }
 
     /* Once everything is set up we can tell the mixer thread about it. */
@@ -6757,6 +6769,15 @@ MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64
     pGroup->stopDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return MA_FALSE;
+    }
+
+    return pGroup->isPlaying;
 }
 
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
