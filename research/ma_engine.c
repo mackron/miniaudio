@@ -98,7 +98,7 @@ int main(int argc, char** argv)
     ma_sound_start(&sound);
 
     //ma_sleep(1000);
-    ma_sound_set_looping(&sound2, MA_TRUE);
+    //ma_sound_set_looping(&sound2, MA_TRUE);
     ma_sound_set_volume(&sound2, 0.5f);
     ma_sound_start(&sound2);
 

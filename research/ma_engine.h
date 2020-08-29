@@ -999,6 +999,7 @@ MA_API ma_result ma_sound_set_fade_point_in_milliseconds(ma_sound* pSound, ma_ui
 MA_API ma_result ma_sound_set_fade_point_auto_reset(ma_sound* pSound, ma_uint32 fadePointIndex, ma_bool32 autoReset);
 MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
+MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
@@ -5355,6 +5356,12 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 the mixer to optimize the volume = 0 case, and let the effect do it's own internal optimizations in non-audible cases.
                 */
                 result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
+                
+                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+                if (result == MA_AT_END) {
+                    ma_sound_stop_internal(pSound);
+                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                }
 
                 /*
                 For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
@@ -5363,12 +5370,6 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
                 result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
                 if (result == MA_SUCCESS) {
                     ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
-                }
-
-                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-                if (result == MA_AT_END) {
-                    ma_sound_stop_internal(pSound);
-                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
                 }
 
                 pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
@@ -6337,6 +6338,15 @@ MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMill
     pSound->stopDelayInEngineFrames = (pSound->pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    return pSound->isPlaying;
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
