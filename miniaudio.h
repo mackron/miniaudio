@@ -62528,6 +62528,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.18 - TBD
+  - Fix build errors with VC6.
   - Fix a bug in channel converter for s32 format.
   - Change channel converter configs to use the default channel map instead of a blank channel map when no channel map is specified when initializing the
     config. This fixes an issue where the optimized mono expansion path would never get used.
