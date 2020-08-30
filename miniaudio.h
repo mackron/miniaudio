@@ -42951,7 +42951,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  18
+#define DRFLAC_VERSION_REVISION  19
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -51691,7 +51691,6 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_uint32(drflac_bs* bs, unsigned i
 static drflac_bool32 drflac__read_int32(drflac_bs* bs, unsigned int bitCount, drflac_int32* pResult)
 {
     drflac_uint32 result;
-    drflac_uint32 signbit;
     DRFLAC_ASSERT(bs != NULL);
     DRFLAC_ASSERT(pResult != NULL);
     DRFLAC_ASSERT(bitCount > 0);
@@ -51699,8 +51698,11 @@ static drflac_bool32 drflac__read_int32(drflac_bs* bs, unsigned int bitCount, dr
     if (!drflac__read_uint32(bs, bitCount, &result)) {
         return DRFLAC_FALSE;
     }
-    signbit = ((result >> (bitCount-1)) & 0x01);
-    result |= (~signbit + 1) << bitCount;
+    if (bitCount < 32) {
+        drflac_uint32 signbit;
+        signbit = ((result >> (bitCount-1)) & 0x01);
+        result |= (~signbit + 1) << bitCount;
+    }
     *pResult = (drflac_int32)result;
     return DRFLAC_TRUE;
 }
@@ -62533,6 +62535,7 @@ v0.10.18 - TBD
   - Change channel converter configs to use the default channel map instead of a blank channel map when no channel map is specified when initializing the
     config. This fixes an issue where the optimized mono expansion path would never get used.
   - Use a more appropriate default format for FLAC decoders. This will now use ma_format_s16 when the FLAC is encoded as 16-bit.
+  - Update FLAC decoder.
 
 v0.10.17 - 2020-08-28
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.
