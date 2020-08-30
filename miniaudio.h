@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.18 - TBD
+miniaudio - v0.10.18 - 2020-08-30
 
 David Reid - mackron@gmail.com
 
@@ -62529,7 +62529,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.18 - TBD
+v0.10.18 - 2020-08-30
   - Fix build errors with VC6.
   - Fix a bug in channel converter for s32 format.
   - Change channel converter configs to use the default channel map instead of a blank channel map when no channel map is specified when initializing the
