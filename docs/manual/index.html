@@ -236,7 +236,7 @@ a.doc-navigation-l4 {
                         <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
                     </td>
                     <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
-                        <a href="https://github.com/dr-soft/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
                     </td>
                 </tr>
             </table>
@@ -246,7 +246,7 @@ a.doc-navigation-l4 {
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:300px; border:solid 0px #000; padding:0; margin:0;">
 <a href="../index.html" class="doc-navigation">Documentation Home</a><a href="index.html" class="doc-navigation doc-navigation-active">Programming Manual</a><a href="#Introduction" class="doc-navigation doc-navigation-l1">Introduction</a><a href="#Building" class="doc-navigation doc-navigation-l1">Building</a><a href="#Definitions" class="doc-navigation doc-navigation-l1">Definitions</a><a href="#Decoding" class="doc-navigation doc-navigation-l1">Decoding</a><a href="#Encoding" class="doc-navigation doc-navigation-l1">Encoding</a><a href="#DataConversion" class="doc-navigation doc-navigation-l1">Data Conversion</a><a href="#Filtering" class="doc-navigation doc-navigation-l1">Filtering</a><a href="#WaveformandNoiseGeneration" class="doc-navigation doc-navigation-l1">Waveform and Noise Generation</a><a href="#AudioBuffers" class="doc-navigation doc-navigation-l1">Audio Buffers</a><a href="#RingBuffers" class="doc-navigation doc-navigation-l1">Ring Buffers</a><a href="#Backends" class="doc-navigation doc-navigation-l1">Backends</a><a href="#MiscellaneousNotes" class="doc-navigation doc-navigation-l1">Miscellaneous Notes</a><a href="../examples/index.html" class="doc-navigation">Examples</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
-<div style="text-align:center; padding:1em; padding-bottom:2em;"><div style="text-align:center;"><img src="../../img/logo1_large.png" style="width:auto; height:auto; min-height:70px;"></div><div style="padding-top:1em; font-weight:bold; font-size:2em; color:#444;">Programming Manual</div><div style="padding-top:0.75em; text-align:center;"><a href="../examples/index.html">Examples</a> - <a href="../api/index.html">API Reference</a> - <a href="https://github.com/dr-soft/miniaudio">Source Code</a></div></div>
+<div style="text-align:center; padding:1em; padding-bottom:2em;"><div style="text-align:center;"><img src="../../img/logo1_large.png" style="width:auto; height:auto; min-height:70px;"></div><div style="padding-top:1em; font-weight:bold; font-size:2em; color:#444;">Programming Manual</div><div style="padding-top:0.75em; text-align:center;"><a href="../examples/index.html">Examples</a> - <a href="../api/index.html">API Reference</a> - <a href="https://github.com/mackron/miniaudio">Source Code</a></div></div>
 <p>
 
 </p>
@@ -1176,7 +1176,7 @@ Vorbis is supported via stb_vorbis which can be enabled by including the header 
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/stb_vorbis.c&quot;</span>
 </pre></div><p>
 
-A copy of stb_vorbis is included in the &quot;extras&quot; folder in the miniaudio repository (<a href="https://github.com/dr-soft/miniaudio">https://github.com/dr-soft/miniaudio</a>).
+A copy of stb_vorbis is included in the &quot;extras&quot; folder in the miniaudio repository (<a href="https://github.com/mackron/miniaudio">https://github.com/mackron/miniaudio</a>).
 </p>
 <p>
 
@@ -1491,11 +1491,6 @@ To perform the conversion simply call <span style="font-family:monospace;">ma_ch
 </pre></div><p>
 
 It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM frames.
-</p>
-<p>
-
-The only formats supported are <span style="font-family:monospace;">ma_format_s16</span> and <span style="font-family:monospace;">ma_format_f32</span>. If you need another format you need to convert your data manually which you can do with
-<span style="font-family:monospace;">ma_pcm_convert()</span>, etc.
 </p>
 <p>
 
@@ -3114,6 +3109,9 @@ The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod
 <li>
 Note that GCC and Clang requires <span style="font-family:monospace;">-msse2</span>, <span style="font-family:monospace;">-mavx2</span>, etc. for SIMD optimizations.
 </li>
+<li>
+When compiling with VC6 and earlier, decoding is restricted to files less than 2GB in size. This is due to 64-bit file APIs not being available.
+</li>
 </ul>
 </td>
 </tr></table>
@@ -3122,13 +3120,13 @@ Note that GCC and Clang requires <span style="font-family:monospace;">-msse2</sp
         <tr>
             <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
             <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
-            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/dr-soft/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
         </tr>
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
         Copyright &copy; 2020 David Reid<br/>
-        Developed by David Reid - <a class="footer-link" href="mailto:davidreidsoftware@gmail.com">davidreidsoftware@gmail.com</a>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>
 </html>
