@@ -2,11 +2,11 @@
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
 miniaudio - v0.10.18 - TBD
 
-David Reid - davidreidsoftware@gmail.com
+David Reid - mackron@gmail.com
 
 Website:       https://miniaud.io
 Documentation: https://miniaud.io/docs
-GitHub:        https://github.com/dr-soft/miniaudio
+GitHub:        https://github.com/mackron/miniaudio
 */
 
 /*
@@ -409,7 +409,7 @@ Vorbis is supported via stb_vorbis which can be enabled by including the header 
     #include "extras/stb_vorbis.c"
     ```
 
-A copy of stb_vorbis is included in the "extras" folder in the miniaudio repository (https://github.com/dr-soft/miniaudio).
+A copy of stb_vorbis is included in the "extras" folder in the miniaudio repository (https://github.com/mackron/miniaudio).
 
 Built-in decoders are amalgamated into the implementation section of miniaudio. You can disable the built-in decoders by specifying one or more of the
 following options before the miniaudio implementation:
@@ -62536,6 +62536,7 @@ v0.10.18 - TBD
     config. This fixes an issue where the optimized mono expansion path would never get used.
   - Use a more appropriate default format for FLAC decoders. This will now use ma_format_s16 when the FLAC is encoded as 16-bit.
   - Update FLAC decoder.
+  - Update links to point to the new repository location (https://github.com/mackron/miniaudio).
 
 v0.10.17 - 2020-08-28
   - Fix an error where the WAV codec is incorrectly excluded from the build depending on which compile time options are set.

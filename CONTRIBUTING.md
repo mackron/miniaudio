@@ -6,7 +6,7 @@ miniaudio.
 
 Found a Bug?
 ------------
-If you've found a bug you can create a bug report [here on GitHub](https://github.com/dr-soft/miniaudio/issues).
+If you've found a bug you can create a bug report [here on GitHub](https://github.com/mackron/miniaudio/issues).
 The more information you can provide, the quicker I'll be able to get it fixed. Sample programs and files help a
 lot, as does a detailed list of steps I can follow to reproduce the problem.
 
