@@ -4,11 +4,10 @@ EXPERIMENTAL
 Everything in this file is experimental and subject to change. Some stuff isn't yet implemented, in particular spatialization. I've noted some ideas that are
 basically straight off the top of my head - many of these are probably outright wrong or just generally bad ideas.
 
-Very simple APIs for spatialization are declared by not yet implemented. They're just placeholders to give myself an idea on some of the API design. The
-caching system outlined in the resource manager are just ideas off the top of my head. This will almost certainly change.
+Very simple APIs for spatialization are declared by not yet implemented. They're just placeholders to give myself an idea on some of the API design.
 
 The idea is that you have an `ma_engine` object - one per listener. Decoupled from that is the `ma_resource_manager` object. You can have one `ma_resource_manager`
-object to many `ma_engine` objects. This will allow you to share resources for each listener. The `ma_engine` is responsible for the playback of audio from a
+object to many `ma_engine` objects. This will allow you to share resources between each listener. The `ma_engine` is responsible for the playback of audio from a
 list of data sources. The `ma_resource_manager` is responsible for the actual loading, caching and unloading of those data sources. This decoupling is
 something that I'm really liking right now and will likely stay in place for the final version.
 
@@ -23,15 +22,6 @@ be associated with. The sound's group cannot be changed after it has been create
 
 The creation and deletion of sounds should, hopefully, be thread safe. I have not yet done thorough testing on this, so there's a good chance there may be some
 subtle bugs there.
-
-
-Some things haven't yet been fully decided on. The following things in particular are some of the things I'm considering. If you have any opinions, feel free
-to send me a message and give me your opinions/advice:
-
-    - I haven't yet got spatialization working. I'm expecting it may be required to use an acceleration structure for querying audible sounds and only mixing
-      those which can be heard by the listener, but then that will cause problems in the mixing thread because that should, ideally, not have any locking.
-    - Sound groups can have an effect applied to them before being mixed with the parent group, but I'm considering making it so the effect is not allowed to
-      have resampling enabled thereby simplifying memory management between parent and child groups.
 
 The best resource to use when understanding the API is the function declarations for `ma_engine`. I expect you should be able to figure it out! :)
 */
@@ -333,11 +323,6 @@ extern "C" {
 
 
 /*
-Open Questions:
-  - Should the effect chain automatically convert data between effects, or should it require the format to always be compatible with a data converter effect in
-    places where it's required?
-
-
 Effects
 =======
 The `ma_effect` API is a mid-level API for chaining together effects. This is a wrapper around lower level APIs which you can continue to use by themselves if
@@ -365,8 +350,6 @@ To apply the effect to some audio data, do something like the following:
 
 Some effects can change the sample rate, which means the number of output frames may be different to the number of input frames consumed. Therefore they both
 need to be specified when processing a chunk of audio data.
-
-
 */
 typedef void ma_effect;
 
@@ -497,10 +480,10 @@ Below is an example for mixing two decoders together:
     {
         // At this point, frameCountIn contains the number of frames we should be mixing in this iteration, whereas frameCountOut contains the number of output
         // frames we'll be outputting in ma_mixer_end().
-        ma_mixer_mix_data_source(&mixer, &decoder1, frameCountIn, isLooping1);
-        ma_mixer_mix_data_source(&mixer, &decoder2, frameCountIn, isLooping2);
+        ma_mixer_mix_data_source(&mixer, &decoder1, 0, frameCountIn, isLooping1);
+        ma_mixer_mix_data_source(&mixer, &decoder2, 0, frameCountIn, isLooping2);
     }
-    ma_mixer_end(&mixer, NULL, pFinalMix); // pFinalMix must be large enough to store frameCountOut frames in the mixer's format (specified at initialization time).
+    ma_mixer_end(&mixer, NULL, pFinalMix, 0); // pFinalMix must be large enough to store frameCountOut frames in the mixer's format (specified at initialization time).
     ```
 
 When you want to mix sounds together, you need to specify how many output frames you would like to end up with by the end. This depends on the size of the
@@ -535,17 +518,17 @@ example is a game with a music submix and an effects submix, which are then comb
         // Music submix.
         ma_mixer_begin(&musicMixer, &masterMixer, &submixFrameCountIn, &submixFrameCountOut);
         {
-            ma_mixer_mix_data_source(&musicMixer, &musicDecoder, submixFrameCountIn, isMusicLooping);
+            ma_mixer_mix_data_source(&musicMixer, &musicDecoder, 0, submixFrameCountIn, isMusicLooping);
         }
-        ma_mixer_end(&musicMixer, &masterMixer, NULL);
+        ma_mixer_end(&musicMixer, &masterMixer, NULL, 0);
 
         // Effects submix.
         ma_mixer_begin(&effectsMixer, &masterMixer, &submixFrameCountIn, &submixFrameCountOut);
         {
-            ma_mixer_mix_data_source(&effectsMixer, &decoder1, frameCountIn, isLooping1);
-            ma_mixer_mix_data_source(&effectsMixer, &decoder2, frameCountIn, isLooping2);
+            ma_mixer_mix_data_source(&effectsMixer, &decoder1, 0, frameCountIn, isLooping1);
+            ma_mixer_mix_data_source(&effectsMixer, &decoder2, 0, frameCountIn, isLooping2);
         }
-        ma_mixer_end(&effectsMixer, &masterMixer, NULL);
+        ma_mixer_end(&effectsMixer, &masterMixer, NULL, 0);
     }
     ma_mixer_end(&masterMixer, NULL, pFinalMix); // pFinalMix must be large enough to store frameCountOut frames in the mixer's format (specified at initialization time).
     ```
@@ -804,26 +787,26 @@ ma_mixer_begin(&masterMixer, NULL, &frameCountOut, &frameCountIn);
     // SFX submix.
     ma_mixer_begin(&sfxMixer, &masterMixer, &submixFrameCountIn, NULL);     // Output frame count not required for submixing.
     {
-        ma_mixer_mix_data_source(&sfxMixer, &sfxDecoder1, submixFrameCountIn, isSFXLooping1);
-        ma_mixer_mix_data_source(&sfxMixer, &sfxDecoder2, submixFrameCountIn, isSFXLooping2);
+        ma_mixer_mix_data_source(&sfxMixer, &sfxDecoder1, 0, submixFrameCountIn, isSFXLooping1);
+        ma_mixer_mix_data_source(&sfxMixer, &sfxDecoder2, 0, submixFrameCountIn, isSFXLooping2);
     }
-    ma_mixer_end(&sfxMixer, &masterMixer, NULL);
+    ma_mixer_end(&sfxMixer, &masterMixer, NULL, 0);
 
     // Voice submix.
     ma_mixer_begin(&voiceMixer, &masterMixer, &submixFrameCountIn, NULL);
     {
-        ma_mixer_mix_data_source(&voiceMixer, &voiceDecoder1, submixFrameCountIn, isVoiceLooping1);
+        ma_mixer_mix_data_source(&voiceMixer, &voiceDecoder1, 0, submixFrameCountIn, isVoiceLooping1);
     }
-    ma_mixer_end(&voiceMixer, &masterMixer, NULL);
+    ma_mixer_end(&voiceMixer, &masterMixer, NULL, 0);
     
     // Music submix.
     ma_mixer_begin(&musicMixer, &masterMixer, &submixFrameCountIn, NULL);
     {
-        ma_mixer_mix_data_source(&musicMixer, &musicDecoder1, submixFrameCountIn, isMusicLooping1);
+        ma_mixer_mix_data_source(&musicMixer, &musicDecoder1, 0, submixFrameCountIn, isMusicLooping1);
     }
-    ma_mixer_end(&musicMixer, &masterMixer, NULL);
+    ma_mixer_end(&musicMixer, &masterMixer, NULL, 0);
 }
-ma_mixer_end(&masterMixer, NULL, pFramesOut); // <-- pFramesOut must be large enough to receive frameCountOut frames in mixer.format/mixer.channels format.
+ma_mixer_end(&masterMixer, NULL, pFramesOut, 0); // <-- pFramesOut must be large enough to receive frameCountOut frames in mixer.format/mixer.channels format.
 ```
 
 
