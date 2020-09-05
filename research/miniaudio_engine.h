@@ -8661,7 +8661,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
         resourceManagerConfig.decodedSampleRate = pEngine->sampleRate;
         ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
-        resourceManagerConfig.pVFS              = pConfig->pResourceManagerVFS;
+        resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
 
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {
