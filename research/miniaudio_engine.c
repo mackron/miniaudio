@@ -4,7 +4,7 @@
 #define MA_DEBUG_OUTPUT
 #define MA_IMPLEMENTATION
 #include "../miniaudio.h"
-#include "ma_engine.h"
+#include "miniaudio_engine.h"
 
 typedef struct
 {

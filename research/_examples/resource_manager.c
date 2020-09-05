@@ -18,7 +18,7 @@ threads to manage internally and how to implement your own custom job thread.
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../../miniaudio.h"
-#include "../ma_engine.h"
+#include "../miniaudio_engine.h"
 
 static ma_mixer                        g_mixer;
 static ma_resource_manager_data_source g_dataSources[16];
@@ -37,10 +37,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         {
             size_t iDataSource;
             for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
-                ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], frameCountIn, NULL, 1, NULL, MA_TRUE);
+                ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], 0, frameCountIn, NULL, 1, NULL, MA_TRUE);
             }
         }
-        ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * bpf));
+        ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * bpf), 0);
 
         framesProcessed += (ma_uint32)frameCountOut;    /* Safe cast. */
     }
@@ -113,8 +113,8 @@ int main(int argc, char** argv)
     int iFile;
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.dataCallback    = data_callback;
-    deviceConfig.pUserData       = NULL;
+    deviceConfig.dataCallback = data_callback;
+    deviceConfig.pUserData    = NULL;
 
     result = ma_device_init(NULL, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
