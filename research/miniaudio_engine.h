@@ -233,7 +233,7 @@ achieved through a job system. There is a central multi-producer, multi-consumer
 done, a job is posted to the queue which is then read by a job thread. The number of job threads can be configured for improved scalability, and job threads
 can all run in parallel without needing to worry about the order of execution (how this is achieved is explained below).
 
-When a sound is being loaded asynchronously, playback can begin before the sound has been fully decoded. The enables the application to start playback of the
+When a sound is being loaded asynchronously, playback can begin before the sound has been fully decoded. This enables the application to start playback of the
 sound quickly, while at the same time allowing to resource manager to keep loading in the background. Since there may be less threads than the number of sounds
 being loaded at a given time, a simple scheduling system is used to keep decoding time fair. The resource manager solves this by splitting decoding into chunks
 called pages. By default, each page is 1 second long. When a page has been decoded, the a new job will be posted to start decoding the next page. By dividing
