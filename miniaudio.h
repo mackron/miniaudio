@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.18 - 2020-08-30
+miniaudio - v0.10.19 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1421,7 +1421,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 18
+#define MA_VERSION_REVISION 19
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2026,6 +2026,7 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint32 lpf1Count;
     ma_uint32 lpf2Count;
     ma_lpf1 lpf1[1];
@@ -2094,6 +2095,7 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint32 hpf1Count;
     ma_uint32 hpf2Count;
     ma_hpf1 hpf1[1];
@@ -35203,10 +35205,11 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         }
     }
 
-    pLPF->lpf1Count = lpf1Count;
-    pLPF->lpf2Count = lpf2Count;
-    pLPF->format    = pConfig->format;
-    pLPF->channels  = pConfig->channels;
+    pLPF->lpf1Count  = lpf1Count;
+    pLPF->lpf2Count  = lpf2Count;
+    pLPF->format     = pConfig->format;
+    pLPF->channels   = pConfig->channels;
+    pLPF->sampleRate = pConfig->sampleRate;
 
     return MA_SUCCESS;
 }
@@ -35709,10 +35712,11 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         }
     }
 
-    pHPF->hpf1Count = hpf1Count;
-    pHPF->hpf2Count = hpf2Count;
-    pHPF->format    = pConfig->format;
-    pHPF->channels  = pConfig->channels;
+    pHPF->hpf1Count  = hpf1Count;
+    pHPF->hpf2Count  = hpf2Count;
+    pHPF->format     = pConfig->format;
+    pHPF->channels   = pConfig->channels;
+    pHPF->sampleRate = pConfig->sampleRate;
 
     return MA_SUCCESS;
 }
@@ -62529,6 +62533,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.19 - TBD
+  - Store the sample rate in the `ma_lpf` and `ma_hpf` structures.
+
 v0.10.18 - 2020-08-30
   - Fix build errors with VC6.
   - Fix a bug in channel converter for s32 format.
