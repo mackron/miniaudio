@@ -1049,15 +1049,30 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
 
+/* Notification codes for ma_async_notification. Used to allow some granularity for notification callbacks. */
+#define MA_NOTIFICATION_COMPLETE    0   /* Operation has fully completed. */
+#define MA_NOTIFICATION_INIT        1   /* Object has been initialized, but operation not fully completed yet. */
+#define MA_NOTIFICATION_FAILED      2   /* Failed to initialize. */
+
+
+/*
+Notification callback for asynchronous operations.
+*/
 typedef void ma_async_notification;
 
 typedef struct
 {
-    void (* onSignal)(ma_async_notification* pNotification);
+    void (* onSignal)(ma_async_notification* pNotification, int code);
 } ma_async_notification_callbacks;
 
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification, int code);
 
+
+/*
+Event Notification
+
+This notification signals an event internally on the MA_NOTIFICATION_COMPLETE and MA_NOTIFICATION_FAILED codes. All other codes are ignored.
+*/
 typedef struct
 {
     ma_async_notification_callbacks cb;
@@ -1920,7 +1935,7 @@ MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, const void*
         return result;
     }
 
-    if (effectFormatIn == formatIn && effectChannelsIn == channelsIn && effectFormatOut == formatOut && effectChannelsOut) {
+    if (effectFormatIn == formatIn && effectChannelsIn == channelsIn && effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
         /* Fast path. No need for any data conversion. */
         return ma_effect_process_pcm_frames(pEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
@@ -4129,7 +4144,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 
 
 
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification)
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification, int code)
 {
     ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification*)pNotification;
 
@@ -4141,10 +4156,17 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
         return MA_NOT_IMPLEMENTED;
     }
 
-    pNotificationCallbacks->onSignal(pNotification);
+    pNotificationCallbacks->onSignal(pNotification, code);
     return MA_INVALID_ARGS;
 }
 
+
+static void ma_async_notification_event__on_signal(ma_async_notification* pNotification, int code)
+{
+    if (code == MA_NOTIFICATION_COMPLETE || code == MA_NOTIFICATION_FAILED) {
+        ma_async_notification_event_signal((ma_async_notification_event*)pNotification);
+    }
+}
 
 MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent)
 {
@@ -4154,7 +4176,7 @@ MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* p
         return MA_INVALID_ARGS;
     }
 
-    pNotificationEvent->cb.onSignal = ma_async_notification_event_signal;
+    pNotificationEvent->cb.onSignal = ma_async_notification_event__on_signal;
     
     result = ma_event_init(&pNotificationEvent->e);
     if (result != MA_SUCCESS) {
@@ -4990,7 +5012,7 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
 }
 
-static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pNotification)
 {
     ma_result result;
 
@@ -5058,6 +5080,16 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     if (pDataBuffer->connectorType != ma_resource_manager_data_buffer_connector_buffer) {
         pDataBuffer->ds.onMap   = NULL;
         pDataBuffer->ds.onUnmap = NULL;
+    }
+
+    /*
+    Initialization of the connector is when we can fire the MA_NOTIFICATION_INIT notification. This will give the application access to
+    the format/channels/rate of the data source.
+    */
+    if (result == MA_SUCCESS) {
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_INIT);
+        }
     }
     
     /* At this point the backend should be initialized. We do *not* want to set pDataSource->result here - that needs to be done at a higher level to ensure it's done as the last step. */
@@ -5173,14 +5205,14 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             ma_yield();
         }
 
-        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pNotification);
         if (result != MA_SUCCESS) {
             ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
             return result;
         }
 
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
         }
     } else {
         /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
@@ -5217,7 +5249,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             if (pFilePathCopy == NULL) {
                 if (pNotification != NULL) {
-                    ma_async_notification_signal(pNotification);
+                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -5235,7 +5267,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             if (result != MA_SUCCESS) {
                 /* Failed to post the job to the queue. Probably ran out of space. */
                 if (pNotification != NULL) {
-                    ma_async_notification_signal(pNotification);
+                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -5360,7 +5392,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
             /* When loading synchronously we need to initialize the connector straight away. */
             if (result == MA_SUCCESS) {
-                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pNotification);
             }
 
             pDataBuffer->pNode->result = result;
@@ -5369,7 +5401,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         /* If we failed to initialize make sure we fire the event and free memory. */
         if (result != MA_SUCCESS) {
             if (pNotification != NULL) {
-                ma_async_notification_signal(pNotification);
+                ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
             }
 
             ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -5377,10 +5409,10 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             return result;
         }
 
-        /* It's not really necessary, but for completeness we'll want to fire the event if we have one in synchronous mode. */
+        /* We'll need to fire the event if we have one in synchronous mode. */
         if (async == MA_FALSE) {
             if (pNotification != NULL) {
-                ma_async_notification_signal(pNotification);
+                ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
             }
         }
     }
@@ -5636,7 +5668,17 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
         return MA_BUSY; /* Still loading. */
     }
 
-    return ma_data_source_get_data_format(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFormat, pChannels, pSampleRate);
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+        MA_ASSERT(pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded);
+
+        *pFormat     = pDataBuffer->pNode->data.decoded.format;
+        *pChannels   = pDataBuffer->pNode->data.decoded.channels;
+        *pSampleRate = pDataBuffer->pNode->data.decoded.sampleRate;
+
+        return MA_SUCCESS;
+    } else {
+        return ma_data_source_get_data_format(&pDataBuffer->connector.decoder, pFormat, pChannels, pSampleRate);
+    }
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor)
@@ -5894,7 +5936,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
     if (pDataStream == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
         }
 
         return MA_INVALID_ARGS;
@@ -5915,7 +5957,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
     if (pResourceManager == NULL || pFilePath == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
         }
 
         return MA_INVALID_ARGS;
@@ -5927,7 +5969,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
     if (pFilePathCopy == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
 
         return MA_OUT_OF_MEMORY;
@@ -5942,7 +5984,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
 
         ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
@@ -6651,7 +6693,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
         }
 
-        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
     } else  {
         /* Decoding. */
         ma_uint64 dataSizeInFrames;
@@ -6737,7 +6779,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             ma_decoder_uninit(pDecoder);
             ma__free_from_callbacks(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
 
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
             goto done;
         } else {
             /* We've still got more to decode. We just set the result to MA_BUSY which will tell the next section below to post a paging event. */
@@ -6747,7 +6789,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
         /* If we successfully initialized and the sound is of a known length we can start initialize the connector. */
         if (result == MA_SUCCESS || result == MA_BUSY) {
             if (pDataBuffer->pNode->data.decoded.decodedFrameCount > 0) {
-                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
             }
         }
     }
@@ -6800,7 +6842,7 @@ done:
             pDataBuffer->pNode->data.decoded.decodedFrameCount = framesRead;
 
             /* The sound is of a known length so we can go ahead and initialize the connector now. */
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
         } else {
             pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
 
@@ -6831,7 +6873,7 @@ done:
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataBuffer.pNotification != NULL) {
-        ma_async_notification_signal(pJob->loadDataBuffer.pNotification);
+        ma_async_notification_signal(pJob->loadDataBuffer.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
     c89atomic_fetch_add_32(&pDataBuffer->pNode->executionPointer, 1);
@@ -6976,7 +7018,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
         /* If it was an unknown length, we can finally initialize the connector. For sounds of a known length, the connector was initialized when the first page was decoded in MA_JOB_LOAD_DATA_BUFFER. */
         if (jobCopy.pageDataBuffer.isUnknownLength) {
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->pageDataBuffer.pCompletedNotification);
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
@@ -6984,7 +7026,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
         /* We need to signal an event to indicate that we're done. */
         if (jobCopy.pageDataBuffer.pCompletedNotification != NULL) {
-            ma_async_notification_signal(jobCopy.pageDataBuffer.pCompletedNotification);
+            ma_async_notification_signal(jobCopy.pageDataBuffer.pCompletedNotification, MA_NOTIFICATION_COMPLETE);
         }
     }
 
@@ -7056,7 +7098,8 @@ done:
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataStream.pNotification != NULL) {
-        ma_async_notification_signal(pJob->loadDataStream.pNotification);
+        ma_async_notification_signal(pJob->loadDataStream.pNotification, MA_NOTIFICATION_INIT);
+        ma_async_notification_signal(pJob->loadDataStream.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
     c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -7091,7 +7134,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataStream.pNotification != NULL) {
-        ma_async_notification_signal(pJob->freeDataStream.pNotification);
+        ma_async_notification_signal(pJob->freeDataStream.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
     /*c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);*/
@@ -8029,7 +8072,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effe
             break;
         }
 
-        totalFramesProcessedIn += frameCountOutThisIteration;
+        totalFramesProcessedOut += frameCountOutThisIteration;
     }
 
 
@@ -8112,7 +8155,7 @@ static ma_result ma_engine_effect__on_get_input_data_format(ma_effect* pEffect, 
     MA_ASSERT(pEffect != NULL);
 
     if (pEngineEffect->pPreEffect != NULL) {
-        return ma_engine_effect__on_get_input_data_format(pEffect, pFormat, pChannels, pSampleRate);
+        return ma_effect_get_input_data_format(pEngineEffect->pPreEffect, pFormat, pChannels, pSampleRate);
     } else {
         *pFormat     = pEngineEffect->converter.config.formatIn;
         *pChannels   = pEngineEffect->converter.config.channelsIn;
