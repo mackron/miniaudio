@@ -8324,6 +8324,85 @@ static void ma_sound_mix_wait(ma_sound* pSound)
     }
 }
 
+static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGroup, ma_sound* pSound, ma_uint64 frameCount)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint64 framesProcessed;
+
+    /* Don't do anything if we're not playing. */
+    if (pSound->isPlaying == MA_FALSE) {
+        return;
+    }
+
+    /* If we're marked at the end we need to stop the sound and do nothing. */
+    if (pSound->atEnd) {
+        ma_sound_stop_internal(pSound);
+        return;
+    }
+
+    /* If we're seeking, do so now before reading. */
+    if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
+        pSound->seekTarget  = MA_SEEK_TARGET_NONE;
+        ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
+                
+        /* Any time-dependant effects need to have their times updated. */
+        ma_engine_effect_set_time(&pSound->effect, pSound->seekTarget);
+    }
+
+    /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
+    if ((pSound->runningTimeInEngineFrames + frameCount) > pSound->startDelayInEngineFrames) {
+        /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
+        ma_uint64 currentTimeInFrames;
+        ma_uint64 offsetInFrames;
+
+        offsetInFrames = 0;
+        if (pSound->startDelayInEngineFrames > pSound->runningTimeInEngineFrames) {
+            offsetInFrames = pSound->startDelayInEngineFrames - pSound->runningTimeInEngineFrames;
+        }
+
+        MA_ASSERT(offsetInFrames < frameCount);
+
+        /*
+        An obvious optimization is to skip mixing if the sound is not audible. The problem with this, however, is that the effect may need to update some
+        internal state such as timing information for things like fades, delays, echos, etc. We're going to always mix the sound if it's active and trust
+        the mixer to optimize the volume = 0 case, and let the effect do it's own internal optimizations in non-audible cases.
+        */
+        result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
+                
+        /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+        if (result == MA_AT_END) {
+            c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+        }
+
+        /*
+        For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
+        support loop transitions properly.
+        */
+        result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
+        if (result == MA_SUCCESS) {
+            ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
+        }
+
+        pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
+    } else {
+        /* The sound hasn't started yet. Just keep advancing time forward, but leave the data source alone. */
+        pSound->runningTimeInEngineFrames += frameCount;
+    }
+
+    /* If we're stopping after a delay we need to check if the delay has expired and if so, stop for real. */
+    if (pSound->stopDelayInEngineFramesRemaining > 0) {
+        if (pSound->stopDelayInEngineFramesRemaining >= frameCount) {
+            pSound->stopDelayInEngineFramesRemaining -= frameCount;
+        } else {
+            pSound->stopDelayInEngineFramesRemaining = 0;
+        }
+
+        /* Stop the sound if the delay has been reached. */
+        if (pSound->stopDelayInEngineFramesRemaining == 0) {
+            ma_sound_stop_internal(pSound);
+        }
+    }
+}
 
 static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_sound* pSound, ma_uint64 frameCount)
 {
@@ -8333,79 +8412,7 @@ static void ma_engine_mix_sound(ma_engine* pEngine, ma_sound_group* pGroup, ma_s
 
     c89atomic_exchange_32(&pSound->isMixing, MA_TRUE);  /* This must be done before checking the isPlaying state. */
     {
-        if (pSound->isPlaying) {
-            ma_result result = MA_SUCCESS;
-            ma_uint64 framesProcessed;
-
-            /* If we're marked at the end we need to stop the sound and do nothing. */
-            if (!pSound->atEnd) {
-                /* If we're seeking, do so now before reading. */
-                if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
-                    pSound->seekTarget  = MA_SEEK_TARGET_NONE;
-                    ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
-                
-                    /* Any time-dependant effects need to have their times updated. */
-                    ma_engine_effect_set_time(&pSound->effect, pSound->seekTarget);
-                }
-
-                /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
-                if ((pSound->runningTimeInEngineFrames + frameCount) > pSound->startDelayInEngineFrames) {
-                    /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
-                    ma_uint64 currentTimeInFrames;
-                    ma_uint64 offsetInFrames;
-
-                    offsetInFrames = 0;
-                    if (pSound->startDelayInEngineFrames > pSound->runningTimeInEngineFrames) {
-                        offsetInFrames = pSound->startDelayInEngineFrames - pSound->runningTimeInEngineFrames;
-                    }
-
-                    MA_ASSERT(offsetInFrames < frameCount);
-
-                    /*
-                    An obvious optimization is to skip mixing if the sound is not audible. The problem with this, however, is that the effect may need to update some
-                    internal state such as timing information for things like fades, delays, echos, etc. We're going to always mix the sound if it's active and trust
-                    the mixer to optimize the volume = 0 case, and let the effect do it's own internal optimizations in non-audible cases.
-                    */
-                    result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
-                
-                    /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-                    if (result == MA_AT_END) {
-                        c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
-                    }
-
-                    /*
-                    For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
-                    support loop transitions properly.
-                    */
-                    result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
-                    if (result == MA_SUCCESS) {
-                        ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
-                    }
-
-                    pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
-                } else {
-                    /* The sound hasn't started yet. Just keep advancing time forward, but leave the data source alone. */
-                    pSound->runningTimeInEngineFrames += frameCount;
-                }
-
-                /* If we're stopping after a delay we need to check if the delay has expired and if so, stop for real. */
-                if (pSound->stopDelayInEngineFramesRemaining > 0) {
-                    if (pSound->stopDelayInEngineFramesRemaining >= frameCount) {
-                        pSound->stopDelayInEngineFramesRemaining -= frameCount;
-                    } else {
-                        pSound->stopDelayInEngineFramesRemaining = 0;
-                    }
-
-                    /* Stop the sound if the delay has been reached. */
-                    if (pSound->stopDelayInEngineFramesRemaining == 0) {
-                        ma_sound_stop_internal(pSound);
-                    }
-                }
-            } else {
-                /* The sound is at the end. Make sure it's marked as stopped. */
-                ma_sound_stop_internal(pSound);
-            }
-        }
+        ma_engine_mix_sound_internal(pEngine, pGroup, pSound, frameCount);
     }
     c89atomic_exchange_32(&pSound->isMixing, MA_FALSE);
 }
