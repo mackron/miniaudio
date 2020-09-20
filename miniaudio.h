@@ -12862,6 +12862,22 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     }
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
+    if (pData->formatOut == ma_format_unknown) {
+        /*
+        The format isn't supported. This is almost certainly because the exclusive mode format isn't supported by miniaudio. We need to return MA_SHARE_MODE_NOT_SUPPORTED
+        in this case so that the caller can detect it and fall back to shared mode if desired. We should never get here if shared mode was requested, but just for
+        completeness we'll check for it and return MA_FORMAT_NOT_SUPPORTED.
+        */
+        if (shareMode == ma_share_mode_exclusive) {
+            result = MA_SHARE_MODE_NOT_SUPPORTED;
+        } else {
+            result = MA_FORMAT_NOT_SUPPORTED;
+        }
+        
+        errorMsg = "[WASAPI] Native format not supported.";
+        goto done;
+    }
+
     pData->channelsOut = wf.Format.nChannels;
     pData->sampleRateOut = wf.Format.nSamplesPerSec;
 
@@ -20061,7 +20077,7 @@ static ma_result ma_result_from_pulse(int result)
         case MA_PA_ERR_ACCESS:   return MA_ACCESS_DENIED;
         case MA_PA_ERR_INVALID:  return MA_INVALID_ARGS;
         case MA_PA_ERR_NOENTITY: return MA_NO_DEVICE;
-        default:                  return MA_ERROR;
+        default:                 return MA_ERROR;
     }
 }
 
@@ -62534,6 +62550,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.19 - TBD
+  - WASAPI: Return an error when exclusive mode is requested, but the native format is not supported by miniaudio.
   - Store the sample rate in the `ma_lpf` and `ma_hpf` structures.
 
 v0.10.18 - 2020-08-30
