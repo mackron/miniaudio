@@ -45903,6 +45903,8 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         if (result == MA_SUCCESS) {
             pDecoder->readPointerInPCMFrames = frameIndex;
         }
+
+        return result;
     }
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
@@ -62551,6 +62553,7 @@ REVISION HISTORY
 ================
 v0.10.19 - TBD
   - WASAPI: Return an error when exclusive mode is requested, but the native format is not supported by miniaudio.
+  - Fix a bug where ma_decoder_seek_to_pcm_frames() never returns MA_SUCCESS even though it was successful.
   - Store the sample rate in the `ma_lpf` and `ma_hpf` structures.
 
 v0.10.18 - 2020-08-30
