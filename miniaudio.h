@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.19 - TBD
+miniaudio - v0.10.19 - 2020-09-22
 
 David Reid - mackron@gmail.com
 
@@ -62551,7 +62551,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.19 - TBD
+v0.10.19 - 2020-09-22
   - WASAPI: Return an error when exclusive mode is requested, but the native format is not supported by miniaudio.
   - Fix a bug where ma_decoder_seek_to_pcm_frames() never returns MA_SUCCESS even though it was successful.
   - Store the sample rate in the `ma_lpf` and `ma_hpf` structures.
