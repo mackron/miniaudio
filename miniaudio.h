@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.19 - 2020-09-22
+miniaudio - v0.10.20 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -114,8 +114,8 @@ event indicating that the device needs to stop and handle it in a different thre
     ```
 
 You must never try uninitializing and reinitializing a device inside the callback. You must also never try to stop and start it from inside the callback. There
-are a few other things you shouldn't do in the callback depending on your requirements, however this isn't so much a thread-safety thing, but rather a real-
-time processing thing which is beyond the scope of this introduction.
+are a few other things you shouldn't do in the callback depending on your requirements, however this isn't so much a thread-safety thing, but rather a
+real-time processing thing which is beyond the scope of this introduction.
 
 The example above demonstrates the initialization of a playback device, but it works exactly the same for capture. All you need to do is change the device type
 from `ma_device_type_playback` to `ma_device_type_capture` when setting up the config, like so:
@@ -230,8 +230,8 @@ The Windows build should compile cleanly on all popular compilers without the ne
 2.2. macOS and iOS
 ------------------
 The macOS build should compile cleanly without the need to download any dependencies nor link to any libraries or frameworks. The iOS build needs to be
-compiled as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode. Compiling through the command line requires
-linking to `-lpthread` and `-lm`.
+compiled as Objective-C and will need to link the relevant frameworks but should compile cleanly out of the box with Xcode. Compiling through the command line
+requires linking to `-lpthread` and `-lm`.
 
 2.3. Linux
 ----------
@@ -248,7 +248,7 @@ starts with Android 8 which means older versions will fall back to OpenSL|ES whi
 
 2.6. Emscripten
 ---------------
-The Emscripten build emits Web Audio JavaScript directly and should Just Work without any configuration. You cannot use -std=c* compiler flags, nor -ansi.
+The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box. You cannot use -std=c* compiler flags, nor -ansi.
 
 
 2.7. Build Options
@@ -1421,7 +1421,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 19
+#define MA_VERSION_REVISION 20
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -62551,6 +62551,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.20 - TBD
+  - Minor documentation updates.
+
 v0.10.19 - 2020-09-22
   - WASAPI: Return an error when exclusive mode is requested, but the native format is not supported by miniaudio.
   - Fix a bug where ma_decoder_seek_to_pcm_frames() never returns MA_SUCCESS even though it was successful.
