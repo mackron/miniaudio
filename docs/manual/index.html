@@ -437,8 +437,8 @@ ma_device_stop()
 </pre></div><p>
 
 You must never try uninitializing and reinitializing a device inside the callback. You must also never try to stop and start it from inside the callback. There
-are a few other things you shouldn&#39;t do in the callback depending on your requirements, however this isn&#39;t so much a thread-safety thing, but rather a real-
-time processing thing which is beyond the scope of this introduction.
+are a few other things you shouldn&#39;t do in the callback depending on your requirements, however this isn&#39;t so much a thread-safety thing, but rather a
+real-time processing thing which is beyond the scope of this introduction.
 </p>
 <p>
 
@@ -624,8 +624,8 @@ The Windows build should compile cleanly on all popular compilers without the ne
 <h2 id="macOSandiOS" class="man">2.2. macOS and iOS</h2>
 <p>
 The macOS build should compile cleanly without the need to download any dependencies nor link to any libraries or frameworks. The iOS build needs to be
-compiled as Objective-C (sorry) and will need to link the relevant frameworks but should Just Work with Xcode. Compiling through the command line requires
-linking to <span style="font-family:monospace;">-lpthread</span> and <span style="font-family:monospace;">-lm</span>.
+compiled as Objective-C and will need to link the relevant frameworks but should compile cleanly out of the box with Xcode. Compiling through the command line
+requires linking to <span style="font-family:monospace;">-lpthread</span> and <span style="font-family:monospace;">-lm</span>.
 </p>
 <p>
 
@@ -654,7 +654,7 @@ starts with Android 8 which means older versions will fall back to OpenSL|ES whi
 </p>
 <h2 id="Emscripten" class="man">2.6. Emscripten</h2>
 <p>
-The Emscripten build emits Web Audio JavaScript directly and should Just Work without any configuration. You cannot use -std=c* compiler flags, nor -ansi.
+The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box. You cannot use -std=c* compiler flags, nor -ansi.
 </p>
 <p>
 
