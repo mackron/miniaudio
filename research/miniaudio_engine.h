@@ -1601,7 +1601,7 @@ typedef struct
     ma_vfs* pResourceManagerVFS;            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
 } ma_engine_config;
 
-MA_API ma_engine_config ma_engine_config_init_default();
+MA_API ma_engine_config ma_engine_config_init_default(void);
 
 
 struct ma_engine
@@ -1813,7 +1813,7 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     }
 
     /* We need to start at the top and work our way down. */
-    pFirstEffect = pEffect;
+    pFirstEffect = (ma_effect_base*)pEffect;
     while (pFirstEffect->pPrev != NULL) {
         pFirstEffect = pFirstEffect->pPrev;
     }
@@ -2098,9 +2098,9 @@ ma_result ma_effect_append(ma_effect* pEffect, ma_effect* pParent)
 
     /* Now update the parent. Slot the effect between the parent and the parent's next item, if it has one. */
     if (pBaseParent->pNext != NULL) {
-        pBaseParent->pNext->pPrev = pEffect;
+        pBaseParent->pNext->pPrev = (ma_effect_base*)pEffect;
     }
-    pBaseParent->pNext = pEffect;
+    pBaseParent->pNext = (ma_effect_base*)pEffect;
 
     return MA_SUCCESS;
 }
@@ -2128,9 +2128,9 @@ ma_result ma_effect_prepend(ma_effect* pEffect, ma_effect* pChild)
 
     /* Now update the child. Slot the effect between the child and the child's previous item, if it has one. */
     if (pBaseChild->pPrev != NULL) {
-        pBaseChild->pPrev->pNext = pEffect;
+        pBaseChild->pPrev->pNext = (ma_effect_base*)pEffect;
     }
-    pBaseChild->pPrev = pEffect;
+    pBaseChild->pPrev = (ma_effect_base*)pEffect;
 
     return MA_SUCCESS;
 }
@@ -2511,11 +2511,11 @@ static void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCoun
     sampleCount = frameCount * channels;
 
     switch (format) {
-        case ma_format_u8:  ma_clip_samples_u8( pDst, pSrc, sampleCount); break;
-        case ma_format_s16: ma_clip_samples_s16(pDst, pSrc, sampleCount); break;
-        case ma_format_s24: ma_clip_samples_s24(pDst, pSrc, sampleCount); break;
-        case ma_format_s32: ma_clip_samples_s32(pDst, pSrc, sampleCount); break;
-        case ma_format_f32: ma_clip_samples_f32_ex(pDst, pSrc, sampleCount); break;
+        case ma_format_u8:  ma_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount); break;
+        case ma_format_s16: ma_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount); break;
+        case ma_format_s24: ma_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount); break;
+        case ma_format_s32: ma_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount); break;
+        case ma_format_f32: ma_clip_samples_f32_ex((float*)pDst, (const    float*)pSrc, sampleCount); break;
         
         /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
         case ma_format_unknown:
@@ -2537,11 +2537,11 @@ static void ma_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint6
         ma_uint64 sampleCount = frameCount * channels;
 
         switch (format) {
-            case ma_format_u8:  ma_volume_and_clip_samples_u8( pDst, pSrc, sampleCount, volume); break;
-            case ma_format_s16: ma_volume_and_clip_samples_s16(pDst, pSrc, sampleCount, volume); break;
-            case ma_format_s24: ma_volume_and_clip_samples_s24(pDst, pSrc, sampleCount, volume); break;
-            case ma_format_s32: ma_volume_and_clip_samples_s32(pDst, pSrc, sampleCount, volume); break;
-            case ma_format_f32: ma_volume_and_clip_samples_f32(pDst, pSrc, sampleCount, volume); break;
+            case ma_format_u8:  ma_volume_and_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount, volume); break;
+            case ma_format_s16: ma_volume_and_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount, volume); break;
+            case ma_format_s24: ma_volume_and_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+            case ma_format_s32: ma_volume_and_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+            case ma_format_f32: ma_volume_and_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount, volume); break;
             
             /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
             case ma_format_unknown:
@@ -2625,11 +2625,11 @@ static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_ui
     sampleCount = frameCount * channels;
 
     switch (format) {
-        case ma_format_u8:  ma_clipped_accumulate_u8( pDst, pSrc, sampleCount); break;
-        case ma_format_s16: ma_clipped_accumulate_s16(pDst, pSrc, sampleCount); break;
-        case ma_format_s24: ma_clipped_accumulate_s24(pDst, pSrc, sampleCount); break;
-        case ma_format_s32: ma_clipped_accumulate_s32(pDst, pSrc, sampleCount); break;
-        case ma_format_f32: ma_clipped_accumulate_f32(pDst, pSrc, sampleCount); break;
+        case ma_format_u8:  ma_clipped_accumulate_u8( (ma_uint8*)pDst, (const ma_uint8*)pSrc, sampleCount); break;
+        case ma_format_s16: ma_clipped_accumulate_s16((ma_int16*)pDst, (const ma_int16*)pSrc, sampleCount); break;
+        case ma_format_s24: ma_clipped_accumulate_s24((ma_uint8*)pDst, (const ma_uint8*)pSrc, sampleCount); break;
+        case ma_format_s32: ma_clipped_accumulate_s32((ma_int32*)pDst, (const ma_int32*)pSrc, sampleCount); break;
+        case ma_format_f32: ma_clipped_accumulate_f32((   float*)pDst, (const    float*)pSrc, sampleCount); break;
 
         /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
         case ma_format_unknown:
@@ -2710,11 +2710,11 @@ static void ma_unclipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_
     sampleCount = frameCount * channels;
 
     switch (format) {
-        case ma_format_u8:  ma_unclipped_accumulate_u8( pDst, pSrc, sampleCount); break;
-        case ma_format_s16: ma_unclipped_accumulate_s16(pDst, pSrc, sampleCount); break;
-        case ma_format_s24: ma_unclipped_accumulate_s24(pDst, pSrc, sampleCount); break;
-        case ma_format_s32: ma_unclipped_accumulate_s32(pDst, pSrc, sampleCount); break;
-        case ma_format_f32: ma_unclipped_accumulate_f32(pDst, pSrc, sampleCount); break;
+        case ma_format_u8:  ma_unclipped_accumulate_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, sampleCount); break;
+        case ma_format_s16: ma_unclipped_accumulate_s16((ma_int32*)pDst, (const ma_int16*)pSrc, sampleCount); break;
+        case ma_format_s24: ma_unclipped_accumulate_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, sampleCount); break;
+        case ma_format_s32: ma_unclipped_accumulate_s32((ma_int64*)pDst, (const ma_int32*)pSrc, sampleCount); break;
+        case ma_format_f32: ma_unclipped_accumulate_f32((   float*)pDst, (const    float*)pSrc, sampleCount); break;
 
         /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
         case ma_format_unknown:
@@ -3130,11 +3130,11 @@ static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frame
 
     switch (format)
     {
-        case ma_format_u8:  result = ma_mix_pcm_frames_u8( pDst, pSrc, channels, frameCount, volume); break;
-        case ma_format_s16: result = ma_mix_pcm_frames_s16(pDst, pSrc, channels, frameCount, volume); break;
-        case ma_format_s24: result = ma_mix_pcm_frames_s24(pDst, pSrc, channels, frameCount, volume); break;
-        case ma_format_s32: result = ma_mix_pcm_frames_s32(pDst, pSrc, channels, frameCount, volume); break;
-        case ma_format_f32: result = ma_mix_pcm_frames_f32(pDst, pSrc, channels, frameCount, volume); break;
+        case ma_format_u8:  result = ma_mix_pcm_frames_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, channels, frameCount, volume); break;
+        case ma_format_s16: result = ma_mix_pcm_frames_s16((ma_int32*)pDst, (const ma_int16*)pSrc, channels, frameCount, volume); break;
+        case ma_format_s24: result = ma_mix_pcm_frames_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, channels, frameCount, volume); break;
+        case ma_format_s32: result = ma_mix_pcm_frames_s32((ma_int64*)pDst, (const ma_int32*)pSrc, channels, frameCount, volume); break;
+        case ma_format_f32: result = ma_mix_pcm_frames_f32((   float*)pDst, (const    float*)pSrc, channels, frameCount, volume); break;
         default: return MA_INVALID_ARGS;    /* Unknown format. */
     }
 
@@ -3263,11 +3263,11 @@ static void ma_mix_accumulation_buffers(void* pDst, const void* pSrc, ma_uint64 
 
     switch (formatIn)
     {
-        case ma_format_u8:  ma_mix_accumulation_buffers_u8( pDst, pSrc, sampleCount, volume); break;
-        case ma_format_s16: ma_mix_accumulation_buffers_s16(pDst, pSrc, sampleCount, volume); break;
-        case ma_format_s24: ma_mix_accumulation_buffers_s24(pDst, pSrc, sampleCount, volume); break;
-        case ma_format_s32: ma_mix_accumulation_buffers_s32(pDst, pSrc, sampleCount, volume); break;
-        case ma_format_f32: ma_mix_accumulation_buffers_f32(pDst, pSrc, sampleCount, volume); break;
+        case ma_format_u8:  ma_mix_accumulation_buffers_u8( (ma_int16*)pDst, (const ma_int16*)pSrc, sampleCount, volume); break;
+        case ma_format_s16: ma_mix_accumulation_buffers_s16((ma_int32*)pDst, (const ma_int32*)pSrc, sampleCount, volume); break;
+        case ma_format_s24: ma_mix_accumulation_buffers_s24((ma_int64*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+        case ma_format_s32: ma_mix_accumulation_buffers_s32((ma_int64*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+        case ma_format_f32: ma_mix_accumulation_buffers_f32((   float*)pDst, (const    float*)pSrc, sampleCount, volume); break;
         default: break;
     }
 }
@@ -4146,7 +4146,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 
 MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification, int code)
 {
-    ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification*)pNotification;
+    ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification_callbacks*)pNotification;
 
     if (pNotification == NULL) {
         return MA_INVALID_ARGS;
@@ -4216,7 +4216,8 @@ MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event*
 
 
 
-#define MA_JOB_ID_NONE  ~((ma_uint64)0)
+#define MA_JOB_ID_NONE      ~((ma_uint64)0)
+#define MA_JOB_SLOT_NONE    ~((ma_uint16)0)
 
 static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
 {
@@ -4245,7 +4246,7 @@ MA_API ma_job ma_job_init(ma_uint16 code)
     
     MA_ZERO_OBJECT(&job);
     job.toc.code = code;
-    job.toc.slot = MA_JOB_ID_NONE;  /* Temp value. Will be allocated when posted to a queue. */
+    job.toc.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
     job.next     = MA_JOB_ID_NONE;
 
     return job;
@@ -5148,6 +5149,42 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
     }
 }
 
+
+static ma_result ma_resource_manager_data_buffer_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_resource_manager_data_buffer_read_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_resource_manager_data_buffer_seek_to_pcm_frame((ma_resource_manager_data_buffer*)pDataSource, frameIndex);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    return ma_resource_manager_data_buffer_map((ma_resource_manager_data_buffer*)pDataSource, ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    return ma_resource_manager_data_buffer_unmap((ma_resource_manager_data_buffer*)pDataSource, frameCount);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_resource_manager_data_buffer_get_data_format((ma_resource_manager_data_buffer*)pDataSource, pFormat, pChannels, pSampleRate);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_resource_manager_data_buffer_get_cursor_in_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pCursor);
+}
+
+static ma_result ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_resource_manager_data_buffer_get_length_in_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pLength);
+}
+
 static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
@@ -5161,13 +5198,13 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     MA_ASSERT(pDataBuffer      != NULL);
 
     MA_ZERO_OBJECT(pDataBuffer);
-    pDataBuffer->ds.onRead          = ma_resource_manager_data_buffer_read_pcm_frames;
-    pDataBuffer->ds.onSeek          = ma_resource_manager_data_buffer_seek_to_pcm_frame;
-    pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer_map;
-    pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer_unmap;
-    pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer_get_data_format;
-    pDataBuffer->ds.onGetCursor     = ma_resource_manager_data_buffer_get_cursor_in_pcm_frames;
-    pDataBuffer->ds.onGetLength     = ma_resource_manager_data_buffer_get_length_in_pcm_frames;
+    pDataBuffer->ds.onRead          = ma_resource_manager_data_buffer_cb__read_pcm_frames;
+    pDataBuffer->ds.onSeek          = ma_resource_manager_data_buffer_cb__seek_to_pcm_frame;
+    pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer_cb__map;
+    pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer_cb__unmap;
+    pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer_cb__get_data_format;
+    pDataBuffer->ds.onGetCursor     = ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames;
+    pDataBuffer->ds.onGetLength     = ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames;
 
     pDataBuffer->pResourceManager   = pResourceManager;
     pDataBuffer->flags              = flags;
@@ -5927,6 +5964,40 @@ static ma_uint32 ma_resource_manager_data_stream_next_execution_order(ma_resourc
 }
 
 
+static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_resource_manager_data_stream_read_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_resource_manager_data_stream_seek_to_pcm_frame((ma_resource_manager_data_stream*)pDataSource, frameIndex);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
+{
+    return ma_resource_manager_data_stream_map((ma_resource_manager_data_stream*)pDataSource, ppFramesOut, pFrameCount);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
+{
+    return ma_resource_manager_data_stream_unmap((ma_resource_manager_data_stream*)pDataSource, frameCount);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_resource_manager_data_stream_get_data_format((ma_resource_manager_data_stream*)pDataSource, pFormat, pChannels, pSampleRate);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_resource_manager_data_stream_get_cursor_in_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pCursor);
+}
+
+static ma_result ma_resource_manager_data_stream_cb__get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_resource_manager_data_stream_get_length_in_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pLength);
+}
 
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
 {
@@ -5943,13 +6014,13 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     }
 
     MA_ZERO_OBJECT(pDataStream);
-    pDataStream->ds.onRead          = ma_resource_manager_data_stream_read_pcm_frames;
-    pDataStream->ds.onSeek          = ma_resource_manager_data_stream_seek_to_pcm_frame;
-    pDataStream->ds.onMap           = ma_resource_manager_data_stream_map;
-    pDataStream->ds.onUnmap         = ma_resource_manager_data_stream_unmap;
-    pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream_get_data_format;
-    pDataStream->ds.onGetCursor     = ma_resource_manager_data_stream_get_cursor_in_pcm_frames;
-    pDataStream->ds.onGetLength     = ma_resource_manager_data_stream_get_length_in_pcm_frames;
+    pDataStream->ds.onRead          = ma_resource_manager_data_stream_cb__read_pcm_frames;
+    pDataStream->ds.onSeek          = ma_resource_manager_data_stream_cb__seek_to_pcm_frame;
+    pDataStream->ds.onMap           = ma_resource_manager_data_stream_cb__map;
+    pDataStream->ds.onUnmap         = ma_resource_manager_data_stream_cb__unmap;
+    pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream_cb__get_data_format;
+    pDataStream->ds.onGetCursor     = ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames;
+    pDataStream->ds.onGetLength     = ma_resource_manager_data_stream_cb__get_length_in_pcm_frames;
 
     pDataStream->pResourceManager   = pResourceManager;
     pDataStream->flags              = flags;
@@ -6896,7 +6967,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataBuffer.pNotification != NULL) {
-        ma_async_notification_event_signal(pJob->freeDataBuffer.pNotification);
+        ma_async_notification_signal(pJob->freeDataBuffer.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
     /*c89atomic_fetch_add_32(&pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer, 1);*/
@@ -7368,7 +7439,7 @@ static void ma_stereo_balance_pcm_frames(void* pFramesOut, const void* pFramesIn
     }
 
     switch (format) {
-        case ma_format_f32: ma_stereo_balance_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, pan); break;
+        case ma_format_f32: ma_stereo_balance_pcm_frames_f32((float*)pFramesOut, (float*)pFramesIn, frameCount, pan); break;
 
         /* Unknown format. Just copy. */
         default:
@@ -7420,7 +7491,7 @@ static void ma_stereo_pan_pcm_frames(void* pFramesOut, const void* pFramesIn, ma
     }
 
     switch (format) {
-        case ma_format_f32: ma_stereo_pan_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, pan); break;
+        case ma_format_f32: ma_stereo_pan_pcm_frames_f32((float*)pFramesOut, (float*)pFramesIn, frameCount, pan); break;
 
         /* Unknown format. Just copy. */
         default:
@@ -7629,6 +7700,11 @@ static ma_result ma_dual_fader_effect__on_process_pcm_frames(ma_effect* pEffect,
     return result;
 }
 
+static ma_result ma_dual_fader_effect__on_get_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_dual_fader_get_data_format((ma_dual_fader*)pEffect, pFormat, pChannels, pSampleRate);
+}
+
 MA_API ma_result ma_dual_fader_init(const ma_dual_fader_config* pConfig, ma_dual_fader* pFader)
 {
     if (pFader == NULL) {
@@ -7644,8 +7720,8 @@ MA_API ma_result ma_dual_fader_init(const ma_dual_fader_config* pConfig, ma_dual
     pFader->effect.onProcessPCMFrames            = ma_dual_fader_effect__on_process_pcm_frames;
     pFader->effect.onGetRequiredInputFrameCount  = NULL;
     pFader->effect.onGetExpectedOutputFrameCount = NULL;
-    pFader->effect.onGetInputDataFormat          = ma_dual_fader_get_data_format;
-    pFader->effect.onGetOutputDataFormat         = ma_dual_fader_get_data_format;
+    pFader->effect.onGetInputDataFormat          = ma_dual_fader_effect__on_get_data_format;
+    pFader->effect.onGetOutputDataFormat         = ma_dual_fader_effect__on_get_data_format;
 
     pFader->config          = *pConfig;
     pFader->timeInFramesCur = 0;
@@ -8302,7 +8378,7 @@ static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 
 static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound);
 static MA_INLINE ma_result ma_sound_group_stop_internal(ma_sound_group* pGroup);
 
-MA_API ma_engine_config ma_engine_config_init_default()
+MA_API ma_engine_config ma_engine_config_init_default(void)
 {
     ma_engine_config config;
     MA_ZERO_OBJECT(&config);
@@ -8899,7 +8975,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         }
     } else {
         /* There's no available sounds for recycling. We need to allocate a sound. This can be done using a stack allocator. */
-        pSound = ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_SOUND*/); /* TODO: This can certainly be optimized. */
+        pSound = (ma_sound*)ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_SOUND*/); /* TODO: This can certainly be optimized. */
         if (pSound == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -9290,7 +9366,7 @@ MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
     */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(pSound->pDataSource, isLooping);
+        ma_resource_manager_data_source_set_looping(&pSound->resourceManagerDataSource, isLooping);
     }
 #endif
 
