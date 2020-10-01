@@ -1584,12 +1584,12 @@ struct ma_listener
     ma_quat rotation;
 };
 
+
 typedef struct
 {
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
-    ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */
     ma_format format;                       /* The format to use when mixing and spatializing. When set to 0 will use the native format of the device. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
