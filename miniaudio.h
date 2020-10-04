@@ -13255,8 +13255,11 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
+
+#ifdef MA_WIN32_DESKTOP
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
+#endif
 
     (void)pContext;
 
@@ -42403,7 +42406,7 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
-#if !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
+#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
 int fileno(FILE *stream);
 #endif
 
@@ -62552,6 +62555,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.20 - TBD
+  - Fix build errors with UWP.
   - Minor documentation updates.
 
 v0.10.19 - 2020-09-22
