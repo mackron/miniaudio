@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.20 - TBD
+miniaudio - v0.10.20 - 2020-10-06
 
 David Reid - mackron@gmail.com
 
@@ -62554,7 +62554,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.20 - TBD
+v0.10.20 - 2020-10-06
   - Fix build errors with UWP.
   - Minor documentation updates.
 
