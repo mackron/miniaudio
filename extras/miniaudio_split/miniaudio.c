@@ -1,12 +1,12 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.17 - 2020-08-28
+miniaudio - v0.10.20 - 2020-10-06
 
-David Reid - davidreidsoftware@gmail.com
+David Reid - mackron@gmail.com
 
 Website:       https://miniaud.io
 Documentation: https://miniaud.io/docs
-GitHub:        https://github.com/dr-soft/miniaudio
+GitHub:        https://github.com/mackron/miniaudio
 */
 #include "miniaudio.h"
 
@@ -4727,7 +4727,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             }
 
             /* Getting here means a suspend or kill operation has been requested. */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;
         }
@@ -4741,7 +4741,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             ma_timer_init(&pDevice->null_device.timer);
 
             /* We're done. */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;
         }
@@ -4749,7 +4749,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_KILL__NULL) {
             c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, MA_SUCCESS);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             break;
         }
@@ -4757,7 +4757,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            c89atomic_exchange_32(&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
+            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             continue;   /* Continue the loop. Don't terminate. */
         }
@@ -7170,6 +7170,22 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     }
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
+    if (pData->formatOut == ma_format_unknown) {
+        /*
+        The format isn't supported. This is almost certainly because the exclusive mode format isn't supported by miniaudio. We need to return MA_SHARE_MODE_NOT_SUPPORTED
+        in this case so that the caller can detect it and fall back to shared mode if desired. We should never get here if shared mode was requested, but just for
+        completeness we'll check for it and return MA_FORMAT_NOT_SUPPORTED.
+        */
+        if (shareMode == ma_share_mode_exclusive) {
+            result = MA_SHARE_MODE_NOT_SUPPORTED;
+        } else {
+            result = MA_FORMAT_NOT_SUPPORTED;
+        }
+        
+        errorMsg = "[WASAPI] Native format not supported.";
+        goto done;
+    }
+
     pData->channelsOut = wf.Format.nChannels;
     pData->sampleRateOut = wf.Format.nSamplesPerSec;
 
@@ -7547,8 +7563,11 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
+
+#ifdef MA_WIN32_DESKTOP
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
+#endif
 
     (void)pContext;
 
@@ -14369,7 +14388,7 @@ static ma_result ma_result_from_pulse(int result)
         case MA_PA_ERR_ACCESS:   return MA_ACCESS_DENIED;
         case MA_PA_ERR_INVALID:  return MA_INVALID_ARGS;
         case MA_PA_ERR_NOENTITY: return MA_NO_DEVICE;
-        default:                  return MA_ERROR;
+        default:                 return MA_ERROR;
     }
 }
 
@@ -29513,10 +29532,11 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         }
     }
 
-    pLPF->lpf1Count = lpf1Count;
-    pLPF->lpf2Count = lpf2Count;
-    pLPF->format    = pConfig->format;
-    pLPF->channels  = pConfig->channels;
+    pLPF->lpf1Count  = lpf1Count;
+    pLPF->lpf2Count  = lpf2Count;
+    pLPF->format     = pConfig->format;
+    pLPF->channels   = pConfig->channels;
+    pLPF->sampleRate = pConfig->sampleRate;
 
     return MA_SUCCESS;
 }
@@ -30019,10 +30039,11 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         }
     }
 
-    pHPF->hpf1Count = hpf1Count;
-    pHPF->hpf2Count = hpf2Count;
-    pHPF->format    = pConfig->format;
-    pHPF->channels  = pConfig->channels;
+    pHPF->hpf1Count  = hpf1Count;
+    pHPF->hpf2Count  = hpf2Count;
+    pHPF->format     = pConfig->format;
+    pHPF->channels   = pConfig->channels;
+    pHPF->sampleRate = pConfig->sampleRate;
 
     return MA_SUCCESS;
 }
@@ -32254,8 +32275,8 @@ MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format fo
     config.format      = format;
     config.channelsIn  = channelsIn;
     config.channelsOut = channelsOut;
-    ma_channel_map_copy(config.channelMapIn,  pChannelMapIn,  channelsIn);
-    ma_channel_map_copy(config.channelMapOut, pChannelMapOut, channelsOut);
+    ma_channel_map_copy_or_default(config.channelMapIn,  pChannelMapIn,  channelsIn);
+    ma_channel_map_copy_or_default(config.channelMapOut, pChannelMapOut, channelsOut);
     config.mixingMode  = mixingMode;
 
     return config;
@@ -32937,7 +32958,7 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
                 for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
                     for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
                         ma_int64 s = pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut];
-                        s += (pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
+                        s += ((ma_int64)pFramesInS32[iFrame*pConverter->channelsIn + iChannelIn] * pConverter->weights.s16[iChannelIn][iChannelOut]) >> MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT;
 
                         pFramesOutS32[iFrame*pConverter->channelsOut + iChannelOut] = ma_clip_s32(s);
                     }
@@ -34544,6 +34565,19 @@ MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint
 {
     if (pOut != NULL && pIn != NULL && channels > 0) {
         MA_COPY_MEMORY(pOut, pIn, sizeof(*pOut) * channels);
+    }
+}
+
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels)
+{
+    if (pOut == NULL || channels == 0) {
+        return;
+    }
+
+    if (pIn != NULL) {
+        ma_channel_map_copy(pOut, pIn, channels);
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, channels, pOut);
     }
 }
 
@@ -36421,9 +36455,6 @@ static ma_result ma_default_vfs_write__win32(ma_vfs* pVFS, ma_vfs_file file, con
     return result;
 }
 
-#if !defined(WINVER) || WINVER <= 0x0502
-WINBASEAPI BOOL WINAPI SetFilePointerEx(HANDLE hFile, LARGE_INTEGER liDistanceToMove, LARGE_INTEGER* pNewFilePointer, DWORD dwMoveMethod);
-#endif
 
 static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
 {
@@ -36443,7 +36474,16 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    /* No SetFilePointerEx() so restrict to 31 bits. */
+    if (origin > 0x7FFFFFFF) {
+        return MA_OUT_OF_RANGE;
+    }
+
+    result = SetFilePointer((HANDLE)file, (LONG)liDistanceToMove.QuadPart, NULL, dwMoveMethod);
+#else
     result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -36456,12 +36496,20 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     LARGE_INTEGER liZero;
     LARGE_INTEGER liTell;
     BOOL result;
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    LONG tell;
+#endif
 
     (void)pVFS;
 
     liZero.QuadPart = 0;
 
+#if defined(_MSC_VER) && _MSC_VER <= 1200
+    result = SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
+    liTell.QuadPart = tell;
+#else
     result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -36666,7 +36714,7 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
-#if !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
+#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
 int fileno(FILE *stream);
 #endif
 
@@ -37234,7 +37282,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  18
+#define DRFLAC_VERSION_REVISION  19
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -38205,13 +38253,20 @@ static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig
 
     /*
     dr_flac supports reading as s32, s16 and f32. Try to do a one-to-one mapping if possible, but fall back to s32 if not. s32 is the "native" FLAC format
-    since it's the only one that's truly lossless.
+    since it's the only one that's truly lossless. If the internal bits per sample is <= 16 we will decode to ma_format_s16 to keep it more efficient.
     */
-    pDecoder->internalFormat = ma_format_s32;
-    if (pConfig->format == ma_format_s16) {
-        pDecoder->internalFormat = ma_format_s16;
-    } else if (pConfig->format == ma_format_f32) {
-        pDecoder->internalFormat = ma_format_f32;
+    if (pConfig->format == ma_format_unknown) {
+        if (pFlac->bitsPerSample <= 16) {
+            pDecoder->internalFormat = ma_format_s16;
+        } else {
+            pDecoder->internalFormat = ma_format_s32;
+        }
+    } else {
+        if (pConfig->format == ma_format_s16 || pConfig->format == ma_format_f32) {
+            pDecoder->internalFormat = pConfig->format;
+        } else {
+            pDecoder->internalFormat = ma_format_s32;   /* s32 as the baseline to ensure no loss of precision for 24-bit encoded files. */
+        }
     }
 
     pDecoder->internalChannels = pFlac->channels;
@@ -40159,6 +40214,8 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         if (result == MA_SUCCESS) {
             pDecoder->readPointerInPCMFrames = frameIndex;
         }
+
+        return result;
     }
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
@@ -45967,7 +46024,6 @@ static DRFLAC_INLINE drflac_bool32 drflac__read_uint32(drflac_bs* bs, unsigned i
 static drflac_bool32 drflac__read_int32(drflac_bs* bs, unsigned int bitCount, drflac_int32* pResult)
 {
     drflac_uint32 result;
-    drflac_uint32 signbit;
     DRFLAC_ASSERT(bs != NULL);
     DRFLAC_ASSERT(pResult != NULL);
     DRFLAC_ASSERT(bitCount > 0);
@@ -45975,8 +46031,11 @@ static drflac_bool32 drflac__read_int32(drflac_bs* bs, unsigned int bitCount, dr
     if (!drflac__read_uint32(bs, bitCount, &result)) {
         return DRFLAC_FALSE;
     }
-    signbit = ((result >> (bitCount-1)) & 0x01);
-    result |= (~signbit + 1) << bitCount;
+    if (bitCount < 32) {
+        drflac_uint32 signbit;
+        signbit = ((result >> (bitCount-1)) & 0x01);
+        result |= (~signbit + 1) << bitCount;
+    }
     *pResult = (drflac_int32)result;
     return DRFLAC_TRUE;
 }

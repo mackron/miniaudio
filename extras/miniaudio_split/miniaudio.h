@@ -1,12 +1,12 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.17 - 2020-08-28
+miniaudio - v0.10.20 - 2020-10-06
 
-David Reid - davidreidsoftware@gmail.com
+David Reid - mackron@gmail.com
 
 Website:       https://miniaud.io
 Documentation: https://miniaud.io/docs
-GitHub:        https://github.com/dr-soft/miniaudio
+GitHub:        https://github.com/mackron/miniaudio
 */
 #ifndef miniaudio_h
 #define miniaudio_h
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 17
+#define MA_VERSION_REVISION 20
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -625,6 +625,7 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint32 lpf1Count;
     ma_uint32 lpf2Count;
     ma_lpf1 lpf1[1];
@@ -693,6 +694,7 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint32 hpf1Count;
     ma_uint32 hpf2Count;
     ma_hpf1 hpf1[1];
@@ -1202,6 +1204,13 @@ Copies a channel map.
 Both input and output channel map buffers must have a capacity of at at least `channels`.
 */
 MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
+
+/*
+Copies a channel map if one is specified, otherwise copies the default channel map.
+
+The output buffer must have a capacity of at least `channels`. If not NULL, the input channel map must also have a capacity of at least `channels`.
+*/
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
 
 
 /*
