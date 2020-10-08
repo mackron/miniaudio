@@ -13558,7 +13558,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
     In loopback mode it's possible for WaitForSingleObject() to get stuck in a deadlock when nothing is being played. When nothing
     is being played, the event is never signalled internally by WASAPI which means we will deadlock when stopping the device.
     */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_duplex) {
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
     }
 
