@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.20 - 2020-10-06
+miniaudio - v0.10.21 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1421,7 +1421,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 20
+#define MA_VERSION_REVISION 21
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -62554,6 +62554,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.21 - TBD
+  - WASAPI: Fix a copy and paste bug relating to loopback mode.
+
 v0.10.20 - 2020-10-06
   - Fix build errors with UWP.
   - Minor documentation updates.
