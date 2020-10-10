@@ -4217,7 +4217,7 @@ MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event*
 
 
 #define MA_JOB_ID_NONE      ~((ma_uint64)0)
-#define MA_JOB_SLOT_NONE    ~((ma_uint16)0)
+#define MA_JOB_SLOT_NONE    (ma_uint16)(~0)
 
 static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
 {
@@ -8405,6 +8405,8 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
     ma_result result = MA_SUCCESS;
     ma_uint64 framesProcessed;
 
+    (void)pEngine;  /* Unused at the moment. */
+
     /* Don't do anything if we're not playing. */
     if (pSound->isPlaying == MA_FALSE) {
         return;
@@ -9562,7 +9564,7 @@ static ma_result ma_sound_group_attach(ma_sound_group* pGroup, ma_sound_group* p
         pOldFirstChild->pPrevSibling = pNewFirstChild;
     }
 
-    pGroup->pFirstChild = pNewFirstChild;
+    pParentGroup->pFirstChild = pNewFirstChild;
 
     return MA_SUCCESS;
 }

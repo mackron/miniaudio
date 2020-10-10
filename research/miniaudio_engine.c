@@ -14,8 +14,10 @@ typedef struct
 
 void on_sound_loaded(ma_async_notification* pNotification, int code)
 {
-    sound_loaded_notification* pLoadedNotification = (sound_loaded_notification*)pNotification;
-    ma_uint64 lengthInPCMFrames;
+    //sound_loaded_notification* pLoadedNotification = (sound_loaded_notification*)pNotification;
+    //ma_uint64 lengthInPCMFrames;
+
+    (void)pNotification;
 
     if (code == MA_NOTIFICATION_INIT) {
 
@@ -43,6 +45,7 @@ int main(int argc, char** argv)
     ma_sound sound;
     ma_sound sound2;
     sound_loaded_notification loadNotification;
+    ma_sound_group group;
     
 
     if (argc < 2) {
@@ -68,19 +71,25 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    result = ma_sound_group_init(&engine, NULL, &group);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize sound group.");
+        return -1;
+    }
+
 
 #if 1
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
         return -1;
     }
 
-#if 1
+#if 0
     result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
