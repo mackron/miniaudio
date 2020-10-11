@@ -24762,7 +24762,6 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             return result;
         }
         
-        /* From what I can see, Apple's documentation implies that we should keep the sample rate consistent. */
         origFormatSize = sizeof(origFormat);
         if (deviceType == ma_device_type_playback) {
             status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, MA_COREAUDIO_OUTPUT_BUS, &origFormat, &origFormatSize);
@@ -24770,12 +24769,22 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
         }
         
+        /*
+        Update 2020-10-10:
+        
+        I cannot remember where I read this in the documentation and I cannot find it again. For now I'm going to remove this
+        and see what the feedback from the community is like. If this results in issues we can add it back in again. The idea
+        is that the closest sample rate natively supported by the backend to the requested sample rate should be used if possible.
+        */
+    #if 0
+        /* From what I can see, Apple's documentation implies that we should keep the sample rate consistent. */
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return result;
         }
         
         bestFormat.mSampleRate = origFormat.mSampleRate;
+    #endif
         
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
