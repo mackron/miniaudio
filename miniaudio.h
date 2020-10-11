@@ -24801,6 +24801,11 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
         }
         
+        if (status != noErr) {
+            ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
+            return result;
+        }
+        
         /*
         Update 2020-10-10:
         
@@ -24810,11 +24815,6 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         */
     #if 0
         /* From what I can see, Apple's documentation implies that we should keep the sample rate consistent. */
-        if (status != noErr) {
-            ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
-            return result;
-        }
-        
         bestFormat.mSampleRate = origFormat.mSampleRate;
     #endif
         
