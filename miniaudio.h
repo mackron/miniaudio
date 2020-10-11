@@ -233,6 +233,28 @@ The macOS build should compile cleanly without the need to download any dependen
 compiled as Objective-C and will need to link the relevant frameworks but should compile cleanly out of the box with Xcode. Compiling through the command line
 requires linking to `-lpthread` and `-lm`.
 
+Due to the way miniaudio links to frameworks at runtime, you application may not pass Apple's notaraization process. To fix this there are two options. The
+first is to use the `MA_NO_RUNTIME_LINKING` option, like so:
+
+    ```c
+    #ifdef __APPLE__
+        #define MA_NO_RUNTIME_LINKING
+    #endif 
+    #define MINIAUDIO_IMPLEMENTATION
+    #include "miniaudio.h"
+    ```
+
+This will require linking with `-framework CoreFoundation -framework CoreAudio -framework AudioUnit`. Alternatively, if you would rather keep using runtime
+linking you can add the following to your entitlements.xcent file:
+
+    ```
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+    ```
+
+
 2.3. Linux
 ----------
 The Linux build only requires linking to `-ldl`, `-lpthread` and `-lm`. You do not need any development packages.
