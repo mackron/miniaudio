@@ -62604,6 +62604,10 @@ REVISION HISTORY
 ================
 v0.10.21 - TBD
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
+  - Core Audio: Fix a bug when using multiple contexts.
+  - Core Audio: Fix a compilation warning.
+  - Core Audio: Improvements to sample rate selection.
+  - Core Audio: Add notes regarding the Apple notarization process.
 
 v0.10.20 - 2020-10-06
   - Fix build errors with UWP.
