@@ -24351,17 +24351,22 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
     
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
-        AudioObjectPropertyAddress propAddress;
-        propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
-        propAddress.mElement  = kAudioObjectPropertyElementMaster;
-        
-        ma_mutex_init(&g_DeviceTrackingMutex_CoreAudio);
-        
-        propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-        ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
-        
-        propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-        ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+        /* Don't do anything if we've already initializd device tracking. */
+        if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
+            AudioObjectPropertyAddress propAddress;
+            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+            propAddress.mElement  = kAudioObjectPropertyElementMaster;
+            
+            ma_mutex_init(&g_DeviceTrackingMutex_CoreAudio);
+            
+            propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+            ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            
+            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+            ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            
+            g_DeviceTrackingInitCounter_CoreAudio += 1;
+        }
     }
     ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
 
@@ -24374,21 +24379,26 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
     
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
-        AudioObjectPropertyAddress propAddress;
-        propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
-        propAddress.mElement  = kAudioObjectPropertyElementMaster;
+        g_DeviceTrackingInitCounter_CoreAudio -= 1;
         
-        propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-        ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
-        
-        propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-        ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
-        
-        /* At this point there should be no tracked devices. If so there's an error somewhere. */
-        MA_ASSERT(g_ppTrackedDevices_CoreAudio == NULL);
-        MA_ASSERT(g_TrackedDeviceCount_CoreAudio == 0);
-        
-        ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
+        if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
+            AudioObjectPropertyAddress propAddress;
+            propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
+            propAddress.mElement  = kAudioObjectPropertyElementMaster;
+            
+            propAddress.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+            ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+            
+            propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+            ((ma_AudioObjectRemovePropertyListener_proc)pContext->coreaudio.AudioObjectRemovePropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
+
+            /* At this point there should be no tracked devices. If not there's an error somewhere. */
+            if (g_ppTrackedDevices_CoreAudio != NULL) {
+                ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "You have uninitialized all contexts while an associated device is still active.", MA_INVALID_OPERATION);
+            }
+            
+            ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
+        }
     }
     ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
     
