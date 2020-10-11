@@ -7476,6 +7476,8 @@ static void ma_stereo_balance_pcm_frames(void* pFramesOut, const void* pFramesIn
         } else {
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
         }
+
+        return;
     }
 
     switch (format) {
@@ -7528,6 +7530,8 @@ static void ma_stereo_pan_pcm_frames(void* pFramesOut, const void* pFramesIn, ma
         } else {
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, format, 2);
         }
+
+        return;
     }
 
     switch (format) {
