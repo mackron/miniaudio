@@ -22828,7 +22828,14 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
         Need to use the tag to determine the channel map. For now I'm just assuming a default channel map, but later on this should
         be updated to determine the mapping based on the tag.
         */
-        UInt32 channelCount = ma_min(AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag), channelMapCap);
+        UInt32 channelCount;
+
+        /* Our channel map retrieval APIs below take 32-bit integers, so we'll want to clamp the channel map capacity. */
+        if (channelMapCap > 0xFFFFFFFF) {
+            channelMapCap = 0xFFFFFFFF;
+        }
+
+        channelCount = ma_min(AudioChannelLayoutTag_GetNumberOfChannels(pChannelLayout->mChannelLayoutTag), (UInt32)channelMapCap);
 
         switch (pChannelLayout->mChannelLayoutTag)
         {
