@@ -35,14 +35,24 @@ int main(int argc, char** argv)
 
     printf("Playback Devices\n");
     for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+        ma_device_info * info = &pPlaybackDeviceInfos[iDevice];
+        printf("    %u: %s\n", iDevice, info->name);
+
+        // (optional) get detailed info
+        ma_context_get_device_info(&context, ma_device_type_playback, &info->id, ma_share_mode_shared, info);
+        printf("    %u - %u kHz, %u - %u channels\n", info->minSampleRate, info->maxSampleRate, info->minChannels, info->maxChannels);
     }
 
     printf("\n");
 
     printf("Capture Devices\n");
     for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
+        ma_device_info * info = &pCaptureDeviceInfos[iDevice];
+        printf("    %u: %s\n", iDevice, info->name);
+
+        // (optional) get detailed info
+        ma_context_get_device_info(&context, ma_device_type_capture, &info->id, ma_share_mode_shared, info);
+        printf("    %u - %u kHz, %u - %u channels\n", info->minSampleRate, info->maxSampleRate, info->minChannels, info->maxChannels);
     }
 
 

@@ -23809,6 +23809,8 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         UInt32 iStreamDescription;
         UInt32 sampleRateRangeCount;
         AudioValueRange* pSampleRateRanges;
+        UInt32 minChannels = 0xFFFFFFFF;
+        UInt32 maxChannels = 0x00000000;
 
         result = ma_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
         if (result != MA_SUCCESS) {
@@ -23824,7 +23826,7 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         if (result != MA_SUCCESS) {
             return result;
         }
-    
+
         /* Formats. */
         result = ma_get_AudioObject_stream_descriptions(pContext, deviceObjectID, deviceType, &streamDescriptionCount, &pStreamDescriptions);
         if (result != MA_SUCCESS) {
@@ -23835,6 +23837,7 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
             ma_format format;
             ma_bool32 formatExists = MA_FALSE;
             ma_uint32 iOutputFormat;
+            ma_uint32 nChannels;
 
             result = ma_format_from_AudioStreamBasicDescription(&pStreamDescriptions[iStreamDescription].mFormat, &format);
             if (result != MA_SUCCESS) {
@@ -23842,7 +23845,12 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
             }
         
             MA_ASSERT(format != ma_format_unknown);
-        
+
+            /* Look at the available channels */
+            nChannels = pStreamDescriptions[iStreamDescription].mFormat.mChannelsPerFrame;
+            minChannels = ma_min(nChannels, minChannels);
+            maxChannels = ma_max(nChannels, maxChannels);
+
             /* Make sure the format isn't already in the output list. */
             for (iOutputFormat = 0; iOutputFormat < pDeviceInfo->formatCount; ++iOutputFormat) {
                 if (pDeviceInfo->formats[iOutputFormat] == format) {
@@ -23860,13 +23868,39 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
     
     
         /* Channels. */
-        result = ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &pDeviceInfo->minChannels);
+        UInt32 nChannels;
+        result = ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &nChannels);
         if (result != MA_SUCCESS) {
             return result;
         }
-        pDeviceInfo->maxChannels = pDeviceInfo->minChannels;
-    
-    
+
+        minChannels = ma_min(nChannels, minChannels);
+        maxChannels = ma_max(nChannels, maxChannels);
+
+        if(minChannels < MA_MIN_CHANNELS){
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "The minimum channel count of a device is below MA_MIN_CHANNELS.", MA_OUT_OF_RANGE);
+            pDeviceInfo->minChannels = MA_MIN_CHANNELS;
+        }
+        else if(minChannels > MA_MAX_CHANNELS){
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "The minimum channel count of a device is above MA_MAX_CHANNELS.", MA_OUT_OF_RANGE);
+            pDeviceInfo->minChannels = MA_MAX_CHANNELS;
+        }
+        else{
+            pDeviceInfo->minChannels = minChannels;
+        }
+
+        if(maxChannels < MA_MIN_CHANNELS){
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "The maximum channel count of a device is below MA_MIN_CHANNELS.", MA_OUT_OF_RANGE);
+            pDeviceInfo->maxChannels = MA_MIN_CHANNELS;
+        }
+        else if(maxChannels > MA_MAX_CHANNELS){
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "The maximum channel count of a device is above MA_MAX_CHANNELS.", MA_OUT_OF_RANGE);
+            pDeviceInfo->maxChannels = MA_MAX_CHANNELS;
+        }
+        else{
+            pDeviceInfo->maxChannels = maxChannels;
+        }
+
         /* Sample rates. */
         result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
         if (result != MA_SUCCESS) {
