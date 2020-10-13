@@ -233,7 +233,7 @@ The macOS build should compile cleanly without the need to download any dependen
 compiled as Objective-C and will need to link the relevant frameworks but should compile cleanly out of the box with Xcode. Compiling through the command line
 requires linking to `-lpthread` and `-lm`.
 
-Due to the way miniaudio links to frameworks at runtime, you application may not pass Apple's notaraization process. To fix this there are two options. The
+Due to the way miniaudio links to frameworks at runtime, your application may not pass Apple's notarization process. To fix this there are two options. The
 first is to use the `MA_NO_RUNTIME_LINKING` option, like so:
 
     ```c
