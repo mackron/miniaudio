@@ -357,9 +357,9 @@ int main(int argc, char** argv)
 {
     int iarg;
     ma_result result;
-    ma_backend availableBackends[MA_BACKEND_COUNT];
-    size_t availbleBackendCount;
-    size_t iAvailableBackend;
+    ma_backend enabledBackends[MA_BACKEND_COUNT];
+    size_t enabledBackendCount;
+    size_t iEnabledBackend;
     ma_backend backends[MA_BACKEND_COUNT];
     ma_uint32 backendCount = 0;
     ma_context_config contextConfig;
@@ -407,15 +407,15 @@ int main(int argc, char** argv)
     }
 
     /* Here we'll quickly print the available backends. */
-    printf("Available Backends:\n");
-    result = ma_get_avaialable_backends(availableBackends, ma_countof(availableBackends), &availbleBackendCount);
+    printf("Enabled Backends:\n");
+    result = ma_get_enabled_backends(enabledBackends, ma_countof(enabledBackends), &enabledBackendCount);
     if (result != MA_SUCCESS) {
         printf("Failed to retrieve available backends.\n");
         return -1;
     }
 
-    for (iAvailableBackend = 0; iAvailableBackend < availbleBackendCount; iAvailableBackend += 1) {
-        printf("    %s\n", ma_get_backend_name(availableBackends[iAvailableBackend]));
+    for (iEnabledBackend = 0; iEnabledBackend < enabledBackendCount; iEnabledBackend += 1) {
+        printf("    %s\n", ma_get_backend_name(enabledBackends[iEnabledBackend]));
     }
     printf("\n");
 

@@ -5102,23 +5102,23 @@ MA_API const char* ma_get_backend_name(ma_backend backend);
 /*
 Determines whether or not the given backend is available by the compilation environment.
 */
-MA_API ma_bool32 ma_is_backend_available(ma_backend backend);
+MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend);
 
 /*
-Retrieves available backends.
+Retrieves compile-time enabled backends.
 
 
 Parameters
 ----------
 pBackends(out, optional)
-    A pointer to the buffer that will receive the available backends. Set to NULL to retrieve the backend count. Setting
+    A pointer to the buffer that will receive the enabled backends. Set to NULL to retrieve the backend count. Setting
     the capacity of the buffer to `MA_BUFFER_COUNT` will guarantee it's large enough for all backends.
 
 backendCap(in)
     The capacity of the `pBackends` buffer.
 
 pBackendCount(out)
-    A pointer to the variable that will receive the available backend count.
+    A pointer to the variable that will receive the enabled backend count.
 
 
 Return Value
@@ -5156,26 +5156,26 @@ PulseAudio installed.
 
 Example 1
 ---------
-The example below retrieves the available backend count using a fixed sized buffer allocated on the stack. The buffer
-is given a capacity of `MA_BACKEND_COUNT` which will guarantee it'll be large enough to store all available backends.
+The example below retrieves the enabled backend count using a fixed sized buffer allocated on the stack. The buffer is
+given a capacity of `MA_BACKEND_COUNT` which will guarantee it'll be large enough to store all available backends.
 Since `MA_BACKEND_COUNT` is always a relatively small value, this should be suitable for most scenarios.
 
 ```
-ma_backend availableBackends[MA_BACKEND_COUNT];
-size_t availableBackendCount;
+ma_backend enabledBackends[MA_BACKEND_COUNT];
+size_t enabledBackendCount;
 
-result = ma_get_avaialable_backends(availableBackends, MA_BACKEND_COUNT, &availbleBackendCount);
+result = ma_get_enabled_backends(enabledBackends, MA_BACKEND_COUNT, &enabledBackendCount);
 if (result != MA_SUCCESS) {
-    // Failed to retrieve available backends. Should never happen in this example since all inputs are valid.
+    // Failed to retrieve enabled backends. Should never happen in this example since all inputs are valid.
 }
 ```
 
 
 See Also
 --------
-ma_is_backend_available()
+ma_is_backend_enabled()
 */
-MA_API ma_result ma_get_avaialable_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount);
+MA_API ma_result ma_get_enabled_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount);
 
 /*
 Determines whether or not loopback mode is support by a backend.
@@ -9456,7 +9456,7 @@ MA_API const char* ma_get_backend_name(ma_backend backend)
     }
 }
 
-MA_API ma_bool32 ma_is_backend_available(ma_backend backend)
+MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
 {
     /*
     This looks a little bit gross, but we want all backends to be included in the switch to avoid warnings on some compilers
@@ -9553,7 +9553,7 @@ MA_API ma_bool32 ma_is_backend_available(ma_backend backend)
     }
 }
 
-MA_API ma_result ma_get_avaialable_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount)
+MA_API ma_result ma_get_enabled_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount)
 {
     size_t backendCount;
     size_t iBackend;
@@ -9568,8 +9568,8 @@ MA_API ma_result ma_get_avaialable_backends(ma_backend* pBackends, size_t backen
     for (iBackend = 0; iBackend <= ma_backend_null; iBackend += 1) {
         ma_backend backend = (ma_backend)iBackend;
 
-        if (ma_is_backend_available(backend)) {
-            /* The backend is available. Try adding it to the list. If there's no room, MA_NO_SPACE needs to be returned. */
+        if (ma_is_backend_enabled(backend)) {
+            /* The backend is enabled. Try adding it to the list. If there's no room, MA_NO_SPACE needs to be returned. */
             if (backendCount == backendCap) {
                 result = MA_NO_SPACE;
                 break;
@@ -62814,7 +62814,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.21 - TBD
-  - Add ma_is_backend_available() and ma_get_avaialable_backends() for retrieving available backends at run-time.
+  - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving available backends at run-time.
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
   - Core Audio: Fix a bug when using multiple contexts.
   - Core Audio: Fix a compilation warning.
