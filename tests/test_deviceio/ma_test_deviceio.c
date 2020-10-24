@@ -357,7 +357,10 @@ int main(int argc, char** argv)
 {
     int iarg;
     ma_result result;
-    ma_backend backends[ma_backend_null+1];
+    ma_backend availableBackends[MA_BACKEND_COUNT];
+    size_t availbleBackendCount;
+    size_t iAvailableBackend;
+    ma_backend backends[MA_BACKEND_COUNT];
     ma_uint32 backendCount = 0;
     ma_context_config contextConfig;
     ma_device_type deviceType = ma_device_type_playback;
@@ -402,6 +405,20 @@ int main(int argc, char** argv)
         pFilePath = argv[iarg];
         g_State.sourceType = source_type_decoder;
     }
+
+    /* Here we'll quickly print the available backends. */
+    printf("Available Backends:\n");
+    result = ma_get_avaialable_backends(availableBackends, ma_countof(availableBackends), &availbleBackendCount);
+    if (result != MA_SUCCESS) {
+        printf("Failed to retrieve available backends.\n");
+        return -1;
+    }
+
+    for (iAvailableBackend = 0; iAvailableBackend < availbleBackendCount; iAvailableBackend += 1) {
+        printf("    %s\n", ma_get_backend_name(availableBackends[iAvailableBackend]));
+    }
+    printf("\n");
+
 
     /* Initialize the context first. If no backends were passed into the command line we just use defaults. */
     contextConfig = ma_context_config_init();

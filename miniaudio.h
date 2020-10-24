@@ -2948,6 +2948,8 @@ typedef enum
     ma_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } ma_backend;
 
+#define MA_BACKEND_COUNT (ma_backend_null+1)
+
 
 /*
 The callback for processing audio data from the device.
@@ -5096,6 +5098,84 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
 Retrieves a friendly name for a backend.
 */
 MA_API const char* ma_get_backend_name(ma_backend backend);
+
+/*
+Determines whether or not the given backend is available by the compilation environment.
+*/
+MA_API ma_bool32 ma_is_backend_available(ma_backend backend);
+
+/*
+Retrieves available backends.
+
+
+Parameters
+----------
+pBackends(out, optional)
+    A pointer to the buffer that will receive the available backends. Set to NULL to retrieve the backend count. Setting
+    the capacity of the buffer to `MA_BUFFER_COUNT` will guarantee it's large enough for all backends.
+
+backendCap(in)
+    The capacity of the `pBackends` buffer.
+
+pBackendCount(out)
+    A pointer to the variable that will receive the available backend count.
+
+
+Return Value
+------------
+MA_SUCCESS if successful.
+MA_INVALID_ARGS if `pBackendCount` is NULL.
+MA_NO_SPACE if the capacity of `pBackends` is not large enough.
+
+If `MA_NO_SPACE` is returned, the `pBackends` buffer will be filled with `*pBackendCount` values.
+
+
+Thread Safety
+-------------
+Safe.
+
+
+Callback Safety
+---------------
+Safe.
+
+
+Remarks
+-------
+If you want to retrieve the number of backends so you can determine the capacity of `pBackends` buffer, you can call
+this function with `pBackends` set to NULL.
+
+This will also enumerate the null backend. If you don't want to include this you need to check for `ma_backend_null`
+when you enumerate over the returned backends and handle it appropriately. Alternatively, you can disable it at
+compile time with `MA_NO_NULL`.
+
+The returned backends are determined based on compile time settings, not the platform it's currently running on. For
+example, PulseAudio will be returned if it was enabled at compile time, even when the user doesn't actually have
+PulseAudio installed.
+
+
+Example 1
+---------
+The example below retrieves the available backend count using a fixed sized buffer allocated on the stack. The buffer
+is given a capacity of `MA_BACKEND_COUNT` which will guarantee it'll be large enough to store all available backends.
+Since `MA_BACKEND_COUNT` is always a relatively small value, this should be suitable for most scenarios.
+
+```
+ma_backend availableBackends[MA_BACKEND_COUNT];
+size_t availableBackendCount;
+
+result = ma_get_avaialable_backends(availableBackends, MA_BACKEND_COUNT, &availbleBackendCount);
+if (result != MA_SUCCESS) {
+    // Failed to retrieve available backends. Should never happen in this example since all inputs are valid.
+}
+```
+
+
+See Also
+--------
+ma_is_backend_available()
+*/
+MA_API ma_result ma_get_avaialable_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount);
 
 /*
 Determines whether or not loopback mode is support by a backend.
@@ -9374,6 +9454,137 @@ MA_API const char* ma_get_backend_name(ma_backend backend)
         case ma_backend_null:       return "Null";
         default:                    return "Unknown";
     }
+}
+
+MA_API ma_bool32 ma_is_backend_available(ma_backend backend)
+{
+    /*
+    This looks a little bit gross, but we want all backends to be included in the switch to avoid warnings on some compilers
+    about some enums not being handled by the switch statement.
+    */
+    switch (backend)
+    {
+        case ma_backend_wasapi:
+        #if defined(MA_HAS_WASAPI)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_dsound:
+        #if defined(MA_HAS_DSOUND)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_winmm:
+        #if defined(MA_HAS_WINMM)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_coreaudio:
+        #if defined(MA_HAS_COREAUDIO)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_sndio:
+        #if defined(MA_HAS_SNDIO)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_audio4:
+        #if defined(MA_HAS_AUDIO4)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_oss:
+        #if defined(MA_HAS_OSS)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_pulseaudio:
+        #if defined(MA_HAS_PULSEAUDIO)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_alsa:
+        #if defined(MA_HAS_ALSA)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_jack:
+        #if defined(MA_HAS_JACK)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_aaudio:
+        #if defined(MA_HAS_AAUDIO)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_opensl:
+        #if defined(MA_HAS_OPENSL)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_webaudio:
+        #if defined(MA_HAS_WEBAUDIO)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+        case ma_backend_null:
+        #if defined(MA_HAS_NULL)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
+
+        default: return MA_FALSE;
+    }
+}
+
+MA_API ma_result ma_get_avaialable_backends(ma_backend* pBackends, size_t backendCap, size_t* pBackendCount)
+{
+    size_t backendCount;
+    size_t iBackend;
+    ma_result result = MA_SUCCESS;
+
+    if (pBackendCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    backendCount = 0;
+
+    for (iBackend = 0; iBackend <= ma_backend_null; iBackend += 1) {
+        ma_backend backend = (ma_backend)iBackend;
+
+        if (ma_is_backend_available(backend)) {
+            /* The backend is available. Try adding it to the list. If there's no room, MA_NO_SPACE needs to be returned. */
+            if (backendCount == backendCap) {
+                result = MA_NO_SPACE;
+                break;
+            } else {
+                pBackends[backendCount] = backend;
+                backendCount += 1;
+            }
+        }
+    }
+
+    if (pBackendCount != NULL) {
+        *pBackendCount = backendCount;
+    }
+
+    return result;
 }
 
 MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
@@ -62603,6 +62814,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.21 - TBD
+  - Add ma_is_backend_available() and ma_get_avaialable_backends() for retrieving available backends at run-time.
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
   - Core Audio: Fix a bug when using multiple contexts.
   - Core Audio: Fix a compilation warning.
