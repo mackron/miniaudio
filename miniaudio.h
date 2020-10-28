@@ -42345,9 +42345,13 @@ static ma_result ma_default_vfs_read__win32(ma_vfs* pVFS, ma_vfs_file file, void
         }
 
         readResult = ReadFile((HANDLE)file, ma_offset_ptr(pDst, totalBytesRead), bytesToRead, &bytesRead, NULL);
+        if (readResult == 1 && bytesRead == 0) {
+            break;  /* EOF */
+        }
+
         totalBytesRead += bytesRead;
 
-        if (bytesRead < bytesToRead || (readResult == 1 && bytesRead == 0)) {
+        if (bytesRead < bytesToRead) {
             break;  /* EOF */
         }
 
