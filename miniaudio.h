@@ -42108,7 +42108,7 @@ MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, 
 {
     ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
 
-    if (pBytesWritten == NULL) {
+    if (pBytesWritten != NULL) {
         *pBytesWritten = 0;
     }
 
@@ -42394,7 +42394,7 @@ static ma_result ma_default_vfs_write__win32(ma_vfs* pVFS, ma_vfs_file file, con
         }
     }
 
-    if (pBytesWritten == NULL) {
+    if (pBytesWritten != NULL) {
         *pBytesWritten = totalBytesWritten;
     }
 
@@ -62815,6 +62815,7 @@ v0.10.21 - TBD
   - Core Audio: Fix a compilation warning.
   - Core Audio: Improvements to sample rate selection.
   - Core Audio: Add notes regarding the Apple notarization process.
+  - Fix some bugs due to null pointer dereferences.
 
 v0.10.20 - 2020-10-06
   - Fix build errors with UWP.
