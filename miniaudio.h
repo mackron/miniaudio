@@ -11138,7 +11138,7 @@ static ma_result ma_device_main_loop__null(ma_device* pDevice)
             case ma_device_type_capture:
             {
                 /* We read in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint8 intermediaryBuffer[8192];
+                ma_uint8 intermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                 ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                 ma_uint32 periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
                 ma_uint32 framesReadThisPeriod = 0;
@@ -11165,7 +11165,7 @@ static ma_result ma_device_main_loop__null(ma_device* pDevice)
             case ma_device_type_playback:
             {
                 /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint8 intermediaryBuffer[8192];
+                ma_uint8 intermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                 ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 ma_uint32 periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
                 ma_uint32 framesWrittenThisPeriod = 0;
