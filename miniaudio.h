@@ -23665,7 +23665,7 @@ static ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type devi
 }
 
 
-static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_bool32 usingDefaultFormat, ma_bool32 usingDefaultChannels, ma_bool32 usingDefaultSampleRate, AudioStreamBasicDescription* pFormat)
+static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_bool32 usingDefaultFormat, ma_bool32 usingDefaultChannels, ma_bool32 usingDefaultSampleRate, const AudioStreamBasicDescription* pOrigFormat, AudioStreamBasicDescription* pFormat)
 {
     UInt32 deviceFormatDescriptionCount;
     AudioStreamRangedDescription* pDeviceFormatDescriptions;
@@ -23684,40 +23684,20 @@ static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjec
     
     desiredSampleRate = sampleRate;
     if (usingDefaultSampleRate) {
-        /*
-        When using the device's default sample rate, we get the highest priority standard rate supported by the device. Otherwise
-        we just use the pre-set rate.
-        */
-        ma_uint32 iStandardRate;
-        for (iStandardRate = 0; iStandardRate < ma_countof(g_maStandardSampleRatePriorities); ++iStandardRate) {
-            ma_uint32 standardRate = g_maStandardSampleRatePriorities[iStandardRate];
-            ma_bool32 foundRate = MA_FALSE;
-            UInt32 iDeviceRate;
-
-            for (iDeviceRate = 0; iDeviceRate < deviceFormatDescriptionCount; ++iDeviceRate) {
-                ma_uint32 deviceRate = (ma_uint32)pDeviceFormatDescriptions[iDeviceRate].mFormat.mSampleRate;
-                
-                if (deviceRate == standardRate) {
-                    desiredSampleRate = standardRate;
-                    foundRate = MA_TRUE;
-                    break;
-                }
-            }
-            
-            if (foundRate) {
-                break;
-            }
-        }
+        desiredSampleRate = pOrigFormat->mSampleRate;
     }
     
     desiredChannelCount = channels;
     if (usingDefaultChannels) {
-        ma_get_AudioObject_channel_count(pContext, deviceObjectID, deviceType, &desiredChannelCount);    /* <-- Not critical if this fails. */
+        desiredChannelCount = pOrigFormat->mChannelsPerFrame;
     }
     
     desiredFormat = format;
     if (usingDefaultFormat) {
-        desiredFormat = g_maFormatPriorities[0];
+        result = ma_format_from_AudioStreamBasicDescription(pOrigFormat, &desiredFormat);
+        if (result != MA_SUCCESS || desiredFormat == ma_format_unknown) {
+            desiredFormat = g_maFormatPriorities[0];
+        }
     }
     
     /*
@@ -24989,21 +24969,16 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     #if defined(MA_APPLE_DESKTOP)
         AudioStreamBasicDescription origFormat;
         UInt32 origFormatSize;
-
-        result = ma_find_best_format__coreaudio(pContext, deviceObjectID, deviceType, pData->formatIn, pData->channelsIn, pData->sampleRateIn, pData->usingDefaultFormat, pData->usingDefaultChannels, pData->usingDefaultSampleRate, &bestFormat);
-        if (result != MA_SUCCESS) {
+        
+        origFormatSize = sizeof(origFormat);
+        status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &origFormat, &origFormatSize);
+        if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return result;
         }
-        
-        origFormatSize = sizeof(origFormat);
-        if (deviceType == ma_device_type_playback) {
-            status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, MA_COREAUDIO_OUTPUT_BUS, &origFormat, &origFormatSize);
-        } else {
-            status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
-        }
-        
-        if (status != noErr) {
+
+        result = ma_find_best_format__coreaudio(pContext, deviceObjectID, deviceType, pData->formatIn, pData->channelsIn, pData->sampleRateIn, pData->usingDefaultFormat, pData->usingDefaultChannels, pData->usingDefaultSampleRate, &origFormat, &bestFormat);
+        if (result != MA_SUCCESS) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return result;
         }
