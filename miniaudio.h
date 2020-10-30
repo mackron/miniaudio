@@ -62784,11 +62784,12 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.21 - TBD
-  - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving available backends at run-time.
+  - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
   - Core Audio: Fix a bug when using multiple contexts.
   - Core Audio: Fix a compilation warning.
   - Core Audio: Improvements to sample rate selection.
+  - Core Audio: Improvements to format/channels/rate selection when requesting defaults.
   - Core Audio: Add notes regarding the Apple notarization process.
   - Fix some bugs due to null pointer dereferences.
 
