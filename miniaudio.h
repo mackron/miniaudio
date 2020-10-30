@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.21 - TBD
+miniaudio - v0.10.21 - 2020-10-30
 
 David Reid - mackron@gmail.com
 
@@ -62859,7 +62859,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.21 - TBD
+v0.10.21 - 2020-10-30
   - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
   - Core Audio: Fix a bug when using multiple contexts.
