@@ -629,6 +629,36 @@ requires linking to <span style="font-family:monospace;">-lpthread</span> and <s
 </p>
 <p>
 
+Due to the way miniaudio links to frameworks at runtime, your application may not pass Apple&#39;s notarization process. To fix this there are two options. The
+first is to use the <span style="font-family:monospace;">MA_NO_RUNTIME_LINKING</span> option, like so:
+</p>
+<p>
+
+</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#ifdef</span> __APPLE__
+    <span style="color:#666666">#define</span> MA_NO_RUNTIME_LINKING
+<span style="color:#666666">#endif</span> 
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
+</pre></div><p>
+
+This will require linking with <span style="font-family:monospace;">-framework CoreFoundation -framework CoreAudio -framework AudioUnit</span>. Alternatively, if you would rather keep using runtime
+linking you can add the following to your entitlements.xcent file:
+</p>
+<p>
+
+</p>
+<div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+&lt;key&gt;com.apple.security.cs.allow-dyld-environment-variables&lt;/key&gt;
+&lt;true/&gt;
+&lt;key&gt;com.apple.security.cs.allow-unsigned-executable-memory&lt;/key&gt;
+&lt;true/&gt;
+</pre></div><p>
+
+</p>
+<p>
+
 </p>
 <h2 id="Linux" class="man">2.3. Linux</h2>
 <p>
