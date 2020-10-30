@@ -1,6 +1,6 @@
 /*
 MP3 audio decoder. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_mp3 - v0.6.16 - 2020-08-02
+dr_mp3 - v0.6.17 - 2020-09-28
 
 David Reid - mackron@gmail.com
 
@@ -95,7 +95,7 @@ extern "C" {
 
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  16
+#define DRMP3_VERSION_REVISION  17
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -713,6 +713,8 @@ static __inline__ __attribute__((always_inline)) drmp3_int32 drmp3_clip_int16_ar
     __asm__ ("ssat %0, #16, %1" : "=r"(x) : "r"(a));
     return x;
 }
+#else
+#define DRMP3_HAVE_ARMV6 0
 #endif
 
 
@@ -4430,6 +4432,9 @@ counts rather than sample counts.
 /*
 REVISION HISTORY
 ================
+v0.6.17 - 2020-09-28
+  - Bring up to date with minimp3.
+
 v0.6.16 - 2020-08-02
   - Simplify sized types.
 
