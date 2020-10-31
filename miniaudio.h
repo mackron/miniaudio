@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.21 - 2020-10-30
+miniaudio - v0.10.22 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1443,7 +1443,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 21
+#define MA_VERSION_REVISION 22
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -3432,9 +3432,9 @@ struct ma_context
             ma_proc pa_stream_writable_size;
             ma_proc pa_stream_readable_size;
 
-            char* pApplicationName;
-            char* pServerName;
-            ma_bool32 tryAutoSpawn;
+            /*pa_mainloop**/ ma_ptr pMainLoop;
+            /*pa_context**/ ma_ptr pPulseContext;
+            /*pa_context_state*/ ma_uint32 pulseContextState;
         } pulse;
 #endif
 #ifdef MA_SUPPORT_JACK
@@ -3781,12 +3781,8 @@ struct ma_device
 #ifdef MA_SUPPORT_PULSEAUDIO
         struct
         {
-            /*pa_mainloop**/ ma_ptr pMainLoop;
-            /*pa_mainloop_api**/ ma_ptr pAPI;
-            /*pa_context**/ ma_ptr pPulseContext;
             /*pa_stream**/ ma_ptr pStreamPlayback;
             /*pa_stream**/ ma_ptr pStreamCapture;
-            /*pa_context_state*/ ma_uint32 pulseContextState;
             void* pMappedBufferPlayback;
             const void* pMappedBufferCapture;
             ma_uint32 mappedBufferFramesRemainingPlayback;
@@ -20299,6 +20295,10 @@ typedef struct
 
 static ma_result ma_result_from_pulse(int result)
 {
+    if (result < 0) {
+        return MA_ERROR;
+    }
+
     switch (result) {
         case MA_PA_OK:           return MA_SUCCESS;
         case MA_PA_ERR_ACCESS:   return MA_ACCESS_DENIED;
@@ -20467,14 +20467,13 @@ static ma_pa_channel_position_t ma_channel_position_to_pulse(ma_channel position
 }
 #endif
 
-static ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_mainloop* pMainLoop, ma_pa_operation* pOP)
+static ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_operation* pOP)
 {
     MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pMainLoop != NULL);
     MA_ASSERT(pOP != NULL);
 
     while (((ma_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP) == MA_PA_OPERATION_RUNNING) {
-        int error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
+        int error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pContext->pulse.pMainLoop, 1, NULL);
         if (error < 0) {
             return ma_result_from_pulse(error);
         }
@@ -20482,15 +20481,6 @@ static ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_mainlo
 
     return MA_SUCCESS;
 }
-
-static ma_result ma_device__wait_for_operation__pulse(ma_device* pDevice, ma_pa_operation* pOP)
-{
-    MA_ASSERT(pDevice != NULL);
-    MA_ASSERT(pOP != NULL);
-
-    return ma_wait_for_operation__pulse(pDevice->pContext, (ma_pa_mainloop*)pDevice->pulse.pMainLoop, pOP);
-}
-
 
 static ma_bool32 ma_context_is_device_id_equal__pulse(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
 {
@@ -20572,10 +20562,6 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
     ma_result result = MA_SUCCESS;
     ma_context_enumerate_devices_callback_data__pulse callbackData;
     ma_pa_operation* pOP = NULL;
-    ma_pa_mainloop* pMainLoop;
-    ma_pa_mainloop_api* pAPI;
-    ma_pa_context* pPulseContext;
-    int error;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
@@ -20585,65 +20571,15 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
     callbackData.pUserData = pUserData;
     callbackData.isTerminated = MA_FALSE;
 
-    pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-    if (pMainLoop == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pAPI = ((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
-    if (pAPI == NULL) {
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
-    if (pPulseContext == NULL) {
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, (pContext->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL);
-    if (error != MA_PA_OK) {
-        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return ma_result_from_pulse(error);
-    }
-
-    for (;;) {
-        ma_pa_context_state_t state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
-        if (state == MA_PA_CONTEXT_READY) {
-            break;  /* Success. */
-        }
-        if (state == MA_PA_CONTEXT_CONNECTING || state == MA_PA_CONTEXT_AUTHORIZING || state == MA_PA_CONTEXT_SETTING_NAME) {
-            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-            if (error < 0) {
-                result = ma_result_from_pulse(error);
-                goto done;
-            }
-
-#ifdef MA_DEBUG_OUTPUT
-            printf("[PulseAudio] pa_context_get_state() returned %d. Waiting.\n", state);
-#endif
-            continue;   /* Keep trying. */
-        }
-        if (state == MA_PA_CONTEXT_UNCONNECTED || state == MA_PA_CONTEXT_FAILED || state == MA_PA_CONTEXT_TERMINATED) {
-#ifdef MA_DEBUG_OUTPUT
-            printf("[PulseAudio] pa_context_get_state() returned %d. Failed.\n", state);
-#endif
-            goto done;  /* Failed. */
-        }
-    }
-
-
     /* Playback. */
     if (!callbackData.isTerminated) {
-        pOP = ((ma_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pPulseContext, ma_context_enumerate_devices_sink_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_sink_callback__pulse, &callbackData);
         if (pOP == NULL) {
             result = MA_ERROR;
             goto done;
         }
 
-        result = ma_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        result = ma_wait_for_operation__pulse(pContext, pOP);
         ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
         if (result != MA_SUCCESS) {
             goto done;
@@ -20653,13 +20589,13 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
 
     /* Capture. */
     if (!callbackData.isTerminated) {
-        pOP = ((ma_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pPulseContext, ma_context_enumerate_devices_source_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_source_callback__pulse, &callbackData);
         if (pOP == NULL) {
             result = MA_ERROR;
             goto done;
         }
 
-        result = ma_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        result = ma_wait_for_operation__pulse(pContext, pOP);
         ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
         if (result != MA_SUCCESS) {
             goto done;
@@ -20667,9 +20603,6 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
     }
 
 done:
-    ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
-    ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-    ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
     return result;
 }
 
@@ -20743,10 +20676,6 @@ static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_devi
     ma_result result = MA_SUCCESS;
     ma_context_get_device_info_callback_data__pulse callbackData;
     ma_pa_operation* pOP = NULL;
-    ma_pa_mainloop* pMainLoop;
-    ma_pa_mainloop_api* pAPI;
-    ma_pa_context* pPulseContext;
-    int error;
 
     MA_ASSERT(pContext != NULL);
 
@@ -20758,63 +20687,14 @@ static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_devi
     callbackData.pDeviceInfo = pDeviceInfo;
     callbackData.foundDevice = MA_FALSE;
 
-    pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-    if (pMainLoop == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pAPI = ((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
-    if (pAPI == NULL) {
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
-    if (pPulseContext == NULL) {
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
-    if (error != MA_PA_OK) {
-        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        return ma_result_from_pulse(error);
-    }
-
-    for (;;) {
-        ma_pa_context_state_t state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
-        if (state == MA_PA_CONTEXT_READY) {
-            break;  /* Success. */
-        }
-        if (state == MA_PA_CONTEXT_CONNECTING || state == MA_PA_CONTEXT_AUTHORIZING || state == MA_PA_CONTEXT_SETTING_NAME) {
-            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)(pMainLoop, 1, NULL);
-            if (error < 0) {
-                result = ma_result_from_pulse(error);
-                goto done;
-            }
-
-#ifdef MA_DEBUG_OUTPUT
-            printf("[PulseAudio] pa_context_get_state() returned %d. Waiting.\n", state);
-#endif
-            continue;   /* Keep trying. */
-        }
-        if (state == MA_PA_CONTEXT_UNCONNECTED || state == MA_PA_CONTEXT_FAILED || state == MA_PA_CONTEXT_TERMINATED) {
-#ifdef MA_DEBUG_OUTPUT
-            printf("[PulseAudio] pa_context_get_state() returned %d. Failed.\n", state);
-#endif
-            goto done;  /* Failed. */
-        }
-    }
-
     if (deviceType == ma_device_type_playback) {
-        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pPulseContext, pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
     } else {
-        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)(pPulseContext, pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
     }
 
     if (pOP != NULL) {
-        ma_wait_for_operation__pulse(pContext, pMainLoop, pOP);
+        ma_wait_for_operation__pulse(pContext, pOP);
         ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
     } else {
         result = MA_ERROR;
@@ -20826,28 +20706,12 @@ static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_devi
         goto done;
     }
 
-
 done:
-    ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
-    ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-    ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
     return result;
 }
 
 
-static void ma_pulse_device_state_callback(ma_pa_context* pPulseContext, void* pUserData)
-{
-    ma_device* pDevice;
-    ma_context* pContext;
 
-    pDevice = (ma_device*)pUserData;
-    MA_ASSERT(pDevice != NULL);
-
-    pContext = pDevice->pContext;
-    MA_ASSERT(pContext != NULL);
-
-    pDevice->pulse.pulseContextState = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)(pPulseContext);
-}
 
 static void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
@@ -20926,14 +20790,11 @@ static void ma_device_uninit__pulse(ma_device* pDevice)
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
     }
+
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
     }
-
-    ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((ma_pa_context*)pDevice->pulse.pPulseContext);
-    ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pDevice->pulse.pPulseContext);
-    ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((ma_pa_mainloop*)pDevice->pulse.pMainLoop);
 }
 
 static ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 periodSizeInFrames, ma_uint32 periods, const ma_pa_sample_spec* ss)
@@ -20948,7 +20809,7 @@ static ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 periodSizeInFra
     return attr;
 }
 
-static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const char* pStreamName, const ma_pa_sample_spec* ss, const ma_pa_channel_map* cmap)
+static ma_pa_stream* ma_context__pa_stream_new__pulse(ma_context* pContext, const char* pStreamName, const ma_pa_sample_spec* ss, const ma_pa_channel_map* cmap)
 {
     static int g_StreamCounter = 0;
     char actualStreamName[256];
@@ -20961,7 +20822,7 @@ static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const c
     }
     g_StreamCounter += 1;
 
-    return ((ma_pa_stream_new_proc)pDevice->pContext->pulse.pa_stream_new)((ma_pa_context*)pDevice->pulse.pPulseContext, actualStreamName, ss, cmap);
+    return ((ma_pa_stream_new_proc)pContext->pulse.pa_stream_new)((ma_pa_context*)pContext->pulse.pPulseContext, actualStreamName, ss, cmap);
 }
 
 static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
@@ -21008,64 +20869,17 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         periodSizeInMilliseconds = ma_calculate_buffer_size_in_milliseconds_from_frames(pConfig->periodSizeInFrames, pConfig->sampleRate);
     }
 
-    pDevice->pulse.pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-    if (pDevice->pulse.pMainLoop == NULL) {
-        result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create main loop for device.", MA_FAILED_TO_INIT_BACKEND);
-        goto on_error0;
-    }
-
-    pDevice->pulse.pAPI = ((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)((ma_pa_mainloop*)pDevice->pulse.pMainLoop);
-    if (pDevice->pulse.pAPI == NULL) {
-        result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve PulseAudio main loop.", MA_FAILED_TO_INIT_BACKEND);
-        goto on_error1;
-    }
-
-    pDevice->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)((ma_pa_mainloop_api*)pDevice->pulse.pAPI, pContext->pulse.pApplicationName);
-    if (pDevice->pulse.pPulseContext == NULL) {
-        result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio context for device.", MA_FAILED_TO_INIT_BACKEND);
-        goto on_error1;
-    }
-
-    error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pDevice->pulse.pPulseContext, pContext->pulse.pServerName, (pContext->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL);
-    if (error != MA_PA_OK) {
-        result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.", ma_result_from_pulse(error));
-        goto on_error2;
-    }
-
-
-    pDevice->pulse.pulseContextState = MA_PA_CONTEXT_UNCONNECTED;
-    ((ma_pa_context_set_state_callback_proc)pContext->pulse.pa_context_set_state_callback)((ma_pa_context*)pDevice->pulse.pPulseContext, ma_pulse_device_state_callback, pDevice);
-
-    /* Wait for PulseAudio to get itself ready before returning. */
-    for (;;) {
-        if (pDevice->pulse.pulseContextState == MA_PA_CONTEXT_READY) {
-            break;
-        }
-
-        /* An error may have occurred. */
-        if (pDevice->pulse.pulseContextState == MA_PA_CONTEXT_FAILED || pDevice->pulse.pulseContextState == MA_PA_CONTEXT_TERMINATED) {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MA_ERROR);
-            goto on_error3;
-        }
-
-        error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
-        if (error < 0) {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", ma_result_from_pulse(error));
-            goto on_error3;
-        }
-    }
-
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pDevice->pulse.pPulseContext, devCapture, ma_device_source_info_callback, &sourceInfo);
+        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_info_callback, &sourceInfo);
         if (pOP != NULL) {
-            ma_device__wait_for_operation__pulse(pDevice, pOP);
+            ma_wait_for_operation__pulse(pContext, pOP);
             ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
         } else {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.", ma_result_from_pulse(error));
-            goto on_error3;
+            goto on_error0;
         }
 
-        ss = sourceInfo.sample_spec;
+        ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
         pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, ss.rate);
@@ -21076,10 +20890,10 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         printf("[PulseAudio] Capture attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->capture.internalPeriodSizeInFrames);
     #endif
 
-        pDevice->pulse.pStreamCapture = ma_device__pa_stream_new__pulse(pDevice, pConfig->pulse.pStreamNameCapture, &ss, &cmap);
+        pDevice->pulse.pStreamCapture = ma_context__pa_stream_new__pulse(pContext, pConfig->pulse.pStreamNameCapture, &ss, &cmap);
         if (pDevice->pulse.pStreamCapture == NULL) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio capture stream.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
-            goto on_error3;
+            goto on_error0;
         }
 
         streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
@@ -21090,14 +20904,14 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         error = ((ma_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((ma_pa_stream*)pDevice->pulse.pStreamCapture, devCapture, &attr, streamFlags);
         if (error != MA_PA_OK) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.", ma_result_from_pulse(error));
-            goto on_error4;
+            goto on_error1;
         }
 
         while (((ma_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((ma_pa_stream*)pDevice->pulse.pStreamCapture) != MA_PA_STREAM_READY) {
-            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pContext->pulse.pMainLoop, 1, NULL);
             if (error < 0) {
                 result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio capture stream.", ma_result_from_pulse(error));
-                goto on_error5;
+                goto on_error2;
             }
         }
 
@@ -21110,7 +20924,7 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
 
                 pOP = ((ma_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &attr, NULL, NULL);
                 if (pOP != NULL) {
-                    ma_device__wait_for_operation__pulse(pDevice, pOP);
+                    ma_wait_for_operation__pulse(pContext, pOP);
                     ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
                 }
             }
@@ -21145,25 +20959,25 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         /* Name. */
         devCapture = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         if (devCapture != NULL) {
-            ma_pa_operation* pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pDevice->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice);
+            ma_pa_operation* pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice);
             if (pOP != NULL) {
-                ma_device__wait_for_operation__pulse(pDevice, pOP);
+                ma_wait_for_operation__pulse(pContext, pOP);
                 ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
             }
         }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pDevice->pulse.pPulseContext, devPlayback, ma_device_sink_info_callback, &sinkInfo);
+        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_info_callback, &sinkInfo);
         if (pOP != NULL) {
-            ma_device__wait_for_operation__pulse(pDevice, pOP);
+            ma_wait_for_operation__pulse(pDevice->pContext, pOP);
             ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
         } else {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.", ma_result_from_pulse(error));
-            goto on_error3;
+            goto on_error2;
         }
 
-        ss = sinkInfo.sample_spec;
+        ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
 
         pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, ss.rate);
@@ -21174,10 +20988,10 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         printf("[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalPeriodSizeInFrames);
     #endif
 
-        pDevice->pulse.pStreamPlayback = ma_device__pa_stream_new__pulse(pDevice, pConfig->pulse.pStreamNamePlayback, &ss, &cmap);
+        pDevice->pulse.pStreamPlayback = ma_context__pa_stream_new__pulse(pContext, pConfig->pulse.pStreamNamePlayback, &ss, &cmap);
         if (pDevice->pulse.pStreamPlayback == NULL) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio playback stream.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
-            goto on_error3;
+            goto on_error2;
         }
 
         streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
@@ -21188,14 +21002,14 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         error = ((ma_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, devPlayback, &attr, streamFlags, NULL, NULL);
         if (error != MA_PA_OK) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.", ma_result_from_pulse(error));
-            goto on_error6;
+            goto on_error3;
         }
 
         while (((ma_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)((ma_pa_stream*)pDevice->pulse.pStreamPlayback) != MA_PA_STREAM_READY) {
-            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+            error = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pContext->pulse.pMainLoop, 1, NULL);
             if (error < 0) {
                 result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio playback stream.", ma_result_from_pulse(error));
-                goto on_error7;
+                goto on_error4;
             }
         }
 
@@ -21208,7 +21022,7 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
 
                 pOP = ((ma_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, &attr, NULL, NULL);
                 if (pOP != NULL) {
-                    ma_device__wait_for_operation__pulse(pDevice, pOP);
+                    ma_wait_for_operation__pulse(pDevice->pContext, pOP);
                     ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
                 }
             }
@@ -21243,9 +21057,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         /* Name. */
         devPlayback = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         if (devPlayback != NULL) {
-            ma_pa_operation* pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pDevice->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice);
+            ma_pa_operation* pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice);
             if (pOP != NULL) {
-                ma_device__wait_for_operation__pulse(pDevice, pOP);
+                ma_wait_for_operation__pulse(pContext, pOP);
                 ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
             }
         }
@@ -21254,25 +21068,22 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
     return MA_SUCCESS;
 
 
-on_error7:
+on_error4:
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
     }
-on_error6:
+on_error3:
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
     }
-on_error5:
+on_error2:
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
     }
-on_error4:
+on_error1:
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
     }
-on_error3: ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((ma_pa_context*)pDevice->pulse.pPulseContext);
-on_error2: ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pDevice->pulse.pPulseContext);
-on_error1: ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((ma_pa_mainloop*)pDevice->pulse.pMainLoop);
 on_error0:
     return result;
 }
@@ -21311,7 +21122,7 @@ static ma_result ma_device__cork_stream__pulse(ma_device* pDevice, ma_device_typ
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to cork PulseAudio stream.", (cork == 0) ? MA_FAILED_TO_START_BACKEND_DEVICE : MA_FAILED_TO_STOP_BACKEND_DEVICE);
     }
 
-    result = ma_device__wait_for_operation__pulse(pDevice, pOP);
+    result = ma_wait_for_operation__pulse(pDevice->pContext, pOP);
     ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
 
     if (result != MA_SUCCESS) {
@@ -21348,7 +21159,7 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
         /* The stream needs to be drained if it's a playback device. */
         pOP = ((ma_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_pulse_operation_complete_callback, &wasSuccessful);
         if (pOP != NULL) {
-            ma_device__wait_for_operation__pulse(pDevice, pOP);
+            ma_wait_for_operation__pulse(pDevice->pContext, pOP);
             ((ma_pa_operation_unref_proc)pDevice->pContext->pulse.pa_operation_unref)(pOP);
         }
 
@@ -21440,7 +21251,7 @@ static ma_result ma_device_write__pulse(ma_device* pDevice, const void* pPCMFram
                     break;
                 } else {
                     /* No data available. Need to wait for more. */
-                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
+                    int error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pContext->pulse.pMainLoop, 1, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
@@ -21582,7 +21393,7 @@ static ma_result ma_device_read__pulse(ma_device* pDevice, void* pPCMFrames, ma_
                     an actual microphone connected. I'm experimenting here by not blocking in pa_mainloop_iterate() and instead sleep for a bit when there are no
                     dispatches.
                     */
-                    error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 0, NULL);
+                    error = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pContext->pulse.pMainLoop, 0, NULL);
                     if (error < 0) {
                         return ma_result_from_pulse(error);
                     }
@@ -21788,16 +21599,39 @@ static ma_result ma_device_main_loop__pulse(ma_device* pDevice)
 }
 
 
+static ma_result ma_context_wait_for_connection__pulse(ma_context* pContext)
+{
+    for (;;) {
+        ma_pa_context_state_t state;
+        int pulseResult;
+
+        state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)((ma_pa_context*)pContext->pulse.pPulseContext);
+        if (state == MA_PA_CONTEXT_READY) {
+            return MA_SUCCESS;
+        }
+
+        if (state == MA_PA_CONTEXT_FAILED || state == MA_PA_CONTEXT_TERMINATED) {
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] An error occurred while connecting the PulseAudio context.", MA_ERROR);
+        }
+
+        pulseResult = ((ma_pa_mainloop_iterate_proc)pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pContext->pulse.pMainLoop, 1, NULL);
+        if (pulseResult < 0) {
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] The PulseAudio main loop returned an error while connecting the PulseAudio context.", ma_result_from_pulse(pulseResult));
+        }
+    }
+
+    /* Should never get here. */
+    return MA_SUCCESS;
+}
+
 static ma_result ma_context_uninit__pulse(ma_context* pContext)
 {
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_pulseaudio);
 
-    ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
-    pContext->pulse.pServerName = NULL;
-
-    ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
-    pContext->pulse.pApplicationName = NULL;
+    ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((ma_pa_context*)pContext->pulse.pPulseContext);
+    ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
+    ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)((ma_pa_mainloop*)pContext->pulse.pMainLoop);
 
 #ifndef MA_NO_RUNTIME_LINKING
     ma_dlclose(pContext, pContext->pulse.pulseSO);
@@ -21808,6 +21642,7 @@ static ma_result ma_context_uninit__pulse(ma_context* pContext)
 
 static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_context* pContext)
 {
+    ma_result result;
 #ifndef MA_NO_RUNTIME_LINKING
     const char* libpulseNames[] = {
         "libpulse.so",
@@ -21973,71 +21808,44 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     pContext->onDeviceStop     = NULL;
     pContext->onDeviceMainLoop = ma_device_main_loop__pulse;
 
-    if (pConfig->pulse.pApplicationName) {
-        pContext->pulse.pApplicationName = ma_copy_string(pConfig->pulse.pApplicationName, &pContext->allocationCallbacks);
+    /* The PulseAudio context maps well to miniaudio's notion of a context. The pa_context object will be initialized as part of the ma_context. */
+    pContext->pulse.pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
+    if (pContext->pulse.pMainLoop == NULL) {
+        result = ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create main loop for device.", MA_FAILED_TO_INIT_BACKEND);
+    #ifndef MA_NO_RUNTIME_LINKING
+        ma_dlclose(pContext, pContext->pulse.pulseSO);
+    #endif
+        return result;
     }
-    if (pConfig->pulse.pServerName) {
-        pContext->pulse.pServerName = ma_copy_string(pConfig->pulse.pServerName, &pContext->allocationCallbacks);
+
+    pContext->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)((ma_pa_mainloop*)pContext->pulse.pMainLoop), pConfig->pulse.pApplicationName);
+    if (pContext->pulse.pPulseContext == NULL) {
+        result = ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio context for device.", MA_FAILED_TO_INIT_BACKEND);
+        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pContext->pulse.pMainLoop);
+    #ifndef MA_NO_RUNTIME_LINKING
+        ma_dlclose(pContext, pContext->pulse.pulseSO);
+    #endif
+        return result;
     }
-    pContext->pulse.tryAutoSpawn = pConfig->pulse.tryAutoSpawn;
-    
-    /*
-    Although we have found the libpulse library, it doesn't necessarily mean PulseAudio is useable. We need to initialize
-    and connect a dummy PulseAudio context to test PulseAudio's usability.
-    */
-    {
-        ma_pa_mainloop* pMainLoop;
-        ma_pa_mainloop_api* pAPI;
-        ma_pa_context* pPulseContext;
-        int error;
 
-        pMainLoop = ((ma_pa_mainloop_new_proc)pContext->pulse.pa_mainloop_new)();
-        if (pMainLoop == NULL) {
-            ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
-            ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
-        #ifndef MA_NO_RUNTIME_LINKING
-            ma_dlclose(pContext, pContext->pulse.pulseSO);
-        #endif
-            return MA_NO_BACKEND;
-        }
+    /* Now we need to connect to the context. Everything is asynchronous so we need to wait for it to connect before returning. */
+    result = ma_result_from_pulse(((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pContext->pulse.pPulseContext, pConfig->pulse.pServerName, (pConfig->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
+    if (result != MA_SUCCESS) {
+        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.", result);
+        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pContext->pulse.pMainLoop);
+    #ifndef MA_NO_RUNTIME_LINKING
+        ma_dlclose(pContext, pContext->pulse.pulseSO);
+    #endif
+        return result;
+    }
 
-        pAPI = ((ma_pa_mainloop_get_api_proc)pContext->pulse.pa_mainloop_get_api)(pMainLoop);
-        if (pAPI == NULL) {
-            ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
-            ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
-            ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        #ifndef MA_NO_RUNTIME_LINKING
-            ma_dlclose(pContext, pContext->pulse.pulseSO);
-        #endif
-            return MA_NO_BACKEND;
-        }
-
-        pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(pAPI, pContext->pulse.pApplicationName);
-        if (pPulseContext == NULL) {
-            ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
-            ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
-            ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        #ifndef MA_NO_RUNTIME_LINKING
-            ma_dlclose(pContext, pContext->pulse.pulseSO);
-        #endif
-            return MA_NO_BACKEND;
-        }
-
-        error = ((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)(pPulseContext, pContext->pulse.pServerName, 0, NULL);
-        if (error != MA_PA_OK) {
-            ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
-            ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
-            ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-            ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
-        #ifndef MA_NO_RUNTIME_LINKING
-            ma_dlclose(pContext, pContext->pulse.pulseSO);
-        #endif
-            return MA_NO_BACKEND;
-        }
-
-        ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)(pPulseContext);
-        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)(pPulseContext);
-        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pMainLoop);
+    result = ma_context_wait_for_connection__pulse(pContext);
+    if (result != MA_SUCCESS) {
+        ((ma_pa_mainloop_free_proc)pContext->pulse.pa_mainloop_free)(pContext->pulse.pMainLoop);
+    #ifndef MA_NO_RUNTIME_LINKING
+        ma_dlclose(pContext, pContext->pulse.pulseSO);
+    #endif
+        return result;
     }
 
     return MA_SUCCESS;
@@ -62859,6 +62667,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.22 - TBD
+  - Improvements to the PulseAudio backend.
+
 v0.10.21 - 2020-10-30
   - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
   - WASAPI: Fix a copy and paste bug relating to loopback mode.
