@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.12 - 2020-09-28
+dr_wav - v0.12.13 - 2020-11-01
 
 David Reid - mackron@gmail.com
 
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  12
+#define DRWAV_VERSION_REVISION  13
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -160,7 +160,7 @@ typedef unsigned int            drwav_uint32;
     typedef   signed __int64    drwav_int64;
     typedef unsigned __int64    drwav_uint64;
 #else
-    #if defined(__GNUC__)
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wlong-long"
         #if defined(__clang__)
@@ -169,7 +169,7 @@ typedef unsigned int            drwav_uint32;
     #endif
     typedef   signed long long  drwav_int64;
     typedef unsigned long long  drwav_uint64;
-    #if defined(__GNUC__)
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic pop
     #endif
 #endif
@@ -6033,6 +6033,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.13 - 2020-11-01
+  - Improve compiler support for older versions of GCC.
+
 v0.12.12 - 2020-09-28
   - Add support for RF64.
   - Fix a bug in writing mode where the size of the RIFF chunk incorrectly includes the header section.
