@@ -22093,6 +22093,7 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        deviceInfo._private.isDefault = MA_TRUE;    /* JACK only uses default devices. */
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
 
@@ -22101,6 +22102,7 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        deviceInfo._private.isDefault = MA_TRUE;    /* JACK only uses default devices. */
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
 
@@ -22130,6 +22132,9 @@ static ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_devic
     } else {
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
+
+    /* Jack only uses default devices. */
+    pDeviceInfo->_private.isDefault = MA_TRUE;
 
     /* Jack only supports f32 and has a specific channel count and sample rate. */
     pDeviceInfo->formatCount = 1;
