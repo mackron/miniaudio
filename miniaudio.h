@@ -27725,6 +27725,8 @@ OSS Backend
 #define SNDCTL_DSP_HALT SNDCTL_DSP_RESET
 #endif
 
+#define MA_OSS_DEFAULT_DEVICE_NAME  "/dev/dsp"
+
 static int ma_open_temp_device__oss()
 {
     /* The OSS sample code uses "/dev/mixer" as the device for getting system properties so I'm going to do the same. */
@@ -27752,7 +27754,7 @@ static ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_typ
         return MA_INVALID_ARGS;
     }
 
-    deviceName = "/dev/dsp";
+    deviceName = MA_OSS_DEFAULT_DEVICE_NAME;
     if (pDeviceID != NULL) {
         deviceName = pDeviceID->oss;
     }
@@ -42602,7 +42604,7 @@ static ma_result ma_default_vfs_tell__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     return MA_SUCCESS;
 }
 
-#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE))
+#if !defined(_MSC_VER) && !((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 1) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE)) && !defined(MA_BSD)
 int fileno(FILE *stream);
 #endif
 
