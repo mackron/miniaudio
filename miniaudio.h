@@ -18386,12 +18386,14 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     /* We need to initialize a HW parameters object in order to know what formats are supported. */
     pHWParams = (ma_snd_pcm_hw_params_t*)ma__calloc_from_callbacks(((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)(), &pContext->allocationCallbacks);
     if (pHWParams == NULL) {
+        ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
         return MA_OUT_OF_MEMORY;
     }
 
     resultALSA = ((ma_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams);
     if (resultALSA < 0) {
         ma__free_from_callbacks(pHWParams, &pContext->allocationCallbacks);
+        ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", ma_result_from_errno(-resultALSA));
     }
 
@@ -18404,6 +18406,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     pFormatMask = (ma_snd_pcm_format_mask_t*)ma__calloc_from_callbacks(((ma_snd_pcm_format_mask_sizeof_proc)pContext->alsa.snd_pcm_format_mask_sizeof)(), &pContext->allocationCallbacks);
     if (pFormatMask == NULL) {
         ma__free_from_callbacks(pHWParams, &pContext->allocationCallbacks);
+        ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
         return MA_OUT_OF_MEMORY;
     }
 
@@ -62837,6 +62840,7 @@ REVISION HISTORY
 v0.10.22 - TBD
   - Refactor to the PulseAudio backend.
   - Fix bugs in ma_decoder_init_file*() where the file handle is not closed after a decoding error.
+  - ALSA: Fix a bug in ma_context_get_device_info() where the PCM handle is left open in the event of an error.
 
 v0.10.21 - 2020-10-30
   - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
