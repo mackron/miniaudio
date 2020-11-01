@@ -42652,6 +42652,80 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 }
 
 
+MA_API ma_result ma_vfs_or_default_open(ma_default_vfs* pVFS, const char* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_open(pVFS, pFilePath, openMode, pFile);
+    } else {
+        return ma_default_vfs_open(pVFS, pFilePath, openMode, pFile);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, ma_uint32 openMode, ma_vfs_file* pFile)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_open_w(pVFS, pFilePath, openMode, pFile);
+    } else {
+        return ma_default_vfs_open_w(pVFS, pFilePath, openMode, pFile);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_close(ma_vfs* pVFS, ma_vfs_file file)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_close(pVFS, file);
+    } else {
+        return ma_default_vfs_close(pVFS, file);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_read(pVFS, file, pDst, sizeInBytes, pBytesRead);
+    } else {
+        return ma_default_vfs_read(pVFS, file, pDst, sizeInBytes, pBytesRead);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_write(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+    } else {
+        return ma_default_vfs_write(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_seek(pVFS, file, offset, origin);
+    } else {
+        return ma_default_vfs_seek(pVFS, file, offset, origin);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* pCursor)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_tell(pVFS, file, pCursor);
+    } else {
+        return ma_default_vfs_tell(pVFS, file, pCursor);
+    }
+}
+
+MA_API ma_result ma_vfs_or_default_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo)
+{
+    if (pVFS != NULL) {
+        return ma_vfs_info(pVFS, file, pInfo);
+    } else {
+        return ma_default_vfs_info(pVFS, file, pInfo);
+    }
+}
+
+
+
 /**************************************************************************************************************************************************************
 
 Decoding and Encoding Headers. These are auto-generated from a tool.
@@ -45314,11 +45388,7 @@ static size_t ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, si
     MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pBufferOut != NULL);
 
-    if (pDecoder->backend.vfs.pVFS == NULL) {
-        ma_default_vfs_read(NULL, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
-    } else {
-        ma_vfs_read(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
-    }
+    ma_vfs_or_default_read(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
     
     return bytesRead;
 }
@@ -45329,12 +45399,7 @@ static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, int offset, ma_se
 
     MA_ASSERT(pDecoder != NULL);
 
-    if (pDecoder->backend.vfs.pVFS == NULL) {
-        result = ma_default_vfs_seek(NULL, pDecoder->backend.vfs.file, offset, origin);
-    } else {
-        result = ma_vfs_seek(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, offset, origin);
-    }
-    
+    result = ma_vfs_or_default_seek(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, offset, origin);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
@@ -45356,12 +45421,7 @@ static ma_result ma_decoder__preinit_vfs(ma_vfs* pVFS, const char* pFilePath, co
         return MA_INVALID_ARGS;
     }
 
-    if (pVFS == NULL) {
-        result = ma_default_vfs_open(NULL, pFilePath, MA_OPEN_MODE_READ, &file);
-    } else {
-        result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
-    }
-    
+    result = ma_vfs_or_default_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -45418,7 +45478,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
         return result;
     }
 
@@ -45443,7 +45503,7 @@ MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, co
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45474,7 +45534,7 @@ MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, c
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45505,7 +45565,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, co
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45536,7 +45596,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath,
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45565,12 +45625,7 @@ static ma_result ma_decoder__preinit_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePat
         return MA_INVALID_ARGS;
     }
 
-    if (pVFS == NULL) {
-        result = ma_default_vfs_open_w(NULL, pFilePath, MA_OPEN_MODE_READ, &file);
-    } else {
-        result = ma_vfs_open_w(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
-    }
-    
+    result = ma_vfs_or_default_open_w(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -45627,7 +45682,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
         return result;
     }
 
@@ -45652,7 +45707,7 @@ MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePat
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45683,7 +45738,7 @@ MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePa
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45714,7 +45769,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePat
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45745,7 +45800,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFile
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
     }
 
     return result;
@@ -45823,11 +45878,7 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
-        if (pDecoder->backend.vfs.pVFS == NULL) {
-            ma_default_vfs_close(NULL, pDecoder->backend.vfs.file);
-        } else {
-            ma_vfs_close(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file);
-        }
+        ma_vfs_or_default_close(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file);
     }
 
     ma_data_converter_uninit(&pDecoder->converter);
@@ -62698,6 +62749,7 @@ REVISION HISTORY
 ================
 v0.10.22 - TBD
   - Refactor to the PulseAudio backend.
+  - Fix bugs in ma_decoder_init_file*() where the file handle is not closed after a decoding error.
 
 v0.10.21 - 2020-10-30
   - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
