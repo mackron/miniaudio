@@ -20719,223 +20719,6 @@ static ma_bool32 ma_context_is_device_id_equal__pulse(ma_context* pContext, cons
 }
 
 
-typedef struct
-{
-    ma_context* pContext;
-    ma_enum_devices_callback_proc callback;
-    void* pUserData;
-    ma_bool32 isTerminated;
-} ma_context_enumerate_devices_callback_data__pulse;
-
-static void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
-{
-    ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
-    ma_device_info deviceInfo;
-
-    MA_ASSERT(pData != NULL);
-
-    if (endOfList || pData->isTerminated) {
-        return;
-    }
-
-    MA_ZERO_OBJECT(&deviceInfo);
-
-    /* The name from PulseAudio is the ID for miniaudio. */
-    if (pSinkInfo->name != NULL) {
-        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
-    }
-
-    /* The description from PulseAudio is the name for miniaudio. */
-    if (pSinkInfo->description != NULL) {
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
-    }
-
-    pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_playback, &deviceInfo, pData->pUserData);
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pSinkInfo, int endOfList, void* pUserData)
-{
-    ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
-    ma_device_info deviceInfo;
-
-    MA_ASSERT(pData != NULL);
-
-    if (endOfList || pData->isTerminated) {
-        return;
-    }
-
-    MA_ZERO_OBJECT(&deviceInfo);
-
-    /* The name from PulseAudio is the ID for miniaudio. */
-    if (pSinkInfo->name != NULL) {
-        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
-    }
-
-    /* The description from PulseAudio is the name for miniaudio. */
-    if (pSinkInfo->description != NULL) {
-        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
-    }
-
-    pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_capture, &deviceInfo, pData->pUserData);
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
-{
-    ma_result result = MA_SUCCESS;
-    ma_context_enumerate_devices_callback_data__pulse callbackData;
-    ma_pa_operation* pOP = NULL;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
-    callbackData.pContext = pContext;
-    callbackData.callback = callback;
-    callbackData.pUserData = pUserData;
-    callbackData.isTerminated = MA_FALSE;
-
-    /* Playback. */
-    if (!callbackData.isTerminated) {
-        pOP = ((ma_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_sink_callback__pulse, &callbackData);
-        if (pOP == NULL) {
-            result = MA_ERROR;
-            goto done;
-        }
-
-        result = ma_wait_for_operation__pulse(pContext, pOP);
-        ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
-        if (result != MA_SUCCESS) {
-            goto done;
-        }
-    }
-
-
-    /* Capture. */
-    if (!callbackData.isTerminated) {
-        pOP = ((ma_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_source_callback__pulse, &callbackData);
-        if (pOP == NULL) {
-            result = MA_ERROR;
-            goto done;
-        }
-
-        result = ma_wait_for_operation__pulse(pContext, pOP);
-        ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
-        if (result != MA_SUCCESS) {
-            goto done;
-        }
-    }
-
-done:
-    return result;
-}
-
-
-typedef struct
-{
-    ma_device_info* pDeviceInfo;
-    ma_bool32 foundDevice;
-} ma_context_get_device_info_callback_data__pulse;
-
-static void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    MA_ASSERT(pData != NULL);
-    pData->foundDevice = MA_TRUE;
-
-    if (pInfo->name != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
-    }
-
-    if (pInfo->description != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
-    }
-
-    pData->pDeviceInfo->minChannels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->maxChannels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->formatCount   = 1;
-    pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    MA_ASSERT(pData != NULL);
-    pData->foundDevice = MA_TRUE;
-
-    if (pInfo->name != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
-    }
-
-    if (pInfo->description != NULL) {
-        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
-    }
-
-    pData->pDeviceInfo->minChannels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->maxChannels   = pInfo->sample_spec.channels;
-    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
-    pData->pDeviceInfo->formatCount   = 1;
-    pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
-{
-    ma_result result = MA_SUCCESS;
-    ma_context_get_device_info_callback_data__pulse callbackData;
-    ma_pa_operation* pOP = NULL;
-
-    MA_ASSERT(pContext != NULL);
-
-    /* No exclusive mode with the PulseAudio backend. */
-    if (shareMode == ma_share_mode_exclusive) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
-
-    callbackData.pDeviceInfo = pDeviceInfo;
-    callbackData.foundDevice = MA_FALSE;
-
-    if (deviceType == ma_device_type_playback) {
-        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
-    } else {
-        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
-    }
-
-    if (pOP != NULL) {
-        ma_wait_for_operation_and_unref__pulse(pContext, pOP);
-    } else {
-        result = MA_ERROR;
-        goto done;
-    }
-
-    if (!callbackData.foundDevice) {
-        result = MA_NO_DEVICE;
-        goto done;
-    }
-
-done:
-    return result;
-}
-
-
 static void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     ma_pa_sink_info* pInfoOut;
@@ -20998,6 +20781,315 @@ static void ma_device_source_name_callback(ma_pa_context* pPulseContext, const m
     ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), pInfo->description, (size_t)-1);
 
     (void)pPulseContext; /* Unused. */
+}
+
+
+static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
+{
+    ma_pa_operation* pOP;
+
+    pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
+    if (pOP == NULL) {
+        return MA_ERROR;
+    }
+
+    ma_wait_for_operation_and_unref__pulse(pContext, pOP);
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context_get_source_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_source_info* pSourceInfo)
+{
+    ma_pa_operation* pOP;
+
+    pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
+    if (pOP == NULL) {
+        return MA_ERROR;
+    }
+
+    ma_wait_for_operation_and_unref__pulse(pContext, pOP);
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context_get_default_device_index__pulse(ma_context* pContext, ma_device_type deviceType, ma_uint32* pIndex)
+{
+    ma_result result;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pIndex   != NULL);
+
+    if (pIndex != NULL) {
+        *pIndex = (ma_uint32)-1;
+    }
+
+    if (deviceType == ma_device_type_playback) {
+        ma_pa_sink_info sinkInfo;
+        result = ma_context_get_sink_info__pulse(pContext, NULL, &sinkInfo);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        if (pIndex != NULL) {
+            *pIndex = sinkInfo.index;
+        }
+    }
+
+    if (deviceType == ma_device_type_capture) {
+        ma_pa_source_info sourceInfo;
+        result = ma_context_get_source_info__pulse(pContext, NULL, &sourceInfo);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        if (pIndex != NULL) {
+            *pIndex = sourceInfo.index;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+
+typedef struct
+{
+    ma_context* pContext;
+    ma_enum_devices_callback_proc callback;
+    void* pUserData;
+    ma_bool32 isTerminated;
+    ma_uint32 defaultDeviceIndexPlayback;
+    ma_uint32 defaultDeviceIndexCapture;
+} ma_context_enumerate_devices_callback_data__pulse;
+
+static void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pSinkInfo, int endOfList, void* pUserData)
+{
+    ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
+    ma_device_info deviceInfo;
+
+    MA_ASSERT(pData != NULL);
+
+    if (endOfList || pData->isTerminated) {
+        return;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* The name from PulseAudio is the ID for miniaudio. */
+    if (pSinkInfo->name != NULL) {
+        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSinkInfo->name, (size_t)-1);
+    }
+
+    /* The description from PulseAudio is the name for miniaudio. */
+    if (pSinkInfo->description != NULL) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSinkInfo->description, (size_t)-1);
+    }
+
+    if (pSinkInfo->index == pData->defaultDeviceIndexPlayback) {
+        deviceInfo._private.isDefault = MA_TRUE;
+    }
+
+    pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_playback, &deviceInfo, pData->pUserData);
+
+    (void)pPulseContext; /* Unused. */
+}
+
+static void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pSourceInfo, int endOfList, void* pUserData)
+{
+    ma_context_enumerate_devices_callback_data__pulse* pData = (ma_context_enumerate_devices_callback_data__pulse*)pUserData;
+    ma_device_info deviceInfo;
+
+    MA_ASSERT(pData != NULL);
+
+    if (endOfList || pData->isTerminated) {
+        return;
+    }
+
+    MA_ZERO_OBJECT(&deviceInfo);
+
+    /* The name from PulseAudio is the ID for miniaudio. */
+    if (pSourceInfo->name != NULL) {
+        ma_strncpy_s(deviceInfo.id.pulse, sizeof(deviceInfo.id.pulse), pSourceInfo->name, (size_t)-1);
+    }
+
+    /* The description from PulseAudio is the name for miniaudio. */
+    if (pSourceInfo->description != NULL) {
+        ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), pSourceInfo->description, (size_t)-1);
+    }
+
+    if (pSourceInfo->index == pData->defaultDeviceIndexCapture) {
+        deviceInfo._private.isDefault = MA_TRUE;
+    }
+
+    pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_capture, &deviceInfo, pData->pUserData);
+
+    (void)pPulseContext; /* Unused. */
+}
+
+static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_result result = MA_SUCCESS;
+    ma_context_enumerate_devices_callback_data__pulse callbackData;
+    ma_pa_operation* pOP = NULL;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    callbackData.pContext = pContext;
+    callbackData.callback = callback;
+    callbackData.pUserData = pUserData;
+    callbackData.isTerminated = MA_FALSE;
+    callbackData.defaultDeviceIndexPlayback = (ma_uint32)-1;
+    callbackData.defaultDeviceIndexCapture  = (ma_uint32)-1;
+
+    /* We need to get the index of the default devices. */
+    ma_context_get_default_device_index__pulse(pContext, ma_device_type_playback, &callbackData.defaultDeviceIndexPlayback);
+    ma_context_get_default_device_index__pulse(pContext, ma_device_type_capture,  &callbackData.defaultDeviceIndexCapture);
+
+    /* Playback. */
+    if (!callbackData.isTerminated) {
+        pOP = ((ma_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_sink_callback__pulse, &callbackData);
+        if (pOP == NULL) {
+            result = MA_ERROR;
+            goto done;
+        }
+
+        result = ma_wait_for_operation__pulse(pContext, pOP);
+        ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        if (result != MA_SUCCESS) {
+            goto done;
+        }
+    }
+
+
+    /* Capture. */
+    if (!callbackData.isTerminated) {
+        pOP = ((ma_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)(pContext->pulse.pPulseContext, ma_context_enumerate_devices_source_callback__pulse, &callbackData);
+        if (pOP == NULL) {
+            result = MA_ERROR;
+            goto done;
+        }
+
+        result = ma_wait_for_operation__pulse(pContext, pOP);
+        ((ma_pa_operation_unref_proc)pContext->pulse.pa_operation_unref)(pOP);
+        if (result != MA_SUCCESS) {
+            goto done;
+        }
+    }
+
+done:
+    return result;
+}
+
+
+typedef struct
+{
+    ma_device_info* pDeviceInfo;
+    ma_uint32 defaultDeviceIndex;
+    ma_bool32 foundDevice;
+} ma_context_get_device_info_callback_data__pulse;
+
+static void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
+{
+    ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
+
+    if (endOfList > 0) {
+        return;
+    }
+
+    MA_ASSERT(pData != NULL);
+    pData->foundDevice = MA_TRUE;
+
+    if (pInfo->name != NULL) {
+        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
+    }
+
+    if (pInfo->description != NULL) {
+        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
+    }
+
+    pData->pDeviceInfo->minChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->maxChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->formatCount   = 1;
+    pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
+
+    if (pData->defaultDeviceIndex == pInfo->index) {
+        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
+    }
+
+    (void)pPulseContext; /* Unused. */
+}
+
+static void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
+{
+    ma_context_get_device_info_callback_data__pulse* pData = (ma_context_get_device_info_callback_data__pulse*)pUserData;
+
+    if (endOfList > 0) {
+        return;
+    }
+
+    MA_ASSERT(pData != NULL);
+    pData->foundDevice = MA_TRUE;
+
+    if (pInfo->name != NULL) {
+        ma_strncpy_s(pData->pDeviceInfo->id.pulse, sizeof(pData->pDeviceInfo->id.pulse), pInfo->name, (size_t)-1);
+    }
+
+    if (pInfo->description != NULL) {
+        ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pInfo->description, (size_t)-1);
+    }
+
+    pData->pDeviceInfo->minChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->maxChannels   = pInfo->sample_spec.channels;
+    pData->pDeviceInfo->minSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->maxSampleRate = pInfo->sample_spec.rate;
+    pData->pDeviceInfo->formatCount   = 1;
+    pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
+
+    if (pData->defaultDeviceIndex == pInfo->index) {
+        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
+    }
+
+    (void)pPulseContext; /* Unused. */
+}
+
+static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+{
+    ma_result result = MA_SUCCESS;
+    ma_context_get_device_info_callback_data__pulse callbackData;
+    ma_pa_operation* pOP = NULL;
+
+    MA_ASSERT(pContext != NULL);
+
+    /* No exclusive mode with the PulseAudio backend. */
+    if (shareMode == ma_share_mode_exclusive) {
+        return MA_SHARE_MODE_NOT_SUPPORTED;
+    }
+
+    callbackData.pDeviceInfo = pDeviceInfo;
+    callbackData.foundDevice = MA_FALSE;
+    
+    result = ma_context_get_default_device_index__pulse(pContext, deviceType, &callbackData.defaultDeviceIndex);
+
+    if (deviceType == ma_device_type_playback) {
+        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
+    } else {
+        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)(pContext->pulse.pPulseContext, pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
+    }
+
+    if (pOP != NULL) {
+        ma_wait_for_operation_and_unref__pulse(pContext, pOP);
+    } else {
+        result = MA_ERROR;
+        goto done;
+    }
+
+    if (!callbackData.foundDevice) {
+        result = MA_NO_DEVICE;
+        goto done;
+    }
+
+done:
+    return result;
 }
 
 static void ma_device_uninit__pulse(ma_device* pDevice)
@@ -21214,7 +21306,6 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
     ma_uint32 periodSizeInMilliseconds;
     ma_pa_sink_info sinkInfo;
     ma_pa_source_info sourceInfo;
-    ma_pa_operation* pOP = NULL;
     ma_pa_sample_spec ss;
     ma_pa_channel_map cmap;
     ma_pa_buffer_attr attr;
@@ -21250,11 +21341,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
     }
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_info_callback, &sourceInfo);
-        if (pOP != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
-        } else {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.", ma_result_from_pulse(error));
+        result = ma_context_get_source_info__pulse(pContext, devCapture, &sourceInfo);
+        if (result != MA_SUCCESS) {
+            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve source info for capture device.", result);
             goto on_error0;
         }
 
@@ -21342,11 +21431,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_info_callback, &sinkInfo);
-        if (pOP != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
-        } else {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.", ma_result_from_pulse(error));
+        result = ma_context_get_sink_info__pulse(pContext, devPlayback, &sinkInfo);
+        if (result != MA_SUCCESS) {
+            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to retrieve sink info for playback device.", result);
             goto on_error2;
         }
 
