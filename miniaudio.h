@@ -15079,6 +15079,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid
         MA_COPY_MEMORY(deviceInfo.id.dsound, lpGuid, 16);
     } else {
         MA_ZERO_MEMORY(deviceInfo.id.dsound, 16);
+        deviceInfo._private.isDefault = MA_TRUE;
     }
 
     /* Name / Description */
@@ -15140,6 +15141,7 @@ static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, 
     if ((pData->pDeviceID == NULL || ma_is_guid_null(pData->pDeviceID->dsound)) && (lpGuid == NULL || ma_is_guid_null(lpGuid))) {
         /* Default device. */
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
+        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
         pData->found = MA_TRUE;
         return FALSE;   /* Stop enumeration. */
     } else {
@@ -16628,6 +16630,11 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
             MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.winmm = iPlaybackDevice;
 
+            /* The first enumerated device is the default device. */
+            if (iPlaybackDevice == 0) {
+                deviceInfo._private.isDefault = MA_TRUE;
+            }
+
             if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_bool32 cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
                 if (cbResult == MA_FALSE) {
@@ -16651,6 +16658,11 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             MA_ZERO_OBJECT(&deviceInfo);
             deviceInfo.id.winmm = iCaptureDevice;
+
+            /* The first enumerated device is the default device. */
+            if (iCaptureDevice == 0) {
+                deviceInfo._private.isDefault = MA_TRUE;
+            }
 
             if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
                 ma_bool32 cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
@@ -16680,6 +16692,11 @@ static ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_devi
     }
 
     pDeviceInfo->id.winmm = winMMDeviceID;
+
+    /* The first ID is the default device. */
+    if (winMMDeviceID == 0) {
+        pDeviceInfo->_private.isDefault = MA_TRUE;
+    }
 
     if (deviceType == ma_device_type_playback) {
         MMRESULT result;
