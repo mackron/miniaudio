@@ -26268,7 +26268,7 @@ static ma_result ma_device_init_handle__sndio(ma_context* pContext, const ma_dev
     int openFlags = 0;
     struct ma_sio_cap caps;
     struct ma_sio_par par;
-    ma_device_id* pDeviceID;
+    const ma_device_id* pDeviceID;
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
