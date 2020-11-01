@@ -30346,6 +30346,7 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        deviceInfo._private.isDefault = MA_TRUE;    /* Only supporting default devices. */
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
 
@@ -30355,6 +30356,7 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            deviceInfo._private.isDefault = MA_TRUE;    /* Only supporting default devices. */
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
     }
@@ -30385,6 +30387,9 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
     } else {
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
+
+    /* Only supporting default devices. */
+    pDeviceInfo->_private.isDefault = MA_TRUE;
 
     /* Web Audio can support any number of channels and sample rates. It only supports f32 formats, however. */
     pDeviceInfo->minChannels = 1;
