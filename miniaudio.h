@@ -18243,6 +18243,15 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         ma_strncpy_s(deviceInfo.id.alsa, sizeof(deviceInfo.id.alsa), hwid, (size_t)-1);
 
         /*
+        There's no good way to determine whether or not a device is the default on Linux. We're just going to do something simple and
+        just use the name of "default" as the indicator.
+        */
+        if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
+            deviceInfo._private.isDefault = MA_TRUE;
+        }
+
+
+        /*
         DESC is the friendly name. We treat this slightly differently depending on whether or not we are using verbose
         device enumeration. In verbose mode we want to take the entire description so that the end-user can distinguish
         between the subdevices of each card/dev pair. In simplified mode, however, we only want the first part of the
@@ -18363,9 +18372,9 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     MA_ASSERT(pContext != NULL);
 
     /* We just enumerate to find basic information about the device. */
-    data.deviceType = deviceType;
-    data.pDeviceID = pDeviceID;
-    data.shareMode = shareMode;
+    data.deviceType  = deviceType;
+    data.pDeviceID   = pDeviceID;
+    data.shareMode   = shareMode;
     data.pDeviceInfo = pDeviceInfo;
     data.foundDevice = MA_FALSE;
     result = ma_context_enumerate_devices__alsa(pContext, ma_context_get_device_info_enum_callback__alsa, &data);
@@ -18375,6 +18384,10 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
 
     if (!data.foundDevice) {
         return MA_NO_DEVICE;
+    }
+
+    if (ma_strcmp(pDeviceInfo->id.alsa, "default") == 0) {
+        pDeviceInfo->_private.isDefault = MA_TRUE;
     }
 
     /* For detailed info we need to open the device. */
