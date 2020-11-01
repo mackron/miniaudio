@@ -37915,13 +37915,13 @@ MA_API ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResa
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            ma_uint64 count;
+            spx_uint64_t count;
             int speexErr = ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, outputFrameCount, &count);
             if (speexErr != RESAMPLER_ERR_SUCCESS) {
                 return 0;
             }
 
-            return count;
+            return (ma_uint64)count;
         #else
             break;
         #endif
@@ -37955,13 +37955,13 @@ MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pRes
         case ma_resample_algorithm_speex:
         {
         #if defined(MA_HAS_SPEEX_RESAMPLER)
-            ma_uint64 count;
+            spx_uint64_t count;
             int speexErr = ma_speex_resampler_get_expected_output_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, inputFrameCount, &count);
             if (speexErr != RESAMPLER_ERR_SUCCESS) {
                 return 0;
             }
 
-            return count;
+            return (ma_uint64)count;
         #else
             break;
         #endif
@@ -62882,6 +62882,7 @@ REVISION HISTORY
 v0.10.22 - TBD
   - Refactor to the PulseAudio backend.
   - Fix bugs in ma_decoder_init_file*() where the file handle is not closed after a decoding error.
+  - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - ALSA: Fix a bug in ma_context_get_device_info() where the PCM handle is left open in the event of an error.
 
 v0.10.21 - 2020-10-30
