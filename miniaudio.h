@@ -21398,6 +21398,28 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         }
 
 
+        /* The callback needs to be set before connecting the stream. */
+        ((ma_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((ma_pa_stream*)pDevice->pulse.pStreamCapture, ma_device_on_read__pulse, pDevice);
+
+
+        /* Connect after we've got all of our internal state set up. */
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
+        if (devCapture != NULL) {
+            streamFlags |= MA_PA_STREAM_DONT_MOVE;
+        }
+
+        error = ((ma_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((ma_pa_stream*)pDevice->pulse.pStreamCapture, devCapture, &attr, streamFlags);
+        if (error != MA_PA_OK) {
+            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.", ma_result_from_pulse(error));
+            goto on_error1;
+        }
+
+        result = ma_context_wait_for_pa_stream_to_connect__pulse(pDevice->pContext, (ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (result != MA_SUCCESS) {
+            goto on_error2;
+        }
+
+
         /* Internal format. */
         pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         if (pActualSS != NULL) {
@@ -21439,28 +21461,6 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         if (devCapture != NULL) {
             ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice));
         }
-
-
-        /* Good practice to set the callback after retrieving the internal format since the callback itself references those settings. */
-        ((ma_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((ma_pa_stream*)pDevice->pulse.pStreamCapture, ma_device_on_read__pulse, pDevice);
-
-
-        /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
-        if (devCapture != NULL) {
-            streamFlags |= MA_PA_STREAM_DONT_MOVE;
-        }
-
-        error = ((ma_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((ma_pa_stream*)pDevice->pulse.pStreamCapture, devCapture, &attr, streamFlags);
-        if (error != MA_PA_OK) {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.", ma_result_from_pulse(error));
-            goto on_error1;
-        }
-
-        result = ma_context_wait_for_pa_stream_to_connect__pulse(pDevice->pContext, (ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (result != MA_SUCCESS) {
-            goto on_error2;
-        }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -21485,6 +21485,31 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         if (pDevice->pulse.pStreamPlayback == NULL) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio playback stream.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
             goto on_error2;
+        }
+
+
+        /*
+        Note that this callback will be fired as soon as the stream is connected, even though it's started as corked. The callback needs to handle a
+        device state of MA_STATE_UNINITIALIZED.
+        */
+        ((ma_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_write__pulse, pDevice);
+
+
+        /* Connect after we've got all of our internal state set up. */
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
+        if (devPlayback != NULL) {
+            streamFlags |= MA_PA_STREAM_DONT_MOVE;
+        }
+
+        error = ((ma_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, devPlayback, &attr, streamFlags, NULL, NULL);
+        if (error != MA_PA_OK) {
+            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.", ma_result_from_pulse(error));
+            goto on_error3;
+        }
+
+        result = ma_context_wait_for_pa_stream_to_connect__pulse(pDevice->pContext, (ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (result != MA_SUCCESS) {
+            goto on_error3;
         }
 
 
@@ -21528,32 +21553,6 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         devPlayback = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         if (devPlayback != NULL) {
             ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice));
-        }
-
-
-        /*
-        Good practice to set the callback after retrieving the internal format since the callback itself references those settings. Note that
-        this callback will be fired as soon as the stream is connected, even though it's started as corked. The callback needs to handle a
-        device state of MA_STATE_UNINITIALIZED.
-        */
-        ((ma_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_write__pulse, pDevice);
-
-
-        /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
-        if (devPlayback != NULL) {
-            streamFlags |= MA_PA_STREAM_DONT_MOVE;
-        }
-
-        error = ((ma_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, devPlayback, &attr, streamFlags, NULL, NULL);
-        if (error != MA_PA_OK) {
-            result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.", ma_result_from_pulse(error));
-            goto on_error3;
-        }
-
-        result = ma_context_wait_for_pa_stream_to_connect__pulse(pDevice->pContext, (ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (result != MA_SUCCESS) {
-            goto on_error3;
         }
     }
 
