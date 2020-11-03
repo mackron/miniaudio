@@ -277,87 +277,91 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
 ------------------
 `#define` these options before including miniaudio.h.
 
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | Option               | Description                                                                                                                      |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_WASAPI         | Disables the WASAPI backend.                                                                                                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_DSOUND         | Disables the DirectSound backend.                                                                                                |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_WINMM          | Disables the WinMM backend.                                                                                                      |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_ALSA           | Disables the ALSA backend.                                                                                                       |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_PULSEAUDIO     | Disables the PulseAudio backend.                                                                                                 |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_JACK           | Disables the JACK backend.                                                                                                       |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_COREAUDIO      | Disables the Core Audio backend.                                                                                                 |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_SNDIO          | Disables the sndio backend.                                                                                                      |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_AUDIO4         | Disables the audio(4) backend.                                                                                                   |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_OSS            | Disables the OSS backend.                                                                                                        |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_AAUDIO         | Disables the AAudio backend.                                                                                                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_OPENSL         | Disables the OpenSL|ES backend.                                                                                                  |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_WEBAUDIO       | Disables the Web Audio backend.                                                                                                  |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_NULL           | Disables the null backend.                                                                                                       |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_DECODING       | Disables decoding APIs.                                                                                                          |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_ENCODING       | Disables encoding APIs.                                                                                                          |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_WAV            | Disables the built-in WAV decoder and encoder.                                                                                   |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_FLAC           | Disables the built-in FLAC decoder.                                                                                              |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_MP3            | Disables the built-in MP3 decoder.                                                                                               |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_DEVICE_IO      | Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use         |
-    |                      | miniaudio's data conversion and/or decoding APIs.                                                                                |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_THREADING      | Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs. This option is useful if you only need to use miniaudio for    |
-    |                      | data conversion, decoding and/or encoding. Some families of APIs require threading which means the following options must also   |
-    |                      | be set:                                                                                                                          |
-    |                      |                                                                                                                                  |
-    |                      |     ```                                                                                                                          |
-    |                      |     MA_NO_DEVICE_IO                                                                                                              |
-    |                      |     ```                                                                                                                          |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_GENERATION     | Disables generation APIs such a ma_waveform and ma_noise.                                                                        |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_SSE2           | Disables SSE2 optimizations.                                                                                                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_AVX2           | Disables AVX2 optimizations.                                                                                                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_AVX512         | Disables AVX-512 optimizations.                                                                                                  |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_NO_NEON           | Disables NEON optimizations.                                                                                                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_LOG_LEVEL [level] | Sets the logging level. Set level to one of the following:                                                                       |
-    |                      |                                                                                                                                  |
-    |                      |     ```                                                                                                                          |
-    |                      |     MA_LOG_LEVEL_VERBOSE                                                                                                         |
-    |                      |     MA_LOG_LEVEL_INFO                                                                                                            |
-    |                      |     MA_LOG_LEVEL_WARNING                                                                                                         |
-    |                      |     MA_LOG_LEVEL_ERROR                                                                                                           |
-    |                      |     ```                                                                                                                          |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_DEBUG_OUTPUT      | Enable printf() debug output.                                                                                                    |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_COINIT_VALUE      | Windows only. The value to pass to internal calls to `CoInitializeEx()`. Defaults to `COINIT_MULTITHREADED`.                     |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_API               | Controls how public APIs should be decorated. Defaults to `extern`.                                                              |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
-    | MA_DLL               | If set, configures MA_API to either import or export APIs depending on whether or not the implementation is being defined. If    |
-    |                      | defining the implementation, MA_API will be configured to export. Otherwise it will be configured to import. This has no effect  |
-    |                      | if MA_API is defined externally.                                                                                                 |
-    +----------------------+----------------------------------------------------------------------------------------------------------------------------------+
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | Option                | Description                                                                                                                     |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_WASAPI          | Disables the WASAPI backend.                                                                                                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_DSOUND          | Disables the DirectSound backend.                                                                                               |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_WINMM           | Disables the WinMM backend.                                                                                                     |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_ALSA            | Disables the ALSA backend.                                                                                                      |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_PULSEAUDIO      | Disables the PulseAudio backend.                                                                                                |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_JACK            | Disables the JACK backend.                                                                                                      |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_COREAUDIO       | Disables the Core Audio backend.                                                                                                |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_SNDIO           | Disables the sndio backend.                                                                                                     |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_AUDIO4          | Disables the audio(4) backend.                                                                                                  |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_OSS             | Disables the OSS backend.                                                                                                       |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_AAUDIO          | Disables the AAudio backend.                                                                                                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_OPENSL          | Disables the OpenSL|ES backend.                                                                                                 |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_WEBAUDIO        | Disables the Web Audio backend.                                                                                                 |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_NULL            | Disables the null backend.                                                                                                      |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_DECODING        | Disables decoding APIs.                                                                                                         |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_ENCODING        | Disables encoding APIs.                                                                                                         |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_WAV             | Disables the built-in WAV decoder and encoder.                                                                                  |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_FLAC            | Disables the built-in FLAC decoder.                                                                                             |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_MP3             | Disables the built-in MP3 decoder.                                                                                              |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_DEVICE_IO       | Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use        |
+    |                       | miniaudio's data conversion and/or decoding APIs.                                                                               |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_THREADING       | Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs. This option is useful if you only need to use miniaudio for   |
+    |                       | data conversion, decoding and/or encoding. Some families of APIs require threading which means the following options must also  |
+    |                       | be set:                                                                                                                         |
+    |                       |                                                                                                                                 |
+    |                       |     ```                                                                                                                         |
+    |                       |     MA_NO_DEVICE_IO                                                                                                             |
+    |                       |     ```                                                                                                                         |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_GENERATION      | Disables generation APIs such a ma_waveform and ma_noise.                                                                       |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_SSE2            | Disables SSE2 optimizations.                                                                                                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_AVX2            | Disables AVX2 optimizations.                                                                                                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_AVX512          | Disables AVX-512 optimizations.                                                                                                 |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_NEON            | Disables NEON optimizations.                                                                                                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_NO_RUNTIME_LINKING | Disables runtime linking. This is useful for passing Apple's notarization process. When enabling this, you may need to avoid    |
+    |                       | using `-std=c89` or `-std=c99` on Linux builds or else you may end up with compilation errors due to conflicts with `timespec`  |
+    |                       | and `timeval` data types.                                                                                                       |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_LOG_LEVEL [level]  | Sets the logging level. Set level to one of the following:                                                                      |
+    |                       |                                                                                                                                 |
+    |                       |     ```                                                                                                                         |
+    |                       |     MA_LOG_LEVEL_VERBOSE                                                                                                        |
+    |                       |     MA_LOG_LEVEL_INFO                                                                                                           |
+    |                       |     MA_LOG_LEVEL_WARNING                                                                                                        |
+    |                       |     MA_LOG_LEVEL_ERROR                                                                                                          |
+    |                       |     ```                                                                                                                         |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_DEBUG_OUTPUT       | Enable printf() debug output.                                                                                                   |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_COINIT_VALUE       | Windows only. The value to pass to internal calls to `CoInitializeEx()`. Defaults to `COINIT_MULTITHREADED`.                    |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_API                | Controls how public APIs should be decorated. Defaults to `extern`.                                                             |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
+    | MA_DLL                | If set, configures MA_API to either import or export APIs depending on whether or not the implementation is being defined. If   |
+    |                       | defining the implementation, MA_API will be configured to export. Otherwise it will be configured to import. This has no effect |
+    |                       | if MA_API is defined externally.                                                                                                |
+    +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
 
 
 3. Definitions
@@ -20091,18 +20095,19 @@ typedef pa_sample_format_t ma_pa_sample_format_t;
 #define MA_PA_SAMPLE_S24_32LE                          PA_SAMPLE_S24_32LE
 #define MA_PA_SAMPLE_S24_32BE                          PA_SAMPLE_S24_32BE
 
-typedef pa_mainloop     ma_pa_mainloop;
-typedef pa_mainloop_api ma_pa_mainloop_api;
-typedef pa_context      ma_pa_context;
-typedef pa_operation    ma_pa_operation;
-typedef pa_stream       ma_pa_stream;
-typedef pa_spawn_api    ma_pa_spawn_api;
-typedef pa_buffer_attr  ma_pa_buffer_attr;
-typedef pa_channel_map  ma_pa_channel_map;
-typedef pa_cvolume      ma_pa_cvolume;
-typedef pa_sample_spec  ma_pa_sample_spec;
-typedef pa_sink_info    ma_pa_sink_info;
-typedef pa_source_info  ma_pa_source_info;
+typedef pa_mainloop           ma_pa_mainloop;
+typedef pa_threaded_mainloop  ma_pa_threaded_mainloop;
+typedef pa_mainloop_api       ma_pa_mainloop_api;
+typedef pa_context            ma_pa_context;
+typedef pa_operation          ma_pa_operation;
+typedef pa_stream             ma_pa_stream;
+typedef pa_spawn_api          ma_pa_spawn_api;
+typedef pa_buffer_attr        ma_pa_buffer_attr;
+typedef pa_channel_map        ma_pa_channel_map;
+typedef pa_cvolume            ma_pa_cvolume;
+typedef pa_sample_spec        ma_pa_sample_spec;
+typedef pa_sink_info          ma_pa_sink_info;
+typedef pa_source_info        ma_pa_source_info;
 
 typedef pa_context_notify_cb_t ma_pa_context_notify_cb_t;
 typedef pa_sink_info_cb_t ma_pa_sink_info_cb_t;
@@ -20410,7 +20415,7 @@ typedef void                     (* ma_pa_threaded_mainloop_accept_proc)       (
 typedef int                      (* ma_pa_threaded_mainloop_get_retval_proc)   (ma_pa_threaded_mainloop* m);
 typedef ma_pa_mainloop_api*      (* ma_pa_threaded_mainloop_get_api_proc)      (ma_pa_threaded_mainloop* m);
 typedef int                      (* ma_pa_threaded_mainloop_in_thread_proc)    (ma_pa_threaded_mainloop* m);
-typedef void                     (* ma_pa_threaded_mainloop_set_name_proc)     (ma_pa_threaded_mainloop* m);
+typedef void                     (* ma_pa_threaded_mainloop_set_name_proc)     (ma_pa_threaded_mainloop* m, const char* name);
 typedef ma_pa_context*           (* ma_pa_context_new_proc)                    (ma_pa_mainloop_api* mainloop, const char* name);
 typedef void                     (* ma_pa_context_unref_proc)                  (ma_pa_context* c);
 typedef int                      (* ma_pa_context_connect_proc)                (ma_pa_context* c, const char* server, ma_pa_context_flags_t flags, const ma_pa_spawn_api* api);
@@ -62873,10 +62878,11 @@ REVISION HISTORY
 ================
 v0.10.22 - TBD
   - Refactor to the PulseAudio backend. This simplifies the implementation and fixes a capture bug.
-  - Fix bugs in ma_decoder_init_file*() where the file handle is not closed after a decoding error.
+  - Fix bugs in `ma_decoder_init_file*()` where the file handle is not closed after a decoding error.
   - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - Fix a compilation error for the Linux build when the ALSA and JACK backends are both disabled.
-  - ALSA: Fix a bug in ma_context_get_device_info() where the PCM handle is left open in the event of an error.
+  - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
+  - Add documentation for `MA_NO_RUNTIME_LINKING`.
 
 v0.10.21 - 2020-10-30
   - Add ma_is_backend_enabled() and ma_get_enabled_backends() for retrieving enabled backends at run-time.
