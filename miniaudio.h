@@ -10382,10 +10382,11 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
 
 
 /* We only want to expose ma_device__handle_duplex_callback_capture() and ma_device__handle_duplex_callback_playback() if we have an asynchronous backend enabled. */
-#if defined(MA_HAS_JACK)      || \
-    defined(MA_HAS_COREAUDIO) || \
-    defined(MA_HAS_AAUDIO)    || \
-    defined(MA_HAS_OPENSL)    || \
+#if defined(MA_HAS_PULSEAUDIO) || \
+    defined(MA_HAS_JACK)       || \
+    defined(MA_HAS_COREAUDIO)  || \
+    defined(MA_HAS_AAUDIO)     || \
+    defined(MA_HAS_OPENSL)     || \
     defined(MA_HAS_WEBAUDIO)
 static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, ma_uint32 frameCountInDeviceFormat, const void* pFramesInDeviceFormat, ma_pcm_rb* pRB)
 {
