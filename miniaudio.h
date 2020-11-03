@@ -21423,12 +21423,6 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         /* Internal format. */
         pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         if (pActualSS != NULL) {
-            /* If anything has changed between the requested and the actual sample spec, we need to update the buffer. */
-            if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
-                attr = ma_device__pa_buffer_attr_new(pDevice->capture.internalPeriodSizeInFrames, pConfig->periods, pActualSS);
-                ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamCapture, &attr, NULL, NULL));
-            }
-
             ss = *pActualSS;
         }
 
@@ -21516,12 +21510,6 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         /* Internal format. */
         pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         if (pActualSS != NULL) {
-            /* If anything has changed between the requested and the actual sample spec, we need to update the buffer. */
-            if (ss.format != pActualSS->format || ss.channels != pActualSS->channels || ss.rate != pActualSS->rate) {
-                attr = ma_device__pa_buffer_attr_new(pDevice->playback.internalPeriodSizeInFrames, pConfig->periods, pActualSS);
-                ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_stream_set_buffer_attr_proc)pContext->pulse.pa_stream_set_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, &attr, NULL, NULL));
-            }
-
             ss = *pActualSS;
         }
 
