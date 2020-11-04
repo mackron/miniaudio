@@ -23588,6 +23588,37 @@ static ma_result ma_set_AudioObject_buffer_size_in_frames(ma_context* pContext, 
     return MA_SUCCESS;
 }
 
+static ma_result ma_find_default_AudioObjectID(ma_context* pContext, ma_device_type deviceType, AudioObjectID* pDeviceObjectID)
+{
+    AudioObjectPropertyAddress propAddressDefaultDevice;
+    UInt32 defaultDeviceObjectIDSize = sizeof(AudioObjectID);
+    AudioObjectID defaultDeviceObjectID;
+    OSStatus status;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pDeviceObjectID != NULL);
+
+    /* Safety. */
+    *pDeviceObjectID = 0;
+
+    propAddressDefaultDevice.mScope = kAudioObjectPropertyScopeGlobal;
+    propAddressDefaultDevice.mElement = kAudioObjectPropertyElementMaster;
+    if (deviceType == ma_device_type_playback) {
+        propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+    } else {
+        propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultInputDevice;
+    }
+
+    defaultDeviceObjectIDSize = sizeof(AudioObjectID);
+    status = ((ma_AudioObjectGetPropertyData_proc)pContext->coreaudio.AudioObjectGetPropertyData)(kAudioObjectSystemObject, &propAddressDefaultDevice, 0, NULL, &defaultDeviceObjectIDSize, &defaultDeviceObjectID);
+    if (status == noErr) {
+        *pDeviceObjectID = defaultDeviceObjectID;
+        return MA_SUCCESS;
+    }
+    
+    /* If we get here it means we couldn't find the device. */
+    return MA_NO_DEVICE;
+}
 
 static ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, AudioObjectID* pDeviceObjectID)
 {
@@ -23599,25 +23630,7 @@ static ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type devi
     
     if (pDeviceID == NULL) {
         /* Default device. */
-        AudioObjectPropertyAddress propAddressDefaultDevice;
-        UInt32 defaultDeviceObjectIDSize = sizeof(AudioObjectID);
-        AudioObjectID defaultDeviceObjectID;
-        OSStatus status;
-
-        propAddressDefaultDevice.mScope = kAudioObjectPropertyScopeGlobal;
-        propAddressDefaultDevice.mElement = kAudioObjectPropertyElementMaster;
-        if (deviceType == ma_device_type_playback) {
-            propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
-        } else {
-            propAddressDefaultDevice.mSelector = kAudioHardwarePropertyDefaultInputDevice;
-        }
-        
-        defaultDeviceObjectIDSize = sizeof(AudioObjectID);
-        status = ((ma_AudioObjectGetPropertyData_proc)pContext->coreaudio.AudioObjectGetPropertyData)(kAudioObjectSystemObject, &propAddressDefaultDevice, 0, NULL, &defaultDeviceObjectIDSize, &defaultDeviceObjectID);
-        if (status == noErr) {
-            *pDeviceObjectID = defaultDeviceObjectID;
-            return MA_SUCCESS;
-        }
+        return ma_find_default_AudioObjectID(pContext, deviceType, pDeviceObjectID);
     } else {
         /* Explicit device. */
         UInt32 deviceCount;
@@ -23915,8 +23928,13 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
 #if defined(MA_APPLE_DESKTOP)
     UInt32 deviceCount;
     AudioObjectID* pDeviceObjectIDs;
+    AudioObjectID defaultDeviceObjectIDPlayback;
+    AudioObjectID defaultDeviceObjectIDCapture;
     ma_result result;
     UInt32 iDevice;
+    
+    ma_find_default_AudioObjectID(pContext, ma_device_type_playback, &defaultDeviceObjectIDPlayback);   /* OK if this fails. */
+    ma_find_default_AudioObjectID(pContext, ma_device_type_capture,  &defaultDeviceObjectIDCapture);    /* OK if this fails. */
 
     result = ma_get_device_object_ids__coreaudio(pContext, &deviceCount, &pDeviceObjectIDs);
     if (result != MA_SUCCESS) {
@@ -23936,11 +23954,19 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
         }
 
         if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
+            if (deviceObjectID == defaultDeviceObjectIDPlayback) {
+                info._private.isDefault = MA_TRUE;
+            }
+        
             if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
                 break;
             }
         }
         if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
+            if (deviceObjectID == defaultDeviceObjectIDCapture) {
+                info._private.isDefault = MA_TRUE;
+            }
+            
             if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
                 break;
             }
@@ -23986,11 +24012,14 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
     /* Desktop */
     {
         AudioObjectID deviceObjectID;
+        AudioObjectID defaultDeviceObjectID;
         UInt32 streamDescriptionCount;
         AudioStreamRangedDescription* pStreamDescriptions;
         UInt32 iStreamDescription;
         UInt32 sampleRateRangeCount;
         AudioValueRange* pSampleRateRanges;
+        
+        ma_find_default_AudioObjectID(pContext, deviceType, &defaultDeviceObjectID);     /* OK if this fails. */
 
         result = ma_find_AudioObjectID(pContext, deviceType, pDeviceID, &deviceObjectID);
         if (result != MA_SUCCESS) {
@@ -24005,6 +24034,10 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         result = ma_get_AudioObject_name(pContext, deviceObjectID, sizeof(pDeviceInfo->name), pDeviceInfo->name);
         if (result != MA_SUCCESS) {
             return result;
+        }
+        
+        if (deviceObjectID == defaultDeviceObjectID) {
+            pDeviceInfo->_private.isDefault = MA_TRUE;
         }
     
         /* Formats. */
