@@ -62911,6 +62911,7 @@ v0.10.22 - TBD
   - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - Fix a compilation error for the Linux build when the ALSA and JACK backends are both disabled.
   - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
+  - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
   - Add documentation for `MA_NO_RUNTIME_LINKING`.
 
 v0.10.21 - 2020-10-30
