@@ -3118,6 +3118,7 @@ typedef struct
     /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
     char name[256];
+    ma_bool32 isDefault;
 
     /*
     Detailed info. As much of this is filled as possible with ma_context_get_device_info(). Note that you are allowed to initialize
@@ -3133,11 +3134,6 @@ typedef struct
     ma_uint32 maxChannels;
     ma_uint32 minSampleRate;
     ma_uint32 maxSampleRate;
-
-    struct
-    {
-        ma_bool32 isDefault;
-    } _private;
 } ma_device_info;
 
 typedef struct
@@ -12576,7 +12572,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
         if (pDefaultDeviceID != NULL) {
             if (wcscmp(pDeviceID, pDefaultDeviceID) == 0) {
                 /* It's a default device. */
-                pInfo->_private.isDefault = MA_TRUE;
+                pInfo->isDefault = MA_TRUE;
             }
         }
 
@@ -12822,7 +12818,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            deviceInfo._private.isDefault = MA_TRUE;
+            deviceInfo.isDefault = MA_TRUE;
             cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
         }
 
@@ -12831,7 +12827,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            deviceInfo._private.isDefault = MA_TRUE;
+            deviceInfo.isDefault = MA_TRUE;
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
     }
@@ -12888,7 +12884,7 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
 
     result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, shareMode, pDeviceInfo);
 
-    pDeviceInfo->_private.isDefault = MA_TRUE;  /* UWP only supports default devices. */
+    pDeviceInfo->isDefault = MA_TRUE;  /* UWP only supports default devices. */
 
     ma_IAudioClient_Release(pAudioClient);
     return result;
@@ -15084,7 +15080,7 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid
         MA_COPY_MEMORY(deviceInfo.id.dsound, lpGuid, 16);
     } else {
         MA_ZERO_MEMORY(deviceInfo.id.dsound, 16);
-        deviceInfo._private.isDefault = MA_TRUE;
+        deviceInfo.isDefault = MA_TRUE;
     }
 
     /* Name / Description */
@@ -15146,7 +15142,7 @@ static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, 
     if ((pData->pDeviceID == NULL || ma_is_guid_null(pData->pDeviceID->dsound)) && (lpGuid == NULL || ma_is_guid_null(lpGuid))) {
         /* Default device. */
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), lpcstrDescription, (size_t)-1);
-        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
+        pData->pDeviceInfo->isDefault = MA_TRUE;
         pData->found = MA_TRUE;
         return FALSE;   /* Stop enumeration. */
     } else {
@@ -16637,7 +16633,7 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             /* The first enumerated device is the default device. */
             if (iPlaybackDevice == 0) {
-                deviceInfo._private.isDefault = MA_TRUE;
+                deviceInfo.isDefault = MA_TRUE;
             }
 
             if (ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
@@ -16666,7 +16662,7 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
 
             /* The first enumerated device is the default device. */
             if (iCaptureDevice == 0) {
-                deviceInfo._private.isDefault = MA_TRUE;
+                deviceInfo.isDefault = MA_TRUE;
             }
 
             if (ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, &deviceInfo) == MA_SUCCESS) {
@@ -16700,7 +16696,7 @@ static ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_devi
 
     /* The first ID is the default device. */
     if (winMMDeviceID == 0) {
-        pDeviceInfo->_private.isDefault = MA_TRUE;
+        pDeviceInfo->isDefault = MA_TRUE;
     }
 
     if (deviceType == ma_device_type_playback) {
@@ -18269,7 +18265,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         just use the name of "default" as the indicator.
         */
         if (ma_strcmp(deviceInfo.id.alsa, "default") == 0) {
-            deviceInfo._private.isDefault = MA_TRUE;
+            deviceInfo.isDefault = MA_TRUE;
         }
 
 
@@ -18409,7 +18405,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     }
 
     if (ma_strcmp(pDeviceInfo->id.alsa, "default") == 0) {
-        pDeviceInfo->_private.isDefault = MA_TRUE;
+        pDeviceInfo->isDefault = MA_TRUE;
     }
 
     /* For detailed info we need to open the device. */
@@ -20922,7 +20918,7 @@ static void ma_context_enumerate_devices_sink_callback__pulse(ma_pa_context* pPu
     }
 
     if (pSinkInfo->index == pData->defaultDeviceIndexPlayback) {
-        deviceInfo._private.isDefault = MA_TRUE;
+        deviceInfo.isDefault = MA_TRUE;
     }
 
     pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_playback, &deviceInfo, pData->pUserData);
@@ -20954,7 +20950,7 @@ static void ma_context_enumerate_devices_source_callback__pulse(ma_pa_context* p
     }
 
     if (pSourceInfo->index == pData->defaultDeviceIndexCapture) {
-        deviceInfo._private.isDefault = MA_TRUE;
+        deviceInfo.isDefault = MA_TRUE;
     }
 
     pData->isTerminated = !pData->callback(pData->pContext, ma_device_type_capture, &deviceInfo, pData->pUserData);
@@ -21052,7 +21048,7 @@ static void ma_context_get_device_info_sink_callback__pulse(ma_pa_context* pPuls
     pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
 
     if (pData->defaultDeviceIndex == pInfo->index) {
-        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
+        pData->pDeviceInfo->isDefault = MA_TRUE;
     }
 
     (void)pPulseContext; /* Unused. */
@@ -21085,7 +21081,7 @@ static void ma_context_get_device_info_source_callback__pulse(ma_pa_context* pPu
     pData->pDeviceInfo->formats[0]    = ma_format_from_pulse(pInfo->sample_spec.format);
 
     if (pData->defaultDeviceIndex == pInfo->index) {
-        pData->pDeviceInfo->_private.isDefault = MA_TRUE;
+        pData->pDeviceInfo->isDefault = MA_TRUE;
     }
 
     (void)pPulseContext; /* Unused. */
@@ -22103,7 +22099,7 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        deviceInfo._private.isDefault = MA_TRUE;    /* JACK only uses default devices. */
+        deviceInfo.isDefault = MA_TRUE;    /* JACK only uses default devices. */
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
 
@@ -22112,7 +22108,7 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-        deviceInfo._private.isDefault = MA_TRUE;    /* JACK only uses default devices. */
+        deviceInfo.isDefault = MA_TRUE;    /* JACK only uses default devices. */
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
 
@@ -22144,7 +22140,7 @@ static ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_devic
     }
 
     /* Jack only uses default devices. */
-    pDeviceInfo->_private.isDefault = MA_TRUE;
+    pDeviceInfo->isDefault = MA_TRUE;
 
     /* Jack only supports f32 and has a specific channel count and sample rate. */
     pDeviceInfo->formatCount = 1;
@@ -23910,7 +23906,7 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
 
         if (ma_does_AudioObject_support_playback(pContext, deviceObjectID)) {
             if (deviceObjectID == defaultDeviceObjectIDPlayback) {
-                info._private.isDefault = MA_TRUE;
+                info.isDefault = MA_TRUE;
             }
         
             if (!callback(pContext, ma_device_type_playback, &info, pUserData)) {
@@ -23919,7 +23915,7 @@ static ma_result ma_context_enumerate_devices__coreaudio(ma_context* pContext, m
         }
         if (ma_does_AudioObject_support_capture(pContext, deviceObjectID)) {
             if (deviceObjectID == defaultDeviceObjectIDCapture) {
-                info._private.isDefault = MA_TRUE;
+                info.isDefault = MA_TRUE;
             }
             
             if (!callback(pContext, ma_device_type_capture, &info, pUserData)) {
@@ -23992,7 +23988,7 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         }
         
         if (deviceObjectID == defaultDeviceObjectID) {
-            pDeviceInfo->_private.isDefault = MA_TRUE;
+            pDeviceInfo->isDefault = MA_TRUE;
         }
     
         /* Formats. */
@@ -30374,7 +30370,7 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-        deviceInfo._private.isDefault = MA_TRUE;    /* Only supporting default devices. */
+        deviceInfo.isDefault = MA_TRUE;    /* Only supporting default devices. */
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
 
@@ -30384,7 +30380,7 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
             ma_device_info deviceInfo;
             MA_ZERO_OBJECT(&deviceInfo);
             ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            deviceInfo._private.isDefault = MA_TRUE;    /* Only supporting default devices. */
+            deviceInfo.isDefault = MA_TRUE;    /* Only supporting default devices. */
             cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
         }
     }
@@ -30417,7 +30413,7 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
     }
 
     /* Only supporting default devices. */
-    pDeviceInfo->_private.isDefault = MA_TRUE;
+    pDeviceInfo->isDefault = MA_TRUE;
 
     /* Web Audio can support any number of channels and sample rates. It only supports f32 formats, however. */
     pDeviceInfo->minChannels = 1;
