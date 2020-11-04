@@ -6,21 +6,20 @@
 #define RANDOM_PREFIX   ma_speex
 #include "thirdparty/speex_resampler.h"
 
-#ifdef _MSC_VER
-    #if defined(__clang__)
+#if defined(_MSC_VER)
+    typedef unsigned __int64    spx_uint64_t;
+#else
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlanguage-extension-token"
-        #pragma GCC diagnostic ignored "-Wlong-long"        
-        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #pragma GCC diagnostic ignored "-Wlong-long"
+        #if defined(__clang__)
+            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+        #endif
     #endif
-    typedef unsigned __int64 spx_uint64_t;
-    #if defined(__clang__)
+    typedef unsigned long long  spx_uint64_t;
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic pop
     #endif
-#else
-    #define MA_HAS_STDINT
-    #include <stdint.h>
-    typedef uint64_t spx_uint64_t;
 #endif
 
 int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
@@ -50,14 +49,14 @@ int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, 
     #pragma warning(disable:4244)   /* conversion from 'x' to 'y', possible loss of data */
     #pragma warning(disable:4018)   /* signed/unsigned mismatch */
     #pragma warning(disable:4706)   /* assignment within conditional expression */
-#else
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wsign-compare" /* comparison between signed and unsigned integer expressions */
 #endif
 #include "thirdparty/resample.c"
 #if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(pop)
-#else
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic pop
 #endif
 

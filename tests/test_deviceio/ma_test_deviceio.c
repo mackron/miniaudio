@@ -240,10 +240,14 @@ ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, con
 
     MA_ASSERT(pDeviceInfo != NULL);
 
+#if 1
     result = ma_context_get_device_info(pContext, deviceType, &pDeviceInfo->id, ma_share_mode_shared, &detailedDeviceInfo);
     if (result != MA_SUCCESS) {
         return result;
     }
+#else
+    detailedDeviceInfo = *pDeviceInfo;
+#endif
 
     printf("%s\n", pDeviceInfo->name);
     printf("    Default:         %s\n", (detailedDeviceInfo._private.isDefault) ? "Yes" : "No");
@@ -578,6 +582,11 @@ done:
     if (g_State.hasEncoder) {
         ma_encoder_uninit(&g_State.encoder);
     }
+
+
+    printf("Press Enter to quit...");
+    getchar();
+    getchar();
 
     return 0;
 }
