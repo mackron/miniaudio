@@ -3821,7 +3821,8 @@ struct ma_device
             ma_uint32 deviceObjectIDCapture;
             /*AudioUnit*/ ma_ptr audioUnitPlayback;
             /*AudioUnit*/ ma_ptr audioUnitCapture;
-            /*AudioBufferList**/ ma_ptr pAudioBufferList;  /* Only used for input devices. */
+            /*AudioBufferList**/ ma_ptr pAudioBufferList;   /* Only used for input devices. */
+            ma_uint32 audioBufferSizeInBytes;               /* Only used for input devices. The size in bytes of each buffer in pAudioBufferList. */
             ma_event stopEvent;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
@@ -24269,6 +24270,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     ma_device* pDevice = (ma_device*)pUserData;
     AudioBufferList* pRenderedBufferList;
     ma_stream_layout layout;
+    ma_uint32 iBuffer;
     OSStatus status;
 
     MA_ASSERT(pDevice != NULL);
@@ -24285,6 +24287,18 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
 #if defined(MA_DEBUG_OUTPUT)
     printf("INFO: Input Callback: busNumber=%d, frameCount=%d, mNumberBuffers=%d\n", busNumber, frameCount, pRenderedBufferList->mNumberBuffers);
 #endif
+
+    /*
+    When you call AudioUnitRender(), Core Audio tries to be helpful by setting the mDataByteSize to the number of bytes
+    that were actually rendered. The problem with this is that the next call can fail with -50 due to the size no longer
+    being set to the capacity of the buffer, but instead the size in bytes of the previous render. This will cause a
+    problem when a future call to this callback specifies a larger number of frames.
+    
+    To work around this we need to explicitly set the size of each buffer to their respective size in bytes.
+    */
+    for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
+        pRenderedBufferList->mBuffers[iBuffer].mDataByteSize = pDevice->coreaudio.audioBufferSizeInBytes;
+    }
     
     status = ((ma_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
@@ -24295,7 +24309,6 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     }
     
     if (layout == ma_stream_layout_interleaved) {
-        UInt32 iBuffer;
         for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
             if (pRenderedBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->capture.internalChannels) {
                 if (pDevice->type == ma_device_type_duplex) {
@@ -24347,7 +24360,6 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
         */
         if ((pRenderedBufferList->mNumberBuffers % pDevice->capture.internalChannels) == 0) {
             ma_uint8 tempBuffer[4096];
-            UInt32 iBuffer;
             for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; iBuffer += pDevice->capture.internalChannels) {
                 ma_uint32 framesRemaining = frameCount;
                 while (framesRemaining > 0) {
@@ -24825,6 +24837,7 @@ typedef struct
     AudioComponent component;
     AudioUnit audioUnit;
     AudioBufferList* pAudioBufferList;  /* Only used for input devices. */
+    ma_uint32 audioBufferSizeInBytes;
     ma_format formatOut;
     ma_uint32 channelsOut;
     ma_uint32 sampleRateOut;
@@ -24841,6 +24854,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
     ma_uint32 actualPeriodSizeInFrames;
+    ma_uint32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
     AURenderCallbackStruct callbackInfo;
 #if defined(MA_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
@@ -25087,11 +25101,16 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     if (result != MA_SUCCESS) {
         return result;
     }
-    
-    pData->periodSizeInFramesOut = actualPeriodSizeInFrames;
 #else
-    actualPeriodSizeInFrames = 2048;
-    pData->periodSizeInFramesOut = actualPeriodSizeInFrames;
+    /*
+    I don't know how to configure buffer sizes on iOS so for now we're not allowing it to be configured. Instead we're
+    just going to set it to the value of kAudioUnitProperty_MaximumFramesPerSlice.
+    */
+    status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &actualPeriodSizeInFrames, &actualPeriodSizeInFramesSize);
+    if (status != noErr) {
+        ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
+        return ma_result_from_OSStatus(status);
+    }
 #endif
 
 
@@ -25120,6 +25139,8 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
     }
     
+    pData->periodSizeInFramesOut = actualPeriodSizeInFrames;
+    
     /* We need a buffer list if this is an input device. We render into this in the input callback. */
     if (deviceType == ma_device_type_capture) {
         ma_bool32 isInterleaved = (bestFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0;
@@ -25144,16 +25165,18 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
         
         if (isInterleaved) {
+            pData->audioBufferSizeInBytes = actualPeriodSizeInFrames * ma_get_bytes_per_frame(pData->formatOut, pData->channelsOut);
             pBufferList->mNumberBuffers = 1;
             pBufferList->mBuffers[0].mNumberChannels = pData->channelsOut;
-            pBufferList->mBuffers[0].mDataByteSize   = actualPeriodSizeInFrames * ma_get_bytes_per_frame(pData->formatOut, pData->channelsOut);
+            pBufferList->mBuffers[0].mDataByteSize   = pData->audioBufferSizeInBytes;
             pBufferList->mBuffers[0].mData           = (ma_uint8*)pBufferList + sizeof(AudioBufferList);
         } else {
             ma_uint32 iBuffer;
+            pData->audioBufferSizeInBytes = actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut);
             pBufferList->mNumberBuffers = pData->channelsOut;
             for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
                 pBufferList->mBuffers[iBuffer].mNumberChannels = 1;
-                pBufferList->mBuffers[iBuffer].mDataByteSize   = actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut);
+                pBufferList->mBuffers[iBuffer].mDataByteSize   = pData->audioBufferSizeInBytes;
                 pBufferList->mBuffers[iBuffer].mData           = (ma_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * pData->channelsOut)) + (actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut) * iBuffer);
             }
         }
@@ -25278,6 +25301,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     #endif
         pDevice->coreaudio.audioUnitCapture          = (ma_ptr)data.audioUnit;
         pDevice->coreaudio.pAudioBufferList          = (ma_ptr)data.pAudioBufferList;
+        pDevice->coreaudio.audioBufferSizeInBytes    = data.audioBufferSizeInBytes;
         
         pDevice->capture.internalFormat              = data.formatOut;
         pDevice->capture.internalChannels            = data.channelsOut;
@@ -25354,6 +25378,7 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
     #endif
         pDevice->coreaudio.audioUnitCapture         = (ma_ptr)data.audioUnit;
         pDevice->coreaudio.pAudioBufferList         = (ma_ptr)data.pAudioBufferList;
+        pDevice->coreaudio.audioBufferSizeInBytes   = data.audioBufferSizeInBytes;
         
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
