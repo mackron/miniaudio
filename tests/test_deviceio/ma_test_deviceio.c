@@ -250,7 +250,7 @@ ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, con
 #endif
 
     printf("%s\n", pDeviceInfo->name);
-    printf("    Default:         %s\n", (detailedDeviceInfo._private.isDefault) ? "Yes" : "No");
+    printf("    Default:         %s\n", (detailedDeviceInfo.isDefault) ? "Yes" : "No");
     printf("    Min Channels:    %d\n", detailedDeviceInfo.minChannels);
     printf("    Max Channels:    %d\n", detailedDeviceInfo.maxChannels);
     printf("    Min Sample Rate: %d\n", detailedDeviceInfo.minSampleRate);
