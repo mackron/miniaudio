@@ -22674,6 +22674,11 @@ static ma_result ma_context_init__jack(const ma_context_config* pConfig, ma_cont
 
 Core Audio Backend
 
+References
+==========
+- Technical Note TN2091: Device input using the HAL Output Audio Unit
+    https://developer.apple.com/library/archive/technotes/tn2091/_index.html
+
 ******************************************************************************/
 #ifdef MA_HAS_COREAUDIO
 #include <TargetConditionals.h>
@@ -23822,10 +23827,10 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
     MA_ASSERT(pContext != NULL);
     
     if (deviceType == ma_device_type_playback) {
-        deviceScope = kAudioUnitScope_Output;
+        deviceScope = kAudioUnitScope_Input;
         deviceBus = MA_COREAUDIO_OUTPUT_BUS;
     } else {
-        deviceScope = kAudioUnitScope_Input;
+        deviceScope = kAudioUnitScope_Output;
         deviceBus = MA_COREAUDIO_INPUT_BUS;
     }
     
@@ -24850,10 +24855,11 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
     ma_uint32 actualPeriodSizeInFrames;
-    ma_uint32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
     AURenderCallbackStruct callbackInfo;
 #if defined(MA_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
+#else
+    ma_uint32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
 #endif
 
     /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
@@ -24919,7 +24925,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     
     /* Set the device to use with this audio unit. This is only used on desktop since we are using defaults on mobile. */
 #if defined(MA_APPLE_DESKTOP)
-    status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, (deviceType == ma_device_type_playback) ? MA_COREAUDIO_OUTPUT_BUS : MA_COREAUDIO_INPUT_BUS, &deviceObjectID, sizeof(AudioDeviceID));
+    status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &deviceObjectID, sizeof(deviceObjectID));
     if (status != noErr) {
         ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
         return ma_result_from_OSStatus(result);
@@ -24961,20 +24967,22 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     On mobile platforms this is a bit different. We just force the use of whatever the audio unit's current format is set to.
     */
     {
+        AudioStreamBasicDescription origFormat;
+        UInt32 origFormatSize = sizeof(origFormat);
         AudioUnitScope   formatScope   = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
         AudioUnitElement formatElement = (deviceType == ma_device_type_playback) ? MA_COREAUDIO_OUTPUT_BUS : MA_COREAUDIO_INPUT_BUS;
 
-    #if defined(MA_APPLE_DESKTOP)
-        AudioStreamBasicDescription origFormat;
-        UInt32 origFormatSize;
-        
-        origFormatSize = sizeof(origFormat);
-        status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &origFormat, &origFormatSize);
+        if (deviceType == ma_device_type_playback) {
+            status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, MA_COREAUDIO_OUTPUT_BUS, &origFormat, &origFormatSize);
+        } else {
+            status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, MA_COREAUDIO_INPUT_BUS, &origFormat, &origFormatSize);
+        }
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return result;
         }
 
+    #if defined(MA_APPLE_DESKTOP)
         result = ma_find_best_format__coreaudio(pContext, deviceObjectID, deviceType, pData->formatIn, pData->channelsIn, pData->sampleRateIn, pData->usingDefaultFormat, pData->usingDefaultChannels, pData->usingDefaultSampleRate, &origFormat, &bestFormat);
         if (result != MA_SUCCESS) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
@@ -24987,11 +24995,32 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         I cannot remember where I read this in the documentation and I cannot find it again. For now I'm going to remove this
         and see what the feedback from the community is like. If this results in issues we can add it back in again. The idea
         is that the closest sample rate natively supported by the backend to the requested sample rate should be used if possible.
+        
+        Update 2020-11-06:
+        
+        I have found the documentation that talks about keeping the sample rate consistent:
+        
+            Technical Note TN2091: Device input using the HAL Output Audio Unit
+                https://developer.apple.com/library/archive/technotes/tn2091/_index.html
+        
+        This documentation says the following:
+        
+            The internal AudioConverter can handle any *simple* conversion. Typically, this means that a client can specify ANY
+            variant of the PCM formats. Consequently, the device's sample rate should match the desired sample rate. If sample rate
+            conversion is needed, it can be accomplished by buffering the input and converting the data on a separate thread with
+            another AudioConverter.
+
+        The important part here is the mention that it can handle *simple* conversions, which does *not* include sample rate. We
+        therefore want to ensure the sample rate stays consistent. This document is specifically for input, but I'm going to play it
+        safe and apply the same rule to output as well.
+        
+        I have tried going against the documentation by setting the sample rate anyway, but this just results in AudioUnitRender()
+        returning a result code of -10863. I have also tried changing the format directly on the input scope on the input bus, but
+        this just results in `ca_require: IsStreamFormatWritable(inScope, inElement) NotWritable` when trying to set the format. At
+        this point I'm not sure how to change the sample rate on the device even if the device reports native support for it. If
+        anybody has any suggestions on this please let me know.
         */
-    #if 0
-        /* From what I can see, Apple's documentation implies that we should keep the sample rate consistent. */
         bestFormat.mSampleRate = origFormat.mSampleRate;
-    #endif
         
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
@@ -24999,12 +25028,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             bestFormat = origFormat;
         }
     #else
-        UInt32 propSize = sizeof(bestFormat);
-        status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, &propSize);
-        if (status != noErr) {
-            ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
-            return ma_result_from_OSStatus(status);
-        }
+        bestFormat = origFormat;
         
         /*
         Sample rate is a little different here because for some reason kAudioUnitProperty_StreamFormat returns 0... Oh well. We need to instead try
@@ -25049,7 +25073,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             return MA_FORMAT_NOT_SUPPORTED;
         }
         
-        pData->channelsOut = bestFormat.mChannelsPerFrame;
+        pData->channelsOut   = bestFormat.mChannelsPerFrame;
         pData->sampleRateOut = bestFormat.mSampleRate;
     }
 
@@ -25119,7 +25143,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     of the size of our buffer, or do it the other way around and set our buffer size to the kAudioUnitProperty_MaximumFramesPerSlice.
     */
     {
-        /*AudioUnitScope propScope = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Input : kAudioUnitScope_Output;
+        /*AudioUnitScope propScope = (deviceType == ma_device_type_playback) ? kAudioUnitScope_Output : kAudioUnitScope_Input;
         AudioUnitElement propBus = (deviceType == ma_device_type_playback) ? MA_COREAUDIO_OUTPUT_BUS : MA_COREAUDIO_INPUT_BUS;
     
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, propScope, propBus, &actualBufferSizeInFrames, sizeof(actualBufferSizeInFrames));
@@ -25184,14 +25208,14 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     callbackInfo.inputProcRefCon = pDevice_DoNotReference;
     if (deviceType == ma_device_type_playback) {
         callbackInfo.inputProc = ma_on_output__coreaudio;
-        status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, MA_COREAUDIO_OUTPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Global, 0, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return ma_result_from_OSStatus(status);
         }
     } else {
         callbackInfo.inputProc = ma_on_input__coreaudio;
-        status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, MA_COREAUDIO_INPUT_BUS, &callbackInfo, sizeof(callbackInfo));
+        status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &callbackInfo, sizeof(callbackInfo));
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return ma_result_from_OSStatus(status);
