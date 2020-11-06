@@ -24979,7 +24979,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
-            return result;
+            return ma_result_from_OSStatus(status);
         }
 
     #if defined(MA_APPLE_DESKTOP)
