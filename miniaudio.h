@@ -3197,6 +3197,10 @@ typedef struct
         const char* pStreamNamePlayback;
         const char* pStreamNameCapture;
     } pulse;
+    struct
+    {
+        ma_bool32 allowNominalSampleRateChange; /* Desktop only. When enabled, allows changing of the sample rate at the operating system level. */
+    } coreaudio;
 } ma_device_config;
 
 typedef struct
@@ -4600,6 +4604,13 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     pulse.pStreamNameCapture
         PulseAudio only. Sets the stream name for capture.
+ 
+    coreaudio.allowNominalSampleRateChange
+        Core Audio only. Desktop only. When enabled, allows the sample rate of the device to be changed at the operating system level. This
+        is disabled by default in order to prevent intrusive changes to the user's system. This is useful if you want to use a sample rate
+        that is known to be natively supported by the hardware thereby avoiding the cost of resampling. When set to true, miniaudio will
+        find the closest match between the sample rate requested in the device config and the sample rates natively supported by the
+        hardware. When set to false, the sample rate currently set by the operating system will always be used.
 
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
@@ -24816,6 +24827,8 @@ static void ma_device_uninit__coreaudio(ma_device* pDevice)
 
 typedef struct
 {
+    ma_bool32 allowNominalSampleRateChange;
+
     /* Input. */
     ma_format formatIn;
     ma_uint32 channelsIn;
@@ -24990,18 +25003,8 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
         
         /*
-        Update 2020-10-10:
-        
-        I cannot remember where I read this in the documentation and I cannot find it again. For now I'm going to remove this
-        and see what the feedback from the community is like. If this results in issues we can add it back in again. The idea
-        is that the closest sample rate natively supported by the backend to the requested sample rate should be used if possible.
-        
-        Update 2020-11-06:
-        
-        I have found the documentation that talks about keeping the sample rate consistent:
-        
-            Technical Note TN2091: Device input using the HAL Output Audio Unit
-                https://developer.apple.com/library/archive/technotes/tn2091/_index.html
+        Technical Note TN2091: Device input using the HAL Output Audio Unit
+            https://developer.apple.com/library/archive/technotes/tn2091/_index.html
         
         This documentation says the following:
         
@@ -25016,11 +25019,34 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         
         I have tried going against the documentation by setting the sample rate anyway, but this just results in AudioUnitRender()
         returning a result code of -10863. I have also tried changing the format directly on the input scope on the input bus, but
-        this just results in `ca_require: IsStreamFormatWritable(inScope, inElement) NotWritable` when trying to set the format. At
-        this point I'm not sure how to change the sample rate on the device even if the device reports native support for it. If
-        anybody has any suggestions on this please let me know.
+        this just results in `ca_require: IsStreamFormatWritable(inScope, inElement) NotWritable` when trying to set the format.
+        
+        Something that does seem to work, however, has been setting the nominal sample rate on the deivce object. The problem with
+        this, however, is that it actually changes the sample rate at the operating system level and not just the application. This
+        could be intrusive to the user, however, so I don't think it's wise to make this the default. Instead I'm making this a
+        configuration option. When the `coreaudio.allowNominalSampleRateChange` config option is set to true, changing the sample
+        rate will be allowed. Otherwise it'll be fixed to the current sample rate. To check the system-defined sample rate, run
+        the Audio MIDI Setup program that comes installed on macOS and observe how the sample rate changes as the sample rate is
+        changed by miniaudio.
         */
-        bestFormat.mSampleRate = origFormat.mSampleRate;
+        if (pData->allowNominalSampleRateChange) {
+            AudioValueRange sampleRateRange;
+            AudioObjectPropertyAddress propAddress;
+            
+            sampleRateRange.mMinimum = bestFormat.mSampleRate;
+            sampleRateRange.mMaximum = bestFormat.mSampleRate;
+            
+            propAddress.mSelector = kAudioDevicePropertyNominalSampleRate;
+            propAddress.mScope    = (deviceType == ma_device_type_playback) ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput;
+            propAddress.mElement  = kAudioObjectPropertyElementMaster;
+            
+            status = ((ma_AudioObjectSetPropertyData_proc)pContext->coreaudio.AudioObjectSetPropertyData)(deviceObjectID, &propAddress, 0, NULL, sizeof(sampleRateRange), &sampleRateRange);
+            if (status != noErr) {
+                bestFormat.mSampleRate = origFormat.mSampleRate;
+            }
+        } else {
+            bestFormat.mSampleRate = origFormat.mSampleRate;
+        }
         
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
@@ -25264,6 +25290,8 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     if (deviceType == ma_device_type_duplex) {
         return MA_INVALID_ARGS;
     }
+    
+    data.allowNominalSampleRateChange = MA_FALSE;   /* Don't change the nominal sample rate when switching devices. */
 
     if (deviceType == ma_device_type_capture) {
         data.formatIn               = pDevice->capture.format;
@@ -25368,19 +25396,20 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
     /* Capture needs to be initialized first. */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_device_init_internal_data__coreaudio data;
-        data.formatIn                   = pConfig->capture.format;
-        data.channelsIn                 = pConfig->capture.channels;
-        data.sampleRateIn               = pConfig->sampleRate;
+        data.allowNominalSampleRateChange = pConfig->coreaudio.allowNominalSampleRateChange;
+        data.formatIn                     = pConfig->capture.format;
+        data.channelsIn                   = pConfig->capture.channels;
+        data.sampleRateIn                 = pConfig->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
-        data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->capture.usingDefaultChannelMap;
-        data.shareMode                  = pConfig->capture.shareMode;
-        data.periodSizeInFramesIn       = pConfig->periodSizeInFrames;
-        data.periodSizeInMillisecondsIn = pConfig->periodSizeInMilliseconds;
-        data.periodsIn                  = pConfig->periods;
-        data.registerStopEvent          = MA_TRUE;
+        data.usingDefaultFormat           = pDevice->capture.usingDefaultFormat;
+        data.usingDefaultChannels         = pDevice->capture.usingDefaultChannels;
+        data.usingDefaultSampleRate       = pDevice->usingDefaultSampleRate;
+        data.usingDefaultChannelMap       = pDevice->capture.usingDefaultChannelMap;
+        data.shareMode                    = pConfig->capture.shareMode;
+        data.periodSizeInFramesIn         = pConfig->periodSizeInFrames;
+        data.periodSizeInMillisecondsIn   = pConfig->periodSizeInMilliseconds;
+        data.periodsIn                    = pConfig->periods;
+        data.registerStopEvent            = MA_TRUE;
 
         /* Need at least 3 periods for duplex. */
         if (data.periodsIn < 3 && pConfig->deviceType == ma_device_type_duplex) {
@@ -25421,15 +25450,16 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
     /* Playback. */
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         ma_device_init_internal_data__coreaudio data;
-        data.formatIn                   = pConfig->playback.format;
-        data.channelsIn                 = pConfig->playback.channels;
-        data.sampleRateIn               = pConfig->sampleRate;
+        data.allowNominalSampleRateChange = pConfig->coreaudio.allowNominalSampleRateChange;
+        data.formatIn                     = pConfig->playback.format;
+        data.channelsIn                   = pConfig->playback.channels;
+        data.sampleRateIn                 = pConfig->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
-        data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->playback.usingDefaultChannelMap;
-        data.shareMode                  = pConfig->playback.shareMode;
+        data.usingDefaultFormat           = pDevice->playback.usingDefaultFormat;
+        data.usingDefaultChannels         = pDevice->playback.usingDefaultChannels;
+        data.usingDefaultSampleRate       = pDevice->usingDefaultSampleRate;
+        data.usingDefaultChannelMap       = pDevice->playback.usingDefaultChannelMap;
+        data.shareMode                    = pConfig->playback.shareMode;
         
         /* In full-duplex mode we want the playback buffer to be the same size as the capture buffer. */
         if (pConfig->deviceType == ma_device_type_duplex) {
@@ -62960,6 +62990,7 @@ v0.10.22 - TBD
   - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - Fix a compilation error for the Linux build when the ALSA and JACK backends are both disabled.
   - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
+  - Core Audio: Further improvements to sample rate selection.
   - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
   - Add documentation for `MA_NO_RUNTIME_LINKING`.
 
