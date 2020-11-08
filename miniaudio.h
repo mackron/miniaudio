@@ -18907,11 +18907,13 @@ static ma_bool32 ma_context_get_device_info_enum_callback__alsa(ma_context* pCon
     ma_context_get_device_info_enum_callback_data__alsa* pData = (ma_context_get_device_info_enum_callback_data__alsa*)pUserData;
     MA_ASSERT(pData != NULL);
 
+    (void)pContext;
+
     if (pData->pDeviceID == NULL && ma_strcmp(pDeviceInfo->id.alsa, "default") == 0) {
         ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
         pData->foundDevice = MA_TRUE;
     } else {
-        if (pData->deviceType == deviceType && ma_context_is_device_id_equal__alsa(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
+        if (pData->deviceType == deviceType && (pData->pDeviceID != NULL && ma_strcmp(pData->pDeviceID->alsa, pDeviceInfo->id.alsa) == 0)) {
             ma_strncpy_s(pData->pDeviceInfo->name, sizeof(pData->pDeviceInfo->name), pDeviceInfo->name, (size_t)-1);
             pData->foundDevice = MA_TRUE;
         }
