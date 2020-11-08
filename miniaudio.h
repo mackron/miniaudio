@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.22 - 2020-11-08
+miniaudio - v0.10.23 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1447,7 +1447,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 22
+#define MA_VERSION_REVISION 23
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -10723,14 +10723,6 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
     }
 }
 
-
-/* We only want to expose ma_device__handle_duplex_callback_capture() and ma_device__handle_duplex_callback_playback() if we have an asynchronous backend enabled. */
-#if defined(MA_HAS_PULSEAUDIO) || \
-    defined(MA_HAS_JACK)       || \
-    defined(MA_HAS_COREAUDIO)  || \
-    defined(MA_HAS_AAUDIO)     || \
-    defined(MA_HAS_OPENSL)     || \
-    defined(MA_HAS_WEBAUDIO)
 static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, ma_uint32 frameCountInDeviceFormat, const void* pFramesInDeviceFormat, ma_pcm_rb* pRB)
 {
     ma_result result;
@@ -10865,7 +10857,6 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 
     return MA_SUCCESS;
 }
-#endif  /* Asynchronous backends. */
 
 /* A helper for changing the state of the device. */
 static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_uint32 newState)
@@ -63660,6 +63651,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.23 - TBD
+  - Fix a compilation error when all built-in asynchronous backends are disabled at compile time.
+
 v0.10.22 - 2020-11-08
   - Add support for custom backends.
   - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
