@@ -275,12 +275,15 @@ static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device
     pDeviceInfo->nativeDataFormats[0].format     = ma_format_s16;
     pDeviceInfo->nativeDataFormats[0].channels   = 0;   /* All channel counts supported. */
     pDeviceInfo->nativeDataFormats[0].sampleRate = 0;   /* All sample rates supported. */
+    pDeviceInfo->nativeDataFormats[0].flags      = 0;
     pDeviceInfo->nativeDataFormats[1].format     = ma_format_s32;
     pDeviceInfo->nativeDataFormats[1].channels   = 0;   /* All channel counts supported. */
     pDeviceInfo->nativeDataFormats[1].sampleRate = 0;   /* All sample rates supported. */
+    pDeviceInfo->nativeDataFormats[1].flags      = 0;
     pDeviceInfo->nativeDataFormats[2].format     = ma_format_u8;
     pDeviceInfo->nativeDataFormats[2].channels   = 0;   /* All channel counts supported. */
     pDeviceInfo->nativeDataFormats[2].sampleRate = 0;   /* All sample rates supported. */
+    pDeviceInfo->nativeDataFormats[2].flags      = 0;
 #else
     MA_ZERO_MEMORY(&desiredSpec, sizeof(desiredSpec));
 
