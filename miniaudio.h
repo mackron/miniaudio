@@ -3121,6 +3121,51 @@ typedef enum
     ma_ios_session_category_option_allow_air_play                             = 0x40,   /* AVAudioSessionCategoryOptionAllowAirPlay */
 } ma_ios_session_category_option;
 
+/* OpenSL stream types. */
+typedef enum
+{
+    ma_opensl_stream_type_default = 0,              /* Leaves the stream type unset. */
+    ma_opensl_stream_type_voice,                    /* SL_ANDROID_STREAM_VOICE */
+    ma_opensl_stream_type_system,                   /* SL_ANDROID_STREAM_SYSTEM */
+    ma_opensl_stream_type_ring,                     /* SL_ANDROID_STREAM_RING */
+    ma_opensl_stream_type_media,                    /* SL_ANDROID_STREAM_MEDIA */
+    ma_opensl_stream_type_alarm,                    /* SL_ANDROID_STREAM_ALARM */
+    ma_opensl_stream_type_notification              /* SL_ANDROID_STREAM_NOTIFICATION */
+} ma_opensl_stream_type;
+
+/* OpenSL recording presets. */
+typedef enum
+{
+    ma_opensl_recording_preset_default = 0,         /* Leaves the input preset unset. */
+    ma_opensl_recording_preset_generic,             /* SL_ANDROID_RECORDING_PRESET_GENERIC */
+    ma_opensl_recording_preset_camcorder,           /* SL_ANDROID_RECORDING_PRESET_CAMCORDER */
+    ma_opensl_recording_preset_voice_recognition,   /* SL_ANDROID_RECORDING_PRESET_VOICE_RECOGNITION */
+    ma_opensl_recording_preset_voice_communication, /* SL_ANDROID_RECORDING_PRESET_VOICE_COMMUNICATION */
+    ma_opensl_recording_preset_voice_unprocessed    /* SL_ANDROID_RECORDING_PRESET_UNPROCESSED */
+} ma_opensl_recording_preset;
+
+/* AAudio content types. */
+typedef enum
+{
+    ma_aaudio_content_type_default = 0,             /* Leaves the content type unset. */
+    ma_aaudio_content_type_movie,                   /* AAUDIO_CONTENT_TYPE_MOVIE */
+    ma_aaudio_content_type_music,                   /* AAUDIO_CONTENT_TYPE_MUSIC */
+    ma_aaudio_content_type_sonification,            /* AAUDIO_CONTENT_TYPE_SONIFICATION */
+    ma_aaudio_content_type_speech                   /* AAUDIO_CONTENT_TYPE_SPEECH */
+} ma_aaudio_content_type;
+
+/* AAudio input presets. */
+typedef enum
+{
+    ma_aaudio_input_preset_default = 0,             /* Leaves the input preset unset. */
+    ma_aaudio_input_preset_generic,                 /* AAUDIO_INPUT_PRESET_GENERIC */
+    ma_aaudio_input_preset_camcorder,               /* AAUDIO_INPUT_PRESET_CAMCORDER */
+    ma_aaudio_input_preset_voice_recognition,       /* AAUDIO_INPUT_PRESET_VOICE_RECOGNITION */
+    ma_aaudio_input_preset_voice_communication,     /* AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION */
+    ma_aaudio_input_preset_voice_performance        /* AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE */
+} ma_aaudio_input_preset;
+
+
 typedef union
 {
     ma_int64 counter;
@@ -3257,6 +3302,16 @@ struct ma_device_config
     {
         ma_bool32 allowNominalSampleRateChange; /* Desktop only. When enabled, allows changing of the sample rate at the operating system level. */
     } coreaudio;
+    struct
+    {
+        ma_opensl_stream_type streamType;
+        ma_opensl_recording_preset recordingPreset;
+    } opensl;
+    struct
+    {
+        ma_aaudio_content_type contentType;
+        ma_aaudio_input_preset inputPreset;
+    } aaudio;
 };
 
 
@@ -3744,6 +3799,7 @@ struct ma_context
             ma_handle SL_IID_RECORD;
             ma_handle SL_IID_PLAY;
             ma_handle SL_IID_OUTPUTMIX;
+            ma_handle SL_IID_ANDROIDCONFIGURATION;
             ma_proc   slCreateEngine;
         } opensl;
 #endif
@@ -29810,6 +29866,36 @@ static SLuint32 ma_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
 }
 
 
+static SLint32 ma_to_stream_type__opensl(ma_opensl_stream_type streamType)
+{
+    switch (streamType) {
+        case ma_opensl_stream_type_voice:        return SL_ANDROID_STREAM_VOICE;
+        case ma_opensl_stream_type_system:       return SL_ANDROID_STREAM_SYSTEM;
+        case ma_opensl_stream_type_ring:         return SL_ANDROID_STREAM_RING;
+        case ma_opensl_stream_type_media:        return SL_ANDROID_STREAM_MEDIA;
+        case ma_opensl_stream_type_alarm:        return SL_ANDROID_STREAM_ALARM;
+        case ma_opensl_stream_type_notification: return SL_ANDROID_STREAM_NOTIFICATION;
+        default: break;
+    }
+
+    return SL_ANDROID_STREAM_VOICE;
+}
+
+static SLint32 ma_to_recording_preset__opensl(ma_opensl_recording_preset recordingPreset)
+{
+    switch (recordingPreset) {
+        case ma_opensl_recording_preset_generic:             return SL_ANDROID_RECORDING_PRESET_GENERIC;
+        case ma_opensl_recording_preset_camcorder:           return SL_ANDROID_RECORDING_PRESET_CAMCORDER;
+        case ma_opensl_recording_preset_voice_recognition:   return SL_ANDROID_RECORDING_PRESET_VOICE_RECOGNITION;
+        case ma_opensl_recording_preset_voice_communication: return SL_ANDROID_RECORDING_PRESET_VOICE_COMMUNICATION;
+        case ma_opensl_recording_preset_voice_unprocessed:   return SL_ANDROID_RECORDING_PRESET_UNPROCESSED;
+        default: break;
+    }
+
+    return SL_ANDROID_RECORDING_PRESET_NONE;
+}
+
+
 static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_bool32 cbResult;
@@ -30271,6 +30357,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         SLDataLocator_IODevice locatorDevice;
         SLDataSource source;
         SLDataSink sink;
+        SLAndroidConfigurationItf pRecorderConfig;
 
         ma_SLDataFormat_PCM_init__opensl(pConfig->capture.format, pConfig->capture.channels, pConfig->sampleRate, pConfig->capture.channelMap, &pcm);
 
@@ -30300,6 +30387,19 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio recorder.", ma_result_from_OpenSL(resultSL));
+        }
+
+
+        /* Set the recording preset before realizing the player. */
+        if (pConfig->opensl.recordingPreset != ma_opensl_recording_preset_default) {
+            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pRecorderConfig);
+            if (resultSL == SL_RESULT_SUCCESS) {
+                SLint32 recordingPreset = ma_to_recording_preset__opensl(pConfig->opensl.recordingPreset);
+                resultSL = (*pRecorderConfig)->SetConfiguration(pRecorderConfig, SL_ANDROID_KEY_RECORDING_PRESET, &recordingPreset, sizeof(SLint32));
+                if (resultSL != SL_RESULT_SUCCESS) {
+                    /* Failed to set the configuration. Just keep going. */
+                }
+            }
         }
 
         resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Realize((SLObjectItf)pDevice->opensl.pAudioRecorderObj, SL_BOOLEAN_FALSE);
@@ -30352,6 +30452,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         SLDataSource source;
         SLDataLocator_OutputMix outmixLocator;
         SLDataSink sink;
+        SLAndroidConfigurationItf pPlayerConfig;
 
         ma_SLDataFormat_PCM_init__opensl(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &pcm);
 
@@ -30403,6 +30504,19 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to create audio player.", ma_result_from_OpenSL(resultSL));
+        }
+
+
+        /* Set the stream type before realizing the player. */
+        if (pConfig->opensl.streamType != ma_opensl_stream_type_default) {
+            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pPlayerConfig);
+            if (resultSL == SL_RESULT_SUCCESS) {
+                SLint32 streamType = ma_to_stream_type__opensl(pConfig->opensl.streamType);
+                resultSL = (*pPlayerConfig)->SetConfiguration(pPlayerConfig, SL_ANDROID_KEY_STREAM_TYPE, &streamType, sizeof(SLint32));
+                if (resultSL != SL_RESULT_SUCCESS) {
+                    /* Failed to set the configuration. Just keep going. */
+                }
+            }
         }
 
         resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->Realize((SLObjectItf)pDevice->opensl.pAudioPlayerObj, SL_BOOLEAN_FALSE);
@@ -30723,6 +30837,11 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_OUTPUTMIX", &pContext->opensl.SL_IID_OUTPUTMIX);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDCONFIGURATION", &pContext->opensl.SL_IID_ANDROIDCONFIGURATION);
     if (result != MA_SUCCESS) {
         return result;
     }
