@@ -11095,15 +11095,15 @@ static ma_result ma_context_uninit__custom(ma_context* pContext)
 }
 
 
-static ma_result ma_device_uninit__custom(ma_device* pDevice)
+static void ma_device_uninit__custom(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->pContext->custom.onDeviceUninit == NULL) {
-        return MA_NOT_IMPLEMENTED;
+        return;
     }
 
-    return pDevice->pContext->custom.onDeviceUninit(pDevice);
+    pDevice->pContext->custom.onDeviceUninit(pDevice);
 }
 
 static ma_result ma_device_init__custom(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
