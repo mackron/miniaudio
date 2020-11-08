@@ -583,10 +583,5 @@ done:
         ma_encoder_uninit(&g_State.encoder);
     }
 
-
-    printf("Press Enter to quit...");
-    getchar();
-    getchar();
-
     return 0;
 }
