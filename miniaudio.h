@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.22 - TBD
+miniaudio - v0.10.22 - 2020-11-08
 
 David Reid - mackron@gmail.com
 
@@ -63660,17 +63660,20 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.22 - TBD
+v0.10.22 - 2020-11-08
   - Add support for custom backends.
+  - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
   - Refactor to the PulseAudio backend. This simplifies the implementation and fixes a capture bug.
   - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
   - Core Audio: Further improvements to sample rate selection.
+  - Core Audio: Fix some bugs with capture mode.
   - OpenSL: Add support for configuring stream types and recording presets.
   - AAudio: Add support for configuring content types and input presets.
   - Fix bugs in `ma_decoder_init_file*()` where the file handle is not closed after a decoding error.
   - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - Fix a compilation error for the Linux build when the ALSA and JACK backends are both disabled.
-  - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
+  - Fix a compilation error for the BSD build.
+  - Fix some compilation errors on older versions of GCC.
   - Add documentation for `MA_NO_RUNTIME_LINKING`.
 
 v0.10.21 - 2020-10-30
