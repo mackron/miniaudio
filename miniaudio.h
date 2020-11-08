@@ -2760,6 +2760,25 @@ MA_API ma_uint32 ma_pcm_rb_get_subbuffer_offset(ma_pcm_rb* pRB, ma_uint32 subbuf
 MA_API void* ma_pcm_rb_get_subbuffer_ptr(ma_pcm_rb* pRB, ma_uint32 subbufferIndex, void* pBuffer);
 
 
+/*
+The idea of the duplex ring buffer is to act as the intermediary buffer when running two asynchronous devices in a duplex set up. The
+capture device writes to it, and then a playback device reads from it.
+
+At the moment this is just a simple naive implementation, but in the future I want to implement some dynamic resampling to seamlessly
+handle desyncs. Note that the API is work in progress and may change at any time in any version.
+
+The size of the buffer is based on the capture side since that's what'll be written to the buffer. It is based on the capture period size
+in frames. The internal sample rate of the capture device is also needed in order to calculate the size.
+*/
+typedef struct
+{
+    ma_pcm_rb rb;
+} ma_duplex_rb;
+
+MA_API ma_result ma_duplex_rb_init(ma_uint32 inputSampleRate, ma_format captureFormat, ma_uint32 captureChannels, ma_uint32 captureSampleRate, ma_uint32 capturePeriodSizeInFrames, const ma_allocation_callbacks* pAllocationCallbacks, ma_duplex_rb* pRB);
+MA_API ma_result ma_duplex_rb_uninit(ma_duplex_rb* pRB);
+
+
 /************************************************************************************************************************************************************
 
 Miscellaneous Helpers
@@ -2874,6 +2893,9 @@ This section contains the APIs for device playback and capture. Here is where yo
     #define MA_SUPPORT_WEBAUDIO
 #endif
 
+/* All platforms should support custom backends. */
+#define MA_SUPPORT_CUSTOM
+
 /* Explicitly disable the Null backend for Emscripten because it uses a background thread which is not properly supported right now. */
 #if !defined(MA_EMSCRIPTEN)
 #define MA_SUPPORT_NULL
@@ -2919,9 +2941,18 @@ This section contains the APIs for device playback and capture. Here is where yo
 #if !defined(MA_NO_WEBAUDIO) && defined(MA_SUPPORT_WEBAUDIO)
     #define MA_ENABLE_WEBAUDIO
 #endif
+#if !defined(MA_NO_CUSTOM) && defined(MA_SUPPORT_CUSTOM)
+    #define MA_ENABLE_CUSTOM
+#endif
 #if !defined(MA_NO_NULL) && defined(MA_SUPPORT_NULL)
     #define MA_ENABLE_NULL
 #endif
+
+#define MA_STATE_UNINITIALIZED     0
+#define MA_STATE_STOPPED           1   /* The device's default state after initialization. */
+#define MA_STATE_STARTED           2   /* The device is started and is requesting and/or delivering audio data. */
+#define MA_STATE_STARTING          3   /* Transitioning from a stopped state to started. */
+#define MA_STATE_STOPPING          4   /* Transitioning from a started state to stopped. */
 
 #ifdef MA_SUPPORT_WASAPI
 /* We need a IMMNotificationClient object for WASAPI. */
@@ -2949,7 +2980,8 @@ typedef enum
     ma_backend_aaudio,
     ma_backend_opensl,
     ma_backend_webaudio,
-    ma_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
+    ma_backend_custom,  /* <-- Custom backend, with callbacks defined by the context config. */
+    ma_backend_null     /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } ma_backend;
 
 #define MA_BACKEND_COUNT (ma_backend_null+1)
@@ -3031,14 +3063,14 @@ pDevice (in)
 logLevel (in)
     The log level. This can be one of the following:
 
-    |----------------------|
+    +----------------------+
     | Log Level            |
-    |----------------------|
+    +----------------------+
     | MA_LOG_LEVEL_VERBOSE |
     | MA_LOG_LEVEL_INFO    |
     | MA_LOG_LEVEL_WARNING |
     | MA_LOG_LEVEL_ERROR   |
-    |----------------------|
+    +----------------------+
 
 message (in)
     The log message.
@@ -3110,8 +3142,21 @@ typedef union
     ma_int32 aaudio;                /* AAudio uses a 32-bit integer for identification. */
     ma_uint32 opensl;               /* OpenSL|ES uses a 32-bit unsigned integer for identification. */
     char webaudio[32];              /* Web Audio always uses default devices for now, but if this changes it'll be a GUID. */
+    union
+    {
+        int i;
+        char s[256];
+        void* p;
+    } custom;                       /* The custom backend could be anything. Give them a few options. */
     int nullbackend;                /* The null backend uses an integer for device IDs. */
 } ma_device_id;
+
+
+typedef struct ma_context_config    ma_context_config;
+typedef struct ma_device_config     ma_device_config;
+typedef struct ma_backend_callbacks ma_backend_callbacks;
+
+#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1);   /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
 typedef struct
 {
@@ -3134,9 +3179,20 @@ typedef struct
     ma_uint32 maxChannels;
     ma_uint32 minSampleRate;
     ma_uint32 maxSampleRate;
+
+
+    /* Experimental. Don't use these right now. */
+    ma_uint32 nativeDataFormatCount;
+    struct
+    {
+        ma_format format;       /* Sample format. If set to ma_format_unknown, all sample formats are supported. */
+        ma_uint32 channels;     /* If set to 0, all channels are supported. */
+        ma_uint32 sampleRate;   /* If set to 0, all sample rates are supported. */
+        ma_uint32 flags;        
+    } nativeDataFormats[64];
 } ma_device_info;
 
-typedef struct
+struct ma_device_config
 {
     ma_device_type deviceType;
     ma_uint32 sampleRate;
@@ -3201,9 +3257,131 @@ typedef struct
     {
         ma_bool32 allowNominalSampleRateChange; /* Desktop only. When enabled, allows changing of the sample rate at the operating system level. */
     } coreaudio;
-} ma_device_config;
+};
 
+
+/*
+The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
+
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the enumeration.
+
+deviceType (in)
+    The type of the device being enumerated. This will always be either `ma_device_type_playback` or `ma_device_type_capture`.
+
+pInfo (in)
+    A pointer to a `ma_device_info` containing the ID and name of the enumerated device. Note that this will not include detailed information about the device,
+    only basic information (ID and name). The reason for this is that it would otherwise require opening the backend device to probe for the information which
+    is too inefficient.
+
+pUserData (in)
+    The user data pointer passed into `ma_context_enumerate_devices()`.
+*/
+typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
+
+
+/*
+Describes some basic details about a playback or capture device.
+*/
 typedef struct
+{
+    const ma_device_id* pDeviceID;
+    ma_share_mode shareMode;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_channel channelMap[MA_MAX_CHANNELS];
+    ma_uint32 periodSizeInFrames;
+    ma_uint32 periodSizeInMilliseconds;
+    ma_uint32 periodCount;
+} ma_device_descriptor;
+
+/*
+These are the callbacks required to be implemented for a backend. These callbacks are grouped into two parts: context and device. There is one context
+to many devices. A device is created from a context.
+
+The general flow goes like this:
+
+  1) A context is created with `onContextInit()`
+     1a) Available devices can be enumerated with `onContextEnumerateDevices()` if required.
+     1b) Detailed information about a device can be queried with `onContextGetDeviceInfo()` if required.
+  2) A device is created from the context that was created in the first step using `onDeviceInit()`, and optionally a device ID that was
+     selected from device enumeration via `onContextEnumerateDevices()`.
+  3) A device is started or stopped with `onDeviceStart()` / `onDeviceStop()`
+  4) Data is delivered to and from the device by the backend. This is always done based on the native format returned by the prior call
+     to `onDeviceInit()`. Conversion between the device's native format and the format requested by the application will be handled by
+     miniaudio internally.
+
+Initialization of the context is quite simple. You need to do any necessary initialization of internal objects and then output the
+callbacks defined in this structure.
+
+Once the context has been initialized you can initialize a device. Before doing so, however, the application may want to know which
+physical devices are available. This is where `onContextEnumerateDevices()` comes in. This is fairly simple. For each device, fire the
+given callback with, at a minimum, the basic information filled out in `ma_device_info`. When the callback returns `MA_FALSE`, enumeration
+needs to stop and the `onContextEnumerateDevices()` function return with a success code.
+
+Detailed device information can be retrieved from a device ID using `onContextGetDeviceInfo()`. This takes as input the device type and ID,
+and on output returns detailed information about the device in `ma_device_info`. The `onContextGetDeviceInfo()` callback must handle the
+case when the device ID is NULL, in which case information about the default device needs to be retrieved.
+
+Once the context has been created and the device ID retrieved (if using anything other than the default device), the device can be created.
+This is a little bit more complicated than initialization of the context due to it's more complicated configuration. When initializing a
+device, a duplex device may be requested. This means a separate data format needs to be specified for both playback and capture. On input,
+the data format is set to what the application wants. On output it's set to the native format which should match as closely as possible to
+the requested format. The conversion between the format requested by the application and the device's native format will be handled
+internally by miniaudio.
+
+On input, if the sample format is set to `ma_format_unknown`, the backend is free to use whatever sample format it desires, so long as it's
+supported by miniaudio. When the channel count is set to 0, the backend should use the device's native channel count. The same applies for
+sample rate. For the channel map, the default should be used when `ma_channel_map_blank()` returns true (all channels set to
+`MA_CHANNEL_NONE`). On input, the `periodSizeInFrames` or `periodSizeInMilliseconds` option should always be set. The backend should
+inspect both of these variables. If `periodSizeInFrames` is set, it should take priority, otherwise it needs to be derived from the period
+size in milliseconds (`periodSizeInMilliseconds`) and the sample rate, keeping in mind that the sample rate may be 0, in which case the
+sample rate will need to be determined before calculating the period size in frames. On output, all members of the `ma_device_data_format`
+object should be set to a valid value, except for `periodSizeInMilliseconds` which is optional (`periodSizeInFrames` *must* be set).
+
+Starting and stopping of the device is done with `onDeviceStart()` and `onDeviceStop()` and should be self-explanatory. If the backend uses
+asynchronous reading and writing, `onDeviceStart()` is optional, so long as the device is automatically started in `onDeviceWrite()`.
+
+The handling of data delivery between the application and the device is the most complicated part of the process. To make this a bit
+easier, some helper callbacks are available. If the backend uses a blocking read/write style of API, the `onDeviceRead()` and
+`onDeviceWrite()` callbacks can optionally be implemented. These are blocking and work just like reading and writing from a file. If the
+backend uses a callback for data delivery, that callback must call `ma_device_handle_backend_data_callback()` from within it's callback.
+This allows miniaudio to then process any necessary data conversion and then pass it to the miniaudio data callback.
+
+If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceWorkerThread()` callback
+which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
+
+The audio thread follows this general flow:
+
+    1) Start the device before entering the main loop.
+    2) Run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been encounted.
+    3) Stop thd device after leaving the main loop.
+
+The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
+callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
+which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceAudioThread()` callback,
+look at `ma_device_audio_thread__default_read_write()`.
+*/
+struct ma_backend_callbacks
+{
+    ma_result (* onContextInit)(ma_context* pContext, ma_backend_callbacks* pCallbacks);
+    ma_result (* onContextUninit)(ma_context* pContext);
+    ma_result (* onContextEnumerateDevices)(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
+    ma_result (* onContextGetDeviceInfo)(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
+    ma_result (* onDeviceInit)(ma_device* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
+    ma_result (* onDeviceUninit)(ma_device* pDevice);
+    ma_result (* onDeviceStart)(ma_device* pDevice);
+    ma_result (* onDeviceStop)(ma_device* pDevice);
+    ma_result (* onDeviceRead)(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
+    ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
+    ma_result (* onDeviceAudioThread)(ma_device* pDevice);
+};
+
+struct ma_context_config
 {
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
@@ -3232,29 +3410,8 @@ typedef struct
         const char* pClientName;
         ma_bool32 tryStartServer;
     } jack;
-} ma_context_config;
-
-/*
-The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
-
-
-Parameters
-----------
-pContext (in)
-    A pointer to the context performing the enumeration.
-
-deviceType (in)
-    The type of the device being enumerated. This will always be either `ma_device_type_playback` or `ma_device_type_capture`.
-
-pInfo (in)
-    A pointer to a `ma_device_info` containing the ID and name of the enumerated device. Note that this will not include detailed information about the device,
-    only basic information (ID and name). The reason for this is that it would otherwise require opening the backend device to probe for the information which
-    is too inefficient.
-
-pUserData (in)
-    The user data pointer passed into `ma_context_enumerate_devices()`.
-*/
-typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
+    ma_backend_callbacks custom;
+};
 
 struct ma_context
 {
@@ -3273,7 +3430,6 @@ struct ma_context
     ma_bool32 isBackendAsynchronous : 1;   /* Set when the context is initialized. Set to 1 for asynchronous backends such as Core Audio and JACK. Do not modify. */
 
     ma_result (* onUninit        )(ma_context* pContext);
-    ma_bool32 (* onDeviceIDEqual )(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1);
     ma_result (* onEnumDevices   )(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);    /* Return false from the callback to stop enumeration. */
     ma_result (* onGetDeviceInfo )(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
     ma_result (* onDeviceInit    )(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
@@ -3597,6 +3753,9 @@ struct ma_context
             int _unused;
         } webaudio;
 #endif
+#ifdef MA_SUPPORT_CUSTOM
+        ma_backend_callbacks custom;
+#endif
 #ifdef MA_SUPPORT_NULL
         struct
         {
@@ -3675,6 +3834,7 @@ struct ma_device
     ma_bool32 noPreZeroedOutputBuffer : 1;
     ma_bool32 noClip                  : 1;
     volatile float masterVolumeFactor;      /* Volatile so we can use some thread safety when applying volume to periods. */
+    ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
         ma_resample_algorithm algorithm;
@@ -4925,7 +5085,63 @@ See Also
 ma_device_start()
 ma_device_stop()
 */
-MA_API ma_bool32 ma_device_is_started(ma_device* pDevice);
+MA_API ma_bool32 ma_device_is_started(const ma_device* pDevice);
+
+
+/*
+Retrieves the state of the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose state is being retrieved.
+
+
+Return Value
+------------
+The current state of the device. The return value will be one of the following:
+
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_UNINITIALIZED | Will only be returned if the device is in the middle of initialization.      |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STOPPED       | The device is stopped. The initial state of the device after initialization. |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STARTED       | The device started and requesting and/or delivering audio data.              |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STARTING      | The device is in the process of starting.                                    |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STOPPING      | The device is in the process of stopping.                                    |
+    +------------------------+------------------------------------------------------------------------------+
+
+
+Thread Safety
+-------------
+Safe. This is implemented as a simple accessor. Note that if the device is started or stopped at the same time as this function is called,
+there's a possibility the return value could be out of sync. See remarks.
+
+
+Callback Safety
+---------------
+Safe. This is implemented as a simple accessor.
+
+
+Remarks
+-------
+The general flow of a devices state goes like this:
+
+    ```
+    ma_device_init()  -> MA_STATE_UNINITIALIZED -> MA_STATE_STOPPED
+    ma_device_start() -> MA_STATE_STARTING      -> MA_STATE_STARTED
+    ma_device_stop()  -> MA_STATE_STOPPING      -> MA_STATE_STOPPED
+    ```
+
+When the state of the device is changed with `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, the
+value returned by this function could potentially be out of sync. If this is significant to your program you need to implement your own
+synchronization.
+*/
+MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice);
+
 
 /*
 Sets the master volume factor for the device.
@@ -5110,6 +5326,56 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
 
 
 /*
+Called from the data callback of asynchronous backends to allow miniaudio to process the data and fire the miniaudio data callback.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to device whose processing the data callback.
+
+pOutput (out)
+    A pointer to the buffer that will receive the output PCM frame data. On a playback device this must not be NULL. On a duplex device
+    this can be NULL, in which case pInput must not be NULL.
+
+pInput (in)
+    A pointer to the buffer containing input PCM frame data. On a capture device this must not be NULL. On a duplex device this can be
+    NULL, in which case `pOutput` must not be NULL.
+
+frameCount (in)
+    The number of frames being processed.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other result code otherwise.
+
+
+Thread Safety
+-------------
+This function should only ever be called from the internal data callback of the backend. It is safe to call this simultaneously between a
+playback and capture device in duplex setups.
+
+
+Callback Safety
+---------------
+Do not call this from the miniaudio data callback. It should only ever be called from the internal data callback of the backend.
+
+
+Remarks
+-------
+If both `pOutput` and `pInput` are NULL, and error will be returned. In duplex scenarios, both `pOutput` and `pInput` can be non-NULL, in
+which case `pInput` will be processed first, followed by `pOutput`.
+
+If you are implementing a custom backend, and that backend uses a callback for data delivery, you'll need to call this from inside that
+callback.
+*/
+MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+
+
+
+
+/*
 Retrieves a friendly name for a backend.
 */
 MA_API const char* ma_get_backend_name(ma_backend backend);
@@ -5125,14 +5391,14 @@ Retrieves compile-time enabled backends.
 
 Parameters
 ----------
-pBackends(out, optional)
+pBackends (out, optional)
     A pointer to the buffer that will receive the enabled backends. Set to NULL to retrieve the backend count. Setting
     the capacity of the buffer to `MA_BUFFER_COUNT` will guarantee it's large enough for all backends.
 
-backendCap(in)
+backendCap (in)
     The capacity of the `pBackends` buffer.
 
-pBackendCount(out)
+pBackendCount (out)
     A pointer to the variable that will receive the enabled backend count.
 
 
@@ -9340,6 +9606,7 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
 #endif  /* MA_NO_THREADING */
 
 
+
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
@@ -9445,6 +9712,9 @@ certain unused functions and variables can be excluded from the build to avoid w
 #ifdef MA_ENABLE_WEBAUDIO
     #define MA_HAS_WEBAUDIO
 #endif
+#ifdef MA_ENABLE_CUSTOM
+    #define MA_HAS_CUSTOM
+#endif
 #ifdef MA_ENABLE_NULL
     #define MA_HAS_NULL    /* Everything supports the null backend. */
 #endif
@@ -9466,6 +9736,7 @@ MA_API const char* ma_get_backend_name(ma_backend backend)
         case ma_backend_aaudio:     return "AAudio";
         case ma_backend_opensl:     return "OpenSL|ES";
         case ma_backend_webaudio:   return "Web Audio";
+        case ma_backend_custom:     return "Custom";
         case ma_backend_null:       return "Null";
         default:                    return "Unknown";
     }
@@ -9557,6 +9828,12 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #else
             return MA_FALSE;
         #endif
+        case ma_backend_custom:
+        #if defined(MA_HAS_CUSTOM)
+            return MA_TRUE;
+        #else
+            return MA_FALSE;
+        #endif
         case ma_backend_null:
         #if defined(MA_HAS_NULL)
             return MA_TRUE;
@@ -9619,6 +9896,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
         case ma_backend_aaudio:     return MA_FALSE;
         case ma_backend_opensl:     return MA_FALSE;
         case ma_backend_webaudio:   return MA_FALSE;
+        case ma_backend_custom:     return MA_FALSE;    /* <-- Will depend on the implementation of the backend. */
         case ma_backend_null:       return MA_FALSE;
         default:                    return MA_FALSE;
     }
@@ -9802,12 +10080,6 @@ typedef LONG (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
 typedef LONG (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
 #endif
 
-
-#define MA_STATE_UNINITIALIZED     0
-#define MA_STATE_STOPPED           1   /* The device's default state after initialization. */
-#define MA_STATE_STARTED           2   /* The worker thread is in it's main loop waiting for the driver to request or deliver audio data. */
-#define MA_STATE_STARTING          3   /* Transitioning from a stopped state to started. */
-#define MA_STATE_STOPPING          4   /* Transitioning from a started state to stopped. */
 
 #define MA_DEFAULT_PLAYBACK_DEVICE_NAME    "Default Playback Device"
 #define MA_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
@@ -10542,12 +10814,6 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_uint32 newStat
     c89atomic_exchange_32(&pDevice->state, newState);
 }
 
-/* A helper for getting the state of the device. */
-static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
-{
-    return pDevice->state;
-}
-
 
 #ifdef MA_WIN32
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
@@ -10556,64 +10822,6 @@ static MA_INLINE ma_uint32 ma_device__get_state(ma_device* pDevice)
     /*GUID MA_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
 #endif
 
-
-typedef struct
-{
-    ma_device_type deviceType;
-    const ma_device_id* pDeviceID;
-    char* pName;
-    size_t nameBufferSize;
-    ma_bool32 foundDevice;
-} ma_context__try_get_device_name_by_id__enum_callback_data;
-
-static ma_bool32 ma_context__try_get_device_name_by_id__enum_callback(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo, void* pUserData)
-{
-    ma_context__try_get_device_name_by_id__enum_callback_data* pData = (ma_context__try_get_device_name_by_id__enum_callback_data*)pUserData;
-    MA_ASSERT(pData != NULL);
-
-    if (pData->deviceType == deviceType) {
-        if (pContext->onDeviceIDEqual(pContext, pData->pDeviceID, &pDeviceInfo->id)) {
-            ma_strncpy_s(pData->pName, pData->nameBufferSize, pDeviceInfo->name, (size_t)-1);
-            pData->foundDevice = MA_TRUE;
-        }
-    }
-
-    return !pData->foundDevice;
-}
-
-/*
-Generic function for retrieving the name of a device by it's ID.
-
-This function simply enumerates every device and then retrieves the name of the first device that has the same ID.
-*/
-static ma_result ma_context__try_get_device_name_by_id(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, char* pName, size_t nameBufferSize)
-{
-    ma_result result;
-    ma_context__try_get_device_name_by_id__enum_callback_data data;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pName != NULL);
-
-    if (pDeviceID == NULL) {
-        return MA_NO_DEVICE;
-    }
-
-    data.deviceType = deviceType;
-    data.pDeviceID = pDeviceID;
-    data.pName = pName;
-    data.nameBufferSize = nameBufferSize;
-    data.foundDevice = MA_FALSE;
-    result = ma_context_enumerate_devices(pContext, ma_context__try_get_device_name_by_id__enum_callback, &data);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    if (!data.foundDevice) {
-        return MA_NO_DEVICE;
-    } else {
-        return MA_SUCCESS;
-    }
-}
 
 
 MA_API ma_uint32 ma_get_format_priority_index(ma_format format) /* Lower = better. */
@@ -10630,6 +10838,485 @@ MA_API ma_uint32 ma_get_format_priority_index(ma_format format) /* Lower = bette
 }
 
 static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType);
+
+
+static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDeviceDescriptor)
+{
+    if (pDeviceDescriptor == NULL) {
+        return MA_FALSE;
+    }
+
+    if (pDeviceDescriptor->format == ma_format_unknown) {
+        return MA_FALSE;
+    }
+
+    if (pDeviceDescriptor->channels < MA_MIN_CHANNELS || pDeviceDescriptor->channels > MA_MAX_CHANNELS) {
+        return MA_FALSE;
+    }
+
+    if (pDeviceDescriptor->sampleRate == 0) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
+
+
+/* TODO: Remove the pCallbacks parameter when we move all backends to the new callbacks system, at which time we can just reference the context directly. */
+static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, ma_backend_callbacks* pCallbacks)
+{
+    ma_result result = MA_SUCCESS;
+    ma_bool32 exitLoop = MA_FALSE;
+    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
+    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+
+    MA_ASSERT(pDevice != NULL);
+
+    /* Just some quick validation on the device type and the available callbacks. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        if (pCallbacks->onDeviceRead == NULL) {
+            return MA_NOT_IMPLEMENTED;
+        }
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        if (pCallbacks->onDeviceWrite == NULL) {
+            return MA_NOT_IMPLEMENTED;
+        }
+    }
+
+    /* The device needs to be started immediately. */
+    if (pCallbacks->onDeviceStart != NULL) {
+        result = pCallbacks->onDeviceStart(pDevice);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    } else {
+        /* Getting here means no start callback is defined. This is OK, as the backend may auto-start the device when reading or writing data. */
+    }
+
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+        switch (pDevice->type) {
+            case ma_device_type_duplex:
+            {
+                /* The process is: onDeviceRead() -> convert -> callback -> convert -> onDeviceWrite() */
+                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
+                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalPeriodSizeInFrames, pDevice->playback.internalPeriodSizeInFrames);
+                    
+                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
+                    ma_uint32 capturedDeviceFramesRemaining;
+                    ma_uint32 capturedDeviceFramesProcessed;
+                    ma_uint32 capturedDeviceFramesToProcess;
+                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
+                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
+                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
+                    }
+
+                    result = pCallbacks->onDeviceRead(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
+                    capturedDeviceFramesProcessed = 0;
+
+                    /* At this point we have our captured data in device format and we now need to convert it to client format. */
+                    for (;;) {
+                        ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                        ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                        ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format,  pDevice->capture.channels);
+                        ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
+                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
+                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels));
+                        
+                        /* Convert capture data from device format to client format. */
+                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
+                        if (result != MA_SUCCESS) {
+                            break;
+                        }
+
+                        /*
+                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
+                        */
+                        if (capturedClientFramesToProcessThisIteration == 0) {
+                            break;
+                        }
+
+                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+
+                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
+
+                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
+                        for (;;) {
+                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
+                            ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
+                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
+                            if (result != MA_SUCCESS) {
+                                break;
+                            }
+
+                            result = pCallbacks->onDeviceWrite(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
+                            if (result != MA_SUCCESS) {
+                                exitLoop = MA_TRUE;
+                                break;
+                            }
+
+                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
+                            if (capturedClientFramesToProcessThisIteration == 0) {
+                                break;
+                            }
+                        }
+
+                        /* In case an error happened from ma_device_write__null()... */
+                        if (result != MA_SUCCESS) {
+                            exitLoop = MA_TRUE;
+                            break;
+                        }
+                    }
+
+                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
+                }
+            } break;
+
+            case ma_device_type_capture:
+            case ma_device_type_loopback:
+            {
+                ma_uint32 periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
+                ma_uint32 framesReadThisPeriod = 0;
+                while (framesReadThisPeriod < periodSizeInFrames) {
+                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
+                    ma_uint32 framesProcessed;
+                    ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
+                    if (framesToReadThisIteration > capturedDeviceDataCapInFrames) {
+                        framesToReadThisIteration = capturedDeviceDataCapInFrames;
+                    }
+
+                    result = pCallbacks->onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    ma_device__send_frames_to_client(pDevice, framesProcessed, capturedDeviceData);
+
+                    framesReadThisPeriod += framesProcessed;
+                }
+            } break;
+
+            case ma_device_type_playback:
+            {
+                /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
+                ma_uint32 periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
+                ma_uint32 framesWrittenThisPeriod = 0;
+                while (framesWrittenThisPeriod < periodSizeInFrames) {
+                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
+                    ma_uint32 framesProcessed;
+                    ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
+                    if (framesToWriteThisIteration > playbackDeviceDataCapInFrames) {
+                        framesToWriteThisIteration = playbackDeviceDataCapInFrames;
+                    }
+
+                    ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, playbackDeviceData);
+
+                    result = pCallbacks->onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
+                    if (result != MA_SUCCESS) {
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    framesWrittenThisPeriod += framesProcessed;
+                }
+            } break;
+
+            /* Should never get here. */
+            default: break;
+        }
+    }
+
+    /* We've exited the loop so we'll need to stop the device. */
+    if (pCallbacks->onDeviceStop != NULL) {
+        pCallbacks->onDeviceStop(pDevice);
+    }
+
+    return result;
+}
+
+
+/*******************************************************************************
+
+Custom Backend
+
+*******************************************************************************/
+#ifdef MA_HAS_CUSTOM
+
+static ma_result ma_context_enumerate_devices__custom(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    if (pContext->custom.onContextEnumerateDevices == NULL) {
+        return MA_FALSE;
+    }
+
+    return pContext->custom.onContextEnumerateDevices(pContext, callback, pUserData);
+}
+
+static ma_result ma_context_get_device_info__custom(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+{
+    MA_ASSERT(pContext != NULL);
+
+    (void)shareMode;    /* Not using the share mode. This is something I want to remove from device info queries. */
+
+    if (pContext->custom.onContextGetDeviceInfo == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    /* Be as safe as possible and zero out the device info just in case the backend doesn't fill it out properly. */
+    MA_ZERO_OBJECT(pDeviceInfo);
+
+    return pContext->custom.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, pDeviceInfo);
+}
+
+static ma_result ma_context_uninit__custom(ma_context* pContext)
+{
+    MA_ASSERT(pContext != NULL);
+
+    if (pContext->custom.onContextUninit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pContext->custom.onContextUninit(pContext);
+}
+
+
+static ma_result ma_device_uninit__custom(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->pContext->custom.onDeviceUninit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->custom.onDeviceUninit(pDevice);
+}
+
+static ma_result ma_device_init__custom(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+{
+    ma_result result;
+    ma_device_descriptor descriptorPlayback;
+    ma_device_descriptor descriptorCapture;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDevice  != NULL);
+
+    if (pContext->custom.onDeviceInit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    MA_ZERO_OBJECT(&descriptorPlayback);
+    descriptorPlayback.pDeviceID                = pConfig->playback.pDeviceID;
+    descriptorPlayback.shareMode                = pConfig->playback.shareMode;
+    descriptorPlayback.format                   = pConfig->playback.format;
+    descriptorPlayback.channels                 = pConfig->playback.channels;
+    descriptorPlayback.sampleRate               = pConfig->sampleRate;
+    ma_channel_map_copy(descriptorPlayback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+    descriptorPlayback.periodSizeInFrames       = pConfig->periodSizeInFrames;
+    descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
+    descriptorPlayback.periodCount              = pConfig->periods;
+    
+    MA_ZERO_OBJECT(&descriptorCapture);
+    descriptorCapture.pDeviceID                 = pConfig->capture.pDeviceID;
+    descriptorCapture.shareMode                 = pConfig->capture.shareMode;
+    descriptorCapture.format                    = pConfig->capture.format;
+    descriptorCapture.channels                  = pConfig->capture.channels;
+    descriptorCapture.sampleRate                = pConfig->sampleRate;
+    ma_channel_map_copy(descriptorCapture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+    descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
+    descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
+    descriptorCapture.periodCount               = pConfig->periods;
+    
+    result = pContext->custom.onDeviceInit(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the device. */
+    }
+
+    /*
+    On output the descriptors will contain the *actual* data format of the device. We need this to know how to convert the data between
+    the requested format and the internal format.
+    */
+    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+        ma_device_info deviceInfo;  /* For retrieving the name. */
+
+        if (!ma_device_descriptor_is_valid(&descriptorCapture)) {
+            ma_device_uninit__custom(pDevice);
+            return MA_INVALID_ARGS;
+        }
+
+        pDevice->capture.internalFormat             = descriptorCapture.format;
+        pDevice->capture.internalChannels           = descriptorCapture.channels;
+        pDevice->capture.internalSampleRate         = descriptorCapture.sampleRate;
+        ma_channel_map_copy(pDevice->capture.internalChannelMap, descriptorCapture.channelMap, descriptorCapture.channels);
+        pDevice->capture.internalPeriodSizeInFrames = descriptorCapture.periodSizeInFrames;
+        pDevice->capture.internalPeriods            = descriptorCapture.periodCount;
+
+        if (pDevice->capture.internalPeriodSizeInFrames == 0) {
+            pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorCapture.periodSizeInMilliseconds, descriptorCapture.sampleRate);
+        }
+
+        /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info()` instead. */
+        result = ma_context_get_device_info(pContext, ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
+        if (result != MA_SUCCESS) {
+            /* We failed to retrieve the device info. Fall back to a default name. */
+            if (descriptorCapture.pDeviceID == NULL) {
+                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+            } else {
+                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
+            }
+        }
+    }
+
+    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+        ma_device_info deviceInfo;  /* For retrieving the name. */
+
+        if (!ma_device_descriptor_is_valid(&descriptorPlayback)) {
+            ma_device_uninit__custom(pDevice);
+            return MA_INVALID_ARGS;
+        }
+
+        pDevice->playback.internalFormat             = descriptorPlayback.format;
+        pDevice->playback.internalChannels           = descriptorPlayback.channels;
+        pDevice->playback.internalSampleRate         = descriptorPlayback.sampleRate;
+        ma_channel_map_copy(pDevice->playback.internalChannelMap, descriptorPlayback.channelMap, descriptorPlayback.channels);
+        pDevice->playback.internalPeriodSizeInFrames = descriptorPlayback.periodSizeInFrames;
+        pDevice->playback.internalPeriods            = descriptorPlayback.periodCount;
+
+        if (pDevice->playback.internalPeriodSizeInFrames == 0) {
+            pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorPlayback.periodSizeInMilliseconds, descriptorPlayback.sampleRate);
+        }
+
+        /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead. */
+        result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
+        if (result != MA_SUCCESS) {
+            /* We failed to retrieve the device info. Fall back to a default name. */
+            if (descriptorPlayback.pDeviceID == NULL) {
+                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+            } else {
+                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
+            }
+        }
+    }
+
+    /* If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. */
+    if (pConfig->deviceType == ma_device_type_duplex) {
+        if (pContext->custom.onDeviceRead == NULL && pContext->custom.onDeviceWrite == NULL && pContext->custom.onDeviceAudioThread == NULL) {
+            result = ma_duplex_rb_init(pDevice->sampleRate, pDevice->capture.internalFormat, pDevice->capture.internalChannels, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
+            if (result != MA_SUCCESS) {
+                ma_device_uninit__custom(pDevice);
+                return result;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_start__custom(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->pContext->custom.onDeviceStart == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->custom.onDeviceStart(pDevice);
+}
+
+static ma_result ma_device_stop__custom(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->pContext->custom.onDeviceStop == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->custom.onDeviceStop(pDevice);
+}
+
+static ma_result ma_device_audio_thread__custom(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->pContext->custom.onDeviceAudioThread == NULL) {
+        return MA_NOT_IMPLEMENTED;  /* Should never happen, but check anyway. */
+    }
+
+    return pDevice->pContext->custom.onDeviceAudioThread(pDevice);
+}
+
+static ma_result ma_device_audio_thread__read_write__custom(ma_device* pDevice)
+{
+    return ma_device_audio_thread__default_read_write(pDevice, &pDevice->pContext->custom);
+}
+
+static ma_result ma_context_init__custom(const ma_context_config* pConfig, ma_context* pContext)
+{
+    ma_result result;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pConfig  != NULL);
+
+    /* We need to ensure we have the necessary callbacks. */
+    if (pConfig->custom.onContextInit == NULL) {
+        return MA_NO_BACKEND;   /* Need a context initialization callback. When set to NULL it means a custom backend is not defined. */
+    }
+
+    /* Set the custom callbacks before firing the backend's context initialization routine just in case the backend wants to reference them for whatever reason. */
+    pContext->custom = pConfig->custom;
+
+    /* Initialize the context first. If this fails we need to abort. */
+    result = pConfig->custom.onContextInit(pContext, &pContext->custom);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* At this point the context should be initialized. We can now set up the callbacks for miniaudio's use internally. */
+    pContext->onUninit        = ma_context_uninit__custom;
+    pContext->onEnumDevices   = ma_context_enumerate_devices__custom;
+    pContext->onGetDeviceInfo = ma_context_get_device_info__custom;
+    pContext->onDeviceInit    = ma_device_init__custom;
+    pContext->onDeviceUninit  = ma_device_uninit__custom;
+    pContext->onDeviceStart   = ma_device_start__custom;
+    pContext->onDeviceStop    = ma_device_stop__custom;
+
+    /*
+    For now the context needs to be marked as asynchronous. This is required so that miniaudio knows how to handle data delivery and thread
+    management for the device, but the requirement for the backend itself to set this property will probably be removed in the future.
+    */
+    if (pContext->custom.onDeviceRead == NULL && pContext->custom.onDeviceWrite == NULL) {
+        if (pContext->custom.onDeviceAudioThread == NULL) {
+            pContext->onDeviceMainLoop = NULL;                                      /* Backend is asynchronous and expected to call ma_device_handle_backend_data_callback() from within their data callback. */
+            pContext->isBackendAsynchronous = MA_TRUE;
+        } else {
+            pContext->onDeviceMainLoop = ma_device_audio_thread__custom;            /* Backend is doing a custom main loop. */
+            pContext->isBackendAsynchronous = MA_FALSE;
+        }
+    } else {
+        pContext->isBackendAsynchronous = MA_FALSE;
+        pContext->onDeviceMainLoop = ma_device_audio_thread__read_write__custom;    /* Backend is using blocking read/write calls. */
+    }
+
+    return MA_SUCCESS;
+}
+
+#endif  /* MA_HAS_CUSTOM */
+
 
 
 /*******************************************************************************
@@ -10732,16 +11419,6 @@ static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice
 
 
     return (ma_uint64)((pDevice->null_device.priorRunTime + ma_timer_get_time_in_seconds(&pDevice->null_device.timer)) * internalSampleRate);
-}
-
-static ma_bool32 ma_context_is_device_id_equal__null(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->nullbackend == pID1->nullbackend;
 }
 
 static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
@@ -11046,171 +11723,12 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
 
 static ma_result ma_device_main_loop__null(ma_device* pDevice)
 {
-    ma_result result = MA_SUCCESS;
-    ma_bool32 exitLoop = MA_FALSE;
-    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-    
-    MA_ASSERT(pDevice != NULL);
-
-    /* The capture device needs to be started immediately. */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        result = ma_device_start__null(pDevice);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
-        switch (pDevice->type)
-        {
-            case ma_device_type_duplex:
-            {
-                /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
-                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalPeriodSizeInFrames, pDevice->playback.internalPeriodSizeInFrames);
-                    
-                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
-                    ma_uint32 capturedDeviceFramesRemaining;
-                    ma_uint32 capturedDeviceFramesProcessed;
-                    ma_uint32 capturedDeviceFramesToProcess;
-                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
-                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
-                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
-                    }
-
-                    result = ma_device_read__null(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
-                    capturedDeviceFramesProcessed = 0;
-
-                    /* At this point we have our captured data in device format and we now need to convert it to client format. */
-                    for (;;) {
-                        ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-                        ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
-                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels));
-                        
-                        /* Convert capture data from device format to client format. */
-                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
-                        if (result != MA_SUCCESS) {
-                            break;
-                        }
-
-                        /*
-                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
-                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
-                        */
-                        if (capturedClientFramesToProcessThisIteration == 0) {
-                            break;
-                        }
-
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
-
-                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-
-                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
-                        for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
-                            ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
-                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
-                            if (result != MA_SUCCESS) {
-                                break;
-                            }
-
-                            result = ma_device_write__null(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
-                            if (result != MA_SUCCESS) {
-                                exitLoop = MA_TRUE;
-                                break;
-                            }
-
-                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcessThisIteration == 0) {
-                                break;
-                            }
-                        }
-
-                        /* In case an error happened from ma_device_write__null()... */
-                        if (result != MA_SUCCESS) {
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
-                    }
-
-                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
-                }
-            } break;
-
-            case ma_device_type_capture:
-            {
-                ma_uint32 periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
-                ma_uint32 framesReadThisPeriod = 0;
-                while (framesReadThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
-                    if (framesToReadThisIteration > capturedDeviceDataCapInFrames) {
-                        framesToReadThisIteration = capturedDeviceDataCapInFrames;
-                    }
-
-                    result = ma_device_read__null(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    ma_device__send_frames_to_client(pDevice, framesProcessed, capturedDeviceData);
-
-                    framesReadThisPeriod += framesProcessed;
-                }
-            } break;
-
-            case ma_device_type_playback:
-            {
-                /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint32 periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
-                ma_uint32 framesWrittenThisPeriod = 0;
-                while (framesWrittenThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
-                    if (framesToWriteThisIteration > playbackDeviceDataCapInFrames) {
-                        framesToWriteThisIteration = playbackDeviceDataCapInFrames;
-                    }
-
-                    ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, playbackDeviceData);
-
-                    result = ma_device_write__null(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    framesWrittenThisPeriod += framesProcessed;
-                }
-            } break;
-
-            /* To silence a warning. Will never hit this. */
-            case ma_device_type_loopback:
-            default: break;
-        }
-    }
-
-
-    /* Here is where the device is started. */
-    ma_device_stop__null(pDevice);
-
-    return result;
+    ma_backend_callbacks callbacks;
+    callbacks.onDeviceStart = ma_device_start__null;
+    callbacks.onDeviceStop  = ma_device_stop__null;
+    callbacks.onDeviceRead  = ma_device_read__null;
+    callbacks.onDeviceWrite = ma_device_write__null;
+    return ma_device_audio_thread__default_read_write(pDevice, &callbacks);
 }
 
 static ma_result ma_context_uninit__null(ma_context* pContext)
@@ -11229,7 +11747,6 @@ static ma_result ma_context_init__null(const ma_context_config* pConfig, ma_cont
     (void)pConfig;
 
     pContext->onUninit         = ma_context_uninit__null;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__null;
     pContext->onEnumDevices    = ma_context_enumerate_devices__null;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__null;
     pContext->onDeviceInit     = ma_device_init__null;
@@ -12294,17 +12811,6 @@ typedef ma_IMMDevice ma_WASAPIDeviceInterface;
 typedef ma_IUnknown ma_WASAPIDeviceInterface;
 #endif
 
-
-
-static ma_bool32 ma_context_is_device_id_equal__wasapi(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return memcmp(pID0->wasapi, pID1->wasapi, sizeof(pID0->wasapi)) == 0;
-}
 
 static void ma_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_device_info* pInfo)
 {
@@ -13851,7 +14357,7 @@ static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
         c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_TRUE);
     }
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         /* We may need to reroute the device. */
         if (ma_device_is_reroute_required__wasapi(pDevice, ma_device_type_playback)) {
             result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
@@ -14487,7 +14993,6 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
     }
 
     pContext->onUninit         = ma_context_uninit__wasapi;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__wasapi;
     pContext->onEnumDevices    = ma_context_enumerate_devices__wasapi;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__wasapi;
     pContext->onDeviceInit     = ma_device_init__wasapi;
@@ -15058,16 +15563,6 @@ static ma_result ma_context_get_format_info_for_IDirectSoundCapture__dsound(ma_c
     }
 
     return MA_SUCCESS;
-}
-
-static ma_bool32 ma_context_is_device_id_equal__dsound(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return memcmp(pID0->dsound, pID1->dsound, sizeof(pID0->dsound)) == 0;
 }
 
 
@@ -15681,7 +16176,7 @@ static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
         }
     }
     
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -16198,7 +16693,6 @@ static ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_co
     pContext->dsound.DirectSoundCaptureEnumerateA = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
 
     pContext->onUninit         = ma_context_uninit__dsound;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__dsound;
     pContext->onEnumDevices    = ma_context_enumerate_devices__dsound;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__dsound;
     pContext->onDeviceInit     = ma_device_init__dsound;
@@ -16607,16 +17101,6 @@ static ma_result ma_context_get_device_info_from_WAVEINCAPS2(ma_context* pContex
     return ma_context_get_device_info_from_WAVECAPS(pContext, &caps, pDeviceInfo);
 }
 
-
-static ma_bool32 ma_context_is_device_id_equal__winmm(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->winmm == pID1->winmm;
-}
 
 static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -17112,7 +17596,7 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
         }
 
         /* If the device has been stopped we need to break. */
-        if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
+        if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
             break;
         }
     }
@@ -17201,7 +17685,7 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
         }
 
         /* If the device has been stopped we need to break. */
-        if (ma_device__get_state(pDevice) != MA_STATE_STARTED) {
+        if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
             break;
         }
     }
@@ -17254,7 +17738,7 @@ static ma_result ma_device_main_loop__winmm(ma_device* pDevice)
     }
 
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -17443,7 +17927,6 @@ static ma_result ma_context_init__winmm(const ma_context_config* pConfig, ma_con
     pContext->winmm.waveInReset            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInReset");
 
     pContext->onUninit         = ma_context_uninit__winmm;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__winmm;
     pContext->onEnumDevices    = ma_context_enumerate_devices__winmm;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__winmm;
     pContext->onDeviceInit     = ma_device_init__winmm;
@@ -18181,16 +18664,6 @@ static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode s
 }
 
 
-static ma_bool32 ma_context_is_device_id_equal__alsa(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->alsa, pID1->alsa) == 0;
-}
-
 static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     int resultALSA;
@@ -18550,7 +19023,7 @@ static ma_uint32 ma_device__wait_for_frames__alsa(ma_device* pDevice, ma_bool32*
 static ma_bool32 ma_device_read_from_client_and_write__alsa(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-    if (!ma_device_is_started(pDevice) && ma_device__get_state(pDevice) != MA_STATE_STARTING) {
+    if (!ma_device_is_started(pDevice) && ma_device_get_state(pDevice) != MA_STATE_STARTING) {
         return MA_FALSE;
     }
     if (pDevice->alsa.breakFromMainLoop) {
@@ -19354,7 +19827,7 @@ static ma_result ma_device_main_loop__alsa(ma_device* pDevice)
         }
     }
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -19769,7 +20242,6 @@ static ma_result ma_context_init__alsa(const ma_context_config* pConfig, ma_cont
     }
 
     pContext->onUninit         = ma_context_uninit__alsa;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__alsa;
     pContext->onEnumDevices    = ma_context_enumerate_devices__alsa;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__alsa;
     pContext->onDeviceInit     = ma_device_init__alsa;
@@ -20755,17 +21227,6 @@ static ma_result ma_context_wait_for_pa_stream_to_connect__pulse(ma_context* pCo
 }
 
 
-static ma_bool32 ma_context_is_device_id_equal__pulse(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->pulse, pID1->pulse) == 0;
-}
-
-
 static void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
 {
     ma_pa_sink_info* pInfoOut;
@@ -21207,7 +21668,7 @@ static void ma_device_on_read__pulse(ma_pa_stream* pStream, size_t byteCount, vo
     frameCount = byteCount / bpf;
     framesProcessed = 0;
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && framesProcessed < frameCount) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && framesProcessed < frameCount) {
         const void* pMappedPCMFrames;
         size_t bytesMapped;
         ma_uint64 framesMapped;
@@ -21260,7 +21721,7 @@ static ma_result ma_device_write_to_stream__pulse(ma_device* pDevice, ma_pa_stre
     bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     MA_ASSERT(bpf > 0);
 
-    deviceState = ma_device__get_state(pDevice);
+    deviceState = ma_device_get_state(pDevice);
 
     bytesMapped = ((ma_pa_stream_writable_size_proc)pDevice->pContext->pulse.pa_stream_writable_size)(pStream);
     if (bytesMapped != (size_t)-1) {
@@ -21330,7 +21791,7 @@ static void ma_device_on_write__pulse(ma_pa_stream* pStream, size_t byteCount, v
         ma_uint32 deviceState;
 
         /* Don't keep trying to process frames if the device isn't started. */
-        deviceState = ma_device__get_state(pDevice);
+        deviceState = ma_device_get_state(pDevice);
         if (deviceState != MA_STATE_STARTING && deviceState != MA_STATE_STARTED) {
             break;
         }
@@ -21936,7 +22397,6 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     pContext->isBackendAsynchronous = MA_TRUE;  /* We are using PulseAudio in asynchronous mode. */
 
     pContext->onUninit         = ma_context_uninit__pulse;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__pulse;
     pContext->onEnumDevices    = ma_context_enumerate_devices__pulse;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__pulse;
     pContext->onDeviceInit     = ma_device_init__pulse;
@@ -22089,15 +22549,6 @@ static ma_result ma_context_open_client__jack(ma_context* pContext, ma_jack_clie
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_context_is_device_id_equal__jack(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->jack == pID1->jack;
-}
 
 static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -22644,7 +23095,6 @@ static ma_result ma_context_init__jack(const ma_context_config* pConfig, ma_cont
     pContext->isBackendAsynchronous = MA_TRUE;
 
     pContext->onUninit        = ma_context_uninit__jack;
-    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__jack;
     pContext->onEnumDevices   = ma_context_enumerate_devices__jack;
     pContext->onGetDeviceInfo = ma_context_get_device_info__jack;
     pContext->onDeviceInit    = ma_device_init__jack;
@@ -23872,15 +24322,6 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
 }
 #endif /* MA_APPLE_DESKTOP */
 
-static ma_bool32 ma_context_is_device_id_equal__coreaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return strcmp(pID0->coreaudio, pID1->coreaudio) == 0;
-}
 
 #if !defined(MA_APPLE_DESKTOP)
 static void ma_AVAudioSessionPortDescription_to_device_info(AVAudioSessionPortDescription* pPortDesc, ma_device_info* pInfo)
@@ -24420,7 +24861,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     can try waiting on the same lock. I'm going to try working around this by not calling any Core
     Audio APIs in the callback when the device has been stopped or uninitialized.
     */
-    if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED || ma_device__get_state(pDevice) == MA_STATE_STOPPING || ma_device__get_state(pDevice) == MA_STATE_STOPPED) {
+    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED || ma_device_get_state(pDevice) == MA_STATE_STOPPING || ma_device_get_state(pDevice) == MA_STATE_STOPPED) {
         ma_stop_proc onStop = pDevice->onStop;
         if (onStop) {
             onStop(pDevice);
@@ -24528,7 +24969,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
                     ma_device__post_init_setup(pDevice, deviceType);
             
                     /* Restart the device if required. If this fails we need to stop the device entirely. */
-                    if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
+                    if (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
                         OSStatus status;
                         if (deviceType == ma_device_type_playback) {
                             status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
@@ -24793,7 +25234,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 static void ma_device_uninit__coreaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-    MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED);
+    MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED);
     
 #if defined(MA_APPLE_DESKTOP)
     /*
@@ -25772,7 +26213,6 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     pContext->isBackendAsynchronous = MA_TRUE;
     
     pContext->onUninit        = ma_context_uninit__coreaudio;
-    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__coreaudio;
     pContext->onEnumDevices   = ma_context_enumerate_devices__coreaudio;
     pContext->onGetDeviceInfo = ma_context_get_device_info__coreaudio;
     pContext->onDeviceInit    = ma_device_init__coreaudio;
@@ -26161,16 +26601,6 @@ static ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap*
     return bestSampleRate;
 }
 
-
-static ma_bool32 ma_context_is_device_id_equal__sndio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->sndio, pID1->sndio) == 0;
-}
 
 static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -26640,7 +27070,7 @@ static ma_result ma_device_main_loop__sndio(ma_device* pDevice)
         ((ma_sio_start_proc)pDevice->pContext->sndio.sio_start)((struct ma_sio_hdl*)pDevice->sndio.handlePlayback);   /* <-- Doesn't actually playback until data is written. */
     }
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -26850,7 +27280,6 @@ static ma_result ma_context_init__sndio(const ma_context_config* pConfig, ma_con
 #endif
 
     pContext->onUninit         = ma_context_uninit__sndio;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__sndio;
     pContext->onEnumDevices    = ma_context_enumerate_devices__sndio;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__sndio;
     pContext->onDeviceInit     = ma_device_init__sndio;
@@ -26934,15 +27363,6 @@ static ma_result ma_extract_device_index_from_id__audio4(const char* id, const c
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_context_is_device_id_equal__audio4(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->audio4, pID1->audio4) == 0;
-}
 
 #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
 static ma_format ma_format_from_encoding__audio4(unsigned int encoding, unsigned int precision)
@@ -27612,7 +28032,7 @@ static ma_result ma_device_main_loop__audio4(ma_device* pDevice)
 
     /* No need to explicitly start the device like the other backends. */
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -27786,7 +28206,6 @@ static ma_result ma_context_init__audio4(const ma_context_config* pConfig, ma_co
     (void)pConfig;
 
     pContext->onUninit         = ma_context_uninit__audio4;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__audio4;
     pContext->onEnumDevices    = ma_context_enumerate_devices__audio4;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__audio4;
     pContext->onDeviceInit     = ma_device_init__audio4;
@@ -27860,16 +28279,6 @@ static ma_result ma_context_open_device__oss(ma_context* pContext, ma_device_typ
     }
 
     return MA_SUCCESS;
-}
-
-static ma_bool32 ma_context_is_device_id_equal__oss(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->oss, pID1->oss) == 0;
 }
 
 static ma_result ma_context_enumerate_devices__oss(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
@@ -28333,7 +28742,7 @@ static ma_result ma_device_main_loop__oss(ma_device* pDevice)
 
     /* No need to explicitly start the device like the other backends. */
 
-    while (ma_device__get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -28528,7 +28937,6 @@ static ma_result ma_context_init__oss(const ma_context_config* pConfig, ma_conte
     pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
 
     pContext->onUninit         = ma_context_uninit__oss;
-    pContext->onDeviceIDEqual  = ma_context_is_device_id_equal__oss;
     pContext->onEnumDevices    = ma_context_enumerate_devices__oss;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__oss;
     pContext->onDeviceInit     = ma_device_init__oss;
@@ -28805,16 +29213,6 @@ static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContex
     return MA_SUCCESS;
 }
 
-
-static ma_bool32 ma_context_is_device_id_equal__aaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->aaudio == pID1->aaudio;
-}
 
 static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -29200,7 +29598,6 @@ static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_co
     pContext->isBackendAsynchronous = MA_TRUE;
 
     pContext->onUninit        = ma_context_uninit__aaudio;
-    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__aaudio;
     pContext->onEnumDevices   = ma_context_enumerate_devices__aaudio;
     pContext->onGetDeviceInfo = ma_context_get_device_info__aaudio;
     pContext->onDeviceInit    = ma_device_init__aaudio;
@@ -29412,16 +29809,6 @@ static SLuint32 ma_round_to_standard_sample_rate__opensl(SLuint32 samplesPerSec)
     return SL_SAMPLINGRATE_16;
 }
 
-
-static ma_bool32 ma_context_is_device_id_equal__opensl(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return pID0->opensl == pID1->opensl;
-}
 
 static ma_result ma_context_enumerate_devices__opensl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -30362,7 +30749,6 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
     pContext->isBackendAsynchronous = MA_TRUE;
 
     pContext->onUninit        = ma_context_uninit__opensl;
-    pContext->onDeviceIDEqual = ma_context_is_device_id_equal__opensl;
     pContext->onEnumDevices   = ma_context_enumerate_devices__opensl;
     pContext->onGetDeviceInfo = ma_context_get_device_info__opensl;
     pContext->onDeviceInit    = ma_device_init__opensl;
@@ -30413,16 +30799,6 @@ void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_playback__webaudio(ma_dev
 #ifdef __cplusplus
 }
 #endif
-
-static ma_bool32 ma_context_is_device_id_equal__webaudio(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pID0 != NULL);
-    MA_ASSERT(pID1 != NULL);
-    (void)pContext;
-
-    return ma_strcmp(pID0->webaudio, pID1->webaudio) == 0;
-}
 
 static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
@@ -30984,14 +31360,13 @@ static ma_result ma_context_init__webaudio(const ma_context_config* pConfig, ma_
 
     pContext->isBackendAsynchronous = MA_TRUE;
 
-    pContext->onUninit              = ma_context_uninit__webaudio;
-    pContext->onDeviceIDEqual       = ma_context_is_device_id_equal__webaudio;
-    pContext->onEnumDevices         = ma_context_enumerate_devices__webaudio;
-    pContext->onGetDeviceInfo       = ma_context_get_device_info__webaudio;
-    pContext->onDeviceInit          = ma_device_init__webaudio;
-    pContext->onDeviceUninit        = ma_device_uninit__webaudio;
-    pContext->onDeviceStart         = ma_device_start__webaudio;
-    pContext->onDeviceStop          = ma_device_stop__webaudio;
+    pContext->onUninit        = ma_context_uninit__webaudio;
+    pContext->onEnumDevices   = ma_context_enumerate_devices__webaudio;
+    pContext->onGetDeviceInfo = ma_context_get_device_info__webaudio;
+    pContext->onDeviceInit    = ma_device_init__webaudio;
+    pContext->onDeviceUninit  = ma_device_uninit__webaudio;
+    pContext->onDeviceStart   = ma_device_start__webaudio;
+    pContext->onDeviceStop    = ma_device_stop__webaudio;
 
     (void)pConfig; /* Unused. */
     return MA_SUCCESS;
@@ -31150,7 +31525,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         pDevice->workResult = MA_SUCCESS;
 
         /* If the reason for the wake up is that we are terminating, just break from the loop. */
-        if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
             break;
         }
 
@@ -31159,7 +31534,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         be started will be waiting on an event (pDevice->startEvent) which means we need to make sure we signal the event
         in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
         */
-        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STARTING);
+        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTING);
 
         /* Make sure the state is set appropriately. */
         ma_device__set_state(pDevice, MA_STATE_STARTED);
@@ -31176,7 +31551,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
         don't want to be doing this a second time.
         */
-        if (ma_device__get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
             if (pDevice->pContext->onDeviceStop) {
                 pDevice->pContext->onDeviceStop(pDevice);
             }
@@ -31193,7 +31568,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         it's possible that the device has been uninitialized which means we need to _not_ change the status to stopped. We cannot go from an
         uninitialized state to stopped state.
         */
-        if (ma_device__get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
             ma_event_signal(&pDevice->stopEvent);
         }
@@ -31217,7 +31592,7 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
         return MA_FALSE;
     }
 
-    return ma_device__get_state(pDevice) != MA_STATE_UNINITIALIZED;
+    return ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED;
 }
 
 
@@ -31519,6 +31894,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 result = ma_context_init__webaudio(&config, pContext);
             } break;
         #endif
+        #ifdef MA_HAS_CUSTOM
+            case ma_backend_custom:
+            {
+                result = ma_context_init__custom(&config, pContext);
+            } break;
+        #endif
         #ifdef MA_HAS_NULL
             case ma_backend_null:
             {
@@ -31709,7 +32090,6 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
     }
 
-    /* The backend may have an optimized device info retrieval function. If so, try that first. */
     if (pContext->onGetDeviceInfo != NULL) {
         ma_result result;
         ma_mutex_lock(&pContext->deviceInfoLock);
@@ -31717,6 +32097,75 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
             result = pContext->onGetDeviceInfo(pContext, deviceType, pDeviceID, shareMode, &deviceInfo);
         }
         ma_mutex_unlock(&pContext->deviceInfoLock);
+
+        /*
+        If the backend is using the new device info system, do a pass to fill out the old settings for backwards compatibility. This will be removed in
+        the future when all backends have implemented the new device info system.
+        */
+        if (deviceInfo.nativeDataFormatCount > 0) {
+            ma_uint32 iNativeFormat;
+            ma_uint32 iSampleFormat;
+
+            deviceInfo.minChannels   = 0xFFFFFFFF;
+            deviceInfo.maxChannels   = 0;
+            deviceInfo.minSampleRate = 0xFFFFFFFF;
+            deviceInfo.maxSampleRate = 0;
+            
+            for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
+                /* Formats. */
+                if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
+                    /* All formats are supported. */
+                    deviceInfo.formats[0] = ma_format_u8;
+                    deviceInfo.formats[1] = ma_format_s16;
+                    deviceInfo.formats[2] = ma_format_s24;
+                    deviceInfo.formats[3] = ma_format_s32;
+                    deviceInfo.formats[4] = ma_format_f32;
+                    deviceInfo.formatCount = ma_format_count;
+                } else {
+                    /* Make sure the format isn't already in the list. If so, skip. */
+                    ma_bool32 alreadyExists = MA_FALSE;
+                    for (iSampleFormat = 0; iSampleFormat < deviceInfo.formatCount; iSampleFormat += 1) {
+                        if (deviceInfo.formats[iSampleFormat] == deviceInfo.nativeDataFormats[iNativeFormat].format) {
+                            alreadyExists = MA_TRUE;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyExists) {
+                        deviceInfo.formats[deviceInfo.formatCount++] = deviceInfo.nativeDataFormats[iNativeFormat].format;
+                    }
+                }
+
+                /* Channels. */
+                if (deviceInfo.nativeDataFormats[iNativeFormat].channels == 0) {
+                    /* All channels supported. */
+                    deviceInfo.minChannels = MA_MIN_CHANNELS;
+                    deviceInfo.maxChannels = MA_MAX_CHANNELS;
+                } else {
+                    if (deviceInfo.minChannels > deviceInfo.nativeDataFormats[iNativeFormat].channels) {
+                        deviceInfo.minChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
+                    }
+                    if (deviceInfo.maxChannels < deviceInfo.nativeDataFormats[iNativeFormat].channels) {
+                        deviceInfo.maxChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
+                    }
+                }
+
+                /* Sample rate. */
+                if (deviceInfo.nativeDataFormats[iNativeFormat].sampleRate == 0) {
+                    /* All sample rates supported. */
+                    deviceInfo.minSampleRate = MA_MIN_SAMPLE_RATE;
+                    deviceInfo.maxSampleRate = MA_MAX_SAMPLE_RATE;
+                } else {
+                    if (deviceInfo.minSampleRate > deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
+                        deviceInfo.minSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
+                    }
+                    if (deviceInfo.maxSampleRate < deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
+                        deviceInfo.maxSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
+                    }
+                }
+            }
+        }
+
 
         /* Clamp ranges. */
         deviceInfo.minChannels   = ma_max(deviceInfo.minChannels,   MA_MIN_CHANNELS);
@@ -31950,23 +32399,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
 
 
-    /* If the backend did not fill out a name for the device, try a generic method. */
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        if (pDevice->capture.name[0] == '\0') {
-            if (ma_context__try_get_device_name_by_id(pContext, ma_device_type_capture, config.capture.pDeviceID, pDevice->capture.name, sizeof(pDevice->capture.name)) != MA_SUCCESS) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), (config.capture.pDeviceID == NULL)  ? MA_DEFAULT_CAPTURE_DEVICE_NAME : "Capture Device", (size_t)-1);
-            }
-        }
-    }
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        if (pDevice->playback.name[0] == '\0') {
-            if (ma_context__try_get_device_name_by_id(pContext, ma_device_type_playback, config.playback.pDeviceID, pDevice->playback.name, sizeof(pDevice->playback.name)) != MA_SUCCESS) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), (config.playback.pDeviceID == NULL)  ? MA_DEFAULT_PLAYBACK_DEVICE_NAME : "Playback Device", (size_t)-1);
-            }
-        }
-    }
-
-
     /* Some backends don't require the worker thread. */
     if (!ma_context_is_backend_asynchronous(pContext)) {
         /* The worker thread. */
@@ -32011,7 +32443,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Passthrough:              %s", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
     }
 
-    MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
+    MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
     return MA_SUCCESS;
 }
 
@@ -32123,11 +32555,11 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_start() called with invalid arguments (pDevice == NULL).", MA_INVALID_ARGS);
     }
 
-    if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_start() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
     }
 
-    if (ma_device__get_state(pDevice) == MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_start() called when the device is already started.", MA_INVALID_OPERATION);  /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
@@ -32135,7 +32567,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
-        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STOPPED);
+        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
 
         ma_device__set_state(pDevice, MA_STATE_STARTING);
 
@@ -32173,11 +32605,11 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_stop() called with invalid arguments (pDevice == NULL).", MA_INVALID_ARGS);
     }
 
-    if (ma_device__get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "ma_device_stop() called for an uninitialized device.", MA_DEVICE_NOT_INITIALIZED);
     }
 
-    if (ma_device__get_state(pDevice) == MA_STATE_STOPPED) {
+    if (ma_device_get_state(pDevice) == MA_STATE_STOPPED) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_stop() called when the device is already stopped.", MA_INVALID_OPERATION);   /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
@@ -32185,7 +32617,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
-        MA_ASSERT(ma_device__get_state(pDevice) == MA_STATE_STARTED);
+        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTED);
 
         ma_device__set_state(pDevice, MA_STATE_STOPPING);
 
@@ -32215,13 +32647,18 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
     return result;
 }
 
-MA_API ma_bool32 ma_device_is_started(ma_device* pDevice)
+MA_API ma_bool32 ma_device_is_started(const ma_device* pDevice)
+{
+    return ma_device_get_state(pDevice) == MA_STATE_STARTED;
+}
+
+MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice)
 {
     if (pDevice == NULL) {
-        return MA_FALSE;
+        return MA_STATE_UNINITIALIZED;
     }
 
-    return ma_device__get_state(pDevice) == MA_STATE_STARTED;
+    return pDevice->state;
 }
 
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
@@ -32280,6 +32717,46 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
     }
 
     *pGainDB = ma_factor_to_gain_db(factor);
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pOutput == NULL && pInput == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDevice->type == ma_device_type_duplex) {
+        if (pInput != NULL) {
+            ma_device__handle_duplex_callback_capture(pDevice, frameCount, pInput, &pDevice->duplexRB.rb);
+        }
+
+        if (pOutput != NULL) {
+            ma_device__handle_duplex_callback_playback(pDevice, frameCount, pOutput, &pDevice->duplexRB.rb);
+        }
+    } else {
+        if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_loopback) {
+            if (pInput == NULL) {
+                return MA_INVALID_ARGS;
+            }
+
+            ma_device__send_frames_to_client(pDevice, frameCount, pInput);
+        }
+
+        if (pDevice->type == ma_device_type_playback) {
+            if (pOutput == NULL) {
+                return MA_INVALID_ARGS;
+            }
+
+            ma_device__read_frames_from_client(pDevice, frameCount, pOutput);
+        }
+    }
 
     return MA_SUCCESS;
 }
@@ -41140,6 +41617,7 @@ MA_API void* ma_rb_get_subbuffer_ptr(ma_rb* pRB, size_t subbufferIndex, void* pB
 }
 
 
+
 static MA_INLINE ma_uint32 ma_pcm_rb_get_bpf(ma_pcm_rb* pRB)
 {
     MA_ASSERT(pRB != NULL);
@@ -41334,6 +41812,35 @@ MA_API void* ma_pcm_rb_get_subbuffer_ptr(ma_pcm_rb* pRB, ma_uint32 subbufferInde
     }
 
     return ma_rb_get_subbuffer_ptr(&pRB->rb, subbufferIndex, pBuffer);
+}
+
+
+
+MA_API ma_result ma_duplex_rb_init(ma_uint32 inputSampleRate, ma_format captureFormat, ma_uint32 captureChannels, ma_uint32 captureSampleRate, ma_uint32 capturePeriodSizeInFrames, const ma_allocation_callbacks* pAllocationCallbacks, ma_duplex_rb* pRB)
+{
+    ma_result result;
+    ma_uint32 sizeInFrames;
+
+    sizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(inputSampleRate, captureSampleRate, capturePeriodSizeInFrames * 5);
+    if (sizeInFrames == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_pcm_rb_init(captureFormat, captureChannels, sizeInFrames, NULL, pAllocationCallbacks, &pRB->rb);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Seek forward a bit so we have a bit of a buffer in case of desyncs. */
+    ma_pcm_rb_seek_write((ma_pcm_rb*)pRB, capturePeriodSizeInFrames * 2);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_duplex_rb_uninit(ma_duplex_rb* pRB)
+{
+    ma_pcm_rb_uninit((ma_pcm_rb*)pRB);
+    return MA_SUCCESS;
 }
 
 
