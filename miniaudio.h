@@ -63659,12 +63659,15 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.22 - TBD
+  - Add support for custom backends.
   - Refactor to the PulseAudio backend. This simplifies the implementation and fixes a capture bug.
+  - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
+  - Core Audio: Further improvements to sample rate selection.
+  - OpenSL: Add support for configuring stream types and recording presets.
+  - AAudio: Add support for configuring content types and input presets.
   - Fix bugs in `ma_decoder_init_file*()` where the file handle is not closed after a decoding error.
   - Fix some compilation warnings on GCC and Clang relating to the Speex resampler.
   - Fix a compilation error for the Linux build when the ALSA and JACK backends are both disabled.
-  - ALSA: Fix a bug in `ma_context_get_device_info()` where the PCM handle is left open in the event of an error.
-  - Core Audio: Further improvements to sample rate selection.
   - Add support for detecting default devices during device enumeration and with `ma_context_get_device_info()`.
   - Add documentation for `MA_NO_RUNTIME_LINKING`.
 
