@@ -3,7 +3,8 @@ This example show how a custom backend can be implemented.
 
 This implements a full-featured SDL2 backend. It's intentionally built using the same paradigms as the built-in backends in order to make
 it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the build-in
-backends. It supports both runtime and compile-time linking and respects the MA_NO_RUNTIME_LINKING option. It also works on Emscripten.
+backends. It supports both runtime and compile-time linking and respects the MA_NO_RUNTIME_LINKING option. It also works on Emscripten
+which requires the `-s USE_SDL=2` option.
 
 There may be times where you want to support more than one custom backend. This example has been designed to make it easy to plug-in extra
 custom backends without needing to modify any of the base miniaudio initialization code. A custom context structure is declared called
@@ -231,10 +232,13 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
 static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
+
+#if !defined(__EMSCRIPTEN__)
     MA_SDL_AudioSpec desiredSpec;
     MA_SDL_AudioSpec obtainedSpec;
     MA_SDL_AudioDeviceID tempDeviceID;
     const char* pDeviceName;
+#endif
 
     MA_ASSERT(pContext != NULL);
 
