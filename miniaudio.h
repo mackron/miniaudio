@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.23 - TBD
+miniaudio - v0.10.23 - 2020-11-09
 
 David Reid - mackron@gmail.com
 
@@ -63725,7 +63725,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.23 - TBD
+v0.10.23 - 2020-11-09
   - AAudio: Add support for configuring a playback stream's usage.
   - Fix a compilation error when all built-in asynchronous backends are disabled at compile time.
   - Fix compilation errors when compiling as C++.

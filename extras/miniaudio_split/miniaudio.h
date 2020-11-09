@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.21 - 2020-10-30
+miniaudio - v0.10.23 - 2020-11-09
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 21
+#define MA_VERSION_REVISION 23
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -28,7 +28,7 @@ extern "C" {
     #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
     #pragma warning(disable:4214)   /* nonstandard extension used: bit field types other than int */
     #pragma warning(disable:4324)   /* structure was padded due to alignment specifier */
-#else
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic" /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
     #if defined(__clang__)
@@ -81,7 +81,7 @@ typedef unsigned int            ma_uint32;
     typedef   signed __int64    ma_int64;
     typedef unsigned __int64    ma_uint64;
 #else
-    #if defined(__GNUC__)
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wlong-long"
         #if defined(__clang__)
@@ -90,7 +90,7 @@ typedef unsigned int            ma_uint32;
     #endif
     typedef   signed long long  ma_int64;
     typedef unsigned long long  ma_uint64;
-    #if defined(__GNUC__)
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
         #pragma GCC diagnostic pop
     #endif
 #endif
@@ -1333,6 +1333,25 @@ MA_API ma_uint32 ma_pcm_rb_get_subbuffer_offset(ma_pcm_rb* pRB, ma_uint32 subbuf
 MA_API void* ma_pcm_rb_get_subbuffer_ptr(ma_pcm_rb* pRB, ma_uint32 subbufferIndex, void* pBuffer);
 
 
+/*
+The idea of the duplex ring buffer is to act as the intermediary buffer when running two asynchronous devices in a duplex set up. The
+capture device writes to it, and then a playback device reads from it.
+
+At the moment this is just a simple naive implementation, but in the future I want to implement some dynamic resampling to seamlessly
+handle desyncs. Note that the API is work in progress and may change at any time in any version.
+
+The size of the buffer is based on the capture side since that's what'll be written to the buffer. It is based on the capture period size
+in frames. The internal sample rate of the capture device is also needed in order to calculate the size.
+*/
+typedef struct
+{
+    ma_pcm_rb rb;
+} ma_duplex_rb;
+
+MA_API ma_result ma_duplex_rb_init(ma_uint32 inputSampleRate, ma_format captureFormat, ma_uint32 captureChannels, ma_uint32 captureSampleRate, ma_uint32 capturePeriodSizeInFrames, const ma_allocation_callbacks* pAllocationCallbacks, ma_duplex_rb* pRB);
+MA_API ma_result ma_duplex_rb_uninit(ma_duplex_rb* pRB);
+
+
 /************************************************************************************************************************************************************
 
 Miscellaneous Helpers
@@ -1447,6 +1466,9 @@ This section contains the APIs for device playback and capture. Here is where yo
     #define MA_SUPPORT_WEBAUDIO
 #endif
 
+/* All platforms should support custom backends. */
+#define MA_SUPPORT_CUSTOM
+
 /* Explicitly disable the Null backend for Emscripten because it uses a background thread which is not properly supported right now. */
 #if !defined(MA_EMSCRIPTEN)
 #define MA_SUPPORT_NULL
@@ -1492,9 +1514,18 @@ This section contains the APIs for device playback and capture. Here is where yo
 #if !defined(MA_NO_WEBAUDIO) && defined(MA_SUPPORT_WEBAUDIO)
     #define MA_ENABLE_WEBAUDIO
 #endif
+#if !defined(MA_NO_CUSTOM) && defined(MA_SUPPORT_CUSTOM)
+    #define MA_ENABLE_CUSTOM
+#endif
 #if !defined(MA_NO_NULL) && defined(MA_SUPPORT_NULL)
     #define MA_ENABLE_NULL
 #endif
+
+#define MA_STATE_UNINITIALIZED     0
+#define MA_STATE_STOPPED           1   /* The device's default state after initialization. */
+#define MA_STATE_STARTED           2   /* The device is started and is requesting and/or delivering audio data. */
+#define MA_STATE_STARTING          3   /* Transitioning from a stopped state to started. */
+#define MA_STATE_STOPPING          4   /* Transitioning from a started state to stopped. */
 
 #ifdef MA_SUPPORT_WASAPI
 /* We need a IMMNotificationClient object for WASAPI. */
@@ -1522,7 +1553,8 @@ typedef enum
     ma_backend_aaudio,
     ma_backend_opensl,
     ma_backend_webaudio,
-    ma_backend_null    /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
+    ma_backend_custom,  /* <-- Custom backend, with callbacks defined by the context config. */
+    ma_backend_null     /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
 } ma_backend;
 
 #define MA_BACKEND_COUNT (ma_backend_null+1)
@@ -1604,14 +1636,14 @@ pDevice (in)
 logLevel (in)
     The log level. This can be one of the following:
 
-    |----------------------|
+    +----------------------+
     | Log Level            |
-    |----------------------|
+    +----------------------+
     | MA_LOG_LEVEL_VERBOSE |
     | MA_LOG_LEVEL_INFO    |
     | MA_LOG_LEVEL_WARNING |
     | MA_LOG_LEVEL_ERROR   |
-    |----------------------|
+    +----------------------+
 
 message (in)
     The log message.
@@ -1662,6 +1694,74 @@ typedef enum
     ma_ios_session_category_option_allow_air_play                             = 0x40,   /* AVAudioSessionCategoryOptionAllowAirPlay */
 } ma_ios_session_category_option;
 
+/* OpenSL stream types. */
+typedef enum
+{
+    ma_opensl_stream_type_default = 0,              /* Leaves the stream type unset. */
+    ma_opensl_stream_type_voice,                    /* SL_ANDROID_STREAM_VOICE */
+    ma_opensl_stream_type_system,                   /* SL_ANDROID_STREAM_SYSTEM */
+    ma_opensl_stream_type_ring,                     /* SL_ANDROID_STREAM_RING */
+    ma_opensl_stream_type_media,                    /* SL_ANDROID_STREAM_MEDIA */
+    ma_opensl_stream_type_alarm,                    /* SL_ANDROID_STREAM_ALARM */
+    ma_opensl_stream_type_notification              /* SL_ANDROID_STREAM_NOTIFICATION */
+} ma_opensl_stream_type;
+
+/* OpenSL recording presets. */
+typedef enum
+{
+    ma_opensl_recording_preset_default = 0,         /* Leaves the input preset unset. */
+    ma_opensl_recording_preset_generic,             /* SL_ANDROID_RECORDING_PRESET_GENERIC */
+    ma_opensl_recording_preset_camcorder,           /* SL_ANDROID_RECORDING_PRESET_CAMCORDER */
+    ma_opensl_recording_preset_voice_recognition,   /* SL_ANDROID_RECORDING_PRESET_VOICE_RECOGNITION */
+    ma_opensl_recording_preset_voice_communication, /* SL_ANDROID_RECORDING_PRESET_VOICE_COMMUNICATION */
+    ma_opensl_recording_preset_voice_unprocessed    /* SL_ANDROID_RECORDING_PRESET_UNPROCESSED */
+} ma_opensl_recording_preset;
+
+/* AAudio usage types. */
+typedef enum
+{
+    ma_aaudio_usage_default = 0,                    /* Leaves the usage type unset. */
+    ma_aaudio_usage_announcement,                   /* AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT */
+    ma_aaudio_usage_emergency,                      /* AAUDIO_SYSTEM_USAGE_EMERGENCY */
+    ma_aaudio_usage_safety,                         /* AAUDIO_SYSTEM_USAGE_SAFETY */
+    ma_aaudio_usage_vehicle_status,                 /* AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS */
+    ma_aaudio_usage_alarm,                          /* AAUDIO_USAGE_ALARM */
+    ma_aaudio_usage_assistance_accessibility,       /* AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY */
+    ma_aaudio_usage_assistance_navigation_guidance, /* AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE */
+    ma_aaudio_usage_assistance_sonification,        /* AAUDIO_USAGE_ASSISTANCE_SONIFICATION */
+    ma_aaudio_usage_assitant,                       /* AAUDIO_USAGE_ASSISTANT */
+    ma_aaudio_usage_game,                           /* AAUDIO_USAGE_GAME */
+    ma_aaudio_usage_media,                          /* AAUDIO_USAGE_MEDIA */
+    ma_aaudio_usage_notification,                   /* AAUDIO_USAGE_NOTIFICATION */
+    ma_aaudio_usage_notification_event,             /* AAUDIO_USAGE_NOTIFICATION_EVENT */
+    ma_aaudio_usage_notification_ringtone,          /* AAUDIO_USAGE_NOTIFICATION_RINGTONE */
+    ma_aaudio_usage_voice_communication,            /* AAUDIO_USAGE_VOICE_COMMUNICATION */
+    ma_aaudio_usage_voice_communication_signalling  /* AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING */
+} ma_aaudio_usage;
+
+/* AAudio content types. */
+typedef enum
+{
+    ma_aaudio_content_type_default = 0,             /* Leaves the content type unset. */
+    ma_aaudio_content_type_movie,                   /* AAUDIO_CONTENT_TYPE_MOVIE */
+    ma_aaudio_content_type_music,                   /* AAUDIO_CONTENT_TYPE_MUSIC */
+    ma_aaudio_content_type_sonification,            /* AAUDIO_CONTENT_TYPE_SONIFICATION */
+    ma_aaudio_content_type_speech                   /* AAUDIO_CONTENT_TYPE_SPEECH */
+} ma_aaudio_content_type;
+
+/* AAudio input presets. */
+typedef enum
+{
+    ma_aaudio_input_preset_default = 0,             /* Leaves the input preset unset. */
+    ma_aaudio_input_preset_generic,                 /* AAUDIO_INPUT_PRESET_GENERIC */
+    ma_aaudio_input_preset_camcorder,               /* AAUDIO_INPUT_PRESET_CAMCORDER */
+    ma_aaudio_input_preset_unprocessed,             /* AAUDIO_INPUT_PRESET_UNPROCESSED */
+    ma_aaudio_input_preset_voice_recognition,       /* AAUDIO_INPUT_PRESET_VOICE_RECOGNITION */
+    ma_aaudio_input_preset_voice_communication,     /* AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION */
+    ma_aaudio_input_preset_voice_performance        /* AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE */
+} ma_aaudio_input_preset;
+
+
 typedef union
 {
     ma_int64 counter;
@@ -1683,14 +1783,28 @@ typedef union
     ma_int32 aaudio;                /* AAudio uses a 32-bit integer for identification. */
     ma_uint32 opensl;               /* OpenSL|ES uses a 32-bit unsigned integer for identification. */
     char webaudio[32];              /* Web Audio always uses default devices for now, but if this changes it'll be a GUID. */
+    union
+    {
+        int i;
+        char s[256];
+        void* p;
+    } custom;                       /* The custom backend could be anything. Give them a few options. */
     int nullbackend;                /* The null backend uses an integer for device IDs. */
 } ma_device_id;
+
+
+typedef struct ma_context_config    ma_context_config;
+typedef struct ma_device_config     ma_device_config;
+typedef struct ma_backend_callbacks ma_backend_callbacks;
+
+#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1);   /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
 typedef struct
 {
     /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
     char name[256];
+    ma_bool32 isDefault;
 
     /*
     Detailed info. As much of this is filled as possible with ma_context_get_device_info(). Note that you are allowed to initialize
@@ -1707,13 +1821,19 @@ typedef struct
     ma_uint32 minSampleRate;
     ma_uint32 maxSampleRate;
 
+
+    /* Experimental. Don't use these right now. */
+    ma_uint32 nativeDataFormatCount;
     struct
     {
-        ma_bool32 isDefault;
-    } _private;
+        ma_format format;       /* Sample format. If set to ma_format_unknown, all sample formats are supported. */
+        ma_uint32 channels;     /* If set to 0, all channels are supported. */
+        ma_uint32 sampleRate;   /* If set to 0, all sample rates are supported. */
+        ma_uint32 flags;        
+    } nativeDataFormats[64];
 } ma_device_info;
 
-typedef struct
+struct ma_device_config
 {
     ma_device_type deviceType;
     ma_uint32 sampleRate;
@@ -1774,9 +1894,146 @@ typedef struct
         const char* pStreamNamePlayback;
         const char* pStreamNameCapture;
     } pulse;
-} ma_device_config;
+    struct
+    {
+        ma_bool32 allowNominalSampleRateChange; /* Desktop only. When enabled, allows changing of the sample rate at the operating system level. */
+    } coreaudio;
+    struct
+    {
+        ma_opensl_stream_type streamType;
+        ma_opensl_recording_preset recordingPreset;
+    } opensl;
+    struct
+    {
+        ma_aaudio_usage usage;
+        ma_aaudio_content_type contentType;
+        ma_aaudio_input_preset inputPreset;
+    } aaudio;
+};
 
+
+/*
+The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
+
+
+Parameters
+----------
+pContext (in)
+    A pointer to the context performing the enumeration.
+
+deviceType (in)
+    The type of the device being enumerated. This will always be either `ma_device_type_playback` or `ma_device_type_capture`.
+
+pInfo (in)
+    A pointer to a `ma_device_info` containing the ID and name of the enumerated device. Note that this will not include detailed information about the device,
+    only basic information (ID and name). The reason for this is that it would otherwise require opening the backend device to probe for the information which
+    is too inefficient.
+
+pUserData (in)
+    The user data pointer passed into `ma_context_enumerate_devices()`.
+*/
+typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
+
+
+/*
+Describes some basic details about a playback or capture device.
+*/
 typedef struct
+{
+    const ma_device_id* pDeviceID;
+    ma_share_mode shareMode;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_channel channelMap[MA_MAX_CHANNELS];
+    ma_uint32 periodSizeInFrames;
+    ma_uint32 periodSizeInMilliseconds;
+    ma_uint32 periodCount;
+} ma_device_descriptor;
+
+/*
+These are the callbacks required to be implemented for a backend. These callbacks are grouped into two parts: context and device. There is one context
+to many devices. A device is created from a context.
+
+The general flow goes like this:
+
+  1) A context is created with `onContextInit()`
+     1a) Available devices can be enumerated with `onContextEnumerateDevices()` if required.
+     1b) Detailed information about a device can be queried with `onContextGetDeviceInfo()` if required.
+  2) A device is created from the context that was created in the first step using `onDeviceInit()`, and optionally a device ID that was
+     selected from device enumeration via `onContextEnumerateDevices()`.
+  3) A device is started or stopped with `onDeviceStart()` / `onDeviceStop()`
+  4) Data is delivered to and from the device by the backend. This is always done based on the native format returned by the prior call
+     to `onDeviceInit()`. Conversion between the device's native format and the format requested by the application will be handled by
+     miniaudio internally.
+
+Initialization of the context is quite simple. You need to do any necessary initialization of internal objects and then output the
+callbacks defined in this structure.
+
+Once the context has been initialized you can initialize a device. Before doing so, however, the application may want to know which
+physical devices are available. This is where `onContextEnumerateDevices()` comes in. This is fairly simple. For each device, fire the
+given callback with, at a minimum, the basic information filled out in `ma_device_info`. When the callback returns `MA_FALSE`, enumeration
+needs to stop and the `onContextEnumerateDevices()` function return with a success code.
+
+Detailed device information can be retrieved from a device ID using `onContextGetDeviceInfo()`. This takes as input the device type and ID,
+and on output returns detailed information about the device in `ma_device_info`. The `onContextGetDeviceInfo()` callback must handle the
+case when the device ID is NULL, in which case information about the default device needs to be retrieved.
+
+Once the context has been created and the device ID retrieved (if using anything other than the default device), the device can be created.
+This is a little bit more complicated than initialization of the context due to it's more complicated configuration. When initializing a
+device, a duplex device may be requested. This means a separate data format needs to be specified for both playback and capture. On input,
+the data format is set to what the application wants. On output it's set to the native format which should match as closely as possible to
+the requested format. The conversion between the format requested by the application and the device's native format will be handled
+internally by miniaudio.
+
+On input, if the sample format is set to `ma_format_unknown`, the backend is free to use whatever sample format it desires, so long as it's
+supported by miniaudio. When the channel count is set to 0, the backend should use the device's native channel count. The same applies for
+sample rate. For the channel map, the default should be used when `ma_channel_map_blank()` returns true (all channels set to
+`MA_CHANNEL_NONE`). On input, the `periodSizeInFrames` or `periodSizeInMilliseconds` option should always be set. The backend should
+inspect both of these variables. If `periodSizeInFrames` is set, it should take priority, otherwise it needs to be derived from the period
+size in milliseconds (`periodSizeInMilliseconds`) and the sample rate, keeping in mind that the sample rate may be 0, in which case the
+sample rate will need to be determined before calculating the period size in frames. On output, all members of the `ma_device_data_format`
+object should be set to a valid value, except for `periodSizeInMilliseconds` which is optional (`periodSizeInFrames` *must* be set).
+
+Starting and stopping of the device is done with `onDeviceStart()` and `onDeviceStop()` and should be self-explanatory. If the backend uses
+asynchronous reading and writing, `onDeviceStart()` is optional, so long as the device is automatically started in `onDeviceWrite()`.
+
+The handling of data delivery between the application and the device is the most complicated part of the process. To make this a bit
+easier, some helper callbacks are available. If the backend uses a blocking read/write style of API, the `onDeviceRead()` and
+`onDeviceWrite()` callbacks can optionally be implemented. These are blocking and work just like reading and writing from a file. If the
+backend uses a callback for data delivery, that callback must call `ma_device_handle_backend_data_callback()` from within it's callback.
+This allows miniaudio to then process any necessary data conversion and then pass it to the miniaudio data callback.
+
+If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceWorkerThread()` callback
+which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
+
+The audio thread follows this general flow:
+
+    1) Start the device before entering the main loop.
+    2) Run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been encounted.
+    3) Stop thd device after leaving the main loop.
+
+The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
+callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
+which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceAudioThread()` callback,
+look at `ma_device_audio_thread__default_read_write()`.
+*/
+struct ma_backend_callbacks
+{
+    ma_result (* onContextInit)(ma_context* pContext, ma_backend_callbacks* pCallbacks);
+    ma_result (* onContextUninit)(ma_context* pContext);
+    ma_result (* onContextEnumerateDevices)(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
+    ma_result (* onContextGetDeviceInfo)(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
+    ma_result (* onDeviceInit)(ma_device* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
+    ma_result (* onDeviceUninit)(ma_device* pDevice);
+    ma_result (* onDeviceStart)(ma_device* pDevice);
+    ma_result (* onDeviceStop)(ma_device* pDevice);
+    ma_result (* onDeviceRead)(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
+    ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
+    ma_result (* onDeviceAudioThread)(ma_device* pDevice);
+};
+
+struct ma_context_config
 {
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
@@ -1805,29 +2062,8 @@ typedef struct
         const char* pClientName;
         ma_bool32 tryStartServer;
     } jack;
-} ma_context_config;
-
-/*
-The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
-
-
-Parameters
-----------
-pContext (in)
-    A pointer to the context performing the enumeration.
-
-deviceType (in)
-    The type of the device being enumerated. This will always be either `ma_device_type_playback` or `ma_device_type_capture`.
-
-pInfo (in)
-    A pointer to a `ma_device_info` containing the ID and name of the enumerated device. Note that this will not include detailed information about the device,
-    only basic information (ID and name). The reason for this is that it would otherwise require opening the backend device to probe for the information which
-    is too inefficient.
-
-pUserData (in)
-    The user data pointer passed into `ma_context_enumerate_devices()`.
-*/
-typedef ma_bool32 (* ma_enum_devices_callback_proc)(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pInfo, void* pUserData);
+    ma_backend_callbacks custom;
+};
 
 struct ma_context
 {
@@ -1846,7 +2082,6 @@ struct ma_context
     ma_bool32 isBackendAsynchronous : 1;   /* Set when the context is initialized. Set to 1 for asynchronous backends such as Core Audio and JACK. Do not modify. */
 
     ma_result (* onUninit        )(ma_context* pContext);
-    ma_bool32 (* onDeviceIDEqual )(ma_context* pContext, const ma_device_id* pID0, const ma_device_id* pID1);
     ma_result (* onEnumDevices   )(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);    /* Return false from the callback to stop enumeration. */
     ma_result (* onGetDeviceInfo )(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
     ma_result (* onDeviceInit    )(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
@@ -1966,9 +2201,23 @@ struct ma_context
             ma_handle pulseSO;
             ma_proc pa_mainloop_new;
             ma_proc pa_mainloop_free;
+            ma_proc pa_mainloop_quit;
             ma_proc pa_mainloop_get_api;
             ma_proc pa_mainloop_iterate;
             ma_proc pa_mainloop_wakeup;
+            ma_proc pa_threaded_mainloop_new;
+            ma_proc pa_threaded_mainloop_free;
+            ma_proc pa_threaded_mainloop_start;
+            ma_proc pa_threaded_mainloop_stop;
+            ma_proc pa_threaded_mainloop_lock;
+            ma_proc pa_threaded_mainloop_unlock;
+            ma_proc pa_threaded_mainloop_wait;
+            ma_proc pa_threaded_mainloop_signal;
+            ma_proc pa_threaded_mainloop_accept;
+            ma_proc pa_threaded_mainloop_get_retval;
+            ma_proc pa_threaded_mainloop_get_api;
+            ma_proc pa_threaded_mainloop_in_thread;
+            ma_proc pa_threaded_mainloop_set_name;
             ma_proc pa_context_new;
             ma_proc pa_context_unref;
             ma_proc pa_context_connect;
@@ -2009,9 +2258,8 @@ struct ma_context
             ma_proc pa_stream_writable_size;
             ma_proc pa_stream_readable_size;
 
-            char* pApplicationName;
-            char* pServerName;
-            ma_bool32 tryAutoSpawn;
+            /*pa_threaded_mainloop**/ ma_ptr pMainLoop;
+            /*pa_context**/ ma_ptr pPulseContext;
         } pulse;
 #endif
 #ifdef MA_SUPPORT_JACK
@@ -2124,6 +2372,9 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setDataCallback;
             ma_proc AAudioStreamBuilder_setErrorCallback;
             ma_proc AAudioStreamBuilder_setPerformanceMode;
+            ma_proc AAudioStreamBuilder_setUsage;
+            ma_proc AAudioStreamBuilder_setContentType;
+            ma_proc AAudioStreamBuilder_setInputPreset;
             ma_proc AAudioStreamBuilder_openStream;
             ma_proc AAudioStream_close;
             ma_proc AAudioStream_getState;
@@ -2148,6 +2399,7 @@ struct ma_context
             ma_handle SL_IID_RECORD;
             ma_handle SL_IID_PLAY;
             ma_handle SL_IID_OUTPUTMIX;
+            ma_handle SL_IID_ANDROIDCONFIGURATION;
             ma_proc   slCreateEngine;
         } opensl;
 #endif
@@ -2156,6 +2408,9 @@ struct ma_context
         {
             int _unused;
         } webaudio;
+#endif
+#ifdef MA_SUPPORT_CUSTOM
+        ma_backend_callbacks custom;
 #endif
 #ifdef MA_SUPPORT_NULL
         struct
@@ -2235,6 +2490,7 @@ struct ma_device
     ma_bool32 noPreZeroedOutputBuffer : 1;
     ma_bool32 noClip                  : 1;
     volatile float masterVolumeFactor;      /* Volatile so we can use some thread safety when applying volume to periods. */
+    ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
         ma_resample_algorithm algorithm;
@@ -2358,19 +2614,9 @@ struct ma_device
 #ifdef MA_SUPPORT_PULSEAUDIO
         struct
         {
-            /*pa_mainloop**/ ma_ptr pMainLoop;
-            /*pa_mainloop_api**/ ma_ptr pAPI;
-            /*pa_context**/ ma_ptr pPulseContext;
             /*pa_stream**/ ma_ptr pStreamPlayback;
             /*pa_stream**/ ma_ptr pStreamCapture;
-            /*pa_context_state*/ ma_uint32 pulseContextState;
-            void* pMappedBufferPlayback;
-            const void* pMappedBufferCapture;
-            ma_uint32 mappedBufferFramesRemainingPlayback;
-            ma_uint32 mappedBufferFramesRemainingCapture;
-            ma_uint32 mappedBufferFramesCapacityPlayback;
-            ma_uint32 mappedBufferFramesCapacityCapture;
-            ma_bool32 breakFromMainLoop : 1;
+            ma_pcm_rb duplexRB;
         } pulse;
 #endif
 #ifdef MA_SUPPORT_JACK
@@ -2391,7 +2637,8 @@ struct ma_device
             ma_uint32 deviceObjectIDCapture;
             /*AudioUnit*/ ma_ptr audioUnitPlayback;
             /*AudioUnit*/ ma_ptr audioUnitCapture;
-            /*AudioBufferList**/ ma_ptr pAudioBufferList;  /* Only used for input devices. */
+            /*AudioBufferList**/ ma_ptr pAudioBufferList;   /* Only used for input devices. */
+            ma_uint32 audioBufferSizeInBytes;               /* Only used for input devices. The size in bytes of each buffer in pAudioBufferList. */
             ma_event stopEvent;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
@@ -2484,7 +2731,7 @@ struct ma_device
 };
 #if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(pop)
-#else
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic pop  /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
 #endif
 
@@ -2570,7 +2817,7 @@ The context can be configured via the `pConfig` argument. The config object is i
 can then be set directly on the structure. Below are the members of the `ma_context_config` object.
 
     logCallback
-        Callback for handling log messages from miniaudio. 
+        Callback for handling log messages from miniaudio.
 
     threadPriority
         The desired priority to use for the audio thread. Allowable values include the following:
@@ -3144,7 +3391,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         ma_share_mode_shared and reinitializing.
 
     wasapi.noAutoConvertSRC
-        WASAPI only. When set to true, disables WASAPI's automatic resampling and forces the use of miniaudio's resampler. Defaults to false. 
+        WASAPI only. When set to true, disables WASAPI's automatic resampling and forces the use of miniaudio's resampler. Defaults to false.
 
     wasapi.noDefaultQualitySRC
         WASAPI only. Only used when `wasapi.noAutoConvertSRC` is set to false. When set to true, disables the use of `AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY`.
@@ -3173,6 +3420,13 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     pulse.pStreamNameCapture
         PulseAudio only. Sets the stream name for capture.
+
+    coreaudio.allowNominalSampleRateChange
+        Core Audio only. Desktop only. When enabled, allows the sample rate of the device to be changed at the operating system level. This
+        is disabled by default in order to prevent intrusive changes to the user's system. This is useful if you want to use a sample rate
+        that is known to be natively supported by the hardware thereby avoiding the cost of resampling. When set to true, miniaudio will
+        find the closest match between the sample rate requested in the device config and the sample rates natively supported by the
+        hardware. When set to false, the sample rate currently set by the operating system will always be used.
 
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
@@ -3487,7 +3741,63 @@ See Also
 ma_device_start()
 ma_device_stop()
 */
-MA_API ma_bool32 ma_device_is_started(ma_device* pDevice);
+MA_API ma_bool32 ma_device_is_started(const ma_device* pDevice);
+
+
+/*
+Retrieves the state of the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose state is being retrieved.
+
+
+Return Value
+------------
+The current state of the device. The return value will be one of the following:
+
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_UNINITIALIZED | Will only be returned if the device is in the middle of initialization.      |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STOPPED       | The device is stopped. The initial state of the device after initialization. |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STARTED       | The device started and requesting and/or delivering audio data.              |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STARTING      | The device is in the process of starting.                                    |
+    +------------------------+------------------------------------------------------------------------------+
+    | MA_STATE_STOPPING      | The device is in the process of stopping.                                    |
+    +------------------------+------------------------------------------------------------------------------+
+
+
+Thread Safety
+-------------
+Safe. This is implemented as a simple accessor. Note that if the device is started or stopped at the same time as this function is called,
+there's a possibility the return value could be out of sync. See remarks.
+
+
+Callback Safety
+---------------
+Safe. This is implemented as a simple accessor.
+
+
+Remarks
+-------
+The general flow of a devices state goes like this:
+
+    ```
+    ma_device_init()  -> MA_STATE_UNINITIALIZED -> MA_STATE_STOPPED
+    ma_device_start() -> MA_STATE_STARTING      -> MA_STATE_STARTED
+    ma_device_stop()  -> MA_STATE_STOPPING      -> MA_STATE_STOPPED
+    ```
+
+When the state of the device is changed with `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, the
+value returned by this function could potentially be out of sync. If this is significant to your program you need to implement your own
+synchronization.
+*/
+MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice);
+
 
 /*
 Sets the master volume factor for the device.
@@ -3672,6 +3982,56 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
 
 
 /*
+Called from the data callback of asynchronous backends to allow miniaudio to process the data and fire the miniaudio data callback.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to device whose processing the data callback.
+
+pOutput (out)
+    A pointer to the buffer that will receive the output PCM frame data. On a playback device this must not be NULL. On a duplex device
+    this can be NULL, in which case pInput must not be NULL.
+
+pInput (in)
+    A pointer to the buffer containing input PCM frame data. On a capture device this must not be NULL. On a duplex device this can be
+    NULL, in which case `pOutput` must not be NULL.
+
+frameCount (in)
+    The number of frames being processed.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other result code otherwise.
+
+
+Thread Safety
+-------------
+This function should only ever be called from the internal data callback of the backend. It is safe to call this simultaneously between a
+playback and capture device in duplex setups.
+
+
+Callback Safety
+---------------
+Do not call this from the miniaudio data callback. It should only ever be called from the internal data callback of the backend.
+
+
+Remarks
+-------
+If both `pOutput` and `pInput` are NULL, and error will be returned. In duplex scenarios, both `pOutput` and `pInput` can be non-NULL, in
+which case `pInput` will be processed first, followed by `pOutput`.
+
+If you are implementing a custom backend, and that backend uses a callback for data delivery, you'll need to call this from inside that
+callback.
+*/
+MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+
+
+
+
+/*
 Retrieves a friendly name for a backend.
 */
 MA_API const char* ma_get_backend_name(ma_backend backend);
@@ -3687,14 +4047,14 @@ Retrieves compile-time enabled backends.
 
 Parameters
 ----------
-pBackends(out, optional)
+pBackends (out, optional)
     A pointer to the buffer that will receive the enabled backends. Set to NULL to retrieve the backend count. Setting
     the capacity of the buffer to `MA_BUFFER_COUNT` will guarantee it's large enough for all backends.
 
-backendCap(in)
+backendCap (in)
     The capacity of the `pBackends` buffer.
 
-pBackendCount(out)
+pBackendCount (out)
     A pointer to the variable that will receive the enabled backend count.
 
 
