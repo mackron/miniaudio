@@ -935,6 +935,18 @@ Disables NEON optimizations.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
+MA_NO_RUNTIME_LINKING
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables runtime linking. This is useful for passing Apple&#39;s notarization process. When enabling this, you may need to avoid
+using <span style="font-family:monospace;">-std=c89</span> or <span style="font-family:monospace;">-std=c99</span> on Linux builds or else you may end up with compilation errors due to conflicts with <span style="font-family:monospace;">timespec</span>
+and <span style="font-family:monospace;">timeval</span> data types.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
 MA_LOG_LEVEL [level]
 
 </p>

@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Custom Backend</h1><p>
+This example show how a custom backend can be implemented.
+</p>
+<p>
+
+This implements a full-featured SDL2 backend. It&#39;s intentionally built using the same paradigms as the built-in backends in order to make
+it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the build-in
+backends. It supports both runtime and compile-time linking and respects the MA_NO_RUNTIME_LINKING option. It also works on Emscripten
+which requires the <span style="font-family:monospace;">-s USE_SDL=2</span> option.
+</p>
+<p>
+
+There may be times where you want to support more than one custom backend. This example has been designed to make it easy to plug-in extra
+custom backends without needing to modify any of the base miniaudio initialization code. A custom context structure is declared called
+<span style="font-family:monospace;">ma_context_ex</span>. The first member of this structure is a <span style="font-family:monospace;">ma_context</span> object which allows it to be cast between the two. The same is done
+for devices, which is called <span style="font-family:monospace;">ma_device_ex</span>. In these structures there is a section for each custom backend, which in this example is just
+SDL. These are only enabled at compile time if <span style="font-family:monospace;">MA_SUPPORT_SDL</span> is defined, which it always is in this example (you may want to have some
+logic which more intelligently enables or disables SDL support).
+</p>
+<p>
+
+To use a custom backend, at a minimum you must set the <span style="font-family:monospace;">custom.onContextInit()</span> callback in the context config. You do not need to set the
+other callbacks, but if you don&#39;t, you must set them in the implementation of the <span style="font-family:monospace;">onContextInit()</span> callback which is done via an output
+parameter. This is the approach taken by this example because it&#39;s the simplest way to support multiple custom backends. The idea is that
+the <span style="font-family:monospace;">onContextInit()</span> callback is set to a generic &quot;loader&quot;, which then calls out to a backend-specific implementation which then sets the
+remaining callbacks if it is successfully initialized.
+</p>
+<p>
+
+Custom backends are identified with the <span style="font-family:monospace;">ma_backend_custom</span> backend type. For the purpose of demonstration, this example only uses the
+<span style="font-family:monospace;">ma_backend_custom</span> backend type because otherwise the built-in backends would always get chosen first and none of the code for the custom
+backends would actually get hit. By default, the <span style="font-family:monospace;">ma_backend_custom</span> backend is the lowest priority backend, except for <span style="font-family:monospace;">ma_backend_null</span>.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;emscripten.h&gt;</span>
+
+<span style="color:#0033ff">void</span> main_loop__em()
+{
+}
+<span style="color:#666666">#endif</span>
+
+<span style="color:#009900">/* Support SDL on everything. */</span>
+<span style="color:#666666">#define</span> MA_SUPPORT_SDL
+
+<span style="color:#009900">/* Only enable SDL if it&#39;s hasn&#39;t been explicitly disabled (MA_NO_SDL) and it&#39;s supported at compile time (MA_SUPPORT_SDL). */</span>
+<span style="color:#666666">#if</span> !defined(MA_NO_SDL) &amp;&amp; defined(MA_SUPPORT_SDL)
+    <span style="color:#666666">#define</span> MA_ENABLE_SDL
+<span style="color:#666666">#endif</span>
+
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
+{
+    <span style="color:#0099cc">ma_context</span> context; <span style="color:#009900">/* Make this the first member so we can cast between ma_context and ma_context_ex. */</span>
+<span style="color:#666666">#if</span> defined(MA_SUPPORT_SDL)
+    <span style="color:#0033ff">struct</span>
+    {
+        ma_handle hSDL; <span style="color:#009900">/* A handle to the SDL2 shared object. We dynamically load function pointers at runtime so we can avoid linking. */</span>
+        ma_proc SDL_InitSubSystem;
+        ma_proc SDL_QuitSubSystem;
+        ma_proc SDL_GetNumAudioDevices;
+        ma_proc SDL_GetAudioDeviceName;
+        ma_proc SDL_CloseAudioDevice;
+        ma_proc SDL_OpenAudioDevice;
+        ma_proc SDL_PauseAudioDevice;
+    } sdl;
+<span style="color:#666666">#endif</span>
+} ma_context_ex;
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
+{
+    <span style="color:#0099cc">ma_device</span> device;   <span style="color:#009900">/* Make this the first member so we can cast between ma_device and ma_device_ex. */</span>
+<span style="color:#666666">#if</span> defined(MA_SUPPORT_SDL)
+    <span style="color:#0033ff">struct</span>
+    {
+        <span style="color:#0033ff">int</span> deviceIDPlayback;
+        <span style="color:#0033ff">int</span> deviceIDCapture;
+    } sdl;
+<span style="color:#666666">#endif</span>
+} ma_device_ex;
+
+
+
+<span style="color:#666666">#if</span> defined(MA_ENABLE_SDL)
+    <span style="color:#666666">#define</span> MA_HAS_SDL
+
+    <span style="color:#009900">/* SDL headers are necessary if using compile-time linking. */</span>
+    <span style="color:#666666">#ifdef</span> MA_NO_RUNTIME_LINKING
+        <span style="color:#666666">#ifdef</span> __has_include
+            <span style="color:#666666">#ifdef</span> MA_EMSCRIPTEN
+                <span style="color:#666666">#if</span> !__has_include(&lt;SDL/SDL_audio.h&gt;)
+                    <span style="color:#666666">#undef</span> MA_HAS_SDL
+                <span style="color:#666666">#endif</span>
+            <span style="color:#666666">#else</span>
+                <span style="color:#666666">#if</span> !__has_include(&lt;SDL2/SDL_audio.h&gt;)
+                    <span style="color:#666666">#undef</span> MA_HAS_SDL
+                <span style="color:#666666">#endif</span>
+            <span style="color:#666666">#endif</span>
+        <span style="color:#666666">#endif</span>
+    <span style="color:#666666">#endif</span>
+<span style="color:#666666">#endif</span>
+
+
+<span style="color:#666666">#if</span> defined(MA_HAS_SDL)
+<span style="color:#666666">#define</span> MA_SDL_INIT_AUDIO                       0x00000010
+<span style="color:#666666">#define</span> MA_AUDIO_U8                             0x0008
+<span style="color:#666666">#define</span> MA_AUDIO_S16                            0x8010
+<span style="color:#666666">#define</span> MA_AUDIO_S32                            0x8020
+<span style="color:#666666">#define</span> MA_AUDIO_F32                            0x8120
+<span style="color:#666666">#define</span> MA_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE     0x00000001
+<span style="color:#666666">#define</span> MA_SDL_AUDIO_ALLOW_FORMAT_CHANGE        0x00000002
+<span style="color:#666666">#define</span> MA_SDL_AUDIO_ALLOW_CHANNELS_CHANGE      0x00000004
+<span style="color:#666666">#define</span> MA_SDL_AUDIO_ALLOW_ANY_CHANGE           (MA_SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | MA_SDL_AUDIO_ALLOW_FORMAT_CHANGE | MA_SDL_AUDIO_ALLOW_CHANNELS_CHANGE)
+
+<span style="color:#009900">/* If we are linking at compile time we&#39;ll just #include SDL.h. Otherwise we can just redeclare some stuff to avoid the need for development packages to be installed. */</span>
+<span style="color:#666666">#ifdef</span> MA_NO_RUNTIME_LINKING
+    <span style="color:#666666">#define</span> SDL_MAIN_HANDLED
+    <span style="color:#666666">#ifdef</span> MA_EMSCRIPTEN
+        <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;SDL/SDL.h&gt;</span>
+    <span style="color:#666666">#else</span>
+        <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;SDL2/SDL.h&gt;</span>
+    <span style="color:#666666">#endif</span>
+
+    <span style="color:#0033ff">typedef</span> SDL_AudioCallback   MA_SDL_AudioCallback;
+    <span style="color:#0033ff">typedef</span> SDL_AudioSpec       MA_SDL_AudioSpec;
+    <span style="color:#0033ff">typedef</span> SDL_AudioFormat     MA_SDL_AudioFormat;
+    <span style="color:#0033ff">typedef</span> SDL_AudioDeviceID   MA_SDL_AudioDeviceID;
+<span style="color:#666666">#else</span>
+    <span style="color:#0033ff">typedef</span> <span style="color:#0033ff">void</span> (* MA_SDL_AudioCallback)(<span style="color:#0033ff">void</span>* userdata, <span style="color:#0099cc">ma_uint8</span>* stream, <span style="color:#0033ff">int</span> len);
+    <span style="color:#0033ff">typedef</span> <span style="color:#0099cc">ma_uint16</span> MA_SDL_AudioFormat;
+    <span style="color:#0033ff">typedef</span> <span style="color:#0099cc">ma_uint32</span> MA_SDL_AudioDeviceID;
+
+    <span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span> MA_SDL_AudioSpec
+    {
+        <span style="color:#0033ff">int</span> freq;
+        MA_SDL_AudioFormat format;
+        <span style="color:#0099cc">ma_uint8</span> channels;
+        <span style="color:#0099cc">ma_uint8</span> silence;
+        <span style="color:#0099cc">ma_uint16</span> samples;
+        <span style="color:#0099cc">ma_uint16</span> padding;
+        <span style="color:#0099cc">ma_uint32</span> <span style="color:#0033ff">size</span>;
+        MA_SDL_AudioCallback callback;
+        <span style="color:#0033ff">void</span>* userdata;
+    } MA_SDL_AudioSpec;
+<span style="color:#666666">#endif</span>
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">int</span>                  (* MA_PFN_SDL_InitSubSystem)(<span style="color:#0099cc">ma_uint32</span> flags);
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">void</span>                 (* MA_PFN_SDL_QuitSubSystem)(<span style="color:#0099cc">ma_uint32</span> flags);
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">int</span>                  (* MA_PFN_SDL_GetNumAudioDevices)(<span style="color:#0033ff">int</span> iscapture);
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>*          (* MA_PFN_SDL_GetAudioDeviceName)(<span style="color:#0033ff">int</span> index, <span style="color:#0033ff">int</span> iscapture);
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">void</span>                 (* MA_PFN_SDL_CloseAudioDevice)(MA_SDL_AudioDeviceID dev);
+<span style="color:#0033ff">typedef</span> MA_SDL_AudioDeviceID (* MA_PFN_SDL_OpenAudioDevice)(<span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* device, <span style="color:#0033ff">int</span> iscapture, <span style="color:#0033ff">const</span> MA_SDL_AudioSpec* desired, MA_SDL_AudioSpec* obtained, <span style="color:#0033ff">int</span> allowed_changes);
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">void</span>                 (* MA_PFN_SDL_PauseAudioDevice)(MA_SDL_AudioDeviceID dev, <span style="color:#0033ff">int</span> pause_on);
+
+MA_SDL_AudioFormat ma_format_to_sdl(ma_format format)
+{
+    <span style="color:#0033ff">switch</span> (format)
+    {
+    <span style="color:#0033ff">case</span> ma_format_unknown: <span style="color:#0033ff">return</span> 0;
+    <span style="color:#0033ff">case</span> ma_format_u8:      <span style="color:#0033ff">return</span> MA_AUDIO_U8;
+    <span style="color:#0033ff">case</span> ma_format_s16:     <span style="color:#0033ff">return</span> MA_AUDIO_S16;
+    <span style="color:#0033ff">case</span> ma_format_s24:     <span style="color:#0033ff">return</span> MA_AUDIO_S32;  <span style="color:#009900">/* Closest match. */</span>
+    <span style="color:#0033ff">case</span> ma_format_s32:     <span style="color:#0033ff">return</span> MA_AUDIO_S32;
+    <span style="color:#0033ff">case</span> ma_format_f32:     <span style="color:#0033ff">return</span> MA_AUDIO_F32;
+    <span style="color:#0033ff">default</span>:                <span style="color:#0033ff">return</span> 0;
+    }
+}
+
+ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
+{
+    <span style="color:#0033ff">switch</span> (format)
+    {
+        <span style="color:#0033ff">case</span> MA_AUDIO_U8:  <span style="color:#0033ff">return</span> ma_format_u8;
+        <span style="color:#0033ff">case</span> MA_AUDIO_S16: <span style="color:#0033ff">return</span> ma_format_s16;
+        <span style="color:#0033ff">case</span> MA_AUDIO_S32: <span style="color:#0033ff">return</span> ma_format_s32;
+        <span style="color:#0033ff">case</span> MA_AUDIO_F32: <span style="color:#0033ff">return</span> ma_format_f32;
+        <span style="color:#0033ff">default</span>:           <span style="color:#0033ff">return</span> ma_format_unknown;
+    }
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_enumerate_devices__sdl(<span style="color:#0099cc">ma_context</span>* pContext, ma_enum_devices_callback_proc callback, <span style="color:#0033ff">void</span>* pUserData)
+{
+    ma_context_ex* pContextEx = (ma_context_ex*)pContext;
+    <span style="color:#0099cc">ma_bool32</span> isTerminated = MA_FALSE;
+    <span style="color:#0099cc">ma_bool32</span> cbResult;
+    <span style="color:#0033ff">int</span> iDevice;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(callback != NULL);
+
+    <span style="color:#009900">/* Playback */</span>
+    <span style="color:#0033ff">if</span> (!isTerminated) {
+        <span style="color:#0033ff">int</span> deviceCount = ((MA_PFN_SDL_GetNumAudioDevices)pContextEx-&gt;sdl.SDL_GetNumAudioDevices)(0);
+        <span style="color:#0033ff">for</span> (iDevice = 0; iDevice &lt; deviceCount; ++iDevice) {
+            <span style="color:#0099cc">ma_device_info</span> deviceInfo;
+            MA_ZERO_OBJECT(&amp;deviceInfo);
+
+            deviceInfo.id.custom.<span style="color:#0033ff">i</span> = iDevice;
+            ma_strncpy_s(deviceInfo.name, <span style="color:#0033ff">sizeof</span>(deviceInfo.name), ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(iDevice, 0), (size_t)-1);
+
+            <span style="color:#0033ff">if</span> (iDevice == 0) {
+                deviceInfo.isDefault = MA_TRUE;
+            }
+
+            cbResult = callback(pContext, ma_device_type_playback, &amp;deviceInfo, pUserData);
+            <span style="color:#0033ff">if</span> (cbResult == MA_FALSE) {
+                isTerminated = MA_TRUE;
+                <span style="color:#0033ff">break</span>;
+            }
+        }
+    }
+
+    <span style="color:#009900">/* Capture */</span>
+    <span style="color:#0033ff">if</span> (!isTerminated) {
+        <span style="color:#0033ff">int</span> deviceCount = ((MA_PFN_SDL_GetNumAudioDevices)pContextEx-&gt;sdl.SDL_GetNumAudioDevices)(1);
+        <span style="color:#0033ff">for</span> (iDevice = 0; iDevice &lt; deviceCount; ++iDevice) {
+            <span style="color:#0099cc">ma_device_info</span> deviceInfo;
+            MA_ZERO_OBJECT(&amp;deviceInfo);
+
+            deviceInfo.id.custom.<span style="color:#0033ff">i</span> = iDevice;
+            ma_strncpy_s(deviceInfo.name, <span style="color:#0033ff">sizeof</span>(deviceInfo.name), ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(iDevice, 1), (size_t)-1);
+
+            <span style="color:#0033ff">if</span> (iDevice == 0) {
+                deviceInfo.isDefault = MA_TRUE;
+            }
+
+            cbResult = callback(pContext, ma_device_type_capture, &amp;deviceInfo, pUserData);
+            <span style="color:#0033ff">if</span> (cbResult == MA_FALSE) {
+                isTerminated = MA_TRUE;
+                <span style="color:#0033ff">break</span>;
+            }
+        }
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_get_device_info__sdl(<span style="color:#0099cc">ma_context</span>* pContext, ma_device_type deviceType, <span style="color:#0033ff">const</span> ma_device_id* pDeviceID, <span style="color:#0099cc">ma_device_info</span>* pDeviceInfo)
+{
+    ma_context_ex* pContextEx = (ma_context_ex*)pContext;
+
+<span style="color:#666666">#if</span> !defined(__EMSCRIPTEN__)
+    MA_SDL_AudioSpec desiredSpec;
+    MA_SDL_AudioSpec obtainedSpec;
+    MA_SDL_AudioDeviceID tempDeviceID;
+    <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pDeviceName;
+<span style="color:#666666">#endif</span>
+
+    MA_ASSERT(pContext != NULL);
+
+    <span style="color:#0033ff">if</span> (pDeviceID == NULL) {
+        <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback) {
+            pDeviceInfo-&gt;id.custom.<span style="color:#0033ff">i</span> = 0;
+            ma_strncpy_s(pDeviceInfo-&gt;name, <span style="color:#0033ff">sizeof</span>(pDeviceInfo-&gt;name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+        } <span style="color:#0033ff">else</span> {
+            pDeviceInfo-&gt;id.custom.<span style="color:#0033ff">i</span> = 0;
+            ma_strncpy_s(pDeviceInfo-&gt;name, <span style="color:#0033ff">sizeof</span>(pDeviceInfo-&gt;name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+        }
+    } <span style="color:#0033ff">else</span> {
+        pDeviceInfo-&gt;id.custom.<span style="color:#0033ff">i</span> = pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>;
+        ma_strncpy_s(pDeviceInfo-&gt;name, <span style="color:#0033ff">sizeof</span>(pDeviceInfo-&gt;name), ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>, (deviceType == ma_device_type_playback) ? 0 : 1), (size_t)-1);
+    }
+
+    <span style="color:#0033ff">if</span> (pDeviceInfo-&gt;id.custom.<span style="color:#0033ff">i</span> == 0) {
+        pDeviceInfo-&gt;isDefault = MA_TRUE;
+    }
+
+    <span style="color:#009900">/*
+    To get an accurate idea on the backend&#39;s native format we need to open the device. Not ideal, but it&#39;s the only way. An
+    alternative to this is to report all channel counts, sample rates and formats, but that doesn&#39;t offer a good representation
+    of the device&#39;s _actual_ ideal format.
+    
+    Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
+    desiredSpec will be used by SDL since it uses it just does it&#39;s own format conversion internally. Therefore, from what
+    I can tell, there&#39;s no real way to know the device&#39;s actual format which means I&#39;m just going to fall back to the full
+    range of channels and sample rates on Emscripten builds.
+    */</span>
+<span style="color:#666666">#if</span> defined(__EMSCRIPTEN__)
+    <span style="color:#009900">/* Good practice to prioritize the best format first so that the application can use the first data format as their chosen one if desired. */</span>
+    pDeviceInfo-&gt;nativeDataFormatCount = 3;
+    pDeviceInfo-&gt;nativeDataFormats[0].format     = ma_format_s16;
+    pDeviceInfo-&gt;nativeDataFormats[0].channels   = 0;   <span style="color:#009900">/* All channel counts supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[0].sampleRate = 0;   <span style="color:#009900">/* All sample rates supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[0].flags      = 0;
+    pDeviceInfo-&gt;nativeDataFormats[1].format     = ma_format_s32;
+    pDeviceInfo-&gt;nativeDataFormats[1].channels   = 0;   <span style="color:#009900">/* All channel counts supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[1].sampleRate = 0;   <span style="color:#009900">/* All sample rates supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[1].flags      = 0;
+    pDeviceInfo-&gt;nativeDataFormats[2].format     = ma_format_u8;
+    pDeviceInfo-&gt;nativeDataFormats[2].channels   = 0;   <span style="color:#009900">/* All channel counts supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[2].sampleRate = 0;   <span style="color:#009900">/* All sample rates supported. */</span>
+    pDeviceInfo-&gt;nativeDataFormats[2].flags      = 0;
+<span style="color:#666666">#else</span>
+    MA_ZERO_MEMORY(&amp;desiredSpec, <span style="color:#0033ff">sizeof</span>(desiredSpec));
+
+    pDeviceName = NULL;
+    <span style="color:#0033ff">if</span> (pDeviceID != NULL) {
+        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>, (deviceType == ma_device_type_playback) ? 0 : 1);
+    }
+
+    tempDeviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
+    <span style="color:#0033ff">if</span> (tempDeviceID == 0) {
+        <span style="color:#0033ff">return</span> ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL device.&quot;</span>, MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(tempDeviceID);
+
+    <span style="color:#009900">/* Only reporting a single native data format. It&#39;ll be whatever SDL decides is the best. */</span>
+    pDeviceInfo-&gt;nativeDataFormatCount = 1;
+    pDeviceInfo-&gt;nativeDataFormats[0].format     = ma_format_from_sdl(obtainedSpec.format);
+    pDeviceInfo-&gt;nativeDataFormats[0].channels   = obtainedSpec.channels;
+    pDeviceInfo-&gt;nativeDataFormats[0].sampleRate = obtainedSpec.freq;
+    pDeviceInfo-&gt;nativeDataFormats[0].flags      = 0;
+
+    <span style="color:#009900">/* If miniaudio does not support the format, just use f32 as the native format (SDL will do the necessary conversions for us). */</span>
+    <span style="color:#0033ff">if</span> (pDeviceInfo-&gt;nativeDataFormats[0].format == ma_format_unknown) {
+        pDeviceInfo-&gt;nativeDataFormats[0].format = ma_format_f32;
+    }
+<span style="color:#666666">#endif</span>  <span style="color:#009900">/* __EMSCRIPTEN__ */</span>
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+
+<span style="color:#0033ff">void</span> ma_audio_callback_capture__sdl(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_uint8</span>* pBuffer, <span style="color:#0033ff">int</span> bufferSizeInBytes)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
+
+    MA_ASSERT(pDeviceEx != NULL);
+
+    ma_device_handle_backend_data_callback((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, NULL, pBuffer, (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx-&gt;device.capture.internalFormat, pDeviceEx-&gt;device.capture.internalChannels));
+}
+
+<span style="color:#0033ff">void</span> ma_audio_callback_playback__sdl(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_uint8</span>* pBuffer, <span style="color:#0033ff">int</span> bufferSizeInBytes)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
+
+    MA_ASSERT(pDeviceEx != NULL);
+
+    ma_device_handle_backend_data_callback((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, pBuffer, NULL, (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx-&gt;device.capture.internalFormat, pDeviceEx-&gt;device.capture.internalChannels));
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+{
+    ma_context_ex* pContextEx = (ma_context_ex*)pDeviceEx-&gt;device.pContext;
+    MA_SDL_AudioSpec desiredSpec;
+    MA_SDL_AudioSpec obtainedSpec;
+    <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pDeviceName;
+    <span style="color:#0033ff">int</span> deviceID;
+
+    MA_ASSERT(pDeviceEx  != NULL);
+    MA_ASSERT(pDescriptor != NULL);
+
+    <span style="color:#009900">/*
+    SDL is a little bit awkward with specifying the buffer size, You need to specify the size of the buffer in frames, but since we may
+    have requested a period size in milliseconds we&#39;ll need to convert, which depends on the sample rate. But there&#39;s a possibility that
+    the sample rate just set to 0, which indicates that the native sample rate should be used. There&#39;s no practical way to calculate this
+    that I can think of right now so I&#39;m just using MA_DEFAULT_SAMPLE_RATE.
+    */</span>
+    <span style="color:#0033ff">if</span> (pDescriptor-&gt;sampleRate == 0) {
+        pDescriptor-&gt;sampleRate = MA_DEFAULT_SAMPLE_RATE;
+    }
+
+    <span style="color:#0033ff">if</span> (pDescriptor-&gt;periodSizeInFrames == 0) {
+        pDescriptor-&gt;periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor-&gt;periodSizeInMilliseconds, pDescriptor-&gt;sampleRate);
+    }
+
+    <span style="color:#009900">/* SDL wants the buffer size to be a power of 2 for some reason. */</span>
+    <span style="color:#0033ff">if</span> (pDescriptor-&gt;periodSizeInFrames &gt; 32768) {
+        pDescriptor-&gt;periodSizeInFrames = 32768;
+    } <span style="color:#0033ff">else</span> {
+        pDescriptor-&gt;periodSizeInFrames = ma_next_power_of_2(pDescriptor-&gt;periodSizeInFrames);
+    }
+
+
+    <span style="color:#009900">/* We now have enough information to set up the device. */</span>
+    MA_ZERO_OBJECT(&amp;desiredSpec);
+    desiredSpec.freq     = (<span style="color:#0033ff">int</span>)pDescriptor-&gt;sampleRate;
+    desiredSpec.format   = ma_format_to_sdl(pDescriptor-&gt;format);
+    desiredSpec.channels = (<span style="color:#0099cc">ma_uint8</span>)pDescriptor-&gt;channels;
+    desiredSpec.samples  = (<span style="color:#0099cc">ma_uint16</span>)pDescriptor-&gt;periodSizeInFrames;
+    desiredSpec.callback = (deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
+    desiredSpec.userdata = pDeviceEx;
+
+    <span style="color:#009900">/* We&#39;ll fall back to f32 if we don&#39;t have an appropriate mapping between SDL and miniaudio. */</span>
+    <span style="color:#0033ff">if</span> (desiredSpec.format == 0) {
+        desiredSpec.format = MA_AUDIO_F32;
+    }
+
+    pDeviceName = NULL;
+    <span style="color:#0033ff">if</span> (pDescriptor-&gt;pDeviceID != NULL) {
+        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(pDescriptor-&gt;pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>, (deviceType == ma_device_type_playback) ? 0 : 1);
+    }
+
+    deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
+    <span style="color:#0033ff">if</span> (deviceID == 0) {
+        <span style="color:#0033ff">return</span> ma_post_error((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL2 device.&quot;</span>, MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+    }
+
+    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback) {
+        pDeviceEx-&gt;sdl.deviceIDPlayback = deviceID;
+    } <span style="color:#0033ff">else</span> {
+        pDeviceEx-&gt;sdl.deviceIDCapture = deviceID;
+    }
+
+    <span style="color:#009900">/* The descriptor needs to be updated with our actual settings. */</span>
+    pDescriptor-&gt;format             = ma_format_from_sdl(obtainedSpec.format);
+    pDescriptor-&gt;channels           = obtainedSpec.channels;
+    pDescriptor-&gt;sampleRate         = (<span style="color:#0099cc">ma_uint32</span>)obtainedSpec.freq;
+    ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptor-&gt;channels, pDescriptor-&gt;channelMap);
+    pDescriptor-&gt;periodSizeInFrames = obtainedSpec.samples;
+    pDescriptor-&gt;periodCount        = 1;    <span style="color:#009900">/* SDL doesn&#39;t use the notion of period counts, so just set to 1. */</span>
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init__sdl(<span style="color:#0099cc">ma_device</span>* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
+    ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
+    <span style="color:#0099cc">ma_result</span> result;
+
+    MA_ASSERT(pDevice != NULL);
+    
+    <span style="color:#009900">/* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it&#39;s requested. */</span>
+    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_loopback) {
+        <span style="color:#0033ff">return</span> MA_DEVICE_TYPE_NOT_SUPPORTED;
+    }
+
+    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_capture, pDescriptorCapture);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">return</span> result;
+        }
+    }
+
+    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_playback, pDescriptorPlayback);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">if</span> (deviceType == ma_device_type_duplex) {
+                ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture);
+            }
+
+            <span style="color:#0033ff">return</span> result;
+        }
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_uninit__sdl(<span style="color:#0099cc">ma_device</span>* pDevice)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
+    ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
+
+    MA_ASSERT(pDevice != NULL);
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture);
+    }
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_playback || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture);
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_start__sdl(<span style="color:#0099cc">ma_device</span>* pDevice)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
+    ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
+
+    MA_ASSERT(pDevice != NULL);
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture, 0);
+    }
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_playback || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDPlayback, 0);
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_stop__sdl(<span style="color:#0099cc">ma_device</span>* pDevice)
+{
+    ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
+    ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
+
+    MA_ASSERT(pDevice != NULL);
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture, 1);
+    }
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_playback || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDPlayback, 1);
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_uninit__sdl(<span style="color:#0099cc">ma_context</span>* pContext)
+{
+    ma_context_ex* pContextEx = (ma_context_ex*)pContext;
+
+    MA_ASSERT(pContext != NULL);
+
+    ((MA_PFN_SDL_QuitSubSystem)pContextEx-&gt;sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
+
+    <span style="color:#009900">/* Close the handle to the SDL shared object last. */</span>
+    ma_dlclose(pContext, pContextEx-&gt;sdl.hSDL);
+    pContextEx-&gt;sdl.hSDL = NULL;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__sdl(<span style="color:#0099cc">ma_context</span>* pContext, ma_backend_callbacks* pCallbacks)
+{
+    ma_context_ex* pContextEx = (ma_context_ex*)pContext;
+    <span style="color:#0033ff">int</span> resultSDL;
+    
+<span style="color:#666666">#ifndef</span> MA_NO_RUNTIME_LINKING
+    <span style="color:#009900">/* We&#39;ll use a list of possible shared object names for easier extensibility. */</span>
+    size_t iName;
+    <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pSDLNames[] = {
+<span style="color:#666666">#if</span> defined(_WIN32)
+        <span style="color:#cc3300">&quot;SDL2.dll&quot;</span>
+<span style="color:#666666">#elif</span> defined(__APPLE__)
+        <span style="color:#cc3300">&quot;SDL2.framework/SDL2&quot;</span>
+<span style="color:#666666">#else</span>
+        <span style="color:#cc3300">&quot;libSDL2-2.0.so.0&quot;</span>
+<span style="color:#666666">#endif</span>
+    };
+
+    MA_ASSERT(pContext != NULL);
+
+    <span style="color:#009900">/* Check if we have SDL2 installed somewhere. If not it&#39;s not usable and we need to abort. */</span>
+    <span style="color:#0033ff">for</span> (iName = 0; iName &lt; ma_countof(pSDLNames); iName += 1) {
+        pContextEx-&gt;sdl.hSDL = ma_dlopen(pContext, pSDLNames[iName]);
+        <span style="color:#0033ff">if</span> (pContextEx-&gt;sdl.hSDL != NULL) {
+            <span style="color:#0033ff">break</span>;
+        }
+    }
+
+    <span style="color:#0033ff">if</span> (pContextEx-&gt;sdl.hSDL == NULL) {
+        <span style="color:#0033ff">return</span> MA_NO_BACKEND;   <span style="color:#009900">/* SDL2 could not be loaded. */</span>
+    }
+
+    <span style="color:#009900">/* Now that we have the handle to the shared object we can go ahead and load some function pointers. */</span>
+    pContextEx-&gt;sdl.SDL_InitSubSystem      = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_InitSubSystem&quot;</span>);
+    pContextEx-&gt;sdl.SDL_QuitSubSystem      = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_QuitSubSystem&quot;</span>);
+    pContextEx-&gt;sdl.SDL_GetNumAudioDevices = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetNumAudioDevices&quot;</span>);
+    pContextEx-&gt;sdl.SDL_GetAudioDeviceName = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetAudioDeviceName&quot;</span>);
+    pContextEx-&gt;sdl.SDL_CloseAudioDevice   = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_CloseAudioDevice&quot;</span>);
+    pContextEx-&gt;sdl.SDL_OpenAudioDevice    = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_OpenAudioDevice&quot;</span>);
+    pContextEx-&gt;sdl.SDL_PauseAudioDevice   = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_PauseAudioDevice&quot;</span>);
+<span style="color:#666666">#else</span>
+    pContextEx-&gt;sdl.SDL_InitSubSystem      = (ma_proc)SDL_InitSubSystem;
+    pContextEx-&gt;sdl.SDL_QuitSubSystem      = (ma_proc)SDL_QuitSubSystem;
+    pContextEx-&gt;sdl.SDL_GetNumAudioDevices = (ma_proc)SDL_GetNumAudioDevices;
+    pContextEx-&gt;sdl.SDL_GetAudioDeviceName = (ma_proc)SDL_GetAudioDeviceName;
+    pContextEx-&gt;sdl.SDL_CloseAudioDevice   = (ma_proc)SDL_CloseAudioDevice;
+    pContextEx-&gt;sdl.SDL_OpenAudioDevice    = (ma_proc)SDL_OpenAudioDevice;
+    pContextEx-&gt;sdl.SDL_PauseAudioDevice   = (ma_proc)SDL_PauseAudioDevice;
+<span style="color:#666666">#endif</span>  <span style="color:#009900">/* MA_NO_RUNTIME_LINKING */</span>
+
+    resultSDL = ((MA_PFN_SDL_InitSubSystem)pContextEx-&gt;sdl.SDL_InitSubSystem)(MA_SDL_INIT_AUDIO);
+    <span style="color:#0033ff">if</span> (resultSDL != 0) {
+        ma_dlclose(pContext, pContextEx-&gt;sdl.hSDL);
+        <span style="color:#0033ff">return</span> MA_ERROR;
+    }
+
+    <span style="color:#009900">/*
+    The last step is to make sure the callbacks are set properly in <span style="font-family:monospace;">pCallbacks</span>. Internally, miniaudio will copy these callbacks into the
+    context object and then use them for then on for calling into our custom backend.
+    */</span>
+    pCallbacks-&gt;onContextInit             = ma_context_init__sdl;
+    pCallbacks-&gt;onContextUninit           = ma_context_uninit__sdl;
+    pCallbacks-&gt;onContextEnumerateDevices = ma_context_enumerate_devices__sdl;
+    pCallbacks-&gt;onContextGetDeviceInfo    = ma_context_get_device_info__sdl;
+    pCallbacks-&gt;onDeviceInit              = ma_device_init__sdl;
+    pCallbacks-&gt;onDeviceUninit            = ma_device_uninit__sdl;
+    pCallbacks-&gt;onDeviceStart             = ma_device_start__sdl;
+    pCallbacks-&gt;onDeviceStop              = ma_device_stop__sdl;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+<span style="color:#666666">#endif</span>  <span style="color:#009900">/* MA_HAS_SDL */</span>
+
+
+<span style="color:#009900">/*
+This is our custom backend &quot;loader&quot;. All this does is attempts to initialize our custom backends in the order they are listed. The first
+one to successfully initialize is the one that&#39;s chosen. In this example we&#39;re just listing them statically, but you can use whatever logic
+you want to handle backend selection.
+
+This is used as the onContextInit() callback in the context config.
+*/</span>
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__custom_loader(<span style="color:#0099cc">ma_context</span>* pContext, ma_backend_callbacks* pCallbacks)
+{
+    <span style="color:#0099cc">ma_result</span> result = MA_NO_BACKEND;
+
+    <span style="color:#009900">/* Silence some unused parameter warnings just in case no custom backends are enabled. */</span>
+    (<span style="color:#0033ff">void</span>)pContext;
+    (<span style="color:#0033ff">void</span>)pCallbacks;
+
+    <span style="color:#009900">/* SDL. */</span>
+<span style="color:#666666">#if</span> !defined(MA_NO_SDL)
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        result = ma_context_init__sdl(pContext, pCallbacks);
+    }
+<span style="color:#666666">#endif</span>
+
+    <span style="color:#009900">/* ... plug in any other custom backends here ... */</span>
+
+    <span style="color:#009900">/* If we have a success result we have initialized a backend. Otherwise we need to tell miniaudio about the error so it can skip over our custom backends. */</span>
+    <span style="color:#0033ff">return</span> result;
+}
+
+
+<span style="color:#009900">/*
+Main program starts here.
+*/</span>
+<span style="color:#666666">#define</span> DEVICE_FORMAT       ma_format_f32
+<span style="color:#666666">#define</span> DEVICE_CHANNELS     2
+<span style="color:#666666">#define</span> DEVICE_SAMPLE_RATE  48000
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
+{
+    MA_ASSERT(pDevice-&gt;playback.channels == DEVICE_CHANNELS);
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_playback)  {
+        <span style="color:#0099cc">ma_waveform</span>* pSineWave;
+
+        pSineWave = (<span style="color:#0099cc">ma_waveform</span>*)pDevice-&gt;pUserData;
+        MA_ASSERT(pSineWave != NULL);
+
+        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount);
+    }
+
+    <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
+        ma_copy_pcm_frames(pOutput, pInput, frameCount, pDevice-&gt;playback.format, pDevice-&gt;playback.channels);
+    }
+}
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_context_config</span> contextConfig;
+    ma_context_ex context;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    ma_device_ex device;
+    <span style="color:#0099cc">ma_waveform_config</span> sineWaveConfig;
+    <span style="color:#0099cc">ma_waveform</span> sineWave;
+
+    <span style="color:#009900">/*
+    We&#39;re just using ma_backend_custom in this example for demonstration purposes, but a more realistic use case would probably want to include
+    other backends as well for robustness.
+    */</span>
+    ma_backend backends[] = {
+        ma_backend_custom
+    };
+
+    <span style="color:#009900">/*
+    To implement a custom backend you need to implement the callbacks in the &quot;custom&quot; member of the context config. The only mandatory
+    callback required at this point is the onContextInit() callback. If you do not set the other callbacks, you must set them in
+    onContextInit() by setting them on the <span style="font-family:monospace;">pCallbacks</span> parameter.
+
+    The way we&#39;re doing it in this example enables us to easily plug in multiple custom backends. What we do is set the onContextInit()
+    callback to a generic &quot;loader&quot; function (ma_context_init__custom_loader() in this example), which then calls out to backend-specific
+    context initialization routines, one of which will be for SDL. That way, if for example we wanted to add support for another backend,
+    we don&#39;t need to touch this part of the code. Instead we add logic to ma_context_init__custom_loader() to choose the most appropriate
+    custom backend. That will then fill out the other callbacks appropriately.
+    */</span>
+    contextConfig = ma_context_config_init();
+    contextConfig.custom.onContextInit = ma_context_init__custom_loader;
+    
+    result = ma_context_init(backends, <span style="color:#0033ff">sizeof</span>(backends)/<span style="color:#0033ff">sizeof</span>(backends[0]), &amp;contextConfig, (<span style="color:#0099cc">ma_context</span>*)&amp;context);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/* In playback mode we&#39;re just going to play a sine wave. */</span>
+    sineWaveConfig = ma_waveform_config_init(DEVICE_FORMAT, DEVICE_CHANNELS, DEVICE_SAMPLE_RATE, ma_waveform_type_sine, 0.2, 220);
+    ma_waveform_init(&amp;sineWaveConfig, &amp;sineWave);
+
+    <span style="color:#009900">/* The device is created exactly as per normal. */</span>
+    deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    deviceConfig.playback.format   = DEVICE_FORMAT;
+    deviceConfig.playback.channels = DEVICE_CHANNELS;
+    deviceConfig.capture.format    = DEVICE_FORMAT;
+    deviceConfig.capture.channels  = DEVICE_CHANNELS;
+    deviceConfig.sampleRate        = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &amp;sineWave;
+
+    result = ma_device_init((<span style="color:#0099cc">ma_context</span>*)&amp;context, &amp;deviceConfig, (<span style="color:#0099cc">ma_device</span>*)&amp;device);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_context_uninit((<span style="color:#0099cc">ma_context</span>*)&amp;context);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    printf(<span style="color:#cc3300">&quot;Device Name: %s\n&quot;</span>, ((<span style="color:#0099cc">ma_device</span>*)&amp;device)-&gt;playback.name);
+
+    <span style="color:#0033ff">if</span> (ma_device_start((<span style="color:#0099cc">ma_device</span>*)&amp;device) != MA_SUCCESS) {
+        ma_device_uninit((<span style="color:#0099cc">ma_device</span>*)&amp;device);
+        ma_context_uninit((<span style="color:#0099cc">ma_context</span>*)&amp;context);
+        <span style="color:#0033ff">return</span> -5;
+    }
+    
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+    emscripten_set_main_loop(main_loop__em, 0, 1);
+<span style="color:#666666">#else</span>
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...\n&quot;</span>);
+    getchar();
+<span style="color:#666666">#endif</span>
+    
+    ma_device_uninit((<span style="color:#0099cc">ma_device</span>*)&amp;device);
+    ma_context_uninit((<span style="color:#0099cc">ma_context</span>*)&amp;context);
+
+    (<span style="color:#0033ff">void</span>)argc;
+    (<span style="color:#0033ff">void</span>)argv;
+
+    <span style="color:#0033ff">return</span> 0;
+}</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2020 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>
