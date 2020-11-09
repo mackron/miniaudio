@@ -3144,6 +3144,28 @@ typedef enum
     ma_opensl_recording_preset_voice_unprocessed    /* SL_ANDROID_RECORDING_PRESET_UNPROCESSED */
 } ma_opensl_recording_preset;
 
+/* AAudio usage types. */
+typedef enum
+{
+    ma_aaudio_usage_default = 0,                    /* Leaves the usage type unset. */
+    ma_aaudio_usage_announcement,                   /* AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT */
+    ma_aaudio_usage_emergency,                      /* AAUDIO_SYSTEM_USAGE_EMERGENCY */
+    ma_aaudio_usage_safety,                         /* AAUDIO_SYSTEM_USAGE_SAFETY */
+    ma_aaudio_usage_vehicle_status,                 /* AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS */
+    ma_aaudio_usage_alarm,                          /* AAUDIO_USAGE_ALARM */
+    ma_aaudio_usage_assistance_accessibility,       /* AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY */
+    ma_aaudio_usage_assistance_navigation_guidance, /* AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE */
+    ma_aaudio_usage_assistance_sonification,        /* AAUDIO_USAGE_ASSISTANCE_SONIFICATION */
+    ma_aaudio_usage_assitant,                       /* AAUDIO_USAGE_ASSISTANT */
+    ma_aaudio_usage_game,                           /* AAUDIO_USAGE_GAME */
+    ma_aaudio_usage_media,                          /* AAUDIO_USAGE_MEDIA */
+    ma_aaudio_usage_notification,                   /* AAUDIO_USAGE_NOTIFICATION */
+    ma_aaudio_usage_notification_event,             /* AAUDIO_USAGE_NOTIFICATION_EVENT */
+    ma_aaudio_usage_notification_ringtone,          /* AAUDIO_USAGE_NOTIFICATION_RINGTONE */
+    ma_aaudio_usage_voice_communication,            /* AAUDIO_USAGE_VOICE_COMMUNICATION */
+    ma_aaudio_usage_voice_communication_signalling  /* AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING */
+} ma_aaudio_usage;
+
 /* AAudio content types. */
 typedef enum
 {
@@ -3310,6 +3332,7 @@ struct ma_device_config
     } opensl;
     struct
     {
+        ma_aaudio_usage usage;
         ma_aaudio_content_type contentType;
         ma_aaudio_input_preset inputPreset;
     } aaudio;
@@ -3776,6 +3799,7 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setDataCallback;
             ma_proc AAudioStreamBuilder_setErrorCallback;
             ma_proc AAudioStreamBuilder_setPerformanceMode;
+            ma_proc AAudioStreamBuilder_setUsage;
             ma_proc AAudioStreamBuilder_setContentType;
             ma_proc AAudioStreamBuilder_setInputPreset;
             ma_proc AAudioStreamBuilder_openStream;
@@ -29019,63 +29043,82 @@ typedef int32_t ma_aaudio_sharing_mode_t;
 typedef int32_t ma_aaudio_format_t;
 typedef int32_t ma_aaudio_stream_state_t;
 typedef int32_t ma_aaudio_performance_mode_t;
+typedef int32_t ma_aaudio_usage_t;
 typedef int32_t ma_aaudio_content_type_t;
 typedef int32_t ma_aaudio_input_preset_t;
 typedef int32_t ma_aaudio_data_callback_result_t;
 
 /* Result codes. miniaudio only cares about the success code. */
-#define MA_AAUDIO_OK                                0
+#define MA_AAUDIO_OK                                    0
 
 /* Directions. */
-#define MA_AAUDIO_DIRECTION_OUTPUT                  0
-#define MA_AAUDIO_DIRECTION_INPUT                   1
+#define MA_AAUDIO_DIRECTION_OUTPUT                      0
+#define MA_AAUDIO_DIRECTION_INPUT                       1
 
 /* Sharing modes. */
-#define MA_AAUDIO_SHARING_MODE_EXCLUSIVE            0
-#define MA_AAUDIO_SHARING_MODE_SHARED               1
+#define MA_AAUDIO_SHARING_MODE_EXCLUSIVE                0
+#define MA_AAUDIO_SHARING_MODE_SHARED                   1
 
 /* Formats. */
-#define MA_AAUDIO_FORMAT_PCM_I16                    1
-#define MA_AAUDIO_FORMAT_PCM_FLOAT                  2
+#define MA_AAUDIO_FORMAT_PCM_I16                        1
+#define MA_AAUDIO_FORMAT_PCM_FLOAT                      2
 
 /* Stream states. */
-#define MA_AAUDIO_STREAM_STATE_UNINITIALIZED        0
-#define MA_AAUDIO_STREAM_STATE_UNKNOWN              1
-#define MA_AAUDIO_STREAM_STATE_OPEN                 2
-#define MA_AAUDIO_STREAM_STATE_STARTING             3
-#define MA_AAUDIO_STREAM_STATE_STARTED              4
-#define MA_AAUDIO_STREAM_STATE_PAUSING              5
-#define MA_AAUDIO_STREAM_STATE_PAUSED               6
-#define MA_AAUDIO_STREAM_STATE_FLUSHING             7
-#define MA_AAUDIO_STREAM_STATE_FLUSHED              8
-#define MA_AAUDIO_STREAM_STATE_STOPPING             9
-#define MA_AAUDIO_STREAM_STATE_STOPPED              10
-#define MA_AAUDIO_STREAM_STATE_CLOSING              11
-#define MA_AAUDIO_STREAM_STATE_CLOSED               12
-#define MA_AAUDIO_STREAM_STATE_DISCONNECTED         13
+#define MA_AAUDIO_STREAM_STATE_UNINITIALIZED            0
+#define MA_AAUDIO_STREAM_STATE_UNKNOWN                  1
+#define MA_AAUDIO_STREAM_STATE_OPEN                     2
+#define MA_AAUDIO_STREAM_STATE_STARTING                 3
+#define MA_AAUDIO_STREAM_STATE_STARTED                  4
+#define MA_AAUDIO_STREAM_STATE_PAUSING                  5
+#define MA_AAUDIO_STREAM_STATE_PAUSED                   6
+#define MA_AAUDIO_STREAM_STATE_FLUSHING                 7
+#define MA_AAUDIO_STREAM_STATE_FLUSHED                  8
+#define MA_AAUDIO_STREAM_STATE_STOPPING                 9
+#define MA_AAUDIO_STREAM_STATE_STOPPED                  10
+#define MA_AAUDIO_STREAM_STATE_CLOSING                  11
+#define MA_AAUDIO_STREAM_STATE_CLOSED                   12
+#define MA_AAUDIO_STREAM_STATE_DISCONNECTED             13
 
 /* Performance modes. */
-#define MA_AAUDIO_PERFORMANCE_MODE_NONE             10
-#define MA_AAUDIO_PERFORMANCE_MODE_POWER_SAVING     11
-#define MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY      12
+#define MA_AAUDIO_PERFORMANCE_MODE_NONE                 10
+#define MA_AAUDIO_PERFORMANCE_MODE_POWER_SAVING         11
+#define MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY          12
+
+/* Usage types. */
+#define MA_AAUDIO_USAGE_MEDIA                           1
+#define MA_AAUDIO_USAGE_VOICE_COMMUNICATION             2
+#define MA_AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING  3
+#define MA_AAUDIO_USAGE_ALARM                           4
+#define MA_AAUDIO_USAGE_NOTIFICATION                    5
+#define MA_AAUDIO_USAGE_NOTIFICATION_RINGTONE           6
+#define MA_AAUDIO_USAGE_NOTIFICATION_EVENT              10
+#define MA_AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY        11
+#define MA_AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE  12
+#define MA_AAUDIO_USAGE_ASSISTANCE_SONIFICATION         13
+#define MA_AAUDIO_USAGE_GAME                            14
+#define MA_AAUDIO_USAGE_ASSISTANT                       16
+#define MA_AAUDIO_SYSTEM_USAGE_EMERGENCY                1000
+#define MA_AAUDIO_SYSTEM_USAGE_SAFETY                   1001
+#define MA_AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS           1002
+#define MA_AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT             1003
 
 /* Content types. */
-#define MA_AAUDIO_CONTENT_TYPE_SPEECH               1
-#define MA_AAUDIO_CONTENT_TYPE_MUSIC                2
-#define MA_AAUDIO_CONTENT_TYPE_MOVIE                3
-#define MA_AAUDIO_CONTENT_TYPE_SONIFICATION         4
+#define MA_AAUDIO_CONTENT_TYPE_SPEECH                   1
+#define MA_AAUDIO_CONTENT_TYPE_MUSIC                    2
+#define MA_AAUDIO_CONTENT_TYPE_MOVIE                    3
+#define MA_AAUDIO_CONTENT_TYPE_SONIFICATION             4
 
 /* Input presets. */
-#define MA_AAUDIO_INPUT_PRESET_GENERIC              1
-#define MA_AAUDIO_INPUT_PRESET_CAMCORDER            5
-#define MA_AAUDIO_INPUT_PRESET_VOICE_RECOGNITION    6
-#define MA_AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION  7
-#define MA_AAUDIO_INPUT_PRESET_UNPROCESSED          9
-#define MA_AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE    10
+#define MA_AAUDIO_INPUT_PRESET_GENERIC                  1
+#define MA_AAUDIO_INPUT_PRESET_CAMCORDER                5
+#define MA_AAUDIO_INPUT_PRESET_VOICE_RECOGNITION        6
+#define MA_AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION      7
+#define MA_AAUDIO_INPUT_PRESET_UNPROCESSED              9
+#define MA_AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE        10
 
 /* Callback results. */
-#define MA_AAUDIO_CALLBACK_RESULT_CONTINUE          0
-#define MA_AAUDIO_CALLBACK_RESULT_STOP              1
+#define MA_AAUDIO_CALLBACK_RESULT_CONTINUE              0
+#define MA_AAUDIO_CALLBACK_RESULT_STOP                  1
 
 /* Objects. */
 typedef struct ma_AAudioStreamBuilder_t* ma_AAudioStreamBuilder;
@@ -29097,6 +29140,7 @@ typedef void                     (* MA_PFN_AAudioStreamBuilder_setFramesPerDataC
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setDataCallback)          (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream_dataCallback callback, void* pUserData);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setErrorCallback)         (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream_errorCallback callback, void* pUserData);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setPerformanceMode)       (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_performance_mode_t mode);
+typedef void                     (* MA_PFN_AAudioStreamBuilder_setUsage)                 (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_usage_t contentType);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setContentType)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_content_type_t contentType);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setInputPreset)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_input_preset_t inputPreset);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStreamBuilder_openStream)               (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream** ppStream);
@@ -29121,6 +29165,31 @@ static ma_result ma_result_from_aaudio(ma_aaudio_result_t resultAA)
     }
 
     return MA_ERROR;
+}
+
+static ma_aaudio_usage_t ma_to_usage__aaudio(ma_aaudio_usage usage)
+{
+    switch (usage) {
+        case ma_aaudio_usage_announcement:                   return MA_AAUDIO_USAGE_MEDIA;
+        case ma_aaudio_usage_emergency:                      return MA_AAUDIO_USAGE_VOICE_COMMUNICATION;
+        case ma_aaudio_usage_safety:                         return MA_AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING;
+        case ma_aaudio_usage_vehicle_status:                 return MA_AAUDIO_USAGE_ALARM;
+        case ma_aaudio_usage_alarm:                          return MA_AAUDIO_USAGE_NOTIFICATION;
+        case ma_aaudio_usage_assistance_accessibility:       return MA_AAUDIO_USAGE_NOTIFICATION_RINGTONE;
+        case ma_aaudio_usage_assistance_navigation_guidance: return MA_AAUDIO_USAGE_NOTIFICATION_EVENT;
+        case ma_aaudio_usage_assistance_sonification:        return MA_AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY;
+        case ma_aaudio_usage_assitant:                       return MA_AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE;
+        case ma_aaudio_usage_game:                           return MA_AAUDIO_USAGE_ASSISTANCE_SONIFICATION;
+        case ma_aaudio_usage_media:                          return MA_AAUDIO_USAGE_GAME;
+        case ma_aaudio_usage_notification:                   return MA_AAUDIO_USAGE_ASSISTANT;
+        case ma_aaudio_usage_notification_event:             return MA_AAUDIO_SYSTEM_USAGE_EMERGENCY;
+        case ma_aaudio_usage_notification_ringtone:          return MA_AAUDIO_SYSTEM_USAGE_SAFETY;
+        case ma_aaudio_usage_voice_communication:            return MA_AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS;
+        case ma_aaudio_usage_voice_communication_signalling: return MA_AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT;
+        default: break;
+    }
+
+    return MA_AAUDIO_USAGE_MEDIA;
 }
 
 static ma_aaudio_content_type_t ma_to_content_type__aaudio(ma_aaudio_content_type contentType)
@@ -29256,13 +29325,17 @@ static ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type dev
         ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
 
         if (deviceType == ma_device_type_capture) {
-            if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default) {
+            if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default && pContext->aaudio.AAudioStreamBuilder_setInputPreset != NULL) {
                 ((MA_PFN_AAudioStreamBuilder_setInputPreset)pContext->aaudio.AAudioStreamBuilder_setInputPreset)(pBuilder, ma_to_input_preset__aaudio(pConfig->aaudio.inputPreset));
             }
 
             ((MA_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, ma_stream_data_callback_capture__aaudio, (void*)pDevice);
         } else {
-            if (pConfig->aaudio.contentType != ma_aaudio_content_type_default) {
+            if (pConfig->aaudio.usage != ma_aaudio_usage_default && pContext->aaudio.AAudioStreamBuilder_setUsage != NULL) {
+                ((MA_PFN_AAudioStreamBuilder_setUsage)pContext->aaudio.AAudioStreamBuilder_setUsage)(pBuilder, ma_to_usage__aaudio(pConfig->aaudio.usage));
+            }
+
+            if (pConfig->aaudio.contentType != ma_aaudio_content_type_default && pContext->aaudio.AAudioStreamBuilder_setContentType != NULL) {
                 ((MA_PFN_AAudioStreamBuilder_setContentType)pContext->aaudio.AAudioStreamBuilder_setContentType)(pBuilder, ma_to_content_type__aaudio(pConfig->aaudio.contentType));
             }
 
@@ -29688,6 +29761,7 @@ static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_co
     pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDataCallback");
     pContext->aaudio.AAudioStreamBuilder_setErrorCallback          = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setErrorCallback");
     pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setPerformanceMode");
+    pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setUsage");
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
@@ -63652,7 +63726,9 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.23 - TBD
+  - AAudio: Add support for configuring a playback stream's usage.
   - Fix a compilation error when all built-in asynchronous backends are disabled at compile time.
+  - Fix compilation errors when compiling as C++.
 
 v0.10.22 - 2020-11-08
   - Add support for custom backends.
