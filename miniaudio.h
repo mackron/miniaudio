@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.23 - 2020-11-09
+miniaudio - v0.10.24 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1447,7 +1447,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 23
+#define MA_VERSION_REVISION 24
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -22470,17 +22470,6 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     pContext->pulse.pa_stream_readable_size            = (ma_proc)_pa_stream_readable_size;
 #endif
 
-    pContext->isBackendAsynchronous = MA_TRUE;  /* We are using PulseAudio in asynchronous mode. */
-
-    pContext->onUninit         = ma_context_uninit__pulse;
-    pContext->onEnumDevices    = ma_context_enumerate_devices__pulse;
-    pContext->onGetDeviceInfo  = ma_context_get_device_info__pulse;
-    pContext->onDeviceInit     = ma_device_init__pulse;
-    pContext->onDeviceUninit   = ma_device_uninit__pulse;
-    pContext->onDeviceStart    = ma_device_start__pulse;
-    pContext->onDeviceStop     = ma_device_stop__pulse;
-    pContext->onDeviceMainLoop = NULL; /* Set to null since this backend is asynchronous. */
-
     /* The PulseAudio context maps well to miniaudio's notion of a context. The pa_context object will be initialized as part of the ma_context. */
     pContext->pulse.pMainLoop = ((ma_pa_threaded_mainloop_new_proc)pContext->pulse.pa_threaded_mainloop_new)();
     if (pContext->pulse.pMainLoop == NULL) {
@@ -22533,6 +22522,17 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     #endif
         return result;
     }
+
+    pContext->isBackendAsynchronous = MA_TRUE;  /* We are using PulseAudio in asynchronous mode. */
+
+    pContext->onUninit         = ma_context_uninit__pulse;
+    pContext->onEnumDevices    = ma_context_enumerate_devices__pulse;
+    pContext->onGetDeviceInfo  = ma_context_get_device_info__pulse;
+    pContext->onDeviceInit     = ma_device_init__pulse;
+    pContext->onDeviceUninit   = ma_device_uninit__pulse;
+    pContext->onDeviceStart    = ma_device_start__pulse;
+    pContext->onDeviceStop     = ma_device_stop__pulse;
+    pContext->onDeviceMainLoop = NULL; /* Set to null since this backend is asynchronous. */
 
     return MA_SUCCESS;
 }
@@ -23168,16 +23168,6 @@ static ma_result ma_context_init__jack(const ma_context_config* pConfig, ma_cont
     pContext->jack.jack_free                     = (ma_proc)_jack_free;
 #endif
 
-    pContext->isBackendAsynchronous = MA_TRUE;
-
-    pContext->onUninit        = ma_context_uninit__jack;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__jack;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__jack;
-    pContext->onDeviceInit    = ma_device_init__jack;
-    pContext->onDeviceUninit  = ma_device_uninit__jack;
-    pContext->onDeviceStart   = ma_device_start__jack;
-    pContext->onDeviceStop    = ma_device_stop__jack;
-
     if (pConfig->jack.pClientName != NULL) {
         pContext->jack.pClientName = ma_copy_string(pConfig->jack.pClientName, &pContext->allocationCallbacks);
     }
@@ -23200,6 +23190,16 @@ static ma_result ma_context_init__jack(const ma_context_config* pConfig, ma_cont
 
         ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pDummyClient);
     }
+
+    pContext->isBackendAsynchronous = MA_TRUE;
+
+    pContext->onUninit        = ma_context_uninit__jack;
+    pContext->onEnumDevices   = ma_context_enumerate_devices__jack;
+    pContext->onGetDeviceInfo = ma_context_get_device_info__jack;
+    pContext->onDeviceInit    = ma_device_init__jack;
+    pContext->onDeviceUninit  = ma_device_uninit__jack;
+    pContext->onDeviceStart   = ma_device_start__jack;
+    pContext->onDeviceStop    = ma_device_stop__jack;
 
     return MA_SUCCESS;
 }
@@ -26286,16 +26286,6 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
     pContext->coreaudio.AudioUnitRender                   = (ma_proc)AudioUnitRender;
 #endif
 
-    pContext->isBackendAsynchronous = MA_TRUE;
-
-    pContext->onUninit        = ma_context_uninit__coreaudio;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__coreaudio;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__coreaudio;
-    pContext->onDeviceInit    = ma_device_init__coreaudio;
-    pContext->onDeviceUninit  = ma_device_uninit__coreaudio;
-    pContext->onDeviceStart   = ma_device_start__coreaudio;
-    pContext->onDeviceStop    = ma_device_stop__coreaudio;
-
     /* Audio component. */
     {
         AudioComponentDescription desc;
@@ -26333,6 +26323,16 @@ static ma_result ma_context_init__coreaudio(const ma_context_config* pConfig, ma
 #endif
 
     pContext->coreaudio.noAudioSessionDeactivate = pConfig->coreaudio.noAudioSessionDeactivate;
+
+    pContext->isBackendAsynchronous = MA_TRUE;
+
+    pContext->onUninit        = ma_context_uninit__coreaudio;
+    pContext->onEnumDevices   = ma_context_enumerate_devices__coreaudio;
+    pContext->onGetDeviceInfo = ma_context_get_device_info__coreaudio;
+    pContext->onDeviceInit    = ma_device_init__coreaudio;
+    pContext->onDeviceUninit  = ma_device_uninit__coreaudio;
+    pContext->onDeviceStart   = ma_device_start__coreaudio;
+    pContext->onDeviceStop    = ma_device_stop__coreaudio;
 
     return MA_SUCCESS;
 }
@@ -29009,6 +29009,9 @@ static ma_result ma_context_init__oss(const ma_context_config* pConfig, ma_conte
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve OSS version.", MA_NO_BACKEND);
     }
 
+    /* The file handle to temp device is no longer needed. Close ASAP. */
+    close(fd);
+
     pContext->oss.versionMajor = ((ossVersion & 0xFF0000) >> 16);
     pContext->oss.versionMinor = ((ossVersion & 0x00FF00) >> 8);
 
@@ -29021,7 +29024,6 @@ static ma_result ma_context_init__oss(const ma_context_config* pConfig, ma_conte
     pContext->onDeviceStop     = NULL; /* Not required for synchronous backends. */
     pContext->onDeviceMainLoop = ma_device_main_loop__oss;
 
-    close(fd);
     return MA_SUCCESS;
 }
 #endif  /* OSS */
@@ -32058,6 +32060,18 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
 
     for (iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         ma_backend backend = pBackendsToIterate[iBackend];
+
+        /*
+        I've had a subtle bug where some state is set by the backend's ma_context_init__*() function, but then later failed because
+        a setting in the context that was set in the prior failed attempt was left unchanged in the next attempt which resulted in
+        inconsistent state. Specifically what happened was the PulseAudio backend set the pContext->isBackendAsynchronous flag to true,
+        but since ALSA is not an asynchronous backend (it's a blocking read-write backend) it just left it unmodified with the assumption
+        that it would be initialized to false. This assumption proved to be incorrect because of the fact that the PulseAudio backend set
+        it earlier. For safety I'm going to reset this flag for each iteration.
+
+        TODO: Remove this comment when the isBackendAsynchronous flag is removed.
+        */
+        pContext->isBackendAsynchronous = MA_FALSE;
 
         result = MA_NO_BACKEND;
         switch (backend) {
@@ -63725,6 +63739,10 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.24 - TBD
+  - Fix a bug where initialization of a backend can fail due to some bad state being set from a prior failed attempt at initializing a
+    lower priority backend.
+
 v0.10.23 - 2020-11-09
   - AAudio: Add support for configuring a playback stream's usage.
   - Fix a compilation error when all built-in asynchronous backends are disabled at compile time.
