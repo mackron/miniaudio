@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.24 - TBD
+miniaudio - v0.10.24 - 2020-11-10
 
 David Reid - mackron@gmail.com
 
@@ -8510,7 +8510,7 @@ typedef unsigned char           c89atomic_flag;
     #define c89atomic_clear_explicit_64(dst, order) c89atomic_store_explicit_64(dst, 0, order)
     #define c89atomic_flag_test_and_set_explicit(ptr, order)    (c89atomic_flag)c89atomic_test_and_set_explicit_8(ptr, order)
     #define c89atomic_flag_clear_explicit(ptr, order)           c89atomic_clear_explicit_8(ptr, order)
-#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC__ >= 7)))
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
     #define C89ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE
     #define C89ATOMIC_HAS_NATIVE_IS_LOCK_FREE
     #define c89atomic_memory_order_relaxed  __ATOMIC_RELAXED
@@ -63739,7 +63739,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.24 - TBD
+v0.10.24 - 2020-11-10
   - Fix a bug where initialization of a backend can fail due to some bad state being set from a prior failed attempt at initializing a
     lower priority backend.
 
