@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.24 - 2020-11-10
+miniaudio - v0.10.25 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1447,7 +1447,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 24
+#define MA_VERSION_REVISION 25
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -63739,6 +63739,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.25 - TBD
+  - Fix compilation warnings on older versions of GCC.
+
 v0.10.24 - 2020-11-10
   - Fix a bug where initialization of a backend can fail due to some bad state being set from a prior failed attempt at initializing a
     lower priority backend.
