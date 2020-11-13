@@ -31283,6 +31283,11 @@ static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma
                     return; /* This means the device has been uninitialized. */
                 }
 
+                if(device.intermediaryBufferView.length == 0) {
+                    /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
+                    device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
+                }
+
                 /* Make sure silence it output to the AudioContext destination. Not doing this will cause sound to come out of the speakers! */
                 for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
                     e.outputBuffer.getChannelData(iChannel).fill(0.0);
@@ -31341,6 +31346,11 @@ static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma
             device.scriptNode.onaudioprocess = function(e) {
                 if (device.intermediaryBuffer === undefined) {
                     return; /* This means the device has been uninitialized. */
+                }
+
+                if(device.intermediaryBufferView.length == 0) {
+                    /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
+                    device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
                 }
 
                 var outputSilence = false;
