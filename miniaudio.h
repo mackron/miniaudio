@@ -22248,6 +22248,10 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
         }
     }
 
+    if (pDevice->onStop != NULL) {
+        pDevice->onStop(pDevice);
+    }
+
     return result;
 }
 
