@@ -351,12 +351,15 @@ To apply the effect to some audio data, do something like the following:
 Some effects can change the sample rate, which means the number of output frames may be different to the number of input frames consumed. Therefore they both
 need to be specified when processing a chunk of audio data.
 */
+#define MA_EFFECT_MIN_INPUT_STREAM_COUNT    1
+#define MA_EFFECT_MAX_INPUT_STREAM_COUNT    4
+
 typedef void ma_effect;
 
 typedef struct ma_effect_base ma_effect_base;
 struct ma_effect_base
 {
-    ma_result (* onProcessPCMFrames)(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+    ma_result (* onProcessPCMFrames)(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
     ma_uint64 (* onGetRequiredInputFrameCount)(ma_effect* pEffect, ma_uint64 outputFrameCount);
     ma_uint64 (* onGetExpectedOutputFrameCount)(ma_effect* pEffect, ma_uint64 inputFrameCount);
     ma_result (* onGetInputDataFormat)(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
@@ -364,7 +367,8 @@ struct ma_effect_base
 };
 
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
-MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut);
+MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut);
 MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount);
 MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount);
 MA_API ma_result ma_effect_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
@@ -1758,22 +1762,31 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
 
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
+    return ma_effect_process_pcm_frames_ex(pEffect, 1, &pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+}
+
+MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
     ma_effect_base* pBase = (ma_effect_base*)pEffect;
 
     if (pEffect == NULL || pBase->onProcessPCMFrames == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return pBase->onProcessPCMFrames(pEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    return pBase->onProcessPCMFrames(pEffect, inputStreamCount, ppFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
 }
 
-MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut)
+MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut)
 {
     ma_result result;
     ma_format effectFormatIn;
     ma_uint32 effectChannelsIn;
     ma_format effectFormatOut;
     ma_uint32 effectChannelsOut;
+
+    if (inputStreamCount < MA_EFFECT_MIN_INPUT_STREAM_COUNT || inputStreamCount > MA_EFFECT_MAX_INPUT_STREAM_COUNT) {
+        return MA_INVALID_ARGS;
+    }
 
     /* First thing to retrieve the effect's input and output format to determine if conversion is necessary. */
     result = ma_effect_get_input_data_format(pEffect, &effectFormatIn, &effectChannelsIn, NULL);
@@ -1788,11 +1801,11 @@ MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect
 
     if (effectFormatIn == formatIn && effectChannelsIn == channelsIn && effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
         /* Fast path. No need for any data conversion. */
-        return ma_effect_process_pcm_frames(pEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        return ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
         /* Slow path. Getting here means we need to do pre- and/or post-data conversion. */
         ma_uint8  effectInBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-        ma_uint32 effectInBufferCap = sizeof(effectInBuffer) / ma_get_bytes_per_frame(effectFormatIn, effectChannelsIn);
+        ma_uint32 effectInBufferCap = sizeof(effectInBuffer) / ma_get_bytes_per_frame(effectFormatIn, effectChannelsIn) / inputStreamCount;
         ma_uint8  effectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         ma_uint32 effectOutBufferCap = sizeof(effectOutBuffer) / ma_get_bytes_per_frame(effectFormatOut, effectChannelsOut);
         ma_uint64 totalFramesProcessedIn  = 0;
@@ -1801,10 +1814,15 @@ MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect
         ma_uint64 frameCountOut = *pFrameCountOut;
         
         while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+            ma_uint32 iInputStream;
             ma_uint64 framesToProcessThisIterationIn;
             ma_uint64 framesToProcessThisIterationOut;
-            const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(formatIn,  channelsIn ));
+            const void* ppRunningFramesIn[MA_EFFECT_MAX_INPUT_STREAM_COUNT];
             /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, totalFramesProcessedOut * ma_get_bytes_per_frame(formatOut, channelsOut));
+
+            for (iInputStream = 0; iInputStream < inputStreamCount; iInputStream += 1) {
+                ppRunningFramesIn[iInputStream] = ma_offset_ptr(ppFramesIn[iInputStream], totalFramesProcessedIn * ma_get_bytes_per_frame(formatIn, channelsIn));
+            }
 
             framesToProcessThisIterationOut = frameCountOut - totalFramesProcessedOut;
             if (framesToProcessThisIterationOut > effectOutBufferCap) {
@@ -1824,22 +1842,27 @@ MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect
                 /* Fast path. No input conversion required. */
                 if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
                     /* Fast path. Neither input nor output data conversion required. */
-                    ma_effect_process_pcm_frames(pEffect, pRunningFramesIn, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppRunningFramesIn, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
                 } else {
                     /* Slow path. Output conversion required. */
-                    ma_effect_process_pcm_frames(pEffect, pRunningFramesIn, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppRunningFramesIn, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
                     ma_convert_pcm_frames_format_and_channels(pRunningFramesOut, formatOut, channelsOut, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcessThisIterationOut, ma_dither_mode_none);
                 }
             } else {
                 /* Slow path. Input conversion required. */
-                ma_convert_pcm_frames_format_and_channels(effectInBuffer, effectFormatIn, effectChannelsIn, pRunningFramesIn, formatIn, channelsIn, framesToProcessThisIterationIn, ma_dither_mode_none);
+                void* ppEffectInBuffer[MA_EFFECT_MAX_INPUT_STREAM_COUNT];
 
+                for (iInputStream = 0; iInputStream < inputStreamCount; iInputStream += 1) {
+                    ppEffectInBuffer[iInputStream] = ma_offset_ptr(effectInBuffer, effectInBufferCap * iInputStream);
+                    ma_convert_pcm_frames_format_and_channels(ppEffectInBuffer, effectFormatIn, effectChannelsIn, ppRunningFramesIn, formatIn, channelsIn, framesToProcessThisIterationIn, ma_dither_mode_none);
+                }
+                
                 if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
                     /* Fast path. No output format conversion required. */
-                    ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppEffectInBuffer, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
                 } else {
                     /* Slow path. Output format conversion required. */
-                    ma_effect_process_pcm_frames(pEffect, effectInBuffer, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppEffectInBuffer, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
                     ma_convert_pcm_frames_format_and_channels(pRunningFramesOut, formatOut, channelsOut, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcessThisIterationOut, ma_dither_mode_none);
                 }
             }
@@ -7077,16 +7100,19 @@ MA_API ma_panner_config ma_panner_config_init(ma_format format, ma_uint32 channe
 }
 
 
-static ma_result ma_panner_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_panner_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_panner* pPanner = (ma_panner*)pEffect;
     ma_result result;
     ma_uint64 frameCount;
 
+    (void)inputStreamCount;
+
     /* The panner has a 1:1 relationship between input and output frame counts. */
     frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
 
-    result = ma_panner_process_pcm_frames(pPanner, pFramesOut, pFramesIn, ma_min(*pFrameCountIn, *pFrameCountOut));
+    /* Only the first input stream is considered. Extra streams are ignored. */
+    result = ma_panner_process_pcm_frames(pPanner, pFramesOut, ppFramesIn[0], ma_min(*pFrameCountIn, *pFrameCountOut));
 
     *pFrameCountIn  = frameCount;
     *pFrameCountOut = frameCount;
@@ -7309,16 +7335,19 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_engine* pEngine, ma_f
 }
 
 
-static ma_result ma_spatializer_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_spatializer_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_spatializer* pSpatializer = (ma_spatializer*)pEffect;
     ma_result result;
     ma_uint64 frameCount;
 
+    (void)inputStreamCount;
+
     /* The spatializer has a 1:1 relationship between input and output frame counts. */
     frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
 
-    result = ma_spatializer_process_pcm_frames(pSpatializer, pFramesOut, pFramesIn, frameCount);
+    /* Only the first input stream is considered. Extra streams are ignored. */
+    result = ma_spatializer_process_pcm_frames(pSpatializer, pFramesOut, ppFramesIn[0], frameCount);
 
     *pFrameCountIn  = frameCount;
     *pFrameCountOut = frameCount;
@@ -7414,16 +7443,18 @@ MA_API ma_fader_config ma_fader_config_init(ma_format format, ma_uint32 channels
 
 
 
-static ma_result ma_fader_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_fader_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_fader* pFader = (ma_fader*)pEffect;
     ma_result result;
     ma_uint64 frameCount;
 
+    (void)inputStreamCount;
+
     /* The fader has a 1:1 relationship between input and output frame counts. */
     frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
 
-    result = ma_fader_process_pcm_frames(pFader, pFramesOut, pFramesIn, frameCount);
+    result = ma_fader_process_pcm_frames(pFader, pFramesOut, ppFramesIn[0], frameCount);
 
     *pFrameCountIn  = frameCount;
     *pFrameCountOut = frameCount;
@@ -7753,7 +7784,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effe
             frameCountInThisIteration = (frameCountIn - totalFramesProcessedIn);
         }
 
-        result = ma_effect_process_pcm_frames_with_conversion(pEngineEffect->pPreEffect, pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
+        result = ma_effect_process_pcm_frames_with_conversion(pEngineEffect->pPreEffect, 1, &pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
         if (result != MA_SUCCESS) {
             break;
         }
@@ -7777,21 +7808,24 @@ static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effe
     return MA_SUCCESS;
 }
 
-static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
     ma_result result;
 
     MA_ASSERT(pEffect != NULL);
 
+    /* Only the first input stream is considered. Extra streams are ignored. */
+    (void)inputStreamCount;
+
     /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
     ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     /* Optimized path for when there is no pre-effect. */
     if (pEngineEffect->pPreEffect == NULL) {
-        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
     } else {
-        result = ma_engine_effect__on_process_pcm_frames__general(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        result = ma_engine_effect__on_process_pcm_frames__general(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
     }
 
     pEngineEffect->timeInFrames += *pFrameCountIn;
