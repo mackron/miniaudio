@@ -63754,6 +63754,8 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.25 - TBD
+  - PulseAudio: Fix a bug where the stop callback isn't fired.
+  - WebAudio: Fix an error that occurs when Emscripten increases the size of it's heap.
   - Fix compilation warnings on older versions of GCC.
 
 v0.10.24 - 2020-11-10
