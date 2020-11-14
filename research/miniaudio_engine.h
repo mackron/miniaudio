@@ -366,7 +366,7 @@ struct ma_effect_base
 };
 
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
-MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut);
+MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut);
 MA_API ma_uint64 ma_effect_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount);
 MA_API ma_uint64 ma_effect_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount);
 MA_API ma_result ma_effect_append(ma_effect* pEffect, ma_effect* pParent);
@@ -1904,7 +1904,7 @@ MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pF
     return result;
 }
 
-MA_API ma_result ma_effect_process_pcm_frames_ex(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut)
+MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut, ma_format formatIn, ma_uint32 channelsIn, ma_format formatOut, ma_uint32 channelsOut)
 {
     ma_result result;
     ma_format effectFormatIn;
@@ -8004,7 +8004,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effe
             frameCountInThisIteration = (frameCountIn - totalFramesProcessedIn);
         }
 
-        result = ma_effect_process_pcm_frames_ex(pEngineEffect->pPreEffect, pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
+        result = ma_effect_process_pcm_frames_with_conversion(pEngineEffect->pPreEffect, pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
         if (result != MA_SUCCESS) {
             break;
         }
