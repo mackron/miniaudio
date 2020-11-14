@@ -1803,8 +1803,8 @@ MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect
         while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
             ma_uint64 framesToProcessThisIterationIn;
             ma_uint64 framesToProcessThisIterationOut;
-            const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  ma_get_bytes_per_frame(formatIn,  channelsIn ));
-            /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, ma_get_bytes_per_frame(formatOut, channelsOut));
+            const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(formatIn,  channelsIn ));
+            /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, totalFramesProcessedOut * ma_get_bytes_per_frame(formatOut, channelsOut));
 
             framesToProcessThisIterationOut = frameCountOut - totalFramesProcessedOut;
             if (framesToProcessThisIterationOut > effectOutBufferCap) {
