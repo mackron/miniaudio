@@ -4065,7 +4065,7 @@ struct ma_device
             /*AudioUnit*/ ma_ptr audioUnitPlayback;
             /*AudioUnit*/ ma_ptr audioUnitCapture;
             /*AudioBufferList**/ ma_ptr pAudioBufferList;   /* Only used for input devices. */
-            ma_uint32 audioBufferSizeInBytes;               /* Only used for input devices. The size in bytes of each buffer in pAudioBufferList. */
+            ma_uint32 audioBufferCapInFrames;               /* Only used for input devices. The capacity in frames of each buffer in pAudioBufferList. */
             ma_event stopEvent;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
@@ -24700,6 +24700,77 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
     return MA_SUCCESS;
 }
 
+static AudioBufferList* ma_allocate_AudioBufferList__coreaudio(ma_uint32 sizeInFrames, ma_format format, ma_uint32 channels, ma_stream_layout layout, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    AudioBufferList* pBufferList;
+    UInt32 audioBufferSizeInBytes;
+    size_t allocationSize;
+
+    MA_ASSERT(sizeInFrames > 0);
+    MA_ASSERT(format != ma_format_unknown);
+    MA_ASSERT(channels > 0);
+    
+    allocationSize = sizeof(AudioBufferList) - sizeof(AudioBuffer);  /* Subtract sizeof(AudioBuffer) because that part is dynamically sized. */
+    if (layout == ma_stream_layout_interleaved) {
+        /* Interleaved case. This is the simple case because we just have one buffer. */
+        allocationSize += sizeof(AudioBuffer) * 1;
+    } else {
+        /* Non-interleaved case. This is the more complex case because there's more than one buffer. */
+        allocationSize += sizeof(AudioBuffer) * channels;
+    }
+    
+    allocationSize += sizeInFrames * ma_get_bytes_per_frame(format, channels);
+
+    pBufferList = (AudioBufferList*)ma__malloc_from_callbacks(allocationSize, pAllocationCallbacks);
+    if (pBufferList == NULL) {
+        return NULL;
+    }
+    
+    audioBufferSizeInBytes = (UInt32)(sizeInFrames * ma_get_bytes_per_sample(format));
+
+    if (layout == ma_stream_layout_interleaved) {
+        pBufferList->mNumberBuffers = 1;
+        pBufferList->mBuffers[0].mNumberChannels = channels;
+        pBufferList->mBuffers[0].mDataByteSize   = audioBufferSizeInBytes * channels;
+        pBufferList->mBuffers[0].mData           = (ma_uint8*)pBufferList + sizeof(AudioBufferList);
+    } else {
+        ma_uint32 iBuffer;
+        pBufferList->mNumberBuffers = channels;
+        for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
+            pBufferList->mBuffers[iBuffer].mNumberChannels = 1;
+            pBufferList->mBuffers[iBuffer].mDataByteSize   = audioBufferSizeInBytes;
+            pBufferList->mBuffers[iBuffer].mData           = (ma_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * channels)) + (audioBufferSizeInBytes * iBuffer);
+        }
+    }
+    
+    return pBufferList;
+}
+
+static ma_result ma_device_realloc_AudioBufferList__coreaudio(ma_device* pDevice, ma_uint32 sizeInFrames, ma_format format, ma_uint32 channels, ma_stream_layout layout)
+{
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(format != ma_format_unknown);
+    MA_ASSERT(channels > 0);
+    
+    /* Only resize the buffer if necessary. */
+    if (pDevice->coreaudio.audioBufferCapInFrames < sizeInFrames) {
+        AudioBufferList* pNewAudioBufferList;
+        
+        pNewAudioBufferList = ma_allocate_AudioBufferList__coreaudio(sizeInFrames, format, channels, layout, &pDevice->pContext->allocationCallbacks);
+        if (pNewAudioBufferList != NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    
+        /* At this point we'll have a new AudioBufferList and we can free the old one. */
+        ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
+        pDevice->coreaudio.pAudioBufferList = pNewAudioBufferList;
+        pDevice->coreaudio.audioBufferCapInFrames = sizeInFrames;
+    }
+    
+    /* Getting here means the capacity of the audio is fine. */
+    return MA_SUCCESS;
+}
+
 
 static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFlags* pActionFlags, const AudioTimeStamp* pTimeStamp, UInt32 busNumber, UInt32 frameCount, AudioBufferList* pBufferList)
 {
@@ -24802,6 +24873,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
 {
     ma_device* pDevice = (ma_device*)pUserData;
     AudioBufferList* pRenderedBufferList;
+    ma_result result;
     ma_stream_layout layout;
     ma_uint32 iBuffer;
     OSStatus status;
@@ -24822,6 +24894,20 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
 #endif
 
     /*
+    There has been a situation reported where frame count passed into this function is greater than the capacity of
+    our capture buffer. There doesn't seem to be a reliable way to determine what the maximum frame count will be,
+    so we need to instead resort to dynamically reallocating our buffer to ensure it's large enough to capture the
+    number of frames requested by this callback.
+    */
+    result = ma_device_realloc_AudioBufferList__coreaudio(pDevice, frameCount, pDevice->capture.internalFormat, pDevice->capture.internalChannels, layout);
+    if (result != MA_SUCCESS) {
+    #if defined(MA_DEBUG_OUTPUT)
+        printf("Failed to allocate AudioBufferList for capture.");
+    #endif
+        return noErr;
+    }
+
+    /*
     When you call AudioUnitRender(), Core Audio tries to be helpful by setting the mDataByteSize to the number of bytes
     that were actually rendered. The problem with this is that the next call can fail with -50 due to the size no longer
     being set to the capacity of the buffer, but instead the size in bytes of the previous render. This will cause a
@@ -24830,7 +24916,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     To work around this we need to explicitly set the size of each buffer to their respective size in bytes.
     */
     for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
-        pRenderedBufferList->mBuffers[iBuffer].mDataByteSize = pDevice->coreaudio.audioBufferSizeInBytes;
+        pRenderedBufferList->mBuffers[iBuffer].mDataByteSize = pDevice->coreaudio.audioBufferCapInFrames * ma_get_bytes_per_sample(pDevice->capture.internalFormat) * pRenderedBufferList->mBuffers[iBuffer].mNumberChannels;
     }
 
     status = ((ma_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
@@ -25372,7 +25458,6 @@ typedef struct
     AudioComponent component;
     AudioUnit audioUnit;
     AudioBufferList* pAudioBufferList;  /* Only used for input devices. */
-    ma_uint32 audioBufferSizeInBytes;
     ma_format formatOut;
     ma_uint32 channelsOut;
     ma_uint32 sampleRateOut;
@@ -25700,41 +25785,12 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     /* We need a buffer list if this is an input device. We render into this in the input callback. */
     if (deviceType == ma_device_type_capture) {
         ma_bool32 isInterleaved = (bestFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0;
-        size_t allocationSize;
         AudioBufferList* pBufferList;
-
-        allocationSize = sizeof(AudioBufferList) - sizeof(AudioBuffer);  /* Subtract sizeof(AudioBuffer) because that part is dynamically sized. */
-        if (isInterleaved) {
-            /* Interleaved case. This is the simple case because we just have one buffer. */
-            allocationSize += sizeof(AudioBuffer) * 1;
-            allocationSize += actualPeriodSizeInFrames * ma_get_bytes_per_frame(pData->formatOut, pData->channelsOut);
-        } else {
-            /* Non-interleaved case. This is the more complex case because there's more than one buffer. */
-            allocationSize += sizeof(AudioBuffer) * pData->channelsOut;
-            allocationSize += actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut) * pData->channelsOut;
-        }
-
-        pBufferList = (AudioBufferList*)ma__malloc_from_callbacks(allocationSize, &pContext->allocationCallbacks);
+        
+        pBufferList = ma_allocate_AudioBufferList__coreaudio(pData->periodSizeInFramesOut, pData->formatOut, pData->channelsOut, (isInterleaved) ? ma_stream_layout_interleaved : ma_stream_layout_deinterleaved, &pContext->allocationCallbacks);
         if (pBufferList == NULL) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
             return MA_OUT_OF_MEMORY;
-        }
-
-        if (isInterleaved) {
-            pData->audioBufferSizeInBytes = actualPeriodSizeInFrames * ma_get_bytes_per_frame(pData->formatOut, pData->channelsOut);
-            pBufferList->mNumberBuffers = 1;
-            pBufferList->mBuffers[0].mNumberChannels = pData->channelsOut;
-            pBufferList->mBuffers[0].mDataByteSize   = pData->audioBufferSizeInBytes;
-            pBufferList->mBuffers[0].mData           = (ma_uint8*)pBufferList + sizeof(AudioBufferList);
-        } else {
-            ma_uint32 iBuffer;
-            pData->audioBufferSizeInBytes = actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut);
-            pBufferList->mNumberBuffers = pData->channelsOut;
-            for (iBuffer = 0; iBuffer < pBufferList->mNumberBuffers; ++iBuffer) {
-                pBufferList->mBuffers[iBuffer].mNumberChannels = 1;
-                pBufferList->mBuffers[iBuffer].mDataByteSize   = pData->audioBufferSizeInBytes;
-                pBufferList->mBuffers[iBuffer].mData           = (ma_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * pData->channelsOut)) + (actualPeriodSizeInFrames * ma_get_bytes_per_sample(pData->formatOut) * iBuffer);
-            }
         }
 
         pData->pAudioBufferList = pBufferList;
@@ -25859,7 +25915,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     #endif
         pDevice->coreaudio.audioUnitCapture          = (ma_ptr)data.audioUnit;
         pDevice->coreaudio.pAudioBufferList          = (ma_ptr)data.pAudioBufferList;
-        pDevice->coreaudio.audioBufferSizeInBytes    = data.audioBufferSizeInBytes;
+        pDevice->coreaudio.audioBufferCapInFrames    = data.periodSizeInFramesOut;
 
         pDevice->capture.internalFormat              = data.formatOut;
         pDevice->capture.internalChannels            = data.channelsOut;
@@ -25937,7 +25993,7 @@ static ma_result ma_device_init__coreaudio(ma_context* pContext, const ma_device
     #endif
         pDevice->coreaudio.audioUnitCapture         = (ma_ptr)data.audioUnit;
         pDevice->coreaudio.pAudioBufferList         = (ma_ptr)data.pAudioBufferList;
-        pDevice->coreaudio.audioBufferSizeInBytes   = data.audioBufferSizeInBytes;
+        pDevice->coreaudio.audioBufferCapInFrames   = data.periodSizeInFramesOut;
 
         pDevice->capture.internalFormat             = data.formatOut;
         pDevice->capture.internalChannels           = data.channelsOut;
