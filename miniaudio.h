@@ -13194,11 +13194,6 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
-    /* Not currently supporting exclusive mode on UWP. */
-    if (shareMode == ma_share_mode_exclusive) {
-        return MA_ERROR;
-    }
-
     result = ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, &pAudioClient, NULL);
     if (result != MA_SUCCESS) {
         return result;
@@ -13801,7 +13796,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_config* pConfig2, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result = MA_SUCCESS;
 
@@ -13813,16 +13808,16 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->wasapi);
-    pDevice->wasapi.noAutoConvertSRC     = pConfig2->wasapi.noAutoConvertSRC;
-    pDevice->wasapi.noDefaultQualitySRC  = pConfig2->wasapi.noDefaultQualitySRC;
-    pDevice->wasapi.noHardwareOffloading = pConfig2->wasapi.noHardwareOffloading;
+    pDevice->wasapi.noAutoConvertSRC     = pConfig->wasapi.noAutoConvertSRC;
+    pDevice->wasapi.noDefaultQualitySRC  = pConfig->wasapi.noDefaultQualitySRC;
+    pDevice->wasapi.noHardwareOffloading = pConfig->wasapi.noHardwareOffloading;
 
     /* Exclusive mode is not allowed with loopback. */
-    if (pConfig2->deviceType == ma_device_type_loopback && pConfig2->playback.shareMode == ma_share_mode_exclusive) {
+    if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
         return MA_INVALID_DEVICE_CONFIG;
     }
 
-    if (pConfig2->deviceType == ma_device_type_capture || pConfig2->deviceType == ma_device_type_duplex || pConfig2->deviceType == ma_device_type_loopback) {
+    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
         ma_device_init_internal_data__wasapi data;
         data.formatIn                   = pDescriptorCapture->format;
         data.channelsIn                 = pDescriptorCapture->channels;
@@ -13832,11 +13827,11 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.periodSizeInMillisecondsIn = pDescriptorCapture->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorCapture->periodCount;
         data.shareMode                  = pDescriptorCapture->shareMode;
-        data.noAutoConvertSRC           = pConfig2->wasapi.noAutoConvertSRC;
-        data.noDefaultQualitySRC        = pConfig2->wasapi.noDefaultQualitySRC;
-        data.noHardwareOffloading       = pConfig2->wasapi.noHardwareOffloading;
+        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
 
-        result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig2->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pDescriptorCapture->pDeviceID, &data);
+        result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pDescriptorCapture->pDeviceID, &data);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -13880,7 +13875,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         pDescriptorCapture->periodCount        = data.periodsOut;
     }
 
-    if (pConfig2->deviceType == ma_device_type_playback || pConfig2->deviceType == ma_device_type_duplex) {
+    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         ma_device_init_internal_data__wasapi data;
         data.formatIn                   = pDescriptorPlayback->format;
         data.channelsIn                 = pDescriptorPlayback->channels;
@@ -13890,13 +13885,13 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.periodSizeInMillisecondsIn = pDescriptorPlayback->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorPlayback->periodCount;
         data.shareMode                  = pDescriptorPlayback->shareMode;
-        data.noAutoConvertSRC           = pConfig2->wasapi.noAutoConvertSRC;
-        data.noDefaultQualitySRC        = pConfig2->wasapi.noDefaultQualitySRC;
-        data.noHardwareOffloading       = pConfig2->wasapi.noHardwareOffloading;
+        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pDescriptorPlayback->pDeviceID, &data);
         if (result != MA_SUCCESS) {
-            if (pConfig2->deviceType == ma_device_type_duplex) {
+            if (pConfig->deviceType == ma_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
                     ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
                     pDevice->wasapi.pCaptureClient = NULL;
@@ -13929,7 +13924,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         if (pDevice->wasapi.hEventPlayback == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
-            if (pConfig2->deviceType == ma_device_type_duplex) {
+            if (pConfig->deviceType == ma_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
                     ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
                     pDevice->wasapi.pCaptureClient = NULL;
@@ -13975,11 +13970,11 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     stop the device outright and let the application handle it.
     */
 #ifdef MA_WIN32_DESKTOP
-    if (pConfig2->wasapi.noAutoStreamRouting == MA_FALSE) {
-        if ((pConfig2->deviceType == ma_device_type_capture || pConfig2->deviceType == ma_device_type_duplex) && pConfig2->capture.pDeviceID == NULL) {
+    if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
+        if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
-        if ((pConfig2->deviceType == ma_device_type_playback || pConfig2->deviceType == ma_device_type_duplex) && pConfig2->playback.pDeviceID == NULL) {
+        if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
     }
@@ -14796,17 +14791,6 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceWrite             = NULL;                   /* Not used. Writing is done manually in the audio thread. */
     pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__wasapi;
 
-#if 0
-    pContext->onUninit         = ma_context_uninit__wasapi;
-    pContext->onEnumDevices    = ma_context_enumerate_devices__wasapi;
-    pContext->onGetDeviceInfo  = ma_context_get_device_info__wasapi;
-    pContext->onDeviceInit     = ma_device_init__wasapi;
-    pContext->onDeviceUninit   = ma_device_uninit__wasapi;
-    pContext->onDeviceStart    = NULL;                      /* Not used. Started in onDeviceMainLoop. */
-    pContext->onDeviceStop     = ma_device_stop__wasapi;    /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
-    pContext->onDeviceMainLoop = ma_device_main_loop__wasapi;
-#endif
-
     return result;
 }
 #endif
@@ -15473,15 +15457,10 @@ static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, 
     return TRUE;
 }
 
-static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_result result;
     HRESULT hr;
-
-    /* Exclusive mode and capture not supported with DirectSound. */
-    if (deviceType == ma_device_type_capture && shareMode == ma_share_mode_exclusive) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
 
     if (pDeviceID != NULL) {
         ma_context_get_device_info_callback_data__dsound data;
@@ -15514,6 +15493,8 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
         } else {
             ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         }
+
+        pDeviceInfo->isDefault = MA_TRUE;
     }
 
     /* Retrieving detailed information is slightly different depending on the device type. */
@@ -15521,9 +15502,9 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
         /* Playback. */
         ma_IDirectSound* pDirectSound;
         MA_DSCAPS caps;
-        ma_uint32 iFormat;
+        WORD channels;
 
-        result = ma_context_create_IDirectSound__dsound(pContext, shareMode, pDeviceID, &pDirectSound);
+        result = ma_context_create_IDirectSound__dsound(pContext, ma_share_mode_shared, pDeviceID, &pDirectSound);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -15535,9 +15516,11 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", ma_result_from_HRESULT(hr));
         }
 
+
+        /* Channels. Only a single channel count is reported for DirectSound. */
         if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
             /* It supports at least stereo, but could support more. */
-            WORD channels = 2;
+            channels = 2;
 
             /* Look at the speaker configuration to get a better idea on the channel count. */
             DWORD speakerConfig;
@@ -15545,40 +15528,37 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
             if (SUCCEEDED(hr)) {
                 ma_get_channels_from_speaker_config__dsound(speakerConfig, &channels, NULL);
             }
-
-            pDeviceInfo->minChannels = channels;
-            pDeviceInfo->maxChannels = channels;
         } else {
             /* It does not support stereo, which means we are stuck with mono. */
-            pDeviceInfo->minChannels = 1;
-            pDeviceInfo->maxChannels = 1;
+            channels = 1;
         }
 
-        /* Sample rate. */
-        if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
-            pDeviceInfo->minSampleRate = caps.dwMinSecondarySampleRate;
-            pDeviceInfo->maxSampleRate = caps.dwMaxSecondarySampleRate;
 
-            /*
-            On my machine the min and max sample rates can return 100 and 200000 respectively. I'd rather these be within
-            the range of our standard sample rates so I'm clamping.
-            */
-            if (caps.dwMinSecondarySampleRate < MA_MIN_SAMPLE_RATE && caps.dwMaxSecondarySampleRate >= MA_MIN_SAMPLE_RATE) {
-                pDeviceInfo->minSampleRate = MA_MIN_SAMPLE_RATE;
-            }
-            if (caps.dwMaxSecondarySampleRate > MA_MAX_SAMPLE_RATE && caps.dwMinSecondarySampleRate <= MA_MAX_SAMPLE_RATE) {
-                pDeviceInfo->maxSampleRate = MA_MAX_SAMPLE_RATE;
+        /*
+        In DirectSound, our native formats are centered around sample rates. All formats are supported, and we're only reporting a single channel
+        count. However, DirectSound can report a range of supported sample rates. We're only going to include standard rates known by miniaudio
+        in order to keep the size of this within reason.
+        */
+        if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
+            /* Multiple sample rates are supported. We'll report in order of our preferred sample rates. */
+            size_t iStandardSampleRate;
+            for (iStandardSampleRate = 0; iStandardSampleRate < ma_countof(g_maStandardSampleRatePriorities); iStandardSampleRate += 1) {
+                ma_uint32 sampleRate = g_maStandardSampleRatePriorities[iStandardSampleRate];
+                if (sampleRate >= caps.dwMinSecondarySampleRate && sampleRate <= caps.dwMaxSecondarySampleRate) {
+                    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = ma_format_unknown;
+                    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
+                    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
+                    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
+                    pDeviceInfo->nativeDataFormatCount += 1;
+                }
             }
         } else {
-            /* Only supports a single sample rate. Set both min an max to the same thing. Do not clamp within the standard rates. */
-            pDeviceInfo->minSampleRate = caps.dwMaxSecondarySampleRate;
-            pDeviceInfo->maxSampleRate = caps.dwMaxSecondarySampleRate;
-        }
-
-        /* DirectSound can support all formats. */
-        pDeviceInfo->formatCount = ma_format_count - 1;    /* Minus one because we don't want to include ma_format_unknown. */
-        for (iFormat = 0; iFormat < pDeviceInfo->formatCount; ++iFormat) {
-            pDeviceInfo->formats[iFormat] = (ma_format)(iFormat + 1);  /* +1 to skip over ma_format_unknown. */
+            /* Only a single sample rate is supported. */
+            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = ma_format_unknown;
+            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
+            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = caps.dwMaxSecondarySampleRate;
+            pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
+            pDeviceInfo->nativeDataFormatCount += 1;
         }
 
         ma_IDirectSound_Release(pDirectSound);
@@ -15593,7 +15573,7 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
         WORD bitsPerSample;
         DWORD sampleRate;
 
-        result = ma_context_create_IDirectSoundCapture__dsound(pContext, shareMode, pDeviceID, &pDirectSoundCapture);
+        result = ma_context_create_IDirectSoundCapture__dsound(pContext, ma_share_mode_shared, pDeviceID, &pDirectSoundCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -15604,11 +15584,9 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
             return result;
         }
 
-        pDeviceInfo->minChannels = channels;
-        pDeviceInfo->maxChannels = channels;
-        pDeviceInfo->minSampleRate = sampleRate;
-        pDeviceInfo->maxSampleRate = sampleRate;
-        pDeviceInfo->formatCount = 1;
+        ma_IDirectSoundCapture_Release(pDirectSoundCapture);
+
+        /* The format is always an integer format and is based on the bits per sample. */
         if (bitsPerSample == 8) {
             pDeviceInfo->formats[0] = ma_format_u8;
         } else if (bitsPerSample == 16) {
@@ -15617,12 +15595,14 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
             pDeviceInfo->formats[0] = ma_format_s24;
         } else if (bitsPerSample == 32) {
             pDeviceInfo->formats[0] = ma_format_s32;
-        } else {
-            ma_IDirectSoundCapture_Release(pDirectSoundCapture);
+        } else {   
             return MA_FORMAT_NOT_SUPPORTED;
         }
 
-        ma_IDirectSoundCapture_Release(pDirectSoundCapture);
+        pDeviceInfo->nativeDataFormats[0].channels   = channels;
+        pDeviceInfo->nativeDataFormats[0].sampleRate = sampleRate;
+        pDeviceInfo->nativeDataFormats[0].flags      = 0;
+        pDeviceInfo->nativeDataFormatCount = 1;
     }
 
     return MA_SUCCESS;
@@ -15630,7 +15610,7 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
 
 
 
-static void ma_device_uninit__dsound(ma_device* pDevice)
+static ma_result ma_device_uninit__dsound(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -15650,11 +15630,25 @@ static void ma_device_uninit__dsound(ma_device* pDevice)
     if (pDevice->dsound.pPlayback != NULL) {
         ma_IDirectSound_Release((ma_IDirectSound*)pDevice->dsound.pPlayback);
     }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const ma_channel* pChannelMap, WAVEFORMATEXTENSIBLE* pWF)
 {
     GUID subformat;
+
+    if (format == ma_format_unknown) {
+        format = MA_DEFAULT_FORMAT;
+    }
+
+    if (channels == 0) {
+        channels = MA_DEFAULT_CHANNELS;
+    }
+
+    if (sampleRate == 0) {
+        sampleRate = MA_DEFAULT_SAMPLE_RATE;
+    }
 
     switch (format)
     {
@@ -15691,36 +15685,33 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate)
+{
+    /* DirectSound has a minimum period size of 20ms. */
+    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(20, sampleRate);
+
+    if (periodSizeInFrames == 0) {
+        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+    }
+
+    if (periodSizeInFrames < minPeriodSizeInFrames) {
+        periodSizeInFrames = minPeriodSizeInFrames;
+    }
+
+    return periodSizeInFrames;
+}
+
+static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
     HRESULT hr;
-    ma_uint32 periodSizeInMilliseconds;
 
     MA_ASSERT(pDevice != NULL);
+
     MA_ZERO_OBJECT(&pDevice->dsound);
 
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
-    }
-
-    periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
-    if (periodSizeInMilliseconds == 0) {
-        periodSizeInMilliseconds = ma_calculate_buffer_size_in_milliseconds_from_frames(pConfig->periodSizeInFrames, pConfig->sampleRate);
-    }
-
-    /* DirectSound should use a latency of about 20ms per period for low latency mode. */
-    if (pDevice->usingDefaultBufferSize) {
-        if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-            periodSizeInMilliseconds =  20;
-        } else {
-            periodSizeInMilliseconds = 200;
-        }
-    }
-
-    /* DirectSound breaks down with tiny buffer sizes (bad glitching and silent output). I am therefore restricting the size of the buffer to a minimum of 20 milliseconds. */
-    if (periodSizeInMilliseconds < 20) {
-        periodSizeInMilliseconds = 20;
     }
 
     /*
@@ -15732,21 +15723,22 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         WAVEFORMATEXTENSIBLE wf;
         MA_DSCBUFFERDESC descDS;
         ma_uint32 periodSizeInFrames;
+        ma_uint32 periodCount;
         char rawdata[1024]; /* <-- Ugly hack to avoid a malloc() due to a crappy DirectSound API. */
         WAVEFORMATEXTENSIBLE* pActualFormat;
 
-        result = ma_config_to_WAVEFORMATEXTENSIBLE(pConfig->capture.format, pConfig->capture.channels, pConfig->sampleRate, pConfig->capture.channelMap, &wf);
+        result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorCapture->format, pDescriptorCapture->channels, pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, &wf);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        result = ma_context_create_IDirectSoundCapture__dsound(pContext, pConfig->capture.shareMode, pConfig->capture.pDeviceID, (ma_IDirectSoundCapture**)&pDevice->dsound.pCapture);
+        result = ma_context_create_IDirectSoundCapture__dsound(pDevice->pContext, pDescriptorCapture->shareMode, pDescriptorCapture->pDeviceID, (ma_IDirectSoundCapture**)&pDevice->dsound.pCapture);
         if (result != MA_SUCCESS) {
             ma_device_uninit__dsound(pDevice);
             return result;
         }
 
-        result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(pContext, (ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
+        result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(pDevice->pContext, (ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
         if (result != MA_SUCCESS) {
             ma_device_uninit__dsound(pDevice);
             return result;
@@ -15758,13 +15750,14 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         wf.SubFormat                   = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, wf.Format.nSamplesPerSec);
+        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, wf.Format.nSamplesPerSec);
+        periodCount = (pDescriptorCapture->periodCount > 0) ? pDescriptorCapture->periodCount : MA_DEFAULT_PERIODS;
 
         MA_ZERO_OBJECT(&descDS);
-        descDS.dwSize = sizeof(descDS);
-        descDS.dwFlags = 0;
-        descDS.dwBufferBytes = periodSizeInFrames * pConfig->periods * ma_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels);
-        descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
+        descDS.dwSize        = sizeof(descDS);
+        descDS.dwFlags       = 0;
+        descDS.dwBufferBytes = periodSizeInFrames * periodCount * wf.Format.nBlockAlign;
+        descDS.lpwfxFormat   = (WAVEFORMATEX*)&wf;
         hr = ma_IDirectSoundCapture_CreateCaptureBuffer((ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (ma_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
@@ -15779,23 +15772,24 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.", ma_result_from_HRESULT(hr));
         }
 
-        pDevice->capture.internalFormat = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
-        pDevice->capture.internalChannels = pActualFormat->Format.nChannels;
-        pDevice->capture.internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+        /* We can now start setting the output data formats. */
+        pDescriptorCapture->format     = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDescriptorCapture->channels   = pActualFormat->Format.nChannels;
+        pDescriptorCapture->sampleRate = pActualFormat->Format.nSamplesPerSec;
 
-        /* Get the internal channel map based on the channel mask. */
+        /* Get the native channel map based on the channel mask. */
         if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+            ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         } else {
-            ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
+            ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         }
 
         /*
         After getting the actual format the size of the buffer in frames may have actually changed. However, we want this to be as close to what the
         user has asked for as possible, so let's go ahead and release the old capture buffer and create a new one in this case.
         */
-        if (periodSizeInFrames != (descDS.dwBufferBytes / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels) / pConfig->periods)) {
-            descDS.dwBufferBytes = periodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, wf.Format.nChannels) * pConfig->periods;
+        if (periodSizeInFrames != (descDS.dwBufferBytes / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / periodCount)) {
+            descDS.dwBufferBytes = periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * periodCount;
             ma_IDirectSoundCaptureBuffer_Release((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer);
 
             hr = ma_IDirectSoundCapture_CreateCaptureBuffer((ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (ma_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL);
@@ -15806,8 +15800,8 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         }
 
         /* DirectSound should give us a buffer exactly the size we asked for. */
-        pDevice->capture.internalPeriodSizeInFrames = periodSizeInFrames;
-        pDevice->capture.internalPeriods            = pConfig->periods;
+        pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
+        pDescriptorCapture->periodCount        = periodCount;
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -15817,14 +15811,15 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         char rawdata[1024]; /* <-- Ugly hack to avoid a malloc() due to a crappy DirectSound API. */
         WAVEFORMATEXTENSIBLE* pActualFormat;
         ma_uint32 periodSizeInFrames;
+        ma_uint32 periodCount;
         MA_DSBUFFERDESC descDS;
 
-        result = ma_config_to_WAVEFORMATEXTENSIBLE(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &wf);
+        result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorPlayback->format, pDescriptorPlayback->channels, pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, &wf);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        result = ma_context_create_IDirectSound__dsound(pContext, pConfig->playback.shareMode, pConfig->playback.pDeviceID, (ma_IDirectSound**)&pDevice->dsound.pPlayback);
+        result = ma_context_create_IDirectSound__dsound(pDevice->pContext, pDescriptorPlayback->shareMode, pDescriptorPlayback->pDeviceID, (ma_IDirectSound**)&pDevice->dsound.pPlayback);
         if (result != MA_SUCCESS) {
             ma_device_uninit__dsound(pDevice);
             return result;
@@ -15849,7 +15844,7 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSound_GetCaps() failed for playback device.", ma_result_from_HRESULT(hr));
         }
 
-        if (pDevice->playback.usingDefaultChannels) {
+        if (pDescriptorPlayback->channels == 0) {
             if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
                 DWORD speakerConfig;
 
@@ -15866,7 +15861,7 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             }
         }
 
-        if (pDevice->usingDefaultSampleRate) {
+        if (pDescriptorPlayback->sampleRate == 0) {
             /* We base the sample rate on the values returned by GetCaps(). */
             if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
                 wf.Format.nSamplesPerSec = ma_get_best_sample_rate_within_range(caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate);
@@ -15899,19 +15894,21 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.", ma_result_from_HRESULT(hr));
         }
 
-        pDevice->playback.internalFormat = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
-        pDevice->playback.internalChannels = pActualFormat->Format.nChannels;
-        pDevice->playback.internalSampleRate = pActualFormat->Format.nSamplesPerSec;
+        /* We now have enough information to start setting some output properties. */
+        pDescriptorPlayback->format     = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDescriptorPlayback->channels   = pActualFormat->Format.nChannels;
+        pDescriptorPlayback->sampleRate = pActualFormat->Format.nSamplesPerSec;
 
         /* Get the internal channel map based on the channel mask. */
         if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+            ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         } else {
-            ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
+            ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         }
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, pDevice->playback.internalSampleRate);
+        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
+        periodCount = (pDescriptorPlayback->periodCount > 0) ? pDescriptorPlayback->periodCount : MA_DEFAULT_PERIODS;
 
         /*
         Meaning of dwFlags (from MSDN):
@@ -15931,7 +15928,7 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         MA_ZERO_OBJECT(&descDS);
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MA_DSBCAPS_CTRLPOSITIONNOTIFY | MA_DSBCAPS_GLOBALFOCUS | MA_DSBCAPS_GETCURRENTPOSITION2;
-        descDS.dwBufferBytes = periodSizeInFrames * pConfig->periods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+        descDS.dwBufferBytes = periodSizeInFrames * periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
         descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
         hr = ma_IDirectSound_CreateSoundBuffer((ma_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (ma_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL);
         if (FAILED(hr)) {
@@ -15940,16 +15937,15 @@ static ma_result ma_device_init__dsound(ma_context* pContext, const ma_device_co
         }
 
         /* DirectSound should give us a buffer exactly the size we asked for. */
-        pDevice->playback.internalPeriodSizeInFrames = periodSizeInFrames;
-        pDevice->playback.internalPeriods            = pConfig->periods;
+        pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
+        pDescriptorPlayback->periodCount        = periodCount;
     }
 
-    (void)pContext;
     return MA_SUCCESS;
 }
 
 
-static ma_result ma_device_main_loop__dsound(ma_device* pDevice)
+static ma_result ma_device_audio_thread__dsound(ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 bpfDeviceCapture  = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
@@ -16482,7 +16478,7 @@ static ma_result ma_context_uninit__dsound(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__dsound(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     MA_ASSERT(pContext != NULL);
 
@@ -16498,14 +16494,17 @@ static ma_result ma_context_init__dsound(const ma_context_config* pConfig, ma_co
     pContext->dsound.DirectSoundCaptureCreate     = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
     pContext->dsound.DirectSoundCaptureEnumerateA = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
 
-    pContext->onUninit         = ma_context_uninit__dsound;
-    pContext->onEnumDevices    = ma_context_enumerate_devices__dsound;
-    pContext->onGetDeviceInfo  = ma_context_get_device_info__dsound;
-    pContext->onDeviceInit     = ma_device_init__dsound;
-    pContext->onDeviceUninit   = ma_device_uninit__dsound;
-    pContext->onDeviceStart    = NULL;  /* Not used. Started in onDeviceMainLoop. */
-    pContext->onDeviceStop     = NULL;  /* Not used. Stopped in onDeviceMainLoop. */
-    pContext->onDeviceMainLoop = ma_device_main_loop__dsound;
+    pCallbacks->onContextInit             = ma_context_init__dsound;
+    pCallbacks->onContextUninit           = ma_context_uninit__dsound;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__dsound;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__dsound;
+    pCallbacks->onDeviceInit              = ma_device_init__dsound;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__dsound;
+    pCallbacks->onDeviceStart             = NULL;   /* Not used. Started in onDeviceAudioThread. */
+    pCallbacks->onDeviceStop              = NULL;   /* Not used. Stopped in onDeviceAudioThread. */
+    pCallbacks->onDeviceRead              = NULL;   /* Not used. Data is read directly in onDeviceAudioThread. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not used. Data is written directly in onDeviceAudioThread. */
+    pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__dsound;
 
     return MA_SUCCESS;
 }
@@ -31915,6 +31914,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 pContext->callbacks.onContextInit = ma_context_init__wasapi;
             } break;
         #endif
+        #ifdef MA_HAS_DSOUND
+            case ma_backend_dsound:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__dsound;
+            } break;
+        #endif
         #ifdef MA_HAS_CUSTOM
             case ma_backend_custom:
             {
@@ -31942,7 +31947,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_DSOUND
                 case ma_backend_dsound:
                 {
-                    result = ma_context_init__dsound(pConfig, pContext);
+                    /*result = ma_context_init__dsound(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_WINMM
