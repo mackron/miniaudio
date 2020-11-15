@@ -3224,7 +3224,7 @@ typedef struct ma_context_config    ma_context_config;
 typedef struct ma_device_config     ma_device_config;
 typedef struct ma_backend_callbacks ma_backend_callbacks;
 
-#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1);   /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
+#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
 typedef struct
 {
@@ -3447,11 +3447,11 @@ look at `ma_device_audio_thread__default_read_write()`.
 */
 struct ma_backend_callbacks
 {
-    ma_result (* onContextInit)(ma_context* pContext, ma_backend_callbacks* pCallbacks);
+    ma_result (* onContextInit)(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks);
     ma_result (* onContextUninit)(ma_context* pContext);
     ma_result (* onContextEnumerateDevices)(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
     ma_result (* onContextGetDeviceInfo)(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
-    ma_result (* onDeviceInit)(ma_device* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
+    ma_result (* onDeviceInit)(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
     ma_result (* onDeviceUninit)(ma_device* pDevice);
     ma_result (* onDeviceStart)(ma_device* pDevice);
     ma_result (* onDeviceStop)(ma_device* pDevice);
@@ -12614,144 +12614,146 @@ typedef ma_IUnknown ma_WASAPIDeviceInterface;
 #endif
 
 
-static void ma_set_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_device_info* pInfo)
+static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
 {
     MA_ASSERT(pWF != NULL);
     MA_ASSERT(pInfo != NULL);
 
-    pInfo->formatCount   = 1;
-    pInfo->formats[0]    = ma_format_from_WAVEFORMATEX(pWF);
-    pInfo->minChannels   = pWF->nChannels;
-    pInfo->maxChannels   = pWF->nChannels;
-    pInfo->minSampleRate = pWF->nSamplesPerSec;
-    pInfo->maxSampleRate = pWF->nSamplesPerSec;
+    if (pInfo->nativeDataFormatCount >= ma_countof(pInfo->nativeDataFormats)) {
+        return; /* Too many data formats. Need to ignore this one. Don't think this should ever happen with WASAPI. */
+    }
+
+    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].format     = ma_format_from_WAVEFORMATEX(pWF);
+    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].channels   = pWF->nChannels;
+    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].sampleRate = pWF->nSamplesPerSec;
+    pInfo->nativeDataFormats[pInfo->nativeDataFormatCount].flags      = (shareMode == ma_share_mode_exclusive) ? MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE : 0;
+    pInfo->nativeDataFormatCount += 1;
 }
 
-static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/void* pMMDevice, ma_IAudioClient* pAudioClient, ma_share_mode shareMode, ma_device_info* pInfo)
+static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/void* pMMDevice, ma_IAudioClient* pAudioClient, ma_device_info* pInfo)
 {
+    HRESULT hr;
+    WAVEFORMATEX* pWF = NULL;
+#ifdef MA_WIN32_DESKTOP
+    ma_IPropertyStore *pProperties;
+#endif
+
     MA_ASSERT(pAudioClient != NULL);
     MA_ASSERT(pInfo != NULL);
 
-    /* We use a different technique to retrieve the device information depending on whether or not we are using shared or exclusive mode. */
-    if (shareMode == ma_share_mode_shared) {
-        /* Shared Mode. We use GetMixFormat() here. */
-        WAVEFORMATEX* pWF = NULL;
-        HRESULT hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pAudioClient, (WAVEFORMATEX**)&pWF);
-        if (SUCCEEDED(hr)) {
-            ma_set_device_info_from_WAVEFORMATEX(pWF, pInfo);
-            return MA_SUCCESS;
-        } else {
-            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve mix format for device info retrieval.", ma_result_from_HRESULT(hr));
-        }
+    /* Shared Mode. We use GetMixFormat() here. */
+    hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pAudioClient, (WAVEFORMATEX**)&pWF);
+    if (SUCCEEDED(hr)) {
+        ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_shared, pInfo);
     } else {
-        /* Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on UWP. */
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve mix format for device info retrieval.", ma_result_from_HRESULT(hr));
+    }
+
+    /* Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on UWP. */
 #ifdef MA_WIN32_DESKTOP
-        /*
-        The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
-        correct which will simplify our searching.
-        */
-        ma_IPropertyStore *pProperties;
-        HRESULT hr = ma_IMMDevice_OpenPropertyStore((ma_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
+    /*
+    The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
+    correct which will simplify our searching.
+    */
+    hr = ma_IMMDevice_OpenPropertyStore((ma_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
+    if (SUCCEEDED(hr)) {
+        PROPVARIANT var;
+        ma_PropVariantInit(&var);
+
+        hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
         if (SUCCEEDED(hr)) {
-            PROPVARIANT var;
-            ma_PropVariantInit(&var);
+            pWF = (WAVEFORMATEX*)var.blob.pBlobData;
 
-            hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
+            /*
+            In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
+            first. If this fails, fall back to a search.
+            */
+            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
+            ma_PropVariantClear(pContext, &var);
+
             if (SUCCEEDED(hr)) {
-                WAVEFORMATEX* pWF = (WAVEFORMATEX*)var.blob.pBlobData;
-                ma_set_device_info_from_WAVEFORMATEX(pWF, pInfo);
-
+                /* The format returned by PKEY_AudioEngine_DeviceFormat is not supported. */
+                ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
+            } else {
                 /*
-                In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
-                first. If this fails, fall back to a search.
+                The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
+                count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
                 */
-                hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
-                ma_PropVariantClear(pContext, &var);
+                ma_uint32 channels = pInfo->minChannels;
+                ma_format formatsToSearch[] = {
+                    ma_format_s16,
+                    ma_format_s24,
+                    /*ma_format_s24_32,*/
+                    ma_format_f32,
+                    ma_format_s32,
+                    ma_format_u8
+                };
+                ma_channel defaultChannelMap[MA_MAX_CHANNELS];
+                WAVEFORMATEXTENSIBLE wf;
+                ma_bool32 found;
+                ma_uint32 iFormat;
 
-                if (FAILED(hr)) {
-                    /*
-                    The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
-                    count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
-                    */
-                    ma_uint32 channels = pInfo->minChannels;
-                    ma_format formatsToSearch[] = {
-                        ma_format_s16,
-                        ma_format_s24,
-                        /*ma_format_s24_32,*/
-                        ma_format_f32,
-                        ma_format_s32,
-                        ma_format_u8
-                    };
-                    ma_channel defaultChannelMap[MA_MAX_CHANNELS];
-                    WAVEFORMATEXTENSIBLE wf;
-                    ma_bool32 found;
-                    ma_uint32 iFormat;
+                /* Make sure we don't overflow the channel map. */
+                if (channels > MA_MAX_CHANNELS) {
+                    channels = MA_MAX_CHANNELS;
+                }
 
-                    /* Make sure we don't overflow the channel map. */
-                    if (channels > MA_MAX_CHANNELS) {
-                        channels = MA_MAX_CHANNELS;
+                ma_get_standard_channel_map(ma_standard_channel_map_microsoft, channels, defaultChannelMap);
+
+                MA_ZERO_OBJECT(&wf);
+                wf.Format.cbSize     = sizeof(wf);
+                wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+                wf.Format.nChannels  = (WORD)channels;
+                wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
+
+                found = MA_FALSE;
+                for (iFormat = 0; iFormat < ma_countof(formatsToSearch); ++iFormat) {
+                    ma_format format = formatsToSearch[iFormat];
+                    ma_uint32 iSampleRate;
+
+                    wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
+                    wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
+                    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+                    wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
+                    if (format == ma_format_f32) {
+                        wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+                    } else {
+                        wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
                     }
 
-                    ma_get_standard_channel_map(ma_standard_channel_map_microsoft, channels, defaultChannelMap);
+                    for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
+                        wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
 
-                    MA_ZERO_OBJECT(&wf);
-                    wf.Format.cbSize     = sizeof(wf);
-                    wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-                    wf.Format.nChannels  = (WORD)channels;
-                    wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
-
-                    found = MA_FALSE;
-                    for (iFormat = 0; iFormat < ma_countof(formatsToSearch); ++iFormat) {
-                        ma_format format = formatsToSearch[iFormat];
-                        ma_uint32 iSampleRate;
-
-                        wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
-                        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
-                        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-                        wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
-                        if (format == ma_format_f32) {
-                            wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-                        } else {
-                            wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
-                        }
-
-                        for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
-                            wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
-
-                            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
-                            if (SUCCEEDED(hr)) {
-                                ma_set_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, pInfo);
-                                found = MA_TRUE;
-                                break;
-                            }
-                        }
-
-                        if (found) {
+                        hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+                        if (SUCCEEDED(hr)) {
+                            ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
+                            found = MA_TRUE;
                             break;
                         }
                     }
 
-                    if (!found) {
-                        ma_IPropertyStore_Release(pProperties);
-                        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
+                    if (found) {
+                        break;
                     }
                 }
-            } else {
-                ma_IPropertyStore_Release(pProperties);
-                return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
-            }
 
-            ma_IPropertyStore_Release(pProperties);
+                if (!found) {
+                    ma_IPropertyStore_Release(pProperties);
+                    return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
+                }
+            }
         } else {
-            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
+            ma_IPropertyStore_Release(pProperties);
+            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
         }
 
-        return MA_SUCCESS;
-#else
-        /* Exclusive mode not fully supported in UWP right now. */
-        return MA_ERROR;
-#endif
+        ma_IPropertyStore_Release(pProperties);
+    } else {
+        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
     }
+#endif
+
+    return MA_SUCCESS;
 }
 
 #ifdef MA_WIN32_DESKTOP
@@ -12867,7 +12869,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, ma_share_mode shareMode, LPWSTR pDefaultDeviceID, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
+static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, LPWSTR pDefaultDeviceID, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
 {
     LPWSTR pDeviceID;
     HRESULT hr;
@@ -12922,7 +12924,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
         ma_IAudioClient* pAudioClient;
         hr = ma_IMMDevice_Activate(pMMDevice, &MA_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pAudioClient);
         if (SUCCEEDED(hr)) {
-            ma_result result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, pMMDevice, pAudioClient, shareMode, pInfo);
+            ma_result result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, pMMDevice, pAudioClient, pInfo);
 
             ma_IAudioClient_Release(pAudioClient);
             return result;
@@ -12966,7 +12968,7 @@ static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pConte
 
             hr = ma_IMMDeviceCollection_Item(pDeviceCollection, iDevice, &pMMDevice);
             if (SUCCEEDED(hr)) {
-                result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, ma_share_mode_shared, pDefaultDeviceID, MA_TRUE, &deviceInfo);   /* MA_TRUE = onlySimpleInfo. */
+                result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, pDefaultDeviceID, MA_TRUE, &deviceInfo);   /* MA_TRUE = onlySimpleInfo. */
 
                 ma_IMMDevice_Release(pMMDevice);
                 if (result == MA_SUCCESS) {
@@ -13156,7 +13158,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
 #ifdef MA_WIN32_DESKTOP
     ma_result result;
@@ -13171,7 +13173,7 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
     /* We need the default device ID so we can set the isDefault flag in the device info. */
     pDefaultDeviceID = ma_context_get_default_device_id__wasapi(pContext, deviceType);
 
-    result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, shareMode, pDefaultDeviceID, MA_FALSE, pDeviceInfo);   /* MA_FALSE = !onlySimpleInfo. */
+    result = ma_context_get_device_info_from_MMDevice__wasapi(pContext, pMMDevice, pDefaultDeviceID, MA_FALSE, pDeviceInfo);   /* MA_FALSE = !onlySimpleInfo. */
 
     if (pDefaultDeviceID != NULL) {
         ma_CoTaskMemFree(pContext, pDefaultDeviceID);
@@ -13202,7 +13204,7 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
         return result;
     }
 
-    result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, shareMode, pDeviceInfo);
+    result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, NULL, pAudioClient, pDeviceInfo);
 
     pDeviceInfo->isDefault = MA_TRUE;  /* UWP only supports default devices. */
 
@@ -13211,7 +13213,7 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
 #endif
 }
 
-static void ma_device_uninit__wasapi(ma_device* pDevice)
+static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -13242,6 +13244,8 @@ static void ma_device_uninit__wasapi(ma_device* pDevice)
     if (pDevice->wasapi.hEventCapture) {
         CloseHandle(pDevice->wasapi.hEventCapture);
     }
+
+    return MA_SUCCESS;
 }
 
 
@@ -13255,10 +13259,10 @@ typedef struct
     ma_uint32 periodSizeInFramesIn;
     ma_uint32 periodSizeInMillisecondsIn;
     ma_uint32 periodsIn;
-    ma_bool32 usingDefaultFormat;
+    /*ma_bool32 usingDefaultFormat;
     ma_bool32 usingDefaultChannels;
     ma_bool32 usingDefaultSampleRate;
-    ma_bool32 usingDefaultChannelMap;
+    ma_bool32 usingDefaultChannelMap;*/
     ma_share_mode shareMode;
     ma_bool32 noAutoConvertSRC;
     ma_bool32 noDefaultQualitySRC;
@@ -13305,10 +13309,10 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     pData->pCaptureClient = NULL;
 
     streamFlags = MA_AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-    if (!pData->noAutoConvertSRC && !pData->usingDefaultSampleRate && pData->shareMode != ma_share_mode_exclusive) {    /* <-- Exclusive streams must use the native sample rate. */
+    if (!pData->noAutoConvertSRC && pData->sampleRateIn != 0 && pData->shareMode != ma_share_mode_exclusive) {    /* <-- Exclusive streams must use the native sample rate. */
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
     }
-    if (!pData->noDefaultQualitySRC && !pData->usingDefaultSampleRate && (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) != 0) {
+    if (!pData->noDefaultQualitySRC && pData->sampleRateIn != 0 && (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) != 0) {
         streamFlags |= MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     }
     if (deviceType == ma_device_type_loopback) {
@@ -13409,7 +13413,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     */
     nativeSampleRate = wf.Format.nSamplesPerSec;
     if (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) {
-        wf.Format.nSamplesPerSec = pData->sampleRateIn;
+        wf.Format.nSamplesPerSec = (pData->sampleRateIn != 0) ? pData->sampleRateIn : MA_DEFAULT_SAMPLE_RATE;
         wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
     }
 
@@ -13437,7 +13441,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pData->channelsOut, pData->channelMapOut);
 
     /* Period size. */
-    pData->periodsOut = pData->periodsIn;
+    pData->periodsOut = (pData->periodsIn != 0) ? pData->periodsIn : MA_DEFAULT_PERIODS;
     pData->periodSizeInFramesOut = pData->periodSizeInFramesIn;
     if (pData->periodSizeInFramesOut == 0) {
         pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.Format.nSamplesPerSec);
@@ -13702,21 +13706,14 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         data.channelsIn             = pDevice->playback.channels;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.shareMode              = pDevice->playback.shareMode;
-        data.usingDefaultFormat     = pDevice->playback.usingDefaultFormat;
-        data.usingDefaultChannels   = pDevice->playback.usingDefaultChannels;
-        data.usingDefaultChannelMap = pDevice->playback.usingDefaultChannelMap;
     } else {
         data.formatIn               = pDevice->capture.format;
         data.channelsIn             = pDevice->capture.channels;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
         data.shareMode              = pDevice->capture.shareMode;
-        data.usingDefaultFormat     = pDevice->capture.usingDefaultFormat;
-        data.usingDefaultChannels   = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultChannelMap = pDevice->capture.usingDefaultChannelMap;
     }
 
     data.sampleRateIn               = pDevice->sampleRate;
-    data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
     data.periodSizeInFramesIn       = pDevice->wasapi.originalPeriodSizeInFrames;
     data.periodSizeInMillisecondsIn = pDevice->wasapi.originalPeriodSizeInMilliseconds;
     data.periodsIn                  = pDevice->wasapi.originalPeriods;
@@ -13804,7 +13801,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_config* pConfig2, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result = MA_SUCCESS;
 
@@ -13813,57 +13810,42 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
 #endif
 
-    (void)pContext;
-
-    MA_ASSERT(pContext != NULL);
     MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->wasapi);
-    pDevice->wasapi.originalPeriodSizeInFrames       = pConfig->periodSizeInFrames;
-    pDevice->wasapi.originalPeriodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
-    pDevice->wasapi.originalPeriods                  = pConfig->periods;
-    pDevice->wasapi.noAutoConvertSRC                 = pConfig->wasapi.noAutoConvertSRC;
-    pDevice->wasapi.noDefaultQualitySRC              = pConfig->wasapi.noDefaultQualitySRC;
-    pDevice->wasapi.noHardwareOffloading             = pConfig->wasapi.noHardwareOffloading;
+    pDevice->wasapi.noAutoConvertSRC     = pConfig2->wasapi.noAutoConvertSRC;
+    pDevice->wasapi.noDefaultQualitySRC  = pConfig2->wasapi.noDefaultQualitySRC;
+    pDevice->wasapi.noHardwareOffloading = pConfig2->wasapi.noHardwareOffloading;
 
     /* Exclusive mode is not allowed with loopback. */
-    if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
+    if (pConfig2->deviceType == ma_device_type_loopback && pConfig2->playback.shareMode == ma_share_mode_exclusive) {
         return MA_INVALID_DEVICE_CONFIG;
     }
 
-    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+    if (pConfig2->deviceType == ma_device_type_capture || pConfig2->deviceType == ma_device_type_duplex || pConfig2->deviceType == ma_device_type_loopback) {
         ma_device_init_internal_data__wasapi data;
-        data.formatIn                   = pConfig->capture.format;
-        data.channelsIn                 = pConfig->capture.channels;
-        data.sampleRateIn               = pConfig->sampleRate;
-        MA_COPY_MEMORY(data.channelMapIn, pConfig->capture.channelMap, sizeof(pConfig->capture.channelMap));
-        data.usingDefaultFormat         = pDevice->capture.usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->capture.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->capture.usingDefaultChannelMap;
-        data.shareMode                  = pConfig->capture.shareMode;
-        data.periodSizeInFramesIn       = pConfig->periodSizeInFrames;
-        data.periodSizeInMillisecondsIn = pConfig->periodSizeInMilliseconds;
-        data.periodsIn                  = pConfig->periods;
-        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
-        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
-        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
+        data.formatIn                   = pDescriptorCapture->format;
+        data.channelsIn                 = pDescriptorCapture->channels;
+        data.sampleRateIn               = pDescriptorCapture->sampleRate;
+        MA_COPY_MEMORY(data.channelMapIn, pDescriptorCapture->channelMap, sizeof(pDescriptorCapture->channelMap));
+        data.periodSizeInFramesIn       = pDescriptorCapture->periodSizeInFrames;
+        data.periodSizeInMillisecondsIn = pDescriptorCapture->periodSizeInMilliseconds;
+        data.periodsIn                  = pDescriptorCapture->periodCount;
+        data.shareMode                  = pDescriptorCapture->shareMode;
+        data.noAutoConvertSRC           = pConfig2->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig2->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig2->wasapi.noHardwareOffloading;
 
-        result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pConfig->capture.pDeviceID, &data);
+        result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig2->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pDescriptorCapture->pDeviceID, &data);
         if (result != MA_SUCCESS) {
             return result;
         }
 
-        pDevice->wasapi.pAudioClientCapture         = data.pAudioClient;
-        pDevice->wasapi.pCaptureClient              = data.pCaptureClient;
-
-        pDevice->capture.internalFormat             = data.formatOut;
-        pDevice->capture.internalChannels           = data.channelsOut;
-        pDevice->capture.internalSampleRate         = data.sampleRateOut;
-        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-        pDevice->capture.internalPeriodSizeInFrames = data.periodSizeInFramesOut;
-        pDevice->capture.internalPeriods            = data.periodsOut;
-        ma_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
+        pDevice->wasapi.pAudioClientCapture              = data.pAudioClient;
+        pDevice->wasapi.pCaptureClient                   = data.pCaptureClient;
+        pDevice->wasapi.originalPeriodSizeInMilliseconds = pDescriptorCapture->periodSizeInMilliseconds;
+        pDevice->wasapi.originalPeriodSizeInFrames       = pDescriptorCapture->periodSizeInFrames;
+        pDevice->wasapi.originalPeriods                  = pDescriptorCapture->periodCount;
 
         /*
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
@@ -13888,29 +13870,33 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualPeriodSizeInFramesCapture);
+
+        /* The descriptor needs to be updated with actual values. */
+        pDescriptorCapture->format             = data.formatOut;
+        pDescriptorCapture->channels           = data.channelsOut;
+        pDescriptorCapture->sampleRate         = data.sampleRateOut;
+        MA_COPY_MEMORY(pDescriptorCapture->channelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDescriptorCapture->periodSizeInFrames = data.periodSizeInFramesOut;
+        pDescriptorCapture->periodCount        = data.periodsOut;
     }
 
-    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+    if (pConfig2->deviceType == ma_device_type_playback || pConfig2->deviceType == ma_device_type_duplex) {
         ma_device_init_internal_data__wasapi data;
-        data.formatIn                   = pConfig->playback.format;
-        data.channelsIn                 = pConfig->playback.channels;
-        data.sampleRateIn               = pConfig->sampleRate;
-        MA_COPY_MEMORY(data.channelMapIn, pConfig->playback.channelMap, sizeof(pConfig->playback.channelMap));
-        data.usingDefaultFormat         = pDevice->playback.usingDefaultFormat;
-        data.usingDefaultChannels       = pDevice->playback.usingDefaultChannels;
-        data.usingDefaultSampleRate     = pDevice->usingDefaultSampleRate;
-        data.usingDefaultChannelMap     = pDevice->playback.usingDefaultChannelMap;
-        data.shareMode                  = pConfig->playback.shareMode;
-        data.periodSizeInFramesIn       = pConfig->periodSizeInFrames;
-        data.periodSizeInMillisecondsIn = pConfig->periodSizeInMilliseconds;
-        data.periodsIn                  = pConfig->periods;
-        data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
-        data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
-        data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
+        data.formatIn                   = pDescriptorPlayback->format;
+        data.channelsIn                 = pDescriptorPlayback->channels;
+        data.sampleRateIn               = pDescriptorPlayback->sampleRate;
+        MA_COPY_MEMORY(data.channelMapIn, pDescriptorPlayback->channelMap, sizeof(pDescriptorPlayback->channelMap));
+        data.periodSizeInFramesIn       = pDescriptorPlayback->periodSizeInFrames;
+        data.periodSizeInMillisecondsIn = pDescriptorPlayback->periodSizeInMilliseconds;
+        data.periodsIn                  = pDescriptorPlayback->periodCount;
+        data.shareMode                  = pDescriptorPlayback->shareMode;
+        data.noAutoConvertSRC           = pConfig2->wasapi.noAutoConvertSRC;
+        data.noDefaultQualitySRC        = pConfig2->wasapi.noDefaultQualitySRC;
+        data.noHardwareOffloading       = pConfig2->wasapi.noHardwareOffloading;
 
-        result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pConfig->playback.pDeviceID, &data);
+        result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pDescriptorPlayback->pDeviceID, &data);
         if (result != MA_SUCCESS) {
-            if (pConfig->deviceType == ma_device_type_duplex) {
+            if (pConfig2->deviceType == ma_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
                     ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
                     pDevice->wasapi.pCaptureClient = NULL;
@@ -13926,16 +13912,11 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
             return result;
         }
 
-        pDevice->wasapi.pAudioClientPlayback         = data.pAudioClient;
-        pDevice->wasapi.pRenderClient                = data.pRenderClient;
-
-        pDevice->playback.internalFormat             = data.formatOut;
-        pDevice->playback.internalChannels           = data.channelsOut;
-        pDevice->playback.internalSampleRate         = data.sampleRateOut;
-        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
-        pDevice->playback.internalPeriodSizeInFrames = data.periodSizeInFramesOut;
-        pDevice->playback.internalPeriods            = data.periodsOut;
-        ma_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
+        pDevice->wasapi.pAudioClientPlayback             = data.pAudioClient;
+        pDevice->wasapi.pRenderClient                    = data.pRenderClient;
+        pDevice->wasapi.originalPeriodSizeInMilliseconds = pDescriptorPlayback->periodSizeInMilliseconds;
+        pDevice->wasapi.originalPeriodSizeInFrames       = pDescriptorPlayback->periodSizeInFrames;
+        pDevice->wasapi.originalPeriods                  = pDescriptorPlayback->periodCount;
 
         /*
         The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
@@ -13948,7 +13929,7 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
         if (pDevice->wasapi.hEventPlayback == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
-            if (pConfig->deviceType == ma_device_type_duplex) {
+            if (pConfig2->deviceType == ma_device_type_duplex) {
                 if (pDevice->wasapi.pCaptureClient != NULL) {
                     ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
                     pDevice->wasapi.pCaptureClient = NULL;
@@ -13977,6 +13958,15 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
+
+
+        /* The descriptor needs to be updated with actual values. */
+        pDescriptorPlayback->format             = data.formatOut;
+        pDescriptorPlayback->channels           = data.channelsOut;
+        pDescriptorPlayback->sampleRate         = data.sampleRateOut;
+        MA_COPY_MEMORY(pDescriptorPlayback->channelMap, data.channelMapOut, sizeof(data.channelMapOut));
+        pDescriptorPlayback->periodSizeInFrames = data.periodSizeInFramesOut;
+        pDescriptorPlayback->periodCount        = data.periodsOut;
     }
 
     /*
@@ -13985,16 +13975,16 @@ static ma_result ma_device_init__wasapi(ma_context* pContext, const ma_device_co
     stop the device outright and let the application handle it.
     */
 #ifdef MA_WIN32_DESKTOP
-    if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
-        if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
+    if (pConfig2->wasapi.noAutoStreamRouting == MA_FALSE) {
+        if ((pConfig2->deviceType == ma_device_type_capture || pConfig2->deviceType == ma_device_type_duplex) && pConfig2->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
-        if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
+        if ((pConfig2->deviceType == ma_device_type_playback || pConfig2->deviceType == ma_device_type_duplex) && pConfig2->playback.pDeviceID == NULL) {
             pDevice->wasapi.allowPlaybackAutoStreamRouting = MA_TRUE;
         }
     }
 
-    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = ma_CoCreateInstance(pDevice->pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_device_uninit__wasapi(pDevice);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.", ma_result_from_HRESULT(hr));
@@ -14122,7 +14112,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 }
 
 
-static ma_result ma_device_main_loop__wasapi(ma_device* pDevice)
+static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
 {
     ma_result result;
     HRESULT hr;
@@ -14742,12 +14732,12 @@ static ma_result ma_context_uninit__wasapi(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_result result = MA_SUCCESS;
 
     MA_ASSERT(pContext != NULL);
-
+    
     (void)pConfig;
 
 #ifdef MA_WIN32_DESKTOP
@@ -14755,7 +14745,7 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
     WASAPI is only supported in Vista SP1 and newer. The reason for SP1 and not the base version of Vista is that event-driven
     exclusive mode does not work until SP1.
 
-    Unfortunately older compilers don't define these functions so we need to dynamically load them in order to avoid a lin error.
+    Unfortunately older compilers don't define these functions so we need to dynamically load them in order to avoid a link error.
     */
     {
         ma_OSVERSIONINFOEXW osvi;
@@ -14768,7 +14758,7 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
             return MA_NO_BACKEND;
         }
 
-        _VerifyVersionInfoW = (ma_PFNVerifyVersionInfoW)ma_dlsym(pContext, kernel32DLL, "VerifyVersionInfoW");
+        _VerifyVersionInfoW  = (ma_PFNVerifyVersionInfoW )ma_dlsym(pContext, kernel32DLL, "VerifyVersionInfoW");
         _VerSetConditionMask = (ma_PFNVerSetConditionMask)ma_dlsym(pContext, kernel32DLL, "VerSetConditionMask");
         if (_VerifyVersionInfoW == NULL || _VerSetConditionMask == NULL) {
             ma_dlclose(pContext, kernel32DLL);
@@ -14794,6 +14784,19 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
         return result;
     }
 
+    pCallbacks->onContextInit             = ma_context_init__wasapi;
+    pCallbacks->onContextUninit           = ma_context_uninit__wasapi;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__wasapi;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__wasapi;
+    pCallbacks->onDeviceInit              = ma_device_init__wasapi;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__wasapi;
+    pCallbacks->onDeviceStart             = NULL;                   /* Not used. Started in onDeviceAudioThread. */
+    pCallbacks->onDeviceStop              = ma_device_stop__wasapi; /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
+    pCallbacks->onDeviceRead              = NULL;                   /* Not used. Reading is done manually in the audio thread. */
+    pCallbacks->onDeviceWrite             = NULL;                   /* Not used. Writing is done manually in the audio thread. */
+    pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__wasapi;
+
+#if 0
     pContext->onUninit         = ma_context_uninit__wasapi;
     pContext->onEnumDevices    = ma_context_enumerate_devices__wasapi;
     pContext->onGetDeviceInfo  = ma_context_get_device_info__wasapi;
@@ -14802,6 +14805,7 @@ static ma_result ma_context_init__wasapi(const ma_context_config* pConfig, ma_co
     pContext->onDeviceStart    = NULL;                      /* Not used. Started in onDeviceMainLoop. */
     pContext->onDeviceStop     = ma_device_stop__wasapi;    /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
     pContext->onDeviceMainLoop = ma_device_main_loop__wasapi;
+#endif
 
     return result;
 }
@@ -31841,7 +31845,7 @@ MA_API ma_context_config ma_context_config_init()
 MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_result result;
-    ma_context_config config;
+    ma_context_config defaultConfig;
     ma_backend defaultBackends[ma_backend_null+1];
     ma_uint32 iBackend;
     ma_backend* pBackendsToIterate;
@@ -31854,18 +31858,17 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
     MA_ZERO_OBJECT(pContext);
 
     /* Always make sure the config is set first to ensure properties are available as soon as possible. */
-    if (pConfig != NULL) {
-        config = *pConfig;
-    } else {
-        config = ma_context_config_init();
+    if (pConfig == NULL) {
+        defaultConfig = ma_context_config_init();
+        pConfig = &defaultConfig;
     }
 
-    pContext->logCallback     = config.logCallback;
-    pContext->threadPriority  = config.threadPriority;
-    pContext->threadStackSize = config.threadStackSize;
-    pContext->pUserData       = config.pUserData;
+    pContext->logCallback     = pConfig->logCallback;
+    pContext->threadPriority  = pConfig->threadPriority;
+    pContext->threadStackSize = pConfig->threadStackSize;
+    pContext->pUserData       = pConfig->pUserData;
 
-    result = ma_allocation_callbacks_init_copy(&pContext->allocationCallbacks, &config.allocationCallbacks);
+    result = ma_allocation_callbacks_init_copy(&pContext->allocationCallbacks, &pConfig->allocationCallbacks);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -31906,11 +31909,17 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
 
         /* These backends are using the new callback system. */
         switch (backend) {
+        #ifdef MA_HAS_WASAPI
+            case ma_backend_wasapi:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__wasapi;
+            } break;
+        #endif
         #ifdef MA_HAS_CUSTOM
             case ma_backend_custom:
             {
                 /* Slightly different logic for custom backends. Custom backends can optionally set all of their callbacks in the config. */
-                pContext->callbacks = config.custom;
+                pContext->callbacks = pConfig->custom;
             } break;
         #endif
 
@@ -31918,7 +31927,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         }
 
         if (pContext->callbacks.onContextInit != NULL) {
-            result = pContext->callbacks.onContextInit(pContext, &pContext->callbacks);
+            result = pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
         } else {
             result = MA_NO_BACKEND;
 
@@ -31927,91 +31936,91 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_WASAPI
                 case ma_backend_wasapi:
                 {
-                    result = ma_context_init__wasapi(&config, pContext);
+                    /*result = ma_context_init__wasapi(&config, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_DSOUND
                 case ma_backend_dsound:
                 {
-                    result = ma_context_init__dsound(&config, pContext);
+                    result = ma_context_init__dsound(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_WINMM
                 case ma_backend_winmm:
                 {
-                    result = ma_context_init__winmm(&config, pContext);
+                    result = ma_context_init__winmm(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_ALSA
                 case ma_backend_alsa:
                 {
-                    result = ma_context_init__alsa(&config, pContext);
+                    result = ma_context_init__alsa(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_PULSEAUDIO
                 case ma_backend_pulseaudio:
                 {
-                    result = ma_context_init__pulse(&config, pContext);
+                    result = ma_context_init__pulse(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_JACK
                 case ma_backend_jack:
                 {
-                    result = ma_context_init__jack(&config, pContext);
+                    result = ma_context_init__jack(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_COREAUDIO
                 case ma_backend_coreaudio:
                 {
-                    result = ma_context_init__coreaudio(&config, pContext);
+                    result = ma_context_init__coreaudio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_SNDIO
                 case ma_backend_sndio:
                 {
-                    result = ma_context_init__sndio(&config, pContext);
+                    result = ma_context_init__sndio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_AUDIO4
                 case ma_backend_audio4:
                 {
-                    result = ma_context_init__audio4(&config, pContext);
+                    result = ma_context_init__audio4(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_OSS
                 case ma_backend_oss:
                 {
-                    result = ma_context_init__oss(&config, pContext);
+                    result = ma_context_init__oss(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_AAUDIO
                 case ma_backend_aaudio:
                 {
-                    result = ma_context_init__aaudio(&config, pContext);
+                    result = ma_context_init__aaudio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_OPENSL
                 case ma_backend_opensl:
                 {
-                    result = ma_context_init__opensl(&config, pContext);
+                    result = ma_context_init__opensl(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_WEBAUDIO
                 case ma_backend_webaudio:
                 {
-                    result = ma_context_init__webaudio(&config, pContext);
+                    result = ma_context_init__webaudio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_CUSTOM
                 case ma_backend_custom:
                 {
-                    /*result = ma_context_init__custom(&config, pContext);*/
+                    /*result = ma_context_init__custom(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_NULL
                 case ma_backend_null:
                 {
-                    result = ma_context_init__null(&config, pContext);
+                    result = ma_context_init__null(pConfig, pContext);
                 } break;
             #endif
 
@@ -32054,7 +32063,15 @@ MA_API ma_result ma_context_uninit(ma_context* pContext)
         return MA_INVALID_ARGS;
     }
 
-    pContext->onUninit(pContext);
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onContextUninit != NULL) {
+            pContext->callbacks.onContextUninit(pContext);
+        }
+    } else {
+        if (pContext->onUninit != NULL) {
+            pContext->onUninit(pContext);
+        }
+    }
 
     ma_mutex_uninit(&pContext->deviceEnumLock);
     ma_mutex_uninit(&pContext->deviceInfoLock);
@@ -32163,7 +32180,7 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
     if (ppCaptureDeviceInfos  != NULL) *ppCaptureDeviceInfos  = NULL;
     if (pCaptureDeviceCount   != NULL) *pCaptureDeviceCount   = 0;
 
-    if (pContext == NULL || pContext->onEnumDevices == NULL) {
+    if (pContext == NULL) {
         return MA_INVALID_ARGS;
     }
 
@@ -32572,6 +32589,11 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
         descriptorPlayback.periodCount              = pConfig->periods;
 
+        if (descriptorPlayback.periodSizeInMilliseconds == 0 && descriptorPlayback.periodSizeInFrames == 0) {
+            descriptorPlayback.periodSizeInMilliseconds = (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+        }
+
+
         MA_ZERO_OBJECT(&descriptorCapture);
         descriptorCapture.pDeviceID                 = pConfig->capture.pDeviceID;
         descriptorCapture.shareMode                 = pConfig->capture.shareMode;
@@ -32583,7 +32605,12 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
         descriptorCapture.periodCount               = pConfig->periods;
 
-        result = pContext->callbacks.onDeviceInit(pDevice, config.deviceType, &descriptorPlayback, &descriptorCapture);
+        if (descriptorCapture.periodSizeInMilliseconds == 0 && descriptorCapture.periodSizeInFrames == 0) {
+            descriptorCapture.periodSizeInMilliseconds = (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+        }
+
+
+        result = pContext->callbacks.onDeviceInit(pDevice, pConfig, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_event_uninit(&pDevice->startEvent);
             ma_event_uninit(&pDevice->wakeupEvent);
@@ -32596,8 +32623,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         the requested format and the internal format.
         */
         if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-            ma_device_info deviceInfo;  /* For retrieving the name. */
-
             if (!ma_device_descriptor_is_valid(&descriptorCapture)) {
                 ma_device_uninit(pDevice);
                 return MA_INVALID_ARGS;
@@ -32613,24 +32638,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             if (pDevice->capture.internalPeriodSizeInFrames == 0) {
                 pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorCapture.periodSizeInMilliseconds, descriptorCapture.sampleRate);
             }
-
-            /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info()` instead. */
-            result = ma_context_get_device_info(pContext, ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (descriptorCapture.pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
-                }
-            }
         }
 
         if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-            ma_device_info deviceInfo;  /* For retrieving the name. */
-
             if (!ma_device_descriptor_is_valid(&descriptorPlayback)) {
                 ma_device_uninit(pDevice);
                 return MA_INVALID_ARGS;
@@ -32646,28 +32656,41 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             if (pDevice->playback.internalPeriodSizeInFrames == 0) {
                 pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorPlayback.periodSizeInMilliseconds, descriptorPlayback.sampleRate);
             }
-
-            /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead. */
-            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (descriptorPlayback.pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
-                }
-            }
         }
 
-        /* If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. */
-        if (ma_context_is_backend_asynchronous(pContext)) {
-            if (pConfig->deviceType == ma_device_type_duplex) {
-                result = ma_duplex_rb_init(pDevice->sampleRate, pDevice->capture.internalFormat, pDevice->capture.internalChannels, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
-                if (result != MA_SUCCESS) {
-                    ma_device_uninit(pDevice);
-                    return result;
+
+        /*
+        The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead.
+        For loopback devices, we need to retrieve the name of the playback device.
+        */
+        {
+            ma_device_info deviceInfo;
+
+            if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+                result = ma_context_get_device_info(pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
+                if (result == MA_SUCCESS) {
+                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
+                } else {
+                    /* We failed to retrieve the device info. Fall back to a default name. */
+                    if (descriptorCapture.pDeviceID == NULL) {
+                        ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+                    } else {
+                        ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
+                    }
+                }
+            }
+
+            if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+                result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
+                if (result == MA_SUCCESS) {
+                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
+                } else {
+                    /* We failed to retrieve the device info. Fall back to a default name. */
+                    if (descriptorPlayback.pDeviceID == NULL) {
+                        ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+                    } else {
+                        ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
+                    }
                 }
             }
         }
@@ -32697,6 +32720,22 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         /* Wait for the worker thread to put the device into it's stopped state for real. */
         ma_event_wait(&pDevice->stopEvent);
     } else {
+        /*
+        If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. Note that this needs to be done
+        after ma_device__post_init_setup().
+        */
+        if (ma_context__is_using_new_callbacks(pContext)) { /* <-- TEMP: Will be removed once all asynchronous backends have been converted to the new callbacks. */
+            if (ma_context_is_backend_asynchronous(pContext)) {
+                if (pConfig->deviceType == ma_device_type_duplex) {
+                    result = ma_duplex_rb_init(pDevice->sampleRate, pDevice->capture.internalFormat, pDevice->capture.internalChannels, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
+                    if (result != MA_SUCCESS) {
+                        ma_device_uninit(pDevice);
+                        return result;
+                    }
+                }
+            }
+        }
+
         ma_device__set_state(pDevice, MA_STATE_STOPPED);
     }
 
@@ -63817,6 +63856,8 @@ REVISION HISTORY
 v0.10.25 - TBD
   - PulseAudio: Fix a bug where the stop callback isn't fired.
   - WebAudio: Fix an error that occurs when Emscripten increases the size of it's heap.
+  - Custom Backends: Change the onContextInit and onDeviceInit callbacks to take a parameter which is a pointer to the config that was
+    passed into ma_context_init() and ma_device_init(). This replaces the deviceType parameter of onDeviceInit.
   - Fix compilation warnings on older versions of GCC.
 
 v0.10.24 - 2020-11-10

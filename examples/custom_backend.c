@@ -408,7 +408,7 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__sdl(ma_device* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+static ma_result ma_device_init__sdl(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
@@ -417,21 +417,21 @@ static ma_result ma_device_init__sdl(ma_device* pDevice, ma_device_type deviceTy
     MA_ASSERT(pDevice != NULL);
     
     /* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it's requested. */
-    if (deviceType == ma_device_type_loopback) {
+    if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_capture, pDescriptorCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_playback, pDescriptorPlayback);
         if (result != MA_SUCCESS) {
-            if (deviceType == ma_device_type_duplex) {
+            if (pConfig->deviceType == ma_device_type_duplex) {
                 ((MA_PFN_SDL_CloseAudioDevice)pContextEx->sdl.SDL_CloseAudioDevice)(pDeviceEx->sdl.deviceIDCapture);
             }
 
@@ -511,7 +511,7 @@ static ma_result ma_context_uninit__sdl(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__sdl(ma_context* pContext, ma_backend_callbacks* pCallbacks)
+static ma_result ma_context_init__sdl(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
     int resultSDL;
@@ -530,6 +530,8 @@ static ma_result ma_context_init__sdl(ma_context* pContext, ma_backend_callbacks
     };
 
     MA_ASSERT(pContext != NULL);
+
+    (void)pConfig;
 
     /* Check if we have SDL2 installed somewhere. If not it's not usable and we need to abort. */
     for (iName = 0; iName < ma_countof(pSDLNames); iName += 1) {
@@ -592,7 +594,7 @@ you want to handle backend selection.
 
 This is used as the onContextInit() callback in the context config.
 */
-static ma_result ma_context_init__custom_loader(ma_context* pContext, ma_backend_callbacks* pCallbacks)
+static ma_result ma_context_init__custom_loader(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_result result = MA_NO_BACKEND;
 
@@ -603,7 +605,7 @@ static ma_result ma_context_init__custom_loader(ma_context* pContext, ma_backend
     /* SDL. */
 #if !defined(MA_NO_SDL)
     if (result != MA_SUCCESS) {
-        result = ma_context_init__sdl(pContext, pCallbacks);
+        result = ma_context_init__sdl(pContext, pConfig, pCallbacks);
     }
 #endif
 
@@ -681,7 +683,7 @@ int main(int argc, char** argv)
     ma_waveform_init(&sineWaveConfig, &sineWave);
 
     /* The device is created exactly as per normal. */
-    deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = DEVICE_FORMAT;
     deviceConfig.playback.channels = DEVICE_CHANNELS;
     deviceConfig.capture.format    = DEVICE_FORMAT;
