@@ -3494,6 +3494,7 @@ struct ma_context_config
 
 struct ma_context
 {
+    ma_backend_callbacks callbacks;
     ma_backend backend;                    /* DirectSound, ALSA, etc. */
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
@@ -3835,9 +3836,6 @@ struct ma_context
         {
             int _unused;
         } webaudio;
-#endif
-#ifdef MA_SUPPORT_CUSTOM
-        ma_backend_callbacks custom;
 #endif
 #ifdef MA_SUPPORT_NULL
         struct
@@ -11120,276 +11118,6 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
 
     return result;
 }
-
-
-/*******************************************************************************
-
-Custom Backend
-
-*******************************************************************************/
-#ifdef MA_HAS_CUSTOM
-
-static ma_result ma_context_enumerate_devices__custom(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
-{
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
-    if (pContext->custom.onContextEnumerateDevices == NULL) {
-        return MA_FALSE;
-    }
-
-    return pContext->custom.onContextEnumerateDevices(pContext, callback, pUserData);
-}
-
-static ma_result ma_context_get_device_info__custom(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
-{
-    MA_ASSERT(pContext != NULL);
-
-    (void)shareMode;    /* Not using the share mode. This is something I want to remove from device info queries. */
-
-    if (pContext->custom.onContextGetDeviceInfo == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    /* Be as safe as possible and zero out the device info just in case the backend doesn't fill it out properly. */
-    MA_ZERO_OBJECT(pDeviceInfo);
-
-    return pContext->custom.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, pDeviceInfo);
-}
-
-static ma_result ma_context_uninit__custom(ma_context* pContext)
-{
-    MA_ASSERT(pContext != NULL);
-
-    if (pContext->custom.onContextUninit == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pContext->custom.onContextUninit(pContext);
-}
-
-
-static void ma_device_uninit__custom(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    if (pDevice->pContext->custom.onDeviceUninit == NULL) {
-        return;
-    }
-
-    pDevice->pContext->custom.onDeviceUninit(pDevice);
-}
-
-static ma_result ma_device_init__custom(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
-{
-    ma_result result;
-    ma_device_descriptor descriptorPlayback;
-    ma_device_descriptor descriptorCapture;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDevice  != NULL);
-
-    if (pContext->custom.onDeviceInit == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    MA_ZERO_OBJECT(&descriptorPlayback);
-    descriptorPlayback.pDeviceID                = pConfig->playback.pDeviceID;
-    descriptorPlayback.shareMode                = pConfig->playback.shareMode;
-    descriptorPlayback.format                   = pConfig->playback.format;
-    descriptorPlayback.channels                 = pConfig->playback.channels;
-    descriptorPlayback.sampleRate               = pConfig->sampleRate;
-    ma_channel_map_copy(descriptorPlayback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
-    descriptorPlayback.periodSizeInFrames       = pConfig->periodSizeInFrames;
-    descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
-    descriptorPlayback.periodCount              = pConfig->periods;
-
-    MA_ZERO_OBJECT(&descriptorCapture);
-    descriptorCapture.pDeviceID                 = pConfig->capture.pDeviceID;
-    descriptorCapture.shareMode                 = pConfig->capture.shareMode;
-    descriptorCapture.format                    = pConfig->capture.format;
-    descriptorCapture.channels                  = pConfig->capture.channels;
-    descriptorCapture.sampleRate                = pConfig->sampleRate;
-    ma_channel_map_copy(descriptorCapture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
-    descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
-    descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
-    descriptorCapture.periodCount               = pConfig->periods;
-
-    result = pContext->custom.onDeviceInit(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the device. */
-    }
-
-    /*
-    On output the descriptors will contain the *actual* data format of the device. We need this to know how to convert the data between
-    the requested format and the internal format.
-    */
-    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-        ma_device_info deviceInfo;  /* For retrieving the name. */
-
-        if (!ma_device_descriptor_is_valid(&descriptorCapture)) {
-            ma_device_uninit__custom(pDevice);
-            return MA_INVALID_ARGS;
-        }
-
-        pDevice->capture.internalFormat             = descriptorCapture.format;
-        pDevice->capture.internalChannels           = descriptorCapture.channels;
-        pDevice->capture.internalSampleRate         = descriptorCapture.sampleRate;
-        ma_channel_map_copy(pDevice->capture.internalChannelMap, descriptorCapture.channelMap, descriptorCapture.channels);
-        pDevice->capture.internalPeriodSizeInFrames = descriptorCapture.periodSizeInFrames;
-        pDevice->capture.internalPeriods            = descriptorCapture.periodCount;
-
-        if (pDevice->capture.internalPeriodSizeInFrames == 0) {
-            pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorCapture.periodSizeInMilliseconds, descriptorCapture.sampleRate);
-        }
-
-        /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info()` instead. */
-        result = ma_context_get_device_info(pContext, ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
-        if (result != MA_SUCCESS) {
-            /* We failed to retrieve the device info. Fall back to a default name. */
-            if (descriptorCapture.pDeviceID == NULL) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-            } else {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
-            }
-        }
-    }
-
-    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        ma_device_info deviceInfo;  /* For retrieving the name. */
-
-        if (!ma_device_descriptor_is_valid(&descriptorPlayback)) {
-            ma_device_uninit__custom(pDevice);
-            return MA_INVALID_ARGS;
-        }
-
-        pDevice->playback.internalFormat             = descriptorPlayback.format;
-        pDevice->playback.internalChannels           = descriptorPlayback.channels;
-        pDevice->playback.internalSampleRate         = descriptorPlayback.sampleRate;
-        ma_channel_map_copy(pDevice->playback.internalChannelMap, descriptorPlayback.channelMap, descriptorPlayback.channels);
-        pDevice->playback.internalPeriodSizeInFrames = descriptorPlayback.periodSizeInFrames;
-        pDevice->playback.internalPeriods            = descriptorPlayback.periodCount;
-
-        if (pDevice->playback.internalPeriodSizeInFrames == 0) {
-            pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorPlayback.periodSizeInMilliseconds, descriptorPlayback.sampleRate);
-        }
-
-        /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead. */
-        result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
-        if (result != MA_SUCCESS) {
-            /* We failed to retrieve the device info. Fall back to a default name. */
-            if (descriptorPlayback.pDeviceID == NULL) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-            } else {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
-            }
-        }
-    }
-
-    /* If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. */
-    if (pConfig->deviceType == ma_device_type_duplex) {
-        if (pContext->custom.onDeviceRead == NULL && pContext->custom.onDeviceWrite == NULL && pContext->custom.onDeviceAudioThread == NULL) {
-            result = ma_duplex_rb_init(pDevice->sampleRate, pDevice->capture.internalFormat, pDevice->capture.internalChannels, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
-            if (result != MA_SUCCESS) {
-                ma_device_uninit__custom(pDevice);
-                return result;
-            }
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_device_start__custom(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    if (pDevice->pContext->custom.onDeviceStart == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pDevice->pContext->custom.onDeviceStart(pDevice);
-}
-
-static ma_result ma_device_stop__custom(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    if (pDevice->pContext->custom.onDeviceStop == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pDevice->pContext->custom.onDeviceStop(pDevice);
-}
-
-static ma_result ma_device_audio_thread__custom(ma_device* pDevice)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    if (pDevice->pContext->custom.onDeviceAudioThread == NULL) {
-        return MA_NOT_IMPLEMENTED;  /* Should never happen, but check anyway. */
-    }
-
-    return pDevice->pContext->custom.onDeviceAudioThread(pDevice);
-}
-
-static ma_result ma_device_audio_thread__read_write__custom(ma_device* pDevice)
-{
-    return ma_device_audio_thread__default_read_write(pDevice, &pDevice->pContext->custom);
-}
-
-static ma_result ma_context_init__custom(const ma_context_config* pConfig, ma_context* pContext)
-{
-    ma_result result;
-
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pConfig  != NULL);
-
-    /* We need to ensure we have the necessary callbacks. */
-    if (pConfig->custom.onContextInit == NULL) {
-        return MA_NO_BACKEND;   /* Need a context initialization callback. When set to NULL it means a custom backend is not defined. */
-    }
-
-    /* Set the custom callbacks before firing the backend's context initialization routine just in case the backend wants to reference them for whatever reason. */
-    pContext->custom = pConfig->custom;
-
-    /* Initialize the context first. If this fails we need to abort. */
-    result = pConfig->custom.onContextInit(pContext, &pContext->custom);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* At this point the context should be initialized. We can now set up the callbacks for miniaudio's use internally. */
-    pContext->onUninit        = ma_context_uninit__custom;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__custom;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__custom;
-    pContext->onDeviceInit    = ma_device_init__custom;
-    pContext->onDeviceUninit  = ma_device_uninit__custom;
-    pContext->onDeviceStart   = ma_device_start__custom;
-    pContext->onDeviceStop    = ma_device_stop__custom;
-
-    /*
-    For now the context needs to be marked as asynchronous. This is required so that miniaudio knows how to handle data delivery and thread
-    management for the device, but the requirement for the backend itself to set this property will probably be removed in the future.
-    */
-    if (pContext->custom.onDeviceRead == NULL && pContext->custom.onDeviceWrite == NULL) {
-        if (pContext->custom.onDeviceAudioThread == NULL) {
-            pContext->onDeviceMainLoop = NULL;                                      /* Backend is asynchronous and expected to call ma_device_handle_backend_data_callback() from within their data callback. */
-            pContext->isBackendAsynchronous = MA_TRUE;
-        } else {
-            pContext->onDeviceMainLoop = ma_device_audio_thread__custom;            /* Backend is doing a custom main loop. */
-            pContext->isBackendAsynchronous = MA_FALSE;
-        }
-    } else {
-        pContext->isBackendAsynchronous = MA_FALSE;
-        pContext->onDeviceMainLoop = ma_device_audio_thread__read_write__custom;    /* Backend is using blocking read/write calls. */
-    }
-
-    return MA_SUCCESS;
-}
-
-#endif  /* MA_HAS_CUSTOM */
 
 
 
@@ -31814,6 +31542,15 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 }
 
 
+/* TEMP: Helper for determining whether or not a context is using the new callback system. Eventually all backends will be using the new callback system. */
+static ma_bool32 ma_context__is_using_new_callbacks(ma_context* pContext)
+{
+    MA_ASSERT(pContext != NULL);
+
+    return pContext->callbacks.onContextInit != NULL;
+}
+
+
 static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
@@ -31857,11 +31594,21 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         ma_device__set_state(pDevice, MA_STATE_STARTED);
         ma_event_signal(&pDevice->startEvent);
 
-        if (pDevice->pContext->onDeviceMainLoop != NULL) {
-            pDevice->pContext->onDeviceMainLoop(pDevice);
+        if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+            if (pDevice->pContext->callbacks.onDeviceAudioThread != NULL) {
+                pDevice->pContext->callbacks.onDeviceAudioThread(pDevice);
+            } else {
+                /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
+                ma_device_audio_thread__default_read_write(pDevice, &pDevice->pContext->callbacks);
+            }
         } else {
-            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "No main loop implementation.", MA_API_NOT_FOUND);
+            if (pDevice->pContext->onDeviceMainLoop != NULL) {
+                pDevice->pContext->onDeviceMainLoop(pDevice);
+            } else {
+                ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "No main loop implementation.", MA_API_NOT_FOUND);
+            }
         }
+        
 
         /*
         Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
@@ -32065,7 +31812,21 @@ static ma_result ma_context_uninit_backend_apis(ma_context* pContext)
 
 static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
 {
-    return pContext->isBackendAsynchronous;
+    MA_ASSERT(pContext != NULL);
+
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
+            if (pContext->callbacks.onDeviceAudioThread == NULL) {
+                return MA_TRUE;
+            } else {
+                return MA_FALSE;
+            }
+        } else {
+            return MA_FALSE;
+        }
+    } else {
+        return pContext->isBackendAsynchronous;
+    }
 }
 
 
@@ -32143,100 +31904,119 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         */
         pContext->isBackendAsynchronous = MA_FALSE;
 
-        result = MA_NO_BACKEND;
+        /* These backends are using the new callback system. */
         switch (backend) {
-        #ifdef MA_HAS_WASAPI
-            case ma_backend_wasapi:
-            {
-                result = ma_context_init__wasapi(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_DSOUND
-            case ma_backend_dsound:
-            {
-                result = ma_context_init__dsound(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_WINMM
-            case ma_backend_winmm:
-            {
-                result = ma_context_init__winmm(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_ALSA
-            case ma_backend_alsa:
-            {
-                result = ma_context_init__alsa(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_PULSEAUDIO
-            case ma_backend_pulseaudio:
-            {
-                result = ma_context_init__pulse(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_JACK
-            case ma_backend_jack:
-            {
-                result = ma_context_init__jack(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_COREAUDIO
-            case ma_backend_coreaudio:
-            {
-                result = ma_context_init__coreaudio(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_SNDIO
-            case ma_backend_sndio:
-            {
-                result = ma_context_init__sndio(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_AUDIO4
-            case ma_backend_audio4:
-            {
-                result = ma_context_init__audio4(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_OSS
-            case ma_backend_oss:
-            {
-                result = ma_context_init__oss(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_AAUDIO
-            case ma_backend_aaudio:
-            {
-                result = ma_context_init__aaudio(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_OPENSL
-            case ma_backend_opensl:
-            {
-                result = ma_context_init__opensl(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_WEBAUDIO
-            case ma_backend_webaudio:
-            {
-                result = ma_context_init__webaudio(&config, pContext);
-            } break;
-        #endif
         #ifdef MA_HAS_CUSTOM
             case ma_backend_custom:
             {
-                result = ma_context_init__custom(&config, pContext);
-            } break;
-        #endif
-        #ifdef MA_HAS_NULL
-            case ma_backend_null:
-            {
-                result = ma_context_init__null(&config, pContext);
+                /* Slightly different logic for custom backends. Custom backends can optionally set all of their callbacks in the config. */
+                pContext->callbacks = config.custom;
             } break;
         #endif
 
             default: break;
+        }
+
+        if (pContext->callbacks.onContextInit != NULL) {
+            result = pContext->callbacks.onContextInit(pContext, &pContext->callbacks);
+        } else {
+            result = MA_NO_BACKEND;
+
+            /* TEMP. Try falling back to the old callback system. Eventually this switch will be removed completely. */
+            switch (backend) {
+            #ifdef MA_HAS_WASAPI
+                case ma_backend_wasapi:
+                {
+                    result = ma_context_init__wasapi(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_DSOUND
+                case ma_backend_dsound:
+                {
+                    result = ma_context_init__dsound(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_WINMM
+                case ma_backend_winmm:
+                {
+                    result = ma_context_init__winmm(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_ALSA
+                case ma_backend_alsa:
+                {
+                    result = ma_context_init__alsa(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_PULSEAUDIO
+                case ma_backend_pulseaudio:
+                {
+                    result = ma_context_init__pulse(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_JACK
+                case ma_backend_jack:
+                {
+                    result = ma_context_init__jack(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_COREAUDIO
+                case ma_backend_coreaudio:
+                {
+                    result = ma_context_init__coreaudio(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_SNDIO
+                case ma_backend_sndio:
+                {
+                    result = ma_context_init__sndio(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_AUDIO4
+                case ma_backend_audio4:
+                {
+                    result = ma_context_init__audio4(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_OSS
+                case ma_backend_oss:
+                {
+                    result = ma_context_init__oss(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_AAUDIO
+                case ma_backend_aaudio:
+                {
+                    result = ma_context_init__aaudio(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_OPENSL
+                case ma_backend_opensl:
+                {
+                    result = ma_context_init__opensl(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_WEBAUDIO
+                case ma_backend_webaudio:
+                {
+                    result = ma_context_init__webaudio(&config, pContext);
+                } break;
+            #endif
+            #ifdef MA_HAS_CUSTOM
+                case ma_backend_custom:
+                {
+                    /*result = ma_context_init__custom(&config, pContext);*/
+                } break;
+            #endif
+            #ifdef MA_HAS_NULL
+                case ma_backend_null:
+                {
+                    result = ma_context_init__null(&config, pContext);
+                } break;
+            #endif
+
+                default: break;
+            }
         }
 
         /* If this iteration was successful, return. */
@@ -32294,15 +32074,31 @@ MA_API ma_result ma_context_enumerate_devices(ma_context* pContext, ma_enum_devi
 {
     ma_result result;
 
-    if (pContext == NULL || pContext->onEnumDevices == NULL || callback == NULL) {
+    if (pContext == NULL || callback == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    ma_mutex_lock(&pContext->deviceEnumLock);
-    {
-        result = pContext->onEnumDevices(pContext, callback, pUserData);
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onContextEnumerateDevices == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+
+        ma_mutex_lock(&pContext->deviceEnumLock);
+        {
+            result = pContext->callbacks.onContextEnumerateDevices(pContext, callback, pUserData);
+        }
+        ma_mutex_unlock(&pContext->deviceEnumLock);
+    } else {
+        if (pContext->onEnumDevices == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+
+        ma_mutex_lock(&pContext->deviceEnumLock);
+        {
+            result = pContext->onEnumDevices(pContext, callback, pUserData);
+        }
+        ma_mutex_unlock(&pContext->deviceEnumLock);
     }
-    ma_mutex_unlock(&pContext->deviceEnumLock);
 
     return result;
 }
@@ -32371,6 +32167,16 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
         return MA_INVALID_ARGS;
     }
 
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onContextEnumerateDevices == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    } else {
+        if (pContext->onEnumDevices == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    }
+
     /* Note that we don't use ma_context_enumerate_devices() here because we want to do locking at a higher level. */
     ma_mutex_lock(&pContext->deviceEnumLock);
     {
@@ -32379,7 +32185,12 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
         pContext->captureDeviceInfoCount = 0;
 
         /* Now enumerate over available devices. */
-        result = pContext->onEnumDevices(pContext, ma_context_get_devices__enum_callback, NULL);
+        if (ma_context__is_using_new_callbacks(pContext)) {
+            result = pContext->callbacks.onContextEnumerateDevices(pContext, ma_context_get_devices__enum_callback, NULL);
+        } else {
+            result = pContext->onEnumDevices(pContext, ma_context_get_devices__enum_callback, NULL);
+        }
+        
         if (result == MA_SUCCESS) {
             /* Playback devices. */
             if (ppPlaybackDeviceInfos != NULL) {
@@ -32405,6 +32216,7 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
 
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
 {
+    ma_result result;
     ma_device_info deviceInfo;
 
     /* NOTE: Do not clear pDeviceInfo on entry. The reason is the pDeviceID may actually point to pDeviceInfo->id which will break things. */
@@ -32419,95 +32231,103 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
     }
 
-    if (pContext->onGetDeviceInfo != NULL) {
-        ma_result result;
-        ma_mutex_lock(&pContext->deviceInfoLock);
-        {
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onContextGetDeviceInfo == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    } else {
+        if (pContext->onGetDeviceInfo == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    }
+
+    ma_mutex_lock(&pContext->deviceInfoLock);
+    {
+        if (ma_context__is_using_new_callbacks(pContext)) {
+            result = pContext->callbacks.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
+        } else {
             result = pContext->onGetDeviceInfo(pContext, deviceType, pDeviceID, shareMode, &deviceInfo);
         }
-        ma_mutex_unlock(&pContext->deviceInfoLock);
+    }
+    ma_mutex_unlock(&pContext->deviceInfoLock);
 
-        /*
-        If the backend is using the new device info system, do a pass to fill out the old settings for backwards compatibility. This will be removed in
-        the future when all backends have implemented the new device info system.
-        */
-        if (deviceInfo.nativeDataFormatCount > 0) {
-            ma_uint32 iNativeFormat;
-            ma_uint32 iSampleFormat;
+    /*
+    If the backend is using the new device info system, do a pass to fill out the old settings for backwards compatibility. This will be removed in
+    the future when all backends have implemented the new device info system.
+    */
+    if (deviceInfo.nativeDataFormatCount > 0) {
+        ma_uint32 iNativeFormat;
+        ma_uint32 iSampleFormat;
 
-            deviceInfo.minChannels   = 0xFFFFFFFF;
-            deviceInfo.maxChannels   = 0;
-            deviceInfo.minSampleRate = 0xFFFFFFFF;
-            deviceInfo.maxSampleRate = 0;
+        deviceInfo.minChannels   = 0xFFFFFFFF;
+        deviceInfo.maxChannels   = 0;
+        deviceInfo.minSampleRate = 0xFFFFFFFF;
+        deviceInfo.maxSampleRate = 0;
             
-            for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
-                /* Formats. */
-                if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
-                    /* All formats are supported. */
-                    deviceInfo.formats[0] = ma_format_u8;
-                    deviceInfo.formats[1] = ma_format_s16;
-                    deviceInfo.formats[2] = ma_format_s24;
-                    deviceInfo.formats[3] = ma_format_s32;
-                    deviceInfo.formats[4] = ma_format_f32;
-                    deviceInfo.formatCount = ma_format_count;
-                } else {
-                    /* Make sure the format isn't already in the list. If so, skip. */
-                    ma_bool32 alreadyExists = MA_FALSE;
-                    for (iSampleFormat = 0; iSampleFormat < deviceInfo.formatCount; iSampleFormat += 1) {
-                        if (deviceInfo.formats[iSampleFormat] == deviceInfo.nativeDataFormats[iNativeFormat].format) {
-                            alreadyExists = MA_TRUE;
-                            break;
-                        }
-                    }
-
-                    if (!alreadyExists) {
-                        deviceInfo.formats[deviceInfo.formatCount++] = deviceInfo.nativeDataFormats[iNativeFormat].format;
+        for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
+            /* Formats. */
+            if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
+                /* All formats are supported. */
+                deviceInfo.formats[0] = ma_format_u8;
+                deviceInfo.formats[1] = ma_format_s16;
+                deviceInfo.formats[2] = ma_format_s24;
+                deviceInfo.formats[3] = ma_format_s32;
+                deviceInfo.formats[4] = ma_format_f32;
+                deviceInfo.formatCount = ma_format_count;
+            } else {
+                /* Make sure the format isn't already in the list. If so, skip. */
+                ma_bool32 alreadyExists = MA_FALSE;
+                for (iSampleFormat = 0; iSampleFormat < deviceInfo.formatCount; iSampleFormat += 1) {
+                    if (deviceInfo.formats[iSampleFormat] == deviceInfo.nativeDataFormats[iNativeFormat].format) {
+                        alreadyExists = MA_TRUE;
+                        break;
                     }
                 }
 
-                /* Channels. */
-                if (deviceInfo.nativeDataFormats[iNativeFormat].channels == 0) {
-                    /* All channels supported. */
-                    deviceInfo.minChannels = MA_MIN_CHANNELS;
-                    deviceInfo.maxChannels = MA_MAX_CHANNELS;
-                } else {
-                    if (deviceInfo.minChannels > deviceInfo.nativeDataFormats[iNativeFormat].channels) {
-                        deviceInfo.minChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
-                    }
-                    if (deviceInfo.maxChannels < deviceInfo.nativeDataFormats[iNativeFormat].channels) {
-                        deviceInfo.maxChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
-                    }
+                if (!alreadyExists) {
+                    deviceInfo.formats[deviceInfo.formatCount++] = deviceInfo.nativeDataFormats[iNativeFormat].format;
                 }
+            }
 
-                /* Sample rate. */
-                if (deviceInfo.nativeDataFormats[iNativeFormat].sampleRate == 0) {
-                    /* All sample rates supported. */
-                    deviceInfo.minSampleRate = MA_MIN_SAMPLE_RATE;
-                    deviceInfo.maxSampleRate = MA_MAX_SAMPLE_RATE;
-                } else {
-                    if (deviceInfo.minSampleRate > deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
-                        deviceInfo.minSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
-                    }
-                    if (deviceInfo.maxSampleRate < deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
-                        deviceInfo.maxSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
-                    }
+            /* Channels. */
+            if (deviceInfo.nativeDataFormats[iNativeFormat].channels == 0) {
+                /* All channels supported. */
+                deviceInfo.minChannels = MA_MIN_CHANNELS;
+                deviceInfo.maxChannels = MA_MAX_CHANNELS;
+            } else {
+                if (deviceInfo.minChannels > deviceInfo.nativeDataFormats[iNativeFormat].channels) {
+                    deviceInfo.minChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
+                }
+                if (deviceInfo.maxChannels < deviceInfo.nativeDataFormats[iNativeFormat].channels) {
+                    deviceInfo.maxChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
+                }
+            }
+
+            /* Sample rate. */
+            if (deviceInfo.nativeDataFormats[iNativeFormat].sampleRate == 0) {
+                /* All sample rates supported. */
+                deviceInfo.minSampleRate = MA_MIN_SAMPLE_RATE;
+                deviceInfo.maxSampleRate = MA_MAX_SAMPLE_RATE;
+            } else {
+                if (deviceInfo.minSampleRate > deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
+                    deviceInfo.minSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
+                }
+                if (deviceInfo.maxSampleRate < deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
+                    deviceInfo.maxSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
                 }
             }
         }
-
-
-        /* Clamp ranges. */
-        deviceInfo.minChannels   = ma_max(deviceInfo.minChannels,   MA_MIN_CHANNELS);
-        deviceInfo.maxChannels   = ma_min(deviceInfo.maxChannels,   MA_MAX_CHANNELS);
-        deviceInfo.minSampleRate = ma_max(deviceInfo.minSampleRate, MA_MIN_SAMPLE_RATE);
-        deviceInfo.maxSampleRate = ma_min(deviceInfo.maxSampleRate, MA_MAX_SAMPLE_RATE);
-
-        *pDeviceInfo = deviceInfo;
-        return result;
     }
 
-    /* Getting here means onGetDeviceInfo has not been set. */
-    return MA_ERROR;
+
+    /* Clamp ranges. */
+    deviceInfo.minChannels   = ma_max(deviceInfo.minChannels,   MA_MIN_CHANNELS);
+    deviceInfo.maxChannels   = ma_min(deviceInfo.maxChannels,   MA_MAX_CHANNELS);
+    deviceInfo.minSampleRate = ma_max(deviceInfo.minSampleRate, MA_MIN_SAMPLE_RATE);
+    deviceInfo.maxSampleRate = ma_min(deviceInfo.maxSampleRate, MA_MAX_SAMPLE_RATE);
+
+    *pDeviceInfo = deviceInfo;
+    return result;
 }
 
 MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
@@ -32539,15 +32359,33 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_result result;
     ma_device_config config;
 
+    /* The context can be null, in which case we self-manage it. */
     if (pContext == NULL) {
         return ma_device_init_ex(NULL, 0, NULL, pConfig, pDevice);
     }
+
     if (pDevice == NULL) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pDevice == NULL).", MA_INVALID_ARGS);
     }
+
+    MA_ZERO_OBJECT(pDevice);
+
     if (pConfig == NULL) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid arguments (pConfig == NULL).", MA_INVALID_ARGS);
     }
+
+
+    /* Check that we have our callbacks defined. */
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        if (pContext->callbacks.onDeviceInit == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    } else {
+        if (pContext->onDeviceInit == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+    }
+
 
     /* We need to make a copy of the config so we can set default values if they were left unset in the input config. */
     config = *pConfig;
@@ -32575,8 +32413,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
     }
 
-
-    MA_ZERO_OBJECT(pDevice);
     pDevice->pContext = pContext;
 
     /* Set the user data and log callback ASAP to ensure it is available for the entire initialization process. */
@@ -32593,6 +32429,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     if (config.playback.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->playback.id, config.playback.pDeviceID, sizeof(pDevice->playback.id));
     }
+
     if (config.capture.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->capture.id, config.capture.pDeviceID, sizeof(pDevice->capture.id));
     }
@@ -32658,8 +32495,8 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     MA_ASSERT(config.capture.channels  <= MA_MAX_CHANNELS);
     MA_ASSERT(config.playback.channels <= MA_MAX_CHANNELS);
 
-    pDevice->type = config.deviceType;
-    pDevice->sampleRate = config.sampleRate;
+    pDevice->type                       = config.deviceType;
+    pDevice->sampleRate                 = config.sampleRate;
     pDevice->resampling.algorithm       = config.resampling.algorithm;
     pDevice->resampling.linear.lpfOrder = config.resampling.linear.lpfOrder;
     pDevice->resampling.speex.quality   = config.resampling.speex.quality;
@@ -32720,10 +32557,130 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-    result = pContext->onDeviceInit(pContext, &config, pDevice);
-    if (result != MA_SUCCESS) {
-        return result;
+    if (ma_context__is_using_new_callbacks(pContext)) {
+        ma_device_descriptor descriptorPlayback;
+        ma_device_descriptor descriptorCapture;
+
+        MA_ZERO_OBJECT(&descriptorPlayback);
+        descriptorPlayback.pDeviceID                = pConfig->playback.pDeviceID;
+        descriptorPlayback.shareMode                = pConfig->playback.shareMode;
+        descriptorPlayback.format                   = pConfig->playback.format;
+        descriptorPlayback.channels                 = pConfig->playback.channels;
+        descriptorPlayback.sampleRate               = pConfig->sampleRate;
+        ma_channel_map_copy(descriptorPlayback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+        descriptorPlayback.periodSizeInFrames       = pConfig->periodSizeInFrames;
+        descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
+        descriptorPlayback.periodCount              = pConfig->periods;
+
+        MA_ZERO_OBJECT(&descriptorCapture);
+        descriptorCapture.pDeviceID                 = pConfig->capture.pDeviceID;
+        descriptorCapture.shareMode                 = pConfig->capture.shareMode;
+        descriptorCapture.format                    = pConfig->capture.format;
+        descriptorCapture.channels                  = pConfig->capture.channels;
+        descriptorCapture.sampleRate                = pConfig->sampleRate;
+        ma_channel_map_copy(descriptorCapture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+        descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
+        descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
+        descriptorCapture.periodCount               = pConfig->periods;
+
+        result = pContext->callbacks.onDeviceInit(pDevice, config.deviceType, &descriptorPlayback, &descriptorCapture);
+        if (result != MA_SUCCESS) {
+            ma_event_uninit(&pDevice->startEvent);
+            ma_event_uninit(&pDevice->wakeupEvent);
+            ma_mutex_uninit(&pDevice->lock);
+            return result;
+        }
+
+        /*
+        On output the descriptors will contain the *actual* data format of the device. We need this to know how to convert the data between
+        the requested format and the internal format.
+        */
+        if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+            ma_device_info deviceInfo;  /* For retrieving the name. */
+
+            if (!ma_device_descriptor_is_valid(&descriptorCapture)) {
+                ma_device_uninit(pDevice);
+                return MA_INVALID_ARGS;
+            }
+
+            pDevice->capture.internalFormat             = descriptorCapture.format;
+            pDevice->capture.internalChannels           = descriptorCapture.channels;
+            pDevice->capture.internalSampleRate         = descriptorCapture.sampleRate;
+            ma_channel_map_copy(pDevice->capture.internalChannelMap, descriptorCapture.channelMap, descriptorCapture.channels);
+            pDevice->capture.internalPeriodSizeInFrames = descriptorCapture.periodSizeInFrames;
+            pDevice->capture.internalPeriods            = descriptorCapture.periodCount;
+
+            if (pDevice->capture.internalPeriodSizeInFrames == 0) {
+                pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorCapture.periodSizeInMilliseconds, descriptorCapture.sampleRate);
+            }
+
+            /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info()` instead. */
+            result = ma_context_get_device_info(pContext, ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
+            if (result == MA_SUCCESS) {
+                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
+            } else {
+                /* We failed to retrieve the device info. Fall back to a default name. */
+                if (descriptorCapture.pDeviceID == NULL) {
+                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+                } else {
+                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
+                }
+            }
+        }
+
+        if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+            ma_device_info deviceInfo;  /* For retrieving the name. */
+
+            if (!ma_device_descriptor_is_valid(&descriptorPlayback)) {
+                ma_device_uninit(pDevice);
+                return MA_INVALID_ARGS;
+            }
+
+            pDevice->playback.internalFormat             = descriptorPlayback.format;
+            pDevice->playback.internalChannels           = descriptorPlayback.channels;
+            pDevice->playback.internalSampleRate         = descriptorPlayback.sampleRate;
+            ma_channel_map_copy(pDevice->playback.internalChannelMap, descriptorPlayback.channelMap, descriptorPlayback.channels);
+            pDevice->playback.internalPeriodSizeInFrames = descriptorPlayback.periodSizeInFrames;
+            pDevice->playback.internalPeriods            = descriptorPlayback.periodCount;
+
+            if (pDevice->playback.internalPeriodSizeInFrames == 0) {
+                pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorPlayback.periodSizeInMilliseconds, descriptorPlayback.sampleRate);
+            }
+
+            /* The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead. */
+            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
+            if (result == MA_SUCCESS) {
+                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
+            } else {
+                /* We failed to retrieve the device info. Fall back to a default name. */
+                if (descriptorPlayback.pDeviceID == NULL) {
+                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+                } else {
+                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
+                }
+            }
+        }
+
+        /* If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. */
+        if (ma_context_is_backend_asynchronous(pContext)) {
+            if (pConfig->deviceType == ma_device_type_duplex) {
+                result = ma_duplex_rb_init(pDevice->sampleRate, pDevice->capture.internalFormat, pDevice->capture.internalChannels, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
+                if (result != MA_SUCCESS) {
+                    ma_device_uninit(pDevice);
+                    return result;
+                }
+            }
+        }
+    } else {
+        result = pContext->onDeviceInit(pContext, &config, pDevice);
+        if (result != MA_SUCCESS) {
+            ma_event_uninit(&pDevice->startEvent);
+            ma_event_uninit(&pDevice->wakeupEvent);
+            ma_mutex_uninit(&pDevice->lock);
+            return result;
+        }
     }
+    
 
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
 
@@ -32859,7 +32816,16 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_thread_wait(&pDevice->thread);
     }
 
-    pDevice->pContext->onDeviceUninit(pDevice);
+    if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+        if (pDevice->pContext->callbacks.onDeviceUninit != NULL) {
+            pDevice->pContext->callbacks.onDeviceUninit(pDevice);
+        }
+    } else {
+        if (pDevice->pContext->onDeviceUninit != NULL) {
+            pDevice->pContext->onDeviceUninit(pDevice);
+        }
+    }
+    
 
     ma_event_uninit(&pDevice->stopEvent);
     ma_event_uninit(&pDevice->startEvent);
@@ -32902,7 +32868,20 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            result = pDevice->pContext->onDeviceStart(pDevice);
+            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
+                    result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+                } else {
+                    result = MA_INVALID_OPERATION;
+                }
+            } else {
+                if (pDevice->pContext->onDeviceStart != NULL) {
+                    result = pDevice->pContext->onDeviceStart(pDevice);
+                } else {
+                    result = MA_INVALID_OPERATION;
+                }
+            }
+            
             if (result == MA_SUCCESS) {
                 ma_device__set_state(pDevice, MA_STATE_STARTED);
             }
@@ -32919,6 +32898,11 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
             */
             ma_event_wait(&pDevice->startEvent);
             result = pDevice->workResult;
+        }
+
+        /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
+        if (result != MA_SUCCESS) {
+            ma_device__set_state(pDevice, MA_STATE_STOPPED);
         }
     }
     ma_mutex_unlock(&pDevice->lock);
@@ -32950,18 +32934,39 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
         ma_device__set_state(pDevice, MA_STATE_STOPPING);
 
-        /* There's no need to wake up the thread like we do when starting. */
-        if (pDevice->pContext->onDeviceStop) {
-            result = pDevice->pContext->onDeviceStop(pDevice);
-        } else {
-            result = MA_SUCCESS;
-        }
-
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
+            /* Asynchronous backends must have a stop operation. */
+            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+                    result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+                } else {
+                    result = MA_INVALID_OPERATION;
+                }
+            } else {
+                if (pDevice->pContext->onDeviceStop != NULL) {
+                    result = pDevice->pContext->onDeviceStop(pDevice);
+                } else {
+                    result = MA_INVALID_OPERATION;
+                }
+            }
+
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
         } else {
-            /* Synchronous backends. */
+            /* Synchronous backends. Devices can optionally have a stop operation here. */
+            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+                    result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+                } else {
+                    result = MA_SUCCESS;
+                }
+            } else {
+                if (pDevice->pContext->onDeviceStop != NULL) {
+                    result = pDevice->pContext->onDeviceStop(pDevice);
+                } else {
+                    result = MA_SUCCESS;
+                }
+            }
 
             /*
             We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
