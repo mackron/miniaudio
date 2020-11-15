@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.24 - 2020-11-10
+miniaudio - v0.10.25 - 2020-11-15
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 24
+#define MA_VERSION_REVISION 25
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -28,7 +28,7 @@ extern "C" {
     #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
     #pragma warning(disable:4214)   /* nonstandard extension used: bit field types other than int */
     #pragma warning(disable:4324)   /* structure was padded due to alignment specifier */
-#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic" /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
     #if defined(__clang__)
@@ -1797,7 +1797,7 @@ typedef struct ma_context_config    ma_context_config;
 typedef struct ma_device_config     ma_device_config;
 typedef struct ma_backend_callbacks ma_backend_callbacks;
 
-#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1);   /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
+#define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
 typedef struct
 {
@@ -2020,11 +2020,11 @@ look at `ma_device_audio_thread__default_read_write()`.
 */
 struct ma_backend_callbacks
 {
-    ma_result (* onContextInit)(ma_context* pContext, ma_backend_callbacks* pCallbacks);
+    ma_result (* onContextInit)(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks);
     ma_result (* onContextUninit)(ma_context* pContext);
     ma_result (* onContextEnumerateDevices)(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);
     ma_result (* onContextGetDeviceInfo)(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
-    ma_result (* onDeviceInit)(ma_device* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
+    ma_result (* onDeviceInit)(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
     ma_result (* onDeviceUninit)(ma_device* pDevice);
     ma_result (* onDeviceStart)(ma_device* pDevice);
     ma_result (* onDeviceStop)(ma_device* pDevice);
@@ -2067,6 +2067,7 @@ struct ma_context_config
 
 struct ma_context
 {
+    ma_backend_callbacks callbacks;
     ma_backend backend;                    /* DirectSound, ALSA, etc. */
     ma_log_proc logCallback;
     ma_thread_priority threadPriority;
@@ -2409,9 +2410,6 @@ struct ma_context
             int _unused;
         } webaudio;
 #endif
-#ifdef MA_SUPPORT_CUSTOM
-        ma_backend_callbacks custom;
-#endif
 #ifdef MA_SUPPORT_NULL
         struct
         {
@@ -2638,7 +2636,7 @@ struct ma_device
             /*AudioUnit*/ ma_ptr audioUnitPlayback;
             /*AudioUnit*/ ma_ptr audioUnitCapture;
             /*AudioBufferList**/ ma_ptr pAudioBufferList;   /* Only used for input devices. */
-            ma_uint32 audioBufferSizeInBytes;               /* Only used for input devices. The size in bytes of each buffer in pAudioBufferList. */
+            ma_uint32 audioBufferCapInFrames;               /* Only used for input devices. The capacity in frames of each buffer in pAudioBufferList. */
             ma_event stopEvent;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
@@ -2731,7 +2729,7 @@ struct ma_device
 };
 #if defined(_MSC_VER) && !defined(__clang__)
     #pragma warning(pop)
-#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
     #pragma GCC diagnostic pop  /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
 #endif
 

@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.25 - TBD
+miniaudio - v0.10.25 - 2020-11-15
 
 David Reid - mackron@gmail.com
 
@@ -63679,7 +63679,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.25 - TBD
+v0.10.25 - 2020-11-15
   - PulseAudio: Fix a bug where the stop callback isn't fired.
   - WebAudio: Fix an error that occurs when Emscripten increases the size of it's heap.
   - Custom Backends: Change the onContextInit and onDeviceInit callbacks to take a parameter which is a pointer to the config that was
