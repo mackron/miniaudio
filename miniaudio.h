@@ -32295,7 +32295,7 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
                 deviceInfo.formats[2] = ma_format_s24;
                 deviceInfo.formats[3] = ma_format_s32;
                 deviceInfo.formats[4] = ma_format_f32;
-                deviceInfo.formatCount = ma_format_count;
+                deviceInfo.formatCount = 5;
             } else {
                 /* Make sure the format isn't already in the list. If so, skip. */
                 ma_bool32 alreadyExists = MA_FALSE;
