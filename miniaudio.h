@@ -47413,6 +47413,16 @@ static ma_result ma_waveform__data_source_on_get_cursor(ma_data_source* pDataSou
     return MA_SUCCESS;
 }
 
+static double ma_waveform__calculate_advance(ma_uint32 sampleRate, double frequency)
+{
+    return (1.0 / (sampleRate / frequency));
+}
+
+static void ma_waveform__update_advance(ma_waveform* pWaveform)
+{
+    pWaveform->advance = ma_waveform__calculate_advance(pWaveform->config.sampleRate, pWaveform->config.frequency);
+}
+
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform)
 {
     if (pWaveform == NULL) {
@@ -47426,7 +47436,7 @@ MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform
     pWaveform->ds.onGetCursor     = ma_waveform__data_source_on_get_cursor;
     pWaveform->ds.onGetLength     = NULL;   /* Intentionally set to NULL since there's no notion of a length in waveforms. */
     pWaveform->config             = *pConfig;
-    pWaveform->advance            = 1.0 / pWaveform->config.sampleRate;
+    pWaveform->advance            = ma_waveform__calculate_advance(pWaveform->config.sampleRate, pWaveform->config.frequency);
     pWaveform->time               = 0;
 
     return MA_SUCCESS;
@@ -47449,6 +47459,8 @@ MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double freque
     }
 
     pWaveform->config.frequency = frequency;
+    ma_waveform__update_advance(pWaveform);
+
     return MA_SUCCESS;
 }
 
@@ -47458,24 +47470,25 @@ MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 s
         return MA_INVALID_ARGS;
     }
 
-    pWaveform->advance = 1.0 / sampleRate;
+    pWaveform->config.sampleRate = sampleRate;
+    ma_waveform__update_advance(pWaveform);
+
     return MA_SUCCESS;
 }
 
-static float ma_waveform_sine_f32(double time, double frequency, double amplitude)
+static float ma_waveform_sine_f32(double time, double amplitude)
 {
-    return (float)(ma_sin(MA_TAU_D * time * frequency) * amplitude);
+    return (float)(ma_sin(MA_TAU_D * time) * amplitude);
 }
 
-static ma_int16 ma_waveform_sine_s16(double time, double frequency, double amplitude)
+static ma_int16 ma_waveform_sine_s16(double time, double amplitude)
 {
-    return ma_pcm_sample_f32_to_s16(ma_waveform_sine_f32(time, frequency, amplitude));
+    return ma_pcm_sample_f32_to_s16(ma_waveform_sine_f32(time, amplitude));
 }
 
-static float ma_waveform_square_f32(double time, double frequency, double amplitude)
+static float ma_waveform_square_f32(double time, double amplitude)
 {
-    double t = time * frequency;
-    double f = t - (ma_int64)t;
+    double f = time - (ma_int64)time;
     double r;
     
     if (f < 0.5) {
@@ -47487,15 +47500,14 @@ static float ma_waveform_square_f32(double time, double frequency, double amplit
     return (float)r;
 }
 
-static ma_int16 ma_waveform_square_s16(double time, double frequency, double amplitude)
+static ma_int16 ma_waveform_square_s16(double time, double amplitude)
 {
-    return ma_pcm_sample_f32_to_s16(ma_waveform_square_f32(time, frequency, amplitude));
+    return ma_pcm_sample_f32_to_s16(ma_waveform_square_f32(time, amplitude));
 }
 
-static float ma_waveform_triangle_f32(double time, double frequency, double amplitude)
+static float ma_waveform_triangle_f32(double time, double amplitude)
 {
-    double t = time * frequency;
-    double f = t - (ma_int64)t;
+    double f = time - (ma_int64)time;
     double r;
 
     r = 2 * ma_abs(2 * (f - 0.5)) - 1;
@@ -47503,15 +47515,14 @@ static float ma_waveform_triangle_f32(double time, double frequency, double ampl
     return (float)(r * amplitude);
 }
 
-static ma_int16 ma_waveform_triangle_s16(double time, double frequency, double amplitude)
+static ma_int16 ma_waveform_triangle_s16(double time, double amplitude)
 {
-    return ma_pcm_sample_f32_to_s16(ma_waveform_triangle_f32(time, frequency, amplitude));
+    return ma_pcm_sample_f32_to_s16(ma_waveform_triangle_f32(time, amplitude));
 }
 
-static float ma_waveform_sawtooth_f32(double time, double frequency, double amplitude)
+static float ma_waveform_sawtooth_f32(double time, double amplitude)
 {
-    double t = time * frequency;
-    double f = t - (ma_int64)t;
+    double f = time - (ma_int64)time;
     double r;
 
     r = 2 * (f - 0.5);
@@ -47519,9 +47530,9 @@ static float ma_waveform_sawtooth_f32(double time, double frequency, double ampl
     return (float)(r * amplitude);
 }
 
-static ma_int16 ma_waveform_sawtooth_s16(double time, double frequency, double amplitude)
+static ma_int16 ma_waveform_sawtooth_s16(double time, double amplitude)
 {
-    return ma_pcm_sample_f32_to_s16(ma_waveform_sawtooth_f32(time, frequency, amplitude));
+    return ma_pcm_sample_f32_to_s16(ma_waveform_sawtooth_f32(time, amplitude));
 }
 
 static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
@@ -47537,7 +47548,7 @@ static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFra
     if (pWaveform->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47547,7 +47558,7 @@ static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFra
     } else if (pWaveform->config.format == ma_format_s16) {
         ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_int16 s = ma_waveform_sine_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            ma_int16 s = ma_waveform_sine_s16(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47556,7 +47567,7 @@ static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFra
         }
     } else {
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_sine_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47579,7 +47590,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
     if (pWaveform->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47589,7 +47600,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
     } else if (pWaveform->config.format == ma_format_s16) {
         ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_int16 s = ma_waveform_square_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            ma_int16 s = ma_waveform_square_s16(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47598,7 +47609,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
         }
     } else {
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47621,7 +47632,7 @@ static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* 
     if (pWaveform->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47631,7 +47642,7 @@ static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* 
     } else if (pWaveform->config.format == ma_format_s16) {
         ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_int16 s = ma_waveform_triangle_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            ma_int16 s = ma_waveform_triangle_s16(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47640,7 +47651,7 @@ static void ma_waveform_read_pcm_frames__triangle(ma_waveform* pWaveform, void* 
         }
     } else {
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_triangle_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47663,7 +47674,7 @@ static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* 
     if (pWaveform->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47673,7 +47684,7 @@ static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* 
     } else if (pWaveform->config.format == ma_format_s16) {
         ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_int16 s = ma_waveform_sawtooth_s16(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            ma_int16 s = ma_waveform_sawtooth_s16(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -47682,7 +47693,7 @@ static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* 
         }
     } else {
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.frequency, pWaveform->config.amplitude);
+            float s = ma_waveform_sawtooth_f32(pWaveform->time, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -63653,6 +63664,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.26 - TBD
+  - Fix a bug with ma_waveform where glitching occurs after changing frequency.
 
 v0.10.25 - 2020-11-15
   - PulseAudio: Fix a bug where the stop callback isn't fired.
