@@ -334,7 +334,7 @@ void ma_audio_callback_playback__sdl(void* pUserData, ma_uint8* pBuffer, int buf
     ma_device_handle_backend_data_callback((ma_device*)pDeviceEx, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx->device.capture.internalFormat, pDeviceEx->device.capture.internalChannels));
 }
 
-static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_device_config* pConfig, ma_device_descriptor* pDescriptor)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pDeviceEx->device.pContext;
     MA_SDL_AudioSpec desiredSpec;
@@ -355,8 +355,32 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device
         pDescriptor->sampleRate = MA_DEFAULT_SAMPLE_RATE;
     }
 
+    /*
+    When determining the period size, you need to take defaults into account. This is how the size of the period should be determined.
+
+        1) If periodSizeInFrames is not 0, use periodSizeInFrames; else
+        2) If periodSizeInMilliseconds is not 0, use periodSizeInMilliseconds; else
+        3) If both periodSizeInFrames and periodSizeInMilliseconds is 0, use the backend's default. If the backend does not allow a default
+           buffer size, use a default value of MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY or 
+           MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE depending on the value of pConfig->performanceProfile.
+
+    Note that options 2 and 3 require knowledge of the sample rate in order to convert it to a frame count. You should try to keep the
+    calculation of the period size as accurate as possible, but sometimes it's just not practical so just use whatever you can.
+    */
     if (pDescriptor->periodSizeInFrames == 0) {
-        pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate);
+        if (pDescriptor->periodSizeInMilliseconds == 0) {
+            /* The default period size has been requested. I don't think SDL has an API to retrieve this, so just using defaults defined by miniaudio. */
+            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
+                pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptor->sampleRate);
+            } else {
+                pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptor->sampleRate);
+            }
+        } else {
+            /* An explicit period size in milliseconds was specified. */
+            pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate);
+        }
+    } else {
+        /* Nothing to do here. An explicit period size in frames was specified. */
     }
 
     /* SDL wants the buffer size to be a power of 2 for some reason. */
@@ -373,7 +397,7 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device
     desiredSpec.format   = ma_format_to_sdl(pDescriptor->format);
     desiredSpec.channels = (ma_uint8)pDescriptor->channels;
     desiredSpec.samples  = (ma_uint16)pDescriptor->periodSizeInFrames;
-    desiredSpec.callback = (deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
+    desiredSpec.callback = (pConfig->deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
     desiredSpec.userdata = pDeviceEx;
 
     /* We'll fall back to f32 if we don't have an appropriate mapping between SDL and miniaudio. */
@@ -383,15 +407,15 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device
 
     pDeviceName = NULL;
     if (pDescriptor->pDeviceID != NULL) {
-        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx->sdl.SDL_GetAudioDeviceName)(pDescriptor->pDeviceID->custom.i, (deviceType == ma_device_type_playback) ? 0 : 1);
+        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx->sdl.SDL_GetAudioDeviceName)(pDescriptor->pDeviceID->custom.i, (pConfig->deviceType == ma_device_type_playback) ? 0 : 1);
     }
 
-    deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx->sdl.SDL_OpenAudioDevice)(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
+    deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx->sdl.SDL_OpenAudioDevice)(pDeviceName, (pConfig->deviceType == ma_device_type_playback) ? 0 : 1, &desiredSpec, &obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
     if (deviceID == 0) {
         return ma_post_error((ma_device*)pDeviceEx, MA_LOG_LEVEL_ERROR, "Failed to open SDL2 device.", MA_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    if (deviceType == ma_device_type_playback) {
+    if (pConfig->deviceType == ma_device_type_playback) {
         pDeviceEx->sdl.deviceIDPlayback = deviceID;
     } else {
         pDeviceEx->sdl.deviceIDCapture = deviceID;
@@ -422,14 +446,14 @@ static ma_result ma_device_init__sdl(ma_device* pDevice, const ma_device_config*
     }
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_capture, pDescriptorCapture);
+        result = ma_device_init_internal__sdl(pDeviceEx, pConfig, pDescriptorCapture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_playback, pDescriptorPlayback);
+        result = ma_device_init_internal__sdl(pDeviceEx, pConfig, pDescriptorPlayback);
         if (result != MA_SUCCESS) {
             if (pConfig->deviceType == ma_device_type_duplex) {
                 ((MA_PFN_SDL_CloseAudioDevice)pContextEx->sdl.SDL_CloseAudioDevice)(pDeviceEx->sdl.deviceIDCapture);

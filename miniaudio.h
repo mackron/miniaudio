@@ -3985,6 +3985,7 @@ struct ma_device
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
+            ma_performance_profile originalPerformanceProfile;
             ma_bool32 hasDefaultPlaybackDeviceChanged;         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_bool32 hasDefaultCaptureDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_uint32 periodSizeInFramesPlayback;
@@ -4052,7 +4053,6 @@ struct ma_device
             /*jack_port_t**/ ma_ptr pPortsCapture[MA_MAX_CHANNELS];
             float* pIntermediaryBufferPlayback; /* Typed as a float because JACK is always floating point. */
             float* pIntermediaryBufferCapture;
-            ma_pcm_rb duplexRB;
         } jack;
 #endif
 #ifdef MA_SUPPORT_COREAUDIO
@@ -4132,7 +4132,6 @@ struct ma_device
         {
             int indexPlayback;              /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
             int indexCapture;
-            ma_pcm_rb duplexRB;             /* In external capture format. */
         } webaudio;
 #endif
 #ifdef MA_SUPPORT_NULL
@@ -11290,6 +11289,23 @@ static ma_result ma_device_uninit__null(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_uint32 ma_calculate_buffer_size_in_frames__null(const ma_device_config* pConfig, const ma_device_descriptor* pDescriptor)
+{
+    if (pDescriptor->periodSizeInFrames == 0) {
+        if (pDescriptor->periodSizeInMilliseconds == 0) {
+            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptor->sampleRate);
+            } else {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptor->sampleRate);
+            }
+        } else {
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate);
+        }
+    } else {
+        return pDescriptor->periodSizeInFrames;
+    }
+}
+
 static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
@@ -11312,7 +11328,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
             ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         }
 
-        /* The period size and count can be left as-is. */
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames__null(pConfig, pDescriptorCapture);
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -11324,7 +11340,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
             ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         }
 
-        /* The period size and count can be left as-is. */
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames__null(pConfig, pDescriptorPlayback);
     }
 
     /*
@@ -13249,6 +13265,7 @@ typedef struct
     ma_bool32 usingDefaultSampleRate;
     ma_bool32 usingDefaultChannelMap;*/
     ma_share_mode shareMode;
+    ma_performance_profile performanceProfile;
     ma_bool32 noAutoConvertSRC;
     ma_bool32 noDefaultQualitySRC;
     ma_bool32 noHardwareOffloading;
@@ -13429,7 +13446,15 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     pData->periodsOut = (pData->periodsIn != 0) ? pData->periodsIn : MA_DEFAULT_PERIODS;
     pData->periodSizeInFramesOut = pData->periodSizeInFramesIn;
     if (pData->periodSizeInFramesOut == 0) {
-        pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.Format.nSamplesPerSec);
+        if (pData->periodSizeInMillisecondsIn == 0) {
+            if (pData->performanceProfile == ma_performance_profile_low_latency) {
+                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, wf.Format.nSamplesPerSec);
+            } else {
+                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, wf.Format.nSamplesPerSec);
+            }
+        } else {
+            pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.Format.nSamplesPerSec);
+        }
     }
 
     periodDurationInMicroseconds = ((ma_uint64)pData->periodSizeInFramesOut * 1000 * 1000) / wf.Format.nSamplesPerSec;
@@ -13702,6 +13727,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     data.periodSizeInFramesIn       = pDevice->wasapi.originalPeriodSizeInFrames;
     data.periodSizeInMillisecondsIn = pDevice->wasapi.originalPeriodSizeInMilliseconds;
     data.periodsIn                  = pDevice->wasapi.originalPeriods;
+    data.performanceProfile         = pDevice->wasapi.originalPerformanceProfile;
     data.noAutoConvertSRC           = pDevice->wasapi.noAutoConvertSRC;
     data.noDefaultQualitySRC        = pDevice->wasapi.noDefaultQualitySRC;
     data.noHardwareOffloading       = pDevice->wasapi.noHardwareOffloading;
@@ -13817,6 +13843,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.periodSizeInMillisecondsIn = pDescriptorCapture->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorCapture->periodCount;
         data.shareMode                  = pDescriptorCapture->shareMode;
+        data.performanceProfile         = pConfig->performanceProfile;
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
         data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
@@ -13831,6 +13858,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         pDevice->wasapi.originalPeriodSizeInMilliseconds = pDescriptorCapture->periodSizeInMilliseconds;
         pDevice->wasapi.originalPeriodSizeInFrames       = pDescriptorCapture->periodSizeInFrames;
         pDevice->wasapi.originalPeriods                  = pDescriptorCapture->periodCount;
+        pDevice->wasapi.originalPerformanceProfile       = pConfig->performanceProfile;
 
         /*
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
@@ -13875,6 +13903,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.periodSizeInMillisecondsIn = pDescriptorPlayback->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorPlayback->periodCount;
         data.shareMode                  = pDescriptorPlayback->shareMode;
+        data.performanceProfile         = pConfig->performanceProfile;
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
         data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
@@ -13902,6 +13931,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         pDevice->wasapi.originalPeriodSizeInMilliseconds = pDescriptorPlayback->periodSizeInMilliseconds;
         pDevice->wasapi.originalPeriodSizeInFrames       = pDescriptorPlayback->periodSizeInFrames;
         pDevice->wasapi.originalPeriods                  = pDescriptorPlayback->periodCount;
+        pDevice->wasapi.originalPerformanceProfile       = pConfig->performanceProfile;
 
         /*
         The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
@@ -15675,13 +15705,21 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate)
+static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
 {
     /* DirectSound has a minimum period size of 20ms. */
     ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(20, sampleRate);
 
     if (periodSizeInFrames == 0) {
-        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+        if (periodSizeInMilliseconds == 0) {
+            if (performanceProfile == ma_performance_profile_low_latency) {
+                periodSizeInFrames = minPeriodSizeInFrames;
+            } else {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, sampleRate);
+            }
+        } else {
+            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+        }
     }
 
     if (periodSizeInFrames < minPeriodSizeInFrames) {
@@ -15740,7 +15778,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         wf.SubFormat                   = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, wf.Format.nSamplesPerSec);
+        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, wf.Format.nSamplesPerSec, pConfig->performanceProfile);
         periodCount = (pDescriptorCapture->periodCount > 0) ? pDescriptorCapture->periodCount : MA_DEFAULT_PERIODS;
 
         MA_ZERO_OBJECT(&descDS);
@@ -15897,7 +15935,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
+        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
         periodCount = (pDescriptorPlayback->periodCount > 0) ? pDescriptorPlayback->periodCount : MA_DEFAULT_PERIODS;
 
         /*
@@ -16982,13 +17020,21 @@ static ma_result ma_device_uninit__winmm(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames__winmm(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate)
+static ma_uint32 ma_calculate_period_size_in_frames__winmm(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
 {
-    /* DirectSound has a minimum period size of 40ms. */
+    /* WinMM has a minimum period size of 40ms. */
     ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(40, sampleRate);
 
     if (periodSizeInFrames == 0) {
-        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+        if (periodSizeInMilliseconds == 0) {
+            if (performanceProfile == ma_performance_profile_low_latency) {
+                periodSizeInFrames = minPeriodSizeInFrames;
+            } else {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, sampleRate);
+            }
+        } else {
+            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+        }
     }
 
     if (periodSizeInFrames < minPeriodSizeInFrames) {
@@ -17016,8 +17062,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
     }
 
     /* No exlusive mode with WinMM. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
+    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -17064,7 +17110,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorCapture->sampleRate         = wf.nSamplesPerSec;
         ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         pDescriptorCapture->periodCount        = pDescriptorCapture->periodCount;
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -17102,7 +17148,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorPlayback->sampleRate         = wf.nSamplesPerSec;
         ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         pDescriptorPlayback->periodCount        = pDescriptorPlayback->periodCount;
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
     }
 
     /*
@@ -22252,10 +22298,6 @@ static ma_result ma_device_uninit__jack(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         ma__free_from_callbacks(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
-    }
-
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_pcm_rb_uninit(&pDevice->jack.duplexRB);
     }
 
     return MA_SUCCESS;
@@ -30575,20 +30617,12 @@ extern "C" {
 #endif
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_capture__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_capture(pDevice, (ma_uint32)frameCount, pFrames, &pDevice->webaudio.duplexRB);
-    } else {
-        ma_device__send_frames_to_client(pDevice, (ma_uint32)frameCount, pFrames);    /* Send directly to the client. */
-    }
+    ma_device_handle_backend_data_callback(pDevice, NULL, pFrames, (ma_uint32)frameCount);
 }
 
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_playback__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_playback(pDevice, (ma_uint32)frameCount, pFrames, &pDevice->webaudio.duplexRB);
-    } else {
-        ma_device__read_frames_from_client(pDevice, (ma_uint32)frameCount, pFrames);  /* Read directly from the device. */
-    }
+    ma_device_handle_backend_data_callback(pDevice, pFrames, NULL, (ma_uint32)frameCount);
 }
 #ifdef __cplusplus
 }
@@ -30626,19 +30660,13 @@ static ma_result ma_context_enumerate_devices__webaudio(ma_context* pContext, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     MA_ASSERT(pContext != NULL);
-
-    /* No exclusive mode with Web Audio. */
-    if (shareMode == ma_share_mode_exclusive) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
 
     if (deviceType == ma_device_type_capture && !ma_is_capture_supported__webaudio()) {
         return MA_NO_DEVICE;
     }
-
 
     MA_ZERO_MEMORY(pDeviceInfo->id.webaudio, sizeof(pDeviceInfo->id.webaudio));
 
@@ -30654,14 +30682,10 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
     pDeviceInfo->isDefault = MA_TRUE;
 
     /* Web Audio can support any number of channels and sample rates. It only supports f32 formats, however. */
-    pDeviceInfo->minChannels = 1;
-    pDeviceInfo->maxChannels = MA_MAX_CHANNELS;
-    if (pDeviceInfo->maxChannels > 32) {
-        pDeviceInfo->maxChannels = 32;  /* Maximum output channel count is 32 for createScriptProcessor() (JavaScript). */
-    }
-
-    /* We can query the sample rate by just using a temporary audio context. */
-    pDeviceInfo->minSampleRate = EM_ASM_INT({
+    pDeviceInfo->nativeDataFormats[0].flags      = 0;
+    pDeviceInfo->nativeDataFormats[0].format     = ma_format_unknown;
+    pDeviceInfo->nativeDataFormats[0].channels   = 0; /* All channels are supported. */
+    pDeviceInfo->nativeDataFormats[0].sampleRate = EM_ASM_INT({
         try {
             var temp = new (window.AudioContext || window.webkitAudioContext)();
             var sampleRate = temp.sampleRate;
@@ -30671,14 +30695,12 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
             return 0;
         }
     }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
-    pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
-    if (pDeviceInfo->minSampleRate == 0) {
+
+    if (pDeviceInfo->nativeDataFormats[0].sampleRate == 0) {
         return MA_NO_DEVICE;
     }
 
-    /* Web Audio only supports f32. */
-    pDeviceInfo->formatCount = 1;
-    pDeviceInfo->formats[0]  = ma_format_f32;
+    pDeviceInfo->nativeDataFormatCount = 1;
 
     return MA_SUCCESS;
 }
@@ -30722,7 +30744,7 @@ static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_ty
     }, deviceIndex, deviceType);
 }
 
-static void ma_device_uninit__webaudio(ma_device* pDevice)
+static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -30734,51 +30756,60 @@ static void ma_device_uninit__webaudio(ma_device* pDevice)
         ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_playback, pDevice->webaudio.indexPlayback);
     }
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_pcm_rb_uninit(&pDevice->webaudio.duplexRB);
-    }
+    return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma_device_config* pConfig, ma_device_type deviceType, ma_device* pDevice)
+static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
+{
+    /*
+    There have been reports of the default buffer size being too small on some browsers. There have been reports of the default buffer
+    size being too small on some browsers. If we're using default buffer size, we'll make sure the period size is a big biffer than our
+    standard defaults.
+    */
+    if (periodSizeInFrames == 0) {
+        if (periodSizeInMilliseconds == 0) {
+            if (performanceProfile == ma_performance_profile_low_latency) {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(33, sampleRate);  /* 1 frame @ 30 FPS */
+            } else {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(333, sampleRate);
+            }
+        } else {
+            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+        }
+    }
+
+    /* The size of the buffer must be a power of 2 and between 256 and 16384. */
+    if (periodSizeInFrames < 256) {
+        periodSizeInFrames = 256;
+    } else if (periodSizeInFrames > 16384) {
+        periodSizeInFrames = 16384;
+    } else {
+        periodSizeInFrames = ma_next_power_of_2(periodSizeInFrames);
+    }
+
+    return periodSizeInFrames;
+}
+
+static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptor, ma_device_type deviceType)
 {
     int deviceIndex;
-    ma_uint32 internalPeriodSizeInFrames;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_uint32 periodSizeInFrames;
 
-    MA_ASSERT(pContext   != NULL);
+    MA_ASSERT(pDevice    != NULL);
     MA_ASSERT(pConfig    != NULL);
     MA_ASSERT(deviceType != ma_device_type_duplex);
-    MA_ASSERT(pDevice    != NULL);
 
     if (deviceType == ma_device_type_capture && !ma_is_capture_supported__webaudio()) {
         return MA_NO_DEVICE;
     }
 
-    /*
-    Try calculating an appropriate buffer size. There have been reports of the default buffer size being too small on some browsers. If we're using default buffer size, we'll make sure
-    the period size is a big biffer than our standard defaults.
-    */
-    internalPeriodSizeInFrames = pConfig->periodSizeInFrames;
-    if (internalPeriodSizeInFrames == 0) {
-        ma_uint32 periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
-        if (pDevice->usingDefaultBufferSize) {
-            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                periodSizeInMilliseconds = 33;  /* 1 frame @ 30 FPS */
-            } else {
-                periodSizeInMilliseconds = 333;
-            }
-        }
-
-        internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, pConfig->sampleRate);
-    }
-
-    /* The size of the buffer must be a power of 2 and between 256 and 16384. */
-    if (internalPeriodSizeInFrames < 256) {
-        internalPeriodSizeInFrames = 256;
-    } else if (internalPeriodSizeInFrames > 16384) {
-        internalPeriodSizeInFrames = 16384;
-    } else {
-        internalPeriodSizeInFrames = ma_next_power_of_2(internalPeriodSizeInFrames);
-    }
+    /* We're going to calculate some stuff in C just to simplify the JS code. */
+    channels           = (pDescriptor->channels   > 0) ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
+    sampleRate         = (pDescriptor->sampleRate > 0) ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
+    periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptor->periodSizeInFrames, pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate, pConfig->performanceProfile);
+    
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
     deviceIndex = EM_ASM_INT({
@@ -30942,34 +30973,29 @@ static ma_result ma_device_init_by_type__webaudio(ma_context* pContext, const ma
         }
 
         return miniaudio.track_device(device);
-    }, (deviceType == ma_device_type_capture) ? pConfig->capture.channels : pConfig->playback.channels, pConfig->sampleRate, internalPeriodSizeInFrames, deviceType == ma_device_type_capture, pDevice);
+    }, channels, sampleRate, periodSizeInFrames, deviceType == ma_device_type_capture, pDevice);
 
     if (deviceIndex < 0) {
         return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
     if (deviceType == ma_device_type_capture) {
-        pDevice->webaudio.indexCapture               = deviceIndex;
-        pDevice->capture.internalFormat              = ma_format_f32;
-        pDevice->capture.internalChannels            = pConfig->capture.channels;
-        ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap);
-        pDevice->capture.internalSampleRate          = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
-        pDevice->capture.internalPeriodSizeInFrames  = internalPeriodSizeInFrames;
-        pDevice->capture.internalPeriods             = 1;
+        pDevice->webaudio.indexCapture  = deviceIndex;
     } else {
-        pDevice->webaudio.indexPlayback              = deviceIndex;
-        pDevice->playback.internalFormat             = ma_format_f32;
-        pDevice->playback.internalChannels           = pConfig->playback.channels;
-        ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap);
-        pDevice->playback.internalSampleRate         = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
-        pDevice->playback.internalPeriodSizeInFrames = internalPeriodSizeInFrames;
-        pDevice->playback.internalPeriods            = 1;
+        pDevice->webaudio.indexPlayback = deviceIndex;
     }
+
+    pDescriptor->format              = ma_format_f32;
+    pDescriptor->channels            = channels;
+    ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDescriptor->channels, pDescriptor->channelMap);
+    pDescriptor->sampleRate          = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
+    pDescriptor->periodSizeInFrames  = periodSizeInFrames;
+    pDescriptor->periodCount         = 1;
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
 
@@ -30978,55 +31004,25 @@ static ma_result ma_device_init__webaudio(ma_context* pContext, const ma_device_
     }
 
     /* No exclusive mode with Web Audio. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
+    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_device_init_by_type__webaudio(pContext, pConfig, ma_device_type_capture, pDevice);
+        result = ma_device_init_by_type__webaudio(pDevice, pConfig, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_device_init_by_type__webaudio(pContext, pConfig, ma_device_type_playback, pDevice);
+        result = ma_device_init_by_type__webaudio(pDevice, pConfig, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
             if (pConfig->deviceType == ma_device_type_duplex) {
                 ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_capture, pDevice->webaudio.indexCapture);
             }
             return result;
-        }
-    }
-
-    /*
-    We need a ring buffer for moving data from the capture device to the playback device. The capture callback is the producer
-    and the playback callback is the consumer. The buffer needs to be large enough to hold internalPeriodSizeInFrames based on
-    the external sample rate.
-    */
-    if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * 2;
-        result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->webaudio.duplexRB);
-        if (result != MA_SUCCESS) {
-            if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-                ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_capture, pDevice->webaudio.indexCapture);
-            }
-            if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-                ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_playback, pDevice->webaudio.indexPlayback);
-            }
-            return result;
-        }
-
-        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
-        {
-            ma_uint32 marginSizeInFrames = rbSizeInFrames / 3;  /* <-- Dividing by 3 because internalPeriods is always set to 1 for WebAudio. */
-            void* pMarginData;
-            ma_pcm_rb_acquire_write(&pDevice->webaudio.duplexRB, &marginSizeInFrames, &pMarginData);
-            {
-                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-            }
-            ma_pcm_rb_commit_write(&pDevice->webaudio.duplexRB, marginSizeInFrames, pMarginData);
         }
     }
 
@@ -31097,11 +31093,13 @@ static ma_result ma_context_uninit__webaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__webaudio(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     int resultFromJS;
 
     MA_ASSERT(pContext != NULL);
+
+    (void)pConfig; /* Unused. */
 
     /* Here is where our global JavaScript object is initialized. */
     resultFromJS = EM_ASM_INT({
@@ -31161,18 +31159,18 @@ static ma_result ma_context_init__webaudio(const ma_context_config* pConfig, ma_
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
+    pCallbacks->onContextInit             = ma_context_init__webaudio;
+    pCallbacks->onContextUninit           = ma_context_uninit__webaudio;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__webaudio;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__webaudio;
+    pCallbacks->onDeviceInit              = ma_device_init__webaudio;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__webaudio;
+    pCallbacks->onDeviceStart             = ma_device_start__webaudio;
+    pCallbacks->onDeviceStop              = ma_device_stop__webaudio;
+    pCallbacks->onDeviceRead              = NULL;   /* Not needed because WebAudio is asynchronous. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not needed because WebAudio is asynchronous. */
+    pCallbacks->onDeviceAudioThread       = NULL;   /* Not needed because WebAudio is asynchronous. */
 
-    pContext->isBackendAsynchronous = MA_TRUE;
-
-    pContext->onUninit        = ma_context_uninit__webaudio;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__webaudio;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__webaudio;
-    pContext->onDeviceInit    = ma_device_init__webaudio;
-    pContext->onDeviceUninit  = ma_device_uninit__webaudio;
-    pContext->onDeviceStart   = ma_device_start__webaudio;
-    pContext->onDeviceStop    = ma_device_stop__webaudio;
-
-    (void)pConfig; /* Unused. */
     return MA_SUCCESS;
 }
 #endif  /* Web Audio */
@@ -31688,6 +31686,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 pContext->callbacks.onContextInit = ma_context_init__jack;
             } break;
         #endif
+        #ifdef MA_HAS_WEBAUDIO
+            case ma_backend_webaudio:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__webaudio;
+            } break;
+        #endif
         #ifdef MA_HAS_CUSTOM
             case ma_backend_custom:
             {
@@ -31787,7 +31791,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_WEBAUDIO
                 case ma_backend_webaudio:
                 {
-                    result = ma_context_init__webaudio(pConfig, pContext);
+                    /*result = ma_context_init__webaudio(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_CUSTOM
@@ -32368,10 +32372,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
         descriptorPlayback.periodCount              = pConfig->periods;
 
-        if (descriptorPlayback.periodSizeInMilliseconds == 0 && descriptorPlayback.periodSizeInFrames == 0) {
-            descriptorPlayback.periodSizeInMilliseconds = (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
-        }
-
         if (descriptorPlayback.periodCount == 0) {
             descriptorPlayback.periodCount = MA_DEFAULT_PERIODS;
         }
@@ -32387,10 +32387,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
         descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
         descriptorCapture.periodCount               = pConfig->periods;
-
-        if (descriptorCapture.periodSizeInMilliseconds == 0 && descriptorCapture.periodSizeInFrames == 0) {
-            descriptorCapture.periodSizeInMilliseconds = (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
-        }
 
         if (descriptorCapture.periodCount == 0) {
             descriptorCapture.periodCount = MA_DEFAULT_PERIODS;
