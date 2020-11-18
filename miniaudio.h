@@ -1145,7 +1145,7 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
     ma_waveform_read_pcm_frames(&waveform, pOutput, frameCount);
     ```
 
-The amplitude, frequency and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()` and
+The amplitude, frequency, type, and sample rate can be changed dynamically with `ma_waveform_set_amplitude()`, `ma_waveform_set_frequency()`, ma_waveform_set_type(), and
 `ma_waveform_set_sample_rate()` respectively.
 
 You can invert the waveform by setting the amplitude to a negative value. You can use this to control whether or not a sawtooth has a positive or negative
@@ -6103,6 +6103,7 @@ MA_API ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFram
 MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64 frameIndex);
 MA_API ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
 MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
+MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type type);
 MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
 
@@ -47476,6 +47477,18 @@ MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double freque
     }
 
     pWaveform->config.frequency = frequency;
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type type)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.type = type;
+    ma_waveform__update_advance(pWaveform);
+
     return MA_SUCCESS;
 }
 
