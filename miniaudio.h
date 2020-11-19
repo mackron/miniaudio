@@ -47487,8 +47487,6 @@ MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type t
     }
 
     pWaveform->config.type = type;
-    ma_waveform__update_advance(pWaveform);
-
     return MA_SUCCESS;
 }
 
