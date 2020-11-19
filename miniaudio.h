@@ -1567,6 +1567,8 @@ typedef ma_uint16 wchar_t;
     #else
         #define MA_INLINE inline __attribute__((always_inline))
     #endif
+#elif defined(__WATCOMC__)
+    #define MA_INLINE __inline
 #else
     #define MA_INLINE
 #endif
@@ -6666,7 +6668,7 @@ static MA_INLINE void ma_yield()
 {
 #if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
     /* x86/x64 */
-    #if defined(_MSC_VER) && !defined(__clang__)
+    #if (defined(_MSC_VER) || defined(__WATCOMC__)) && !defined(__clang__)
         #if _MSC_VER >= 1400
             _mm_pause();
         #else
@@ -7664,12 +7666,13 @@ _wfopen() isn't always available in all compilation environments.
     * MSVC seems to support it universally as far back as VC6 from what I can tell (haven't checked further back).
     * MinGW-64 (both 32- and 64-bit) seems to support it.
     * MinGW wraps it in !defined(__STRICT_ANSI__).
+    * OpenWatcom wraps it in !defined(_NO_EXT_KEYS).
 
 This can be reviewed as compatibility issues arise. The preference is to use _wfopen_s() and _wfopen() as opposed to the wcsrtombs()
 fallback, so if you notice your compiler not detecting this properly I'm happy to look at adding support.
 */
 #if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define MA_HAS_WFOPEN
     #endif
 #endif
@@ -10255,7 +10258,7 @@ int ma_vscprintf(const char* format, va_list args)
 /* Posts a formatted log message. */
 static void ma_post_log_messagev(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* pFormat, va_list args)
 {
-#if (!defined(_MSC_VER) || _MSC_VER >= 1900) && !defined(__STRICT_ANSI__)
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || ((!defined(_MSC_VER) || _MSC_VER >= 1900) && !defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
     {
         char pFormattedMessage[1024];
         vsnprintf(pFormattedMessage, sizeof(pFormattedMessage), pFormat, args);
@@ -11590,7 +11593,7 @@ WIN32 COMMON
     #define ma_PropVariantClear(pContext, pvar)                                        PropVariantClear(pvar)
 #endif
 
-#if !defined(MAXULONG_PTR)
+#if !defined(MAXULONG_PTR) && !defined(__WATCOMC__)
 typedef size_t DWORD_PTR;
 #endif
 
@@ -11878,11 +11881,13 @@ typedef ULONGLONG (WINAPI * ma_PFNVerSetConditionMask)(ULONGLONG dwlConditionMas
 
 #ifndef PROPERTYKEY_DEFINED
 #define PROPERTYKEY_DEFINED
+#ifndef __WATCOMC__
 typedef struct
 {
     GUID fmtid;
     DWORD pid;
 } PROPERTYKEY;
+#endif
 #endif
 
 /* Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset(). */
@@ -15540,10 +15545,11 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
         /* Channels. Only a single channel count is reported for DirectSound. */
         if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
             /* It supports at least stereo, but could support more. */
+            DWORD speakerConfig;
+
             channels = 2;
 
             /* Look at the speaker configuration to get a better idea on the channel count. */
-            DWORD speakerConfig;
             hr = ma_IDirectSound_GetSpeakerConfig(pDirectSound, &speakerConfig);
             if (SUCCEEDED(hr)) {
                 ma_get_channels_from_speaker_config__dsound(speakerConfig, &channels, NULL);
@@ -43031,7 +43037,7 @@ static ma_result ma_default_vfs_read__win32(ma_vfs* pVFS, ma_vfs_file file, void
         BOOL readResult;
 
         bytesRemaining = sizeInBytes - totalBytesRead;
-        if (bytesRemaining > 0xFFFFFFFF) {
+        if (bytesRemaining >= 0xFFFFFFFF) {
             bytesToRead = 0xFFFFFFFF;
         } else {
             bytesToRead = (DWORD)bytesRemaining;
@@ -43076,7 +43082,7 @@ static ma_result ma_default_vfs_write__win32(ma_vfs* pVFS, ma_vfs_file file, con
         BOOL writeResult;
 
         bytesRemaining = sizeInBytes - totalBytesWritten;
-        if (bytesRemaining > 0xFFFFFFFF) {
+        if (bytesRemaining >= 0xFFFFFFFF) {
             bytesToWrite = 0xFFFFFFFF;
         } else {
             bytesToWrite = (DWORD)bytesRemaining;
@@ -46233,7 +46239,7 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
     ext1 = extension;
     ext2 = ma_path_extension_w(path);
 
-#if defined(_MSC_VER) || defined(__DMC__)
+#if defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__)
     return _wcsicmp(ext1, ext2) == 0;
 #else
     /*
