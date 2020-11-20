@@ -8149,10 +8149,12 @@ typedef unsigned char           c89atomic_flag;
     #else
         #define C89ATOMIC_INLINE inline __attribute__((always_inline))
     #endif
+#elif defined(__WATCOMC__)
+    #define C89ATOMIC_INLINE __inline
 #else
     #define C89ATOMIC_INLINE
 #endif
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) || defined(__WATCOMC__)
     #define c89atomic_memory_order_relaxed  0
     #define c89atomic_memory_order_consume  1
     #define c89atomic_memory_order_acquire  2
@@ -8188,10 +8190,10 @@ typedef unsigned char           c89atomic_flag;
         }
     #endif
     #else
-        #if defined(__i386) || defined(_M_IX86)
+        #if defined(C89ATOMIC_X86)
             static C89ATOMIC_INLINE void __stdcall c89atomic_thread_fence(int order)
             {
-                volatile c89atomic_uint32 barrier;
+                volatile c89atomic_uint32 barrier = 0;
                 (void)order;
                 __asm {
                     xchg barrier, eax
@@ -8199,87 +8201,116 @@ typedef unsigned char           c89atomic_flag;
             }
             static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
             {
+                c89atomic_uint8 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov al,  src
                     lock xchg [ecx], al
+                    mov result, al
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
             {
+                c89atomic_uint16 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov ax,  src
                     lock xchg [ecx], ax
+                    mov result, ax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
             {
+                c89atomic_uint32 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov eax, src
                     lock xchg [ecx], eax
+                    mov result, eax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_add_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
             {
+                c89atomic_uint8 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov al,  src
                     lock xadd [ecx], al
+                    mov result, al
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_add_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
             {
+                c89atomic_uint16 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov ax,  src
                     lock xadd [ecx], ax
+                    mov result, ax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_add_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
             {
+                c89atomic_uint32 result = 0;
                 (void)order;
                 __asm {
                     mov ecx, dst
                     mov eax, src
                     lock xadd [ecx], eax
+                    mov result, eax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_compare_and_swap_8(volatile c89atomic_uint8* dst, c89atomic_uint8 expected, c89atomic_uint8 desired)
             {
+                c89atomic_uint8 result = 0;
                 __asm {
                     mov ecx, dst
                     mov al,  expected
                     mov dl,  desired
                     lock cmpxchg [ecx], dl
+                    mov result, al
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_compare_and_swap_16(volatile c89atomic_uint16* dst, c89atomic_uint16 expected, c89atomic_uint16 desired)
             {
+                c89atomic_uint16 result = 0;
                 __asm {
                     mov ecx, dst
                     mov ax,  expected
                     mov dx,  desired
                     lock cmpxchg [ecx], dx
+                    mov result, ax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_compare_and_swap_32(volatile c89atomic_uint32* dst, c89atomic_uint32 expected, c89atomic_uint32 desired)
             {
+                c89atomic_uint32 result = 0;
                 __asm {
                     mov ecx, dst
                     mov eax, expected
                     mov edx, desired
                     lock cmpxchg [ecx], edx
+                    mov result, eax
                 }
+                return result;
             }
             static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_compare_and_swap_64(volatile c89atomic_uint64* dst, c89atomic_uint64 expected, c89atomic_uint64 desired)
             {
+                c89atomic_uint32 resultEAX = 0;
+                c89atomic_uint32 resultEDX = 0;
                 __asm {
                     mov esi, dst
                     mov eax, dword ptr expected
@@ -8287,7 +8318,10 @@ typedef unsigned char           c89atomic_flag;
                     mov ebx, dword ptr desired
                     mov ecx, dword ptr desired + 4
                     lock cmpxchg8b qword ptr [esi]
+                    mov resultEAX, eax
+                    mov resultEDX, edx
                 }
+                return ((c89atomic_uint64)resultEDX << 32) | resultEAX;
             }
         #else
             error "Unsupported architecture."
@@ -43634,7 +43668,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  14
+#define DRWAV_VERSION_REVISION  15
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -44007,7 +44041,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  22
+#define DRFLAC_VERSION_REVISION  23
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -44368,7 +44402,7 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  19
+#define DRMP3_VERSION_REVISION  20
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drmp3_int8;
@@ -44496,6 +44530,8 @@ typedef drmp3_int32 drmp3_result;
     #else
         #define DRMP3_INLINE inline __attribute__((always_inline))
     #endif
+#elif defined(__WATCOMC__)
+    #define DRMP3_INLINE __inline
 #else
     #define DRMP3_INLINE
 #endif
@@ -48221,6 +48257,8 @@ code below please report the bug to the respective repository for the relevant p
     #else
         #define DRWAV_INLINE inline __attribute__((always_inline))
     #endif
+#elif defined(__WATCOMC__)
+    #define DRWAV_INLINE __inline
 #else
     #define DRWAV_INLINE
 #endif
@@ -48285,7 +48323,6 @@ DRWAV_API const char* drwav_version_string(void)
 #endif
 static const drwav_uint8 drwavGUID_W64_RIFF[16] = {0x72,0x69,0x66,0x66, 0x2E,0x91, 0xCF,0x11, 0xA5,0xD6, 0x28,0xDB,0x04,0xC1,0x00,0x00};
 static const drwav_uint8 drwavGUID_W64_WAVE[16] = {0x77,0x61,0x76,0x65, 0xF3,0xAC, 0xD3,0x11, 0x8C,0xD1, 0x00,0xC0,0x4F,0x8E,0xDB,0x8A};
-static const drwav_uint8 drwavGUID_W64_JUNK[16] = {0x6A,0x75,0x6E,0x6B, 0xF3,0xAC, 0xD3,0x11, 0x8C,0xD1, 0x00,0xC0,0x4F,0x8E,0xDB,0x8A};
 static const drwav_uint8 drwavGUID_W64_FMT [16] = {0x66,0x6D,0x74,0x20, 0xF3,0xAC, 0xD3,0x11, 0x8C,0xD1, 0x00,0xC0,0x4F,0x8E,0xDB,0x8A};
 static const drwav_uint8 drwavGUID_W64_FACT[16] = {0x66,0x61,0x63,0x74, 0xF3,0xAC, 0xD3,0x11, 0x8C,0xD1, 0x00,0xC0,0x4F,0x8E,0xDB,0x8A};
 static const drwav_uint8 drwavGUID_W64_DATA[16] = {0x64,0x61,0x74,0x61, 0xF3,0xAC, 0xD3,0x11, 0x8C,0xD1, 0x00,0xC0,0x4F,0x8E,0xDB,0x8A};
@@ -49811,7 +49848,7 @@ static drwav_result drwav_fopen(FILE** ppFile, const char* pFilePath, const char
     return DRWAV_SUCCESS;
 }
 #if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define DRWAV_HAS_WFOPEN
     #endif
 #endif
@@ -51992,6 +52029,8 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
     #else
         #define DRFLAC_INLINE inline __attribute__((always_inline))
     #endif
+#elif defined(__WATCOMC__)
+    #define DRFLAC_INLINE __inline
 #else
     #define DRFLAC_INLINE
 #endif
@@ -57345,7 +57384,7 @@ static drflac_result drflac_fopen(FILE** ppFile, const char* pFilePath, const ch
     return DRFLAC_SUCCESS;
 }
 #if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define DRFLAC_HAS_WFOPEN
     #endif
 #endif
@@ -62655,7 +62694,7 @@ static drmp3_result drmp3_fopen(FILE** ppFile, const char* pFilePath, const char
     return DRMP3_SUCCESS;
 }
 #if defined(_WIN32)
-    #if defined(_MSC_VER) || defined(__MINGW64__) || !defined(__STRICT_ANSI__)
+    #if defined(_MSC_VER) || defined(__MINGW64__) || (!defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
         #define DRMP3_HAS_WFOPEN
     #endif
 #endif
