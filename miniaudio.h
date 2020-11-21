@@ -11936,7 +11936,9 @@ static const PROPERTYKEY MA_PKEY_Device_FriendlyName             = {{0xA45C254E,
 static const PROPERTYKEY MA_PKEY_AudioEngine_DeviceFormat        = {{0xF19F064D, 0x82C,  0x4E27, {0xBC, 0x73, 0x68, 0x82, 0xA1, 0xBB, 0x8E, 0x4C}},  0};
 
 static const IID MA_IID_IUnknown                                 = {0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}; /* 00000000-0000-0000-C000-000000000046 */
+#ifndef MA_WIN32_DESKTOP
 static const IID MA_IID_IAgileObject                             = {0x94EA2B94, 0xE9CC, 0x49E0, {0xC0, 0xFF, 0xEE, 0x64, 0xCA, 0x8F, 0x5B, 0x90}}; /* 94EA2B94-E9CC-49E0-C0FF-EE64CA8F5B90 */
+#endif
 
 static const IID MA_IID_IAudioClient                             = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}}; /* 1CB9AD4C-DBFA-4C32-B178-C2F568A703B2 = __uuidof(IAudioClient) */
 static const IID MA_IID_IAudioClient2                            = {0x726778CD, 0xF60A, 0x4EDA, {0x82, 0xDE, 0xE4, 0x76, 0x10, 0xCD, 0x78, 0xAA}}; /* 726778CD-F60A-4EDA-82DE-E47610CD78AA = __uuidof(IAudioClient2) */
@@ -14863,7 +14865,7 @@ DirectSound Backend
 #ifdef MA_HAS_DSOUND
 /*#include <dsound.h>*/
 
-static const GUID MA_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};
+/*static const GUID MA_GUID_IID_DirectSoundNotify = {0xb0210783, 0x89cd, 0x11d0, {0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16}};*/
 
 /* miniaudio only uses priority or exclusive modes. */
 #define MA_DSSCL_NORMAL                 1
@@ -15430,6 +15432,8 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid
     ma_context_enumerate_devices_callback_data__dsound* pData = (ma_context_enumerate_devices_callback_data__dsound*)lpContext;
     ma_device_info deviceInfo;
 
+    (void)lpcstrModule;
+
     MA_ZERO_OBJECT(&deviceInfo);
 
     /* ID. */
@@ -15452,8 +15456,6 @@ static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid
     } else {
         return TRUE;    /* Continue enumeration. */
     }
-
-    (void)lpcstrModule;
 }
 
 static ma_result ma_context_enumerate_devices__dsound(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
@@ -63713,6 +63715,8 @@ REVISION HISTORY
 ================
 v0.10.26 - TBD
   - Fix a bug with ma_waveform where glitching occurs after changing frequency.
+  - Fix compilation with OpenWatcom.
+  - Fix compilation warnings.
 
 v0.10.25 - 2020-11-15
   - PulseAudio: Fix a bug where the stop callback isn't fired.
