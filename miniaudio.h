@@ -239,7 +239,7 @@ first is to use the `MA_NO_RUNTIME_LINKING` option, like so:
     ```c
     #ifdef __APPLE__
         #define MA_NO_RUNTIME_LINKING
-    #endif 
+    #endif
     #define MINIAUDIO_IMPLEMENTATION
     #include "miniaudio.h"
     ```
@@ -671,7 +671,7 @@ be one of the following:
     | ma_standard_channel_map_vorbis    | Vorbis channel map.                                       |
     | ma_standard_channel_map_sound4    | FreeBSD's sound(4).                                       |
     | ma_standard_channel_map_sndio     | sndio channel map. http://www.sndio.org/tips.html.        |
-    | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering | 
+    | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering |
     +-----------------------------------+-----------------------------------------------------------+
 
 Below are the channel maps used by default in miniaudio (ma_standard_channel_map_default):
@@ -1256,7 +1256,7 @@ the raw audio data will be located immediately after the `ma_audio_buffer` struc
     }
 
     ...
-    
+
     ma_audio_buffer_uninit_and_free(&buffer);
     ```
 
@@ -3240,7 +3240,7 @@ typedef struct
     a device with settings outside of this range, but it just means the data will be converted using miniaudio's data conversion
     pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
     here mainly for informational purposes or in the rare case that someone might find it useful.
-    
+
     These will be set to 0 when returned by ma_context_enumerate_devices() or ma_context_get_devices().
     */
     ma_uint32 formatCount;
@@ -3258,7 +3258,7 @@ typedef struct
         ma_format format;       /* Sample format. If set to ma_format_unknown, all sample formats are supported. */
         ma_uint32 channels;     /* If set to 0, all channels are supported. */
         ma_uint32 sampleRate;   /* If set to 0, all sample rates are supported. */
-        ma_uint32 flags;        
+        ma_uint32 flags;
     } nativeDataFormats[64];
 } ma_device_info;
 
@@ -3723,14 +3723,14 @@ struct ma_context
             ma_handle hCoreFoundation;
             ma_proc CFStringGetCString;
             ma_proc CFRelease;
-            
+
             ma_handle hCoreAudio;
             ma_proc AudioObjectGetPropertyData;
             ma_proc AudioObjectGetPropertyDataSize;
             ma_proc AudioObjectSetPropertyData;
             ma_proc AudioObjectAddPropertyListener;
             ma_proc AudioObjectRemovePropertyListener;
-            
+
             ma_handle hAudioUnit;  /* Could possibly be set to AudioToolbox on later versions of macOS. */
             ma_proc AudioComponentFindNext;
             ma_proc AudioComponentInstanceDispose;
@@ -3743,9 +3743,9 @@ struct ma_context
             ma_proc AudioUnitSetProperty;
             ma_proc AudioUnitInitialize;
             ma_proc AudioUnitRender;
-            
+
             /*AudioComponent*/ ma_ptr component;
-            
+
             ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not the iOS audio session should be explicitly deactivated. Set from the config in ma_context_init__coreaudio(). */
         } coreaudio;
 #endif
@@ -10264,7 +10264,7 @@ int ma_vscprintf(const char* format, va_list args)
         return -1;
     }
 
-	for (;;) {
+    for (;;) {
         char* pNewTempBuffer = (char*)ma_realloc(pTempBuffer, tempBufferCap, NULL);    /* TODO: Add support for custom memory allocators? */
         if (pNewTempBuffer == NULL) {
             ma_free(pTempBuffer, NULL);
@@ -10283,7 +10283,7 @@ int ma_vscprintf(const char* format, va_list args)
 
         /* Buffer wasn't big enough. Ideally it'd be nice to use an error code to know the reason for sure, but this is reliable enough. */
         tempBufferCap *= 2;
-	}
+    }
 
     return result;
 #endif
@@ -14794,7 +14794,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
     ma_result result = MA_SUCCESS;
 
     MA_ASSERT(pContext != NULL);
-    
+
     (void)pConfig;
 
 #ifdef MA_WIN32_DESKTOP
@@ -15658,7 +15658,7 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
             pDeviceInfo->formats[0] = ma_format_s24;
         } else if (bitsPerSample == 32) {
             pDeviceInfo->formats[0] = ma_format_s32;
-        } else {   
+        } else {
             return MA_FORMAT_NOT_SUPPORTED;
         }
 
@@ -24281,7 +24281,7 @@ static AudioBufferList* ma_allocate_AudioBufferList__coreaudio(ma_uint32 sizeInF
     MA_ASSERT(sizeInFrames > 0);
     MA_ASSERT(format != ma_format_unknown);
     MA_ASSERT(channels > 0);
-    
+
     allocationSize = sizeof(AudioBufferList) - sizeof(AudioBuffer);  /* Subtract sizeof(AudioBuffer) because that part is dynamically sized. */
     if (layout == ma_stream_layout_interleaved) {
         /* Interleaved case. This is the simple case because we just have one buffer. */
@@ -24290,14 +24290,14 @@ static AudioBufferList* ma_allocate_AudioBufferList__coreaudio(ma_uint32 sizeInF
         /* Non-interleaved case. This is the more complex case because there's more than one buffer. */
         allocationSize += sizeof(AudioBuffer) * channels;
     }
-    
+
     allocationSize += sizeInFrames * ma_get_bytes_per_frame(format, channels);
 
     pBufferList = (AudioBufferList*)ma__malloc_from_callbacks(allocationSize, pAllocationCallbacks);
     if (pBufferList == NULL) {
         return NULL;
     }
-    
+
     audioBufferSizeInBytes = (UInt32)(sizeInFrames * ma_get_bytes_per_sample(format));
 
     if (layout == ma_stream_layout_interleaved) {
@@ -24314,7 +24314,7 @@ static AudioBufferList* ma_allocate_AudioBufferList__coreaudio(ma_uint32 sizeInF
             pBufferList->mBuffers[iBuffer].mData           = (ma_uint8*)pBufferList + ((sizeof(AudioBufferList) - sizeof(AudioBuffer)) + (sizeof(AudioBuffer) * channels)) + (audioBufferSizeInBytes * iBuffer);
         }
     }
-    
+
     return pBufferList;
 }
 
@@ -24323,22 +24323,22 @@ static ma_result ma_device_realloc_AudioBufferList__coreaudio(ma_device* pDevice
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(format != ma_format_unknown);
     MA_ASSERT(channels > 0);
-    
+
     /* Only resize the buffer if necessary. */
     if (pDevice->coreaudio.audioBufferCapInFrames < sizeInFrames) {
         AudioBufferList* pNewAudioBufferList;
-        
+
         pNewAudioBufferList = ma_allocate_AudioBufferList__coreaudio(sizeInFrames, format, channels, layout, &pDevice->pContext->allocationCallbacks);
         if (pNewAudioBufferList != NULL) {
             return MA_OUT_OF_MEMORY;
         }
-    
+
         /* At this point we'll have a new AudioBufferList and we can free the old one. */
         ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
         pDevice->coreaudio.pAudioBufferList = pNewAudioBufferList;
         pDevice->coreaudio.audioBufferCapInFrames = sizeInFrames;
     }
-    
+
     /* Getting here means the capacity of the audio is fine. */
     return MA_SUCCESS;
 }
@@ -25358,7 +25358,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     if (deviceType == ma_device_type_capture) {
         ma_bool32 isInterleaved = (bestFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0;
         AudioBufferList* pBufferList;
-        
+
         pBufferList = ma_allocate_AudioBufferList__coreaudio(pData->periodSizeInFramesOut, pData->formatOut, pData->channelsOut, (isInterleaved) ? ma_stream_layout_interleaved : ma_stream_layout_deinterleaved, &pContext->allocationCallbacks);
         if (pBufferList == NULL) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
@@ -30852,7 +30852,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
     channels           = (pDescriptor->channels   > 0) ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
     sampleRate         = (pDescriptor->sampleRate > 0) ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
     periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptor->periodSizeInFrames, pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate, pConfig->performanceProfile);
-    
+
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
     deviceIndex = EM_ASM_INT({
@@ -31153,7 +31153,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
         if (typeof(miniaudio) === 'undefined') {
             miniaudio = {};
             miniaudio.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
-                    
+
             miniaudio.track_device = function(device) {
                 /* Try inserting into a free slot first. */
                 for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
@@ -31162,16 +31162,16 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
                         return iDevice;
                     }
                 }
-                        
+
                 /* Getting here means there is no empty slots in the array so we just push to the end. */
                 miniaudio.devices.push(device);
                 return miniaudio.devices.length - 1;
             };
-                    
+
             miniaudio.untrack_device_by_index = function(deviceIndex) {
                 /* We just set the device's slot to null. The slot will get reused in the next call to ma_track_device. */
                 miniaudio.devices[deviceIndex] = null;
-                        
+
                 /* Trim the array if possible. */
                 while (miniaudio.devices.length > 0) {
                     if (miniaudio.devices[miniaudio.devices.length-1] == null) {
@@ -31181,7 +31181,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
                     }
                 }
             };
-                    
+
             miniaudio.untrack_device = function(device) {
                 for (var iDevice = 0; iDevice < miniaudio.devices.length; ++iDevice) {
                     if (miniaudio.devices[iDevice] == device) {
@@ -31189,12 +31189,12 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
                     }
                 }
             };
-                    
+
             miniaudio.get_device_by_index = function(deviceIndex) {
                 return miniaudio.devices[deviceIndex];
             };
         }
-                
+
         return 1;
     }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
 
@@ -31408,7 +31408,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
                 ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "No main loop implementation.", MA_API_NOT_FOUND);
             }
         }
-        
+
 
         /*
         Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
@@ -32033,7 +32033,7 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
         } else {
             result = pContext->onEnumDevices(pContext, ma_context_get_devices__enum_callback, NULL);
         }
-        
+
         if (result == MA_SUCCESS) {
             /* Playback devices. */
             if (ppPlaybackDeviceInfos != NULL) {
@@ -32106,7 +32106,7 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         deviceInfo.maxChannels   = 0;
         deviceInfo.minSampleRate = 0xFFFFFFFF;
         deviceInfo.maxSampleRate = 0;
-            
+
         for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
             /* Formats. */
             if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
@@ -32334,7 +32334,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         config.periodSizeInMilliseconds = (config.performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
         pDevice->usingDefaultBufferSize = MA_TRUE;
     }
-    
+
     MA_ASSERT(config.capture.channels  <= MA_MAX_CHANNELS);
     MA_ASSERT(config.playback.channels <= MA_MAX_CHANNELS);
 
@@ -32365,7 +32365,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->playback.internalChannels   = pDevice->playback.channels;
     pDevice->playback.internalSampleRate = pDevice->sampleRate;
     ma_channel_map_copy(pDevice->playback.internalChannelMap, pDevice->playback.channelMap, pDevice->playback.channels);
-    
+
     result = ma_mutex_init(&pDevice->lock);
     if (result != MA_SUCCESS) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create mutex.", result);
@@ -32374,7 +32374,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     /*
     When the device is started, the worker thread is the one that does the actual startup of the backend device. We
     use a semaphore to wait for the background thread to finish the work. The same applies for stopping the device.
-    
+
     Each of these semaphores is released internally by the worker thread when the work is completed. The start
     semaphore is also used to wake up the worker thread.
     */
@@ -32529,7 +32529,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             return result;
         }
     }
-    
+
 
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
 
@@ -32620,7 +32620,7 @@ MA_API ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backen
     } else {
         allocationCallbacks = ma_allocation_callbacks_init_default();
     }
-    
+
 
     pContext = (ma_context*)ma__malloc_from_callbacks(sizeof(*pContext), &allocationCallbacks);
     if (pContext == NULL) {
@@ -32690,7 +32690,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
             pDevice->pContext->onDeviceUninit(pDevice);
         }
     }
-    
+
 
     ma_event_uninit(&pDevice->stopEvent);
     ma_event_uninit(&pDevice->startEvent);
@@ -32746,7 +32746,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
                     result = MA_INVALID_OPERATION;
                 }
             }
-            
+
             if (result == MA_SUCCESS) {
                 ma_device__set_state(pDevice, MA_STATE_STARTED);
             }
@@ -32974,7 +32974,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 bufferSizeInMilliseconds, ma_uint32 sampleRate)
 {
-    return bufferSizeInMilliseconds * (sampleRate/1000); 
+    return bufferSizeInMilliseconds * (sampleRate/1000);
 }
 
 MA_API void ma_copy_pcm_frames(void* dst, const void* src, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
@@ -33980,7 +33980,7 @@ static MA_INLINE void ma_pcm_s24_to_u8__reference(void* dst, const void* src, ma
             } else {
                 x = 0x7FFFFFFF;
             }
-            
+
             x = x >> 24;
             x = x + 128;
             dst_u8[i] = (ma_uint8)x;
@@ -34350,7 +34350,7 @@ static MA_INLINE void ma_pcm_s32_to_u8__reference(void* dst, const void* src, ma
             } else {
                 x = 0x7FFFFFFF;
             }
-            
+
             x = x >> 24;
             x = x + 128;
             dst_u8[i] = (ma_uint8)x;
@@ -34431,7 +34431,7 @@ static MA_INLINE void ma_pcm_s32_to_s16__reference(void* dst, const void* src, m
             } else {
                 x = 0x7FFFFFFF;
             }
-            
+
             x = x >> 16;
             dst_s16[i] = (ma_int16)x;
         }
@@ -34822,7 +34822,7 @@ static MA_INLINE void ma_pcm_f32_to_s16__optimized(void* dst, const void* src, m
         float d1 = ma_dither_f32(ditherMode, ditherMin, ditherMax);
         float d2 = ma_dither_f32(ditherMode, ditherMin, ditherMax);
         float d3 = ma_dither_f32(ditherMode, ditherMin, ditherMax);
-        
+
         float x0 = src_f32[i+0];
         float x1 = src_f32[i+1];
         float x2 = src_f32[i+2];
@@ -34940,7 +34940,7 @@ static MA_INLINE void ma_pcm_f32_to_s16__sse2(void* dst, const void* src, ma_uin
         x1 = _mm_mul_ps(x1, _mm_set1_ps(32767.0f));
 
         _mm_stream_si128(((__m128i*)(dst_s16 + i)), _mm_packs_epi32(_mm_cvttps_epi32(x0), _mm_cvttps_epi32(x1)));
-        
+
         i += 8;
     }
 
@@ -35529,7 +35529,7 @@ MA_API void ma_deinterleave_pcm_frames(ma_format format, ma_uint32 channels, ma_
                 }
             }
         } break;
-        
+
         case ma_format_f32:
         {
             const float* pSrcF32 = (const float*)pInterleavedPCMFrames;
@@ -35542,7 +35542,7 @@ MA_API void ma_deinterleave_pcm_frames(ma_format format, ma_uint32 channels, ma_
                 }
             }
         } break;
-        
+
         default:
         {
             ma_uint32 sampleSizeInBytes = ma_get_bytes_per_sample(format);
@@ -35575,7 +35575,7 @@ MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_ui
                 }
             }
         } break;
-        
+
         case ma_format_f32:
         {
             float* pDstF32 = (float*)pInterleavedPCMFrames;
@@ -35588,7 +35588,7 @@ MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_ui
                 }
             }
         } break;
-    
+
         default:
         {
             ma_uint32 sampleSizeInBytes = ma_get_bytes_per_sample(format);
@@ -35711,7 +35711,7 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
     const float b2 = pBQ->b2.f32;
     const float a1 = pBQ->a1.f32;
     const float a2 = pBQ->a2.f32;
-    
+
     for (c = 0; c < pBQ->channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
         float r2 = pBQ->r2[c].f32;
@@ -35741,7 +35741,7 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
     const ma_int32 b2 = pBQ->b2.s32;
     const ma_int32 a1 = pBQ->a1.s32;
     const ma_int32 a2 = pBQ->a2.s32;
-    
+
     for (c = 0; c < pBQ->channels; c += 1) {
         ma_int32 r1 = pBQ->r1[c].s32;
         ma_int32 r2 = pBQ->r2[c].s32;
@@ -35817,7 +35817,7 @@ Low-Pass Filter
 MA_API ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
     ma_lpf1_config config;
-    
+
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
@@ -35831,7 +35831,7 @@ MA_API ma_lpf1_config ma_lpf1_config_init(ma_format format, ma_uint32 channels, 
 MA_API ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_lpf2_config config;
-    
+
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
@@ -35908,7 +35908,7 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
     ma_uint32 c;
     const float a = pLPF->a.f32;
     const float b = 1 - a;
-    
+
     for (c = 0; c < pLPF->channels; c += 1) {
         float r1 = pLPF->r1[c].f32;
         float x  = pX[c];
@@ -35926,7 +35926,7 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_s16(ma_lpf1* pLPF, ma_int16* pY,
     ma_uint32 c;
     const ma_int32 a = pLPF->a.s32;
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
-    
+
     for (c = 0; c < pLPF->channels; c += 1) {
         ma_int32 r1 = pLPF->r1[c].s32;
         ma_int32 x  = pX[c];
@@ -36325,7 +36325,7 @@ High-Pass Filtering
 MA_API ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency)
 {
     ma_hpf1_config config;
-    
+
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
@@ -36338,7 +36338,7 @@ MA_API ma_hpf1_config ma_hpf1_config_init(ma_format format, ma_uint32 channels, 
 MA_API ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_hpf2_config config;
-    
+
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
@@ -36415,7 +36415,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
     ma_uint32 c;
     const float a = 1 - pHPF->a.f32;
     const float b = 1 - a;
-    
+
     for (c = 0; c < pHPF->channels; c += 1) {
         float r1 = pHPF->r1[c].f32;
         float x  = pX[c];
@@ -36433,7 +36433,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_s16(ma_hpf1* pHPF, ma_int16* pY,
     ma_uint32 c;
     const ma_int32 a = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - pHPF->a.s32);
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
-    
+
     for (c = 0; c < pHPF->channels; c += 1) {
         ma_int32 r1 = pHPF->r1[c].s32;
         ma_int32 x  = pX[c];
@@ -36814,7 +36814,7 @@ Band-Pass Filtering
 MA_API ma_bpf2_config ma_bpf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double cutoffFrequency, double q)
 {
     ma_bpf2_config config;
-    
+
     MA_ZERO_OBJECT(&config);
     config.format = format;
     config.channels = channels;
@@ -37763,7 +37763,7 @@ static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma
     b = x * ((1<<shift) - a);
     c = y * a;
     r = b + c;
-    
+
     return (ma_int16)(r >> shift);
 }
 
@@ -38157,7 +38157,7 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
     }
 
     MA_ASSERT(n != 0);
-    
+
     return ma_linear_resampler_set_rate(pResampler, n, d);
 }
 
@@ -38190,7 +38190,7 @@ MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_r
     ma_uint64 outputFrameCount;
     ma_uint64 preliminaryInputFrameCountFromFrac;
     ma_uint64 preliminaryInputFrameCount;
-    
+
     if (pResampler == NULL) {
         return 0;
     }
@@ -38457,7 +38457,7 @@ static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler,
             break;
         #endif
         }
-    
+
         default: break;
     }
 
@@ -38656,7 +38656,7 @@ MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float rat
         }
 
         MA_ASSERT(n != 0);
-    
+
         return ma_resampler_set_rate(pResampler, n, d);
     }
 }
@@ -38877,34 +38877,34 @@ static float ma_calculate_channel_position_rectangular_weight(ma_channel channel
     /*
     Imagine the following simplified example: You have a single input speaker which is the front/left speaker which you want to convert to
     the following output configuration:
-    
+
      - front/left
      - side/left
      - back/left
-    
+
     The front/left output is easy - it the same speaker position so it receives the full contribution of the front/left input. The amount
     of contribution to apply to the side/left and back/left speakers, however, is a bit more complicated.
-    
+
     Imagine the front/left speaker as emitting audio from two planes - the front plane and the left plane. You can think of the front/left
     speaker emitting half of it's total volume from the front, and the other half from the left. Since part of it's volume is being emitted
     from the left side, and the side/left and back/left channels also emit audio from the left plane, one would expect that they would
     receive some amount of contribution from front/left speaker. The amount of contribution depends on how many planes are shared between
     the two speakers. Note that in the examples below I've added a top/front/left speaker as an example just to show how the math works
     across 3 spatial dimensions.
-    
+
     The first thing to do is figure out how each speaker's volume is spread over each of plane:
      - front/left:     2 planes (front and left)      = 1/2 = half it's total volume on each plane
      - side/left:      1 plane (left only)            = 1/1 = entire volume from left plane
      - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
      - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
-    
+
     The amount of volume each channel contributes to each of it's planes is what controls how much it is willing to given and take to other
     channels on the same plane. The volume that is willing to the given by one channel is multiplied by the volume that is willing to be
     taken by the other to produce the final contribution.
     */
 
     /* Contribution = Sum(Volume to Give * Volume to Take) */
-    float contribution = 
+    float contribution =
         g_maChannelPlaneRatios[channelPositionA][0] * g_maChannelPlaneRatios[channelPositionB][0] +
         g_maChannelPlaneRatios[channelPositionA][1] * g_maChannelPlaneRatios[channelPositionB][1] +
         g_maChannelPlaneRatios[channelPositionA][2] * g_maChannelPlaneRatios[channelPositionB][2] +
@@ -39000,7 +39000,7 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
             }
         }
     }
-    
+
 
 
     /* If the input and output channels and channel maps are the same we should use a passthrough. */
@@ -39042,7 +39042,7 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
 
     /*
     Here is where we do a bit of pre-processing to know how each channel should be combined to make up the output. Rules:
-    
+
         1) If it's a passthrough, do nothing - it's just a simple memcpy().
         2) If the channel counts are the same and every channel position in the input map is present in the output map, use a
            simple shuffle. An example might be different 5.1 channel layouts.
@@ -39089,7 +39089,7 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
     /*
     Here is where weights are calculated. Note that we calculate the weights at all times, even when using a passthrough and simple
     shuffling. We use different algorithms for calculating weights depending on our mixing mode.
-    
+
     In simple mode we don't do any blending (except for converting between mono, which is done in a later step). Instead we just
     map 1:1 matching channels. In this mode, if no channels in the input channel map correspond to anything in the output channel
     map, nothing will be heard!
@@ -39340,7 +39340,7 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_shuffle(ma_chan
                 pFramesInS32  += pConverter->channelsIn;
             }
         } break;
-        
+
         case ma_format_f32:
         {
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
@@ -39435,7 +39435,7 @@ static ma_result ma_channel_converter_process_pcm_frames__simple_mono_expansion(
                 }
             }
         } break;
-        
+
         case ma_format_f32:
         {
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
@@ -39515,7 +39515,7 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
                 pFramesOutS32[iFrame] = (ma_int16)(((ma_int32)pFramesInS32[iFrame*2+0] + (ma_int32)pFramesInS32[iFrame*2+1]) / 2);
             }
         } break;
-        
+
         case ma_format_f32:
         {
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
@@ -39617,7 +39617,7 @@ static ma_result ma_channel_converter_process_pcm_frames__weights(ma_channel_con
                 }
             }
         } break;
-        
+
         case ma_format_f32:
         {
             /* */ float* pFramesOutF32 = (      float*)pFramesOut;
@@ -39700,7 +39700,7 @@ MA_API ma_data_converter_config ma_data_converter_config_init(ma_format formatIn
     config.channelsOut   = ma_min(channelsOut, MA_MAX_CHANNELS);
     config.sampleRateIn  = sampleRateIn;
     config.sampleRateOut = sampleRateOut;
-    
+
     return config;
 }
 
@@ -39748,14 +39748,14 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         ma_channel_converter_config channelConverterConfig;
 
         channelConverterConfig = ma_channel_converter_config_init(midFormat, pConverter->config.channelsIn, pConverter->config.channelMapIn, pConverter->config.channelsOut, pConverter->config.channelMapOut, pConverter->config.channelMixMode);
-        
+
         /* Channel weights. */
         for (iChannelIn = 0; iChannelIn < pConverter->config.channelsIn; iChannelIn += 1) {
             for (iChannelOut = 0; iChannelOut < pConverter->config.channelsOut; iChannelOut += 1) {
                 channelConverterConfig.weights[iChannelIn][iChannelOut] = pConverter->config.channelWeights[iChannelIn][iChannelOut];
             }
         }
-        
+
         result = ma_channel_converter_init(&channelConverterConfig, &pConverter->channelConverter);
         if (result != MA_SUCCESS) {
             return result;
@@ -39850,7 +39850,7 @@ static ma_result ma_data_converter_process_pcm_frames__passthrough(ma_data_conve
     ma_uint64 frameCount;
 
     MA_ASSERT(pConverter != NULL);
-    
+
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
         frameCountIn = *pFrameCountIn;
@@ -39888,7 +39888,7 @@ static ma_result ma_data_converter_process_pcm_frames__format_only(ma_data_conve
     ma_uint64 frameCount;
 
     MA_ASSERT(pConverter != NULL);
-    
+
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
         frameCountIn = *pFrameCountIn;
@@ -40460,7 +40460,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
     if (pFrameCountOut != NULL) {
         *pFrameCountOut = framesProcessedOut;
     }
-    
+
     return MA_SUCCESS;
 }
 
@@ -41199,7 +41199,7 @@ MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelM
         {
             ma_get_standard_channel_map_sound4(channels, pChannelMap);
         } break;
-        
+
         case ma_standard_channel_map_sndio:
         {
             ma_get_standard_channel_map_sndio(channels, pChannelMap);
@@ -42260,7 +42260,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 
                 /*
                 If we encounted an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
-                not necessarily considered an error. 
+                not necessarily considered an error.
                 */
                 if (result != MA_SUCCESS && result != MA_AT_END) {
                     break;
@@ -42621,7 +42621,7 @@ MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer)
 MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop)
 {
     ma_uint64 totalFramesRead = 0;
-    
+
     if (pAudioBuffer == NULL) {
         return 0;
     }
@@ -43307,13 +43307,13 @@ static ma_result ma_default_vfs_read__stdio(ma_vfs* pVFS, ma_vfs_file file, void
     MA_ASSERT(pDst != NULL);
 
     (void)pVFS;
-    
+
     result = fread(pDst, 1, sizeInBytes, (FILE*)file);
 
     if (pBytesRead != NULL) {
         *pBytesRead = result;
     }
-    
+
     if (result != sizeInBytes) {
         if (feof((FILE*)file)) {
             return MA_END_OF_FILE;
@@ -43354,7 +43354,7 @@ static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
     MA_ASSERT(file != NULL);
 
     (void)pVFS;
-    
+
 #if defined(_WIN32)
     #if defined(_MSC_VER) && _MSC_VER > 1200
         result = _fseeki64((FILE*)file, offset, origin);
@@ -44758,9 +44758,9 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
         MA_COPY_MEMORY(pDecoder->outputChannelMap, pConfig->channelMap, sizeof(pConfig->channelMap));
     }
 
-    
+
     converterConfig = ma_data_converter_config_init(
-        pDecoder->internalFormat,     pDecoder->outputFormat, 
+        pDecoder->internalFormat,     pDecoder->outputFormat,
         pDecoder->internalChannels,   pDecoder->outputChannels,
         pDecoder->internalSampleRate, pDecoder->outputSampleRate
     );
@@ -45193,7 +45193,7 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
             for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
                 ma_uint32 iChannel;
                 for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
-                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed+iFrame];   
+                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed+iFrame];
                 }
                 pFramesOutF += pDecoder->internalChannels;
             }
@@ -46319,7 +46319,7 @@ static size_t ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, si
     MA_ASSERT(pBufferOut != NULL);
 
     ma_vfs_or_default_read(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
-    
+
     return bytesRead;
 }
 
@@ -46857,7 +46857,7 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
     ma_uint64 totalFramesReadOut;
     ma_uint64 totalFramesReadIn;
     void* pRunningFramesOut;
-    
+
     if (pDecoder == NULL) {
         return 0;
     }
@@ -46881,7 +46881,7 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
             totalFramesReadOut = 0;
             totalFramesReadIn  = 0;
             pRunningFramesOut  = pFramesOut;
-    
+
             while (totalFramesReadOut < frameCount) {
                 ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
                 ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
@@ -46999,7 +46999,7 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
     void* pPCMFramesOut;
 
     MA_ASSERT(pDecoder != NULL);
-    
+
     totalFrameCount = 0;
     bpf = ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
 
@@ -47046,7 +47046,7 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
         }
     }
 
-    
+
     if (pConfigOut != NULL) {
         pConfigOut->format = pDecoder->outputFormat;
         pConfigOut->channels = pDecoder->outputChannels;
@@ -47116,7 +47116,7 @@ MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder
     }
 
     config = ma_decoder_config_init_copy(pConfig);
-    
+
     result = ma_decoder_init_memory(pData, dataSize, &config, &decoder);
     if (result != MA_SUCCESS) {
         return result;
@@ -47173,7 +47173,7 @@ static ma_result ma_encoder__on_init_wav(ma_encoder* pEncoder)
     allocationCallbacks.onMalloc  = pEncoder->config.allocationCallbacks.onMalloc;
     allocationCallbacks.onRealloc = pEncoder->config.allocationCallbacks.onRealloc;
     allocationCallbacks.onFree    = pEncoder->config.allocationCallbacks.onFree;
-    
+
     if (!drwav_init_write(pWav, &wavFormat, ma_encoder__internal_on_write_wav, ma_encoder__internal_on_seek_wav, pEncoder, &allocationCallbacks)) {
         return MA_ERROR;
     }
@@ -47537,7 +47537,7 @@ static float ma_waveform_square_f32(double time, double amplitude)
 {
     double f = time - (ma_int64)time;
     double r;
-    
+
     if (f < 0.5) {
         r =  amplitude;
     } else {
@@ -47822,7 +47822,7 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_uint64 framesRead = ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount);
-    
+
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
     }
@@ -47945,7 +47945,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
     } else {
         ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
         ma_uint32 bpf = bps * pNoise->config.channels;
-        
+
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
@@ -48062,7 +48062,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
     } else {
         ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
         ma_uint32 bpf = bps * pNoise->config.channels;
-        
+
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_pink(pNoise, 0);
@@ -48087,7 +48087,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
 static MA_INLINE float ma_noise_f32_brownian(ma_noise* pNoise, ma_uint32 iChannel)
 {
     double result;
-    
+
     result = (ma_lcg_rand_f64(&pNoise->lcg) + pNoise->state.brownian.accumulation[iChannel]);
     result /= 1.005; /* Don't escape the -1..1 range on average. */
 
@@ -48142,7 +48142,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
     } else {
         ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
         ma_uint32 bpf = bps * pNoise->config.channels;
-        
+
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_brownian(pNoise, 0);
