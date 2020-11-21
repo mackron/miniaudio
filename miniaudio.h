@@ -8154,7 +8154,7 @@ typedef unsigned char           c89atomic_flag;
 #else
     #define C89ATOMIC_INLINE
 #endif
-#if defined(_MSC_VER) || defined(__WATCOMC__)
+#if defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__)
     #define c89atomic_memory_order_relaxed  0
     #define c89atomic_memory_order_consume  1
     #define c89atomic_memory_order_acquire  2
@@ -8193,10 +8193,9 @@ typedef unsigned char           c89atomic_flag;
         #if defined(C89ATOMIC_X86)
             static C89ATOMIC_INLINE void __stdcall c89atomic_thread_fence(int order)
             {
-                volatile c89atomic_uint32 barrier = 0;
                 (void)order;
                 __asm {
-                    xchg barrier, eax
+                    lock add [esp], 0
                 }
             }
             static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
@@ -8324,7 +8323,7 @@ typedef unsigned char           c89atomic_flag;
                 return ((c89atomic_uint64)resultEDX << 32) | resultEAX;
             }
         #else
-            error "Unsupported architecture."
+            #error Unsupported architecture.
         #endif
     #endif
     #define c89atomic_compiler_fence()      c89atomic_thread_fence(c89atomic_memory_order_seq_cst)
@@ -8622,67 +8621,397 @@ typedef unsigned char           c89atomic_flag;
     #define c89atomic_memory_order_release  4
     #define c89atomic_memory_order_acq_rel  5
     #define c89atomic_memory_order_seq_cst  6
-    #define c89atomic_compiler_fence()      __asm__ __volatile__("":::"memory")
-    #define c89atomic_thread_fence(order)   __sync_synchronize()
-    #define c89atomic_signal_fence(order)   c89atomic_thread_fence(order)
-    static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
-    {
-        if (order > c89atomic_memory_order_acquire) {
-            __sync_synchronize();
+    #define c89atomic_compiler_fence() __asm__ __volatile__("":::"memory")
+    #if defined(__GNUC__)
+        #define c89atomic_thread_fence(order) __sync_synchronize()
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
+        {
+            if (order > c89atomic_memory_order_acquire) {
+                __sync_synchronize();
+            }
+            return __sync_lock_test_and_set(dst, src);
         }
-        return __sync_lock_test_and_set(dst, src);
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+        {
+            volatile c89atomic_uint16 oldValue;
+            do {
+                oldValue = *dst;
+            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            (void)order;
+            return oldValue;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+        {
+            volatile c89atomic_uint32 oldValue;
+            do {
+                oldValue = *dst;
+            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            (void)order;
+            return oldValue;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        {
+            volatile c89atomic_uint64 oldValue;
+            do {
+                oldValue = *dst;
+            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            (void)order;
+            return oldValue;
+        }
+        #define c89atomic_fetch_add_explicit_8( dst, src, order)        __sync_fetch_and_add(dst, src)
+        #define c89atomic_fetch_add_explicit_16(dst, src, order)        __sync_fetch_and_add(dst, src)
+        #define c89atomic_fetch_add_explicit_32(dst, src, order)        __sync_fetch_and_add(dst, src)
+        #define c89atomic_fetch_add_explicit_64(dst, src, order)        __sync_fetch_and_add(dst, src)
+        #define c89atomic_fetch_sub_explicit_8( dst, src, order)        __sync_fetch_and_sub(dst, src)
+        #define c89atomic_fetch_sub_explicit_16(dst, src, order)        __sync_fetch_and_sub(dst, src)
+        #define c89atomic_fetch_sub_explicit_32(dst, src, order)        __sync_fetch_and_sub(dst, src)
+        #define c89atomic_fetch_sub_explicit_64(dst, src, order)        __sync_fetch_and_sub(dst, src)
+        #define c89atomic_fetch_or_explicit_8( dst, src, order)         __sync_fetch_and_or(dst, src)
+        #define c89atomic_fetch_or_explicit_16(dst, src, order)         __sync_fetch_and_or(dst, src)
+        #define c89atomic_fetch_or_explicit_32(dst, src, order)         __sync_fetch_and_or(dst, src)
+        #define c89atomic_fetch_or_explicit_64(dst, src, order)         __sync_fetch_and_or(dst, src)
+        #define c89atomic_fetch_xor_explicit_8( dst, src, order)        __sync_fetch_and_xor(dst, src)
+        #define c89atomic_fetch_xor_explicit_16(dst, src, order)        __sync_fetch_and_xor(dst, src)
+        #define c89atomic_fetch_xor_explicit_32(dst, src, order)        __sync_fetch_and_xor(dst, src)
+        #define c89atomic_fetch_xor_explicit_64(dst, src, order)        __sync_fetch_and_xor(dst, src)
+        #define c89atomic_fetch_and_explicit_8( dst, src, order)        __sync_fetch_and_and(dst, src)
+        #define c89atomic_fetch_and_explicit_16(dst, src, order)        __sync_fetch_and_and(dst, src)
+        #define c89atomic_fetch_and_explicit_32(dst, src, order)        __sync_fetch_and_and(dst, src)
+        #define c89atomic_fetch_and_explicit_64(dst, src, order)        __sync_fetch_and_and(dst, src)
+        #define c89atomic_compare_and_swap_8( dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
+        #define c89atomic_compare_and_swap_16(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
+        #define c89atomic_compare_and_swap_32(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
+        #define c89atomic_compare_and_swap_64(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
+    #else
+        #if defined(C89ATOMIC_X86)
+            #define c89atomic_thread_fence(order) __asm__ __volatile__("lock; addl $0, (%%esp)" ::: "memory", "cc")
+        #elif defined(C89ATOMIC_X64)
+            #define c89atomic_thread_fence(order) __asm__ __volatile__("lock; addq $0, (%%rsp)" ::: "memory", "cc")
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_compare_and_swap_8(volatile c89atomic_uint8* dst, c89atomic_uint8 expected, c89atomic_uint8 desired)
+        {
+            volatile c89atomic_uint8 result;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_compare_and_swap_16(volatile c89atomic_uint16* dst, c89atomic_uint16 expected, c89atomic_uint16 desired)
+        {
+            volatile c89atomic_uint16 result;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_compare_and_swap_32(volatile c89atomic_uint32* dst, c89atomic_uint32 expected, c89atomic_uint32 desired)
+        {
+            volatile c89atomic_uint32 result;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_compare_and_swap_64(volatile c89atomic_uint64* dst, c89atomic_uint64 expected, c89atomic_uint64 desired)
+        {
+            volatile c89atomic_uint64 result;
+        #if defined(C89ATOMIC_X86)
+            volatile c89atomic_uint32 resultEAX;
+            volatile c89atomic_uint32 resultEDX;
+            __asm__ __volatile__("push %%ebx; xchg %5, %%ebx; lock; cmpxchg8b %0; pop %%ebx" : "+m"(*dst), "=a"(resultEAX), "=d"(resultEDX) : "a"(expected & 0xFFFFFFFF), "d"(expected >> 32), "r"(desired & 0xFFFFFFFF), "c"(desired >> 32) : "cc");
+            result = ((c89atomic_uint64)resultEDX << 32) | resultEAX;
+        #elif defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+        {
+            volatile c89atomic_uint8 result = 0;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
+        {
+            volatile c89atomic_uint16 result = 0;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
+        {
+            volatile c89atomic_uint32 result;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
+        {
+            volatile c89atomic_uint64 result;
+            (void)order;
+        #if defined(C89ATOMIC_X86)
+            do {
+                result = *dst;
+            } while (c89atomic_compare_and_swap_64(dst, result, src) != result);
+        #elif defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_add_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+        {
+            c89atomic_uint8 result;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_add_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
+        {
+            c89atomic_uint16 result;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_add_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
+        {
+            c89atomic_uint32 result;
+            (void)order;
+        #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
+            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
+        #else
+            #error Unsupported architecture. Please submit a feature request.
+        #endif
+            return result;
+        }
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_add_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
+        {
+        #if defined(C89ATOMIC_X86)
+            volatile c89atomic_uint64 oldValue;
+            volatile c89atomic_uint64 newValue;
+            (void)order;
+            do {
+                oldValue = *dst;
+                newValue = oldValue + src;
+            } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
+            return oldValue;
+        #elif defined(C89ATOMIC_X64)
+            volatile c89atomic_uint64 result;
+            (void)order;
+            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
+            return result;
+        #endif
+        }
+    #endif
+    static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_sub_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+    {
+        volatile c89atomic_uint8 oldValue;
+        volatile c89atomic_uint8 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint8)(oldValue - src);
+        } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
     }
-    static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+    static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_sub_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
     {
         volatile c89atomic_uint16 oldValue;
+        volatile c89atomic_uint16 newValue;
         do {
             oldValue = *dst;
-        } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            newValue = (c89atomic_uint16)(oldValue - src);
+        } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
     }
-    static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+    static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_sub_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
     {
         volatile c89atomic_uint32 oldValue;
+        volatile c89atomic_uint32 newValue;
         do {
             oldValue = *dst;
-        } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            newValue = oldValue - src;
+        } while (c89atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
     }
-    static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+    static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_sub_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
     {
         volatile c89atomic_uint64 oldValue;
+        volatile c89atomic_uint64 newValue;
         do {
             oldValue = *dst;
-        } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
+            newValue = oldValue - src;
+        } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
         (void)order;
         return oldValue;
     }
-    #define c89atomic_fetch_add_explicit_8( dst, src, order)        __sync_fetch_and_add(dst, src)
-    #define c89atomic_fetch_add_explicit_16(dst, src, order)        __sync_fetch_and_add(dst, src)
-    #define c89atomic_fetch_add_explicit_32(dst, src, order)        __sync_fetch_and_add(dst, src)
-    #define c89atomic_fetch_add_explicit_64(dst, src, order)        __sync_fetch_and_add(dst, src)
-    #define c89atomic_fetch_sub_explicit_8( dst, src, order)        __sync_fetch_and_sub(dst, src)
-    #define c89atomic_fetch_sub_explicit_16(dst, src, order)        __sync_fetch_and_sub(dst, src)
-    #define c89atomic_fetch_sub_explicit_32(dst, src, order)        __sync_fetch_and_sub(dst, src)
-    #define c89atomic_fetch_sub_explicit_64(dst, src, order)        __sync_fetch_and_sub(dst, src)
-    #define c89atomic_fetch_or_explicit_8( dst, src, order)         __sync_fetch_and_or(dst, src)
-    #define c89atomic_fetch_or_explicit_16(dst, src, order)         __sync_fetch_and_or(dst, src)
-    #define c89atomic_fetch_or_explicit_32(dst, src, order)         __sync_fetch_and_or(dst, src)
-    #define c89atomic_fetch_or_explicit_64(dst, src, order)         __sync_fetch_and_or(dst, src)
-    #define c89atomic_fetch_xor_explicit_8( dst, src, order)        __sync_fetch_and_xor(dst, src)
-    #define c89atomic_fetch_xor_explicit_16(dst, src, order)        __sync_fetch_and_xor(dst, src)
-    #define c89atomic_fetch_xor_explicit_32(dst, src, order)        __sync_fetch_and_xor(dst, src)
-    #define c89atomic_fetch_xor_explicit_64(dst, src, order)        __sync_fetch_and_xor(dst, src)
-    #define c89atomic_fetch_and_explicit_8( dst, src, order)        __sync_fetch_and_and(dst, src)
-    #define c89atomic_fetch_and_explicit_16(dst, src, order)        __sync_fetch_and_and(dst, src)
-    #define c89atomic_fetch_and_explicit_32(dst, src, order)        __sync_fetch_and_and(dst, src)
-    #define c89atomic_fetch_and_explicit_64(dst, src, order)        __sync_fetch_and_and(dst, src)
-    #define c89atomic_compare_and_swap_8( dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-    #define c89atomic_compare_and_swap_16(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-    #define c89atomic_compare_and_swap_32(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-    #define c89atomic_compare_and_swap_64(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
+    static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_and_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+    {
+        volatile c89atomic_uint8 oldValue;
+        volatile c89atomic_uint8 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint8)(oldValue & src);
+        } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_and_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
+    {
+        volatile c89atomic_uint16 oldValue;
+        volatile c89atomic_uint16 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint16)(oldValue & src);
+        } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_and_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
+    {
+        volatile c89atomic_uint32 oldValue;
+        volatile c89atomic_uint32 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue & src;
+        } while (c89atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_and_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
+    {
+        volatile c89atomic_uint64 oldValue;
+        volatile c89atomic_uint64 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue & src;
+        } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_xor_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+    {
+        volatile c89atomic_uint8 oldValue;
+        volatile c89atomic_uint8 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint8)(oldValue ^ src);
+        } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_xor_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
+    {
+        volatile c89atomic_uint16 oldValue;
+        volatile c89atomic_uint16 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint16)(oldValue ^ src);
+        } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_xor_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
+    {
+        volatile c89atomic_uint32 oldValue;
+        volatile c89atomic_uint32 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue ^ src;
+        } while (c89atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_xor_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
+    {
+        volatile c89atomic_uint64 oldValue;
+        volatile c89atomic_uint64 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue ^ src;
+        } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_or_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, int order)
+    {
+        volatile c89atomic_uint8 oldValue;
+        volatile c89atomic_uint8 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint8)(oldValue | src);
+        } while (c89atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_or_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, int order)
+    {
+        volatile c89atomic_uint16 oldValue;
+        volatile c89atomic_uint16 newValue;
+        do {
+            oldValue = *dst;
+            newValue = (c89atomic_uint16)(oldValue | src);
+        } while (c89atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_or_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, int order)
+    {
+        volatile c89atomic_uint32 oldValue;
+        volatile c89atomic_uint32 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue | src;
+        } while (c89atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_or_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, int order)
+    {
+        volatile c89atomic_uint64 oldValue;
+        volatile c89atomic_uint64 newValue;
+        do {
+            oldValue = *dst;
+            newValue = oldValue | src;
+        } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
+        (void)order;
+        return oldValue;
+    }
+    #define c89atomic_signal_fence(order)                           c89atomic_thread_fence(order)
     #define c89atomic_load_explicit_8( ptr, order)                  c89atomic_compare_and_swap_8 (ptr, 0, 0)
     #define c89atomic_load_explicit_16(ptr, order)                  c89atomic_compare_and_swap_16(ptr, 0, 0)
     #define c89atomic_load_explicit_32(ptr, order)                  c89atomic_compare_and_swap_32(ptr, 0, 0)
@@ -8799,7 +9128,7 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
     #define c89atomic_compare_exchange_weak_explicit_ptr(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_32((volatile c89atomic_uint32*)dst, (volatile c89atomic_uint32*)expected, (c89atomic_uint32)desired, successOrder, failureOrder)
     #define c89atomic_compare_and_swap_ptr(dst, expected, desired)                                              (void*)c89atomic_compare_and_swap_32((volatile c89atomic_uint32*)dst, (c89atomic_uint32)expected, (c89atomic_uint32)desired)
 #else
-    error "Unsupported architecture."
+    #error Unsupported architecture.
 #endif
 #define c89atomic_flag_test_and_set(ptr)                                c89atomic_flag_test_and_set_explicit(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_flag_clear(ptr)                                       c89atomic_flag_clear_explicit(ptr, c89atomic_memory_order_seq_cst)
