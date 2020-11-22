@@ -64054,6 +64054,7 @@ v0.10.26 - TBD
   - Fix compilation with TCC.
   - Fix compilation with Digital Mars.
   - Fix compilation warnings.
+  - Remove bitfields from public structures to aid in binding maintenance.
 
 v0.10.25 - 2020-11-15
   - PulseAudio: Fix a bug where the stop callback isn't fired.
