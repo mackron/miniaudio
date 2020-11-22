@@ -6669,11 +6669,16 @@ static MA_INLINE void ma_yield()
 {
 #if defined(__i386) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
     /* x86/x64 */
-    #if (defined(_MSC_VER) || defined(__WATCOMC__)) && !defined(__clang__)
+    #if (defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__)) && !defined(__clang__)
         #if _MSC_VER >= 1400
             _mm_pause();
         #else
-            __asm pause;
+            #if defined(__DMC__)
+                /* Digital Mars does not recognize the PAUSE opcode. Fall back to NOP. */
+                __asm nop;  
+            #else
+                __asm pause;
+            #endif
         #endif
     #else
         __asm__ __volatile__ ("pause");
@@ -12357,7 +12362,7 @@ typedef enum
 
 typedef struct
 {
-    UINT32 cbSize;
+    ma_uint32 cbSize;
     BOOL bIsOffload;
     MA_AUDIO_STREAM_CATEGORY eCategory;
 } ma_AudioClientProperties;
@@ -12644,9 +12649,9 @@ typedef struct
     HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration);
 
     /* IAudioClient3 */
-    HRESULT (STDMETHODCALLTYPE * GetSharedModeEnginePeriod)       (ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, UINT32* pDefaultPeriodInFrames, UINT32* pFundamentalPeriodInFrames, UINT32* pMinPeriodInFrames, UINT32* pMaxPeriodInFrames);
-    HRESULT (STDMETHODCALLTYPE * GetCurrentSharedModeEnginePeriod)(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, UINT32* pCurrentPeriodInFrames);
-    HRESULT (STDMETHODCALLTYPE * InitializeSharedAudioStream)     (ma_IAudioClient3* pThis, DWORD streamFlags, UINT32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * GetSharedModeEnginePeriod)       (ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentSharedModeEnginePeriod)(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * InitializeSharedAudioStream)     (ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
 } ma_IAudioClient3Vtbl;
 struct ma_IAudioClient3
 {
@@ -12670,9 +12675,9 @@ static MA_INLINE HRESULT ma_IAudioClient3_GetService(ma_IAudioClient3* pThis, co
 static MA_INLINE HRESULT ma_IAudioClient3_IsOffloadCapable(ma_IAudioClient3* pThis, MA_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable) { return pThis->lpVtbl->IsOffloadCapable(pThis, category, pOffloadCapable); }
 static MA_INLINE HRESULT ma_IAudioClient3_SetClientProperties(ma_IAudioClient3* pThis, const ma_AudioClientProperties* pProperties)           { return pThis->lpVtbl->SetClientProperties(pThis, pProperties); }
 static MA_INLINE HRESULT ma_IAudioClient3_GetBufferSizeLimits(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetSharedModeEnginePeriod(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, UINT32* pDefaultPeriodInFrames, UINT32* pFundamentalPeriodInFrames, UINT32* pMinPeriodInFrames, UINT32* pMaxPeriodInFrames) { return pThis->lpVtbl->GetSharedModeEnginePeriod(pThis, pFormat, pDefaultPeriodInFrames, pFundamentalPeriodInFrames, pMinPeriodInFrames, pMaxPeriodInFrames); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetCurrentSharedModeEnginePeriod(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, UINT32* pCurrentPeriodInFrames) { return pThis->lpVtbl->GetCurrentSharedModeEnginePeriod(pThis, ppFormat, pCurrentPeriodInFrames); }
-static MA_INLINE HRESULT ma_IAudioClient3_InitializeSharedAudioStream(ma_IAudioClient3* pThis, DWORD streamFlags, UINT32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGUID) { return pThis->lpVtbl->InitializeSharedAudioStream(pThis, streamFlags, periodInFrames, pFormat, pAudioSessionGUID); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetSharedModeEnginePeriod(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames) { return pThis->lpVtbl->GetSharedModeEnginePeriod(pThis, pFormat, pDefaultPeriodInFrames, pFundamentalPeriodInFrames, pMinPeriodInFrames, pMaxPeriodInFrames); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetCurrentSharedModeEnginePeriod(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames) { return pThis->lpVtbl->GetCurrentSharedModeEnginePeriod(pThis, ppFormat, pCurrentPeriodInFrames); }
+static MA_INLINE HRESULT ma_IAudioClient3_InitializeSharedAudioStream(ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGUID) { return pThis->lpVtbl->InitializeSharedAudioStream(pThis, streamFlags, periodInFrames, pFormat, pAudioSessionGUID); }
 
 
 /* IAudioRenderClient */
@@ -13046,10 +13051,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
             first. If this fails, fall back to a search.
             */
             hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
-            ma_PropVariantClear(pContext, &var);
-
             if (SUCCEEDED(hr)) {
-                /* The format returned by PKEY_AudioEngine_DeviceFormat is not supported. */
+                /* The format returned by PKEY_AudioEngine_DeviceFormat is supported. */
                 ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
             } else {
                 /*
@@ -13113,6 +13116,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         break;
                     }
                 }
+
+                ma_PropVariantClear(pContext, &var);
 
                 if (!found) {
                     ma_IPropertyStore_Release(pProperties);
@@ -13908,14 +13913,14 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             ma_IAudioClient3* pAudioClient3 = NULL;
             hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient3, (void**)&pAudioClient3);
             if (SUCCEEDED(hr)) {
-                UINT32 defaultPeriodInFrames;
-                UINT32 fundamentalPeriodInFrames;
-                UINT32 minPeriodInFrames;
-                UINT32 maxPeriodInFrames;
+                ma_uint32 defaultPeriodInFrames;
+                ma_uint32 fundamentalPeriodInFrames;
+                ma_uint32 minPeriodInFrames;
+                ma_uint32 maxPeriodInFrames;
                 hr = ma_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
                 if (SUCCEEDED(hr)) {
-                    UINT32 desiredPeriodInFrames = pData->periodSizeInFramesOut;
-                    UINT32 actualPeriodInFrames  = desiredPeriodInFrames;
+                    ma_uint32 desiredPeriodInFrames = pData->periodSizeInFramesOut;
+                    ma_uint32 actualPeriodInFrames  = desiredPeriodInFrames;
 
                     /* Make sure the period size is a multiple of fundamentalPeriodInFrames. */
                     actualPeriodInFrames = actualPeriodInFrames / fundamentalPeriodInFrames;
@@ -32437,9 +32442,14 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         deviceInfo.maxSampleRate = 0;
 
         for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
+            printf("format:   %d\n", deviceInfo.nativeDataFormats[iNativeFormat].format);
+            printf("channels: %d\n", deviceInfo.nativeDataFormats[iNativeFormat].channels);
+            printf("rate:     %d\n", deviceInfo.nativeDataFormats[iNativeFormat].sampleRate);
+
             /* Formats. */
             if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
                 /* All formats are supported. */
+                printf("==== ALL FORMATS ====\n");
                 deviceInfo.formats[0] = ma_format_u8;
                 deviceInfo.formats[1] = ma_format_s16;
                 deviceInfo.formats[2] = ma_format_s24;
@@ -43489,7 +43499,7 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
-#if defined(_MSC_VER) && _MSC_VER <= 1200
+#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
     /* No SetFilePointerEx() so restrict to 31 bits. */
     if (origin > 0x7FFFFFFF) {
         return MA_OUT_OF_RANGE;
@@ -43511,7 +43521,7 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     LARGE_INTEGER liZero;
     LARGE_INTEGER liTell;
     BOOL result;
-#if defined(_MSC_VER) && _MSC_VER <= 1200
+#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
     LONG tell;
 #endif
 
@@ -43519,7 +43529,7 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
 
     liZero.QuadPart = 0;
 
-#if defined(_MSC_VER) && _MSC_VER <= 1200
+#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
     result = SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
     liTell.QuadPart = tell;
 #else
@@ -64043,8 +64053,11 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.26 - TBD
+  - WASAPI: Fix a bug where the exclusive mode format may not be retrieved correctly due to accessing freed memory.
   - Fix a bug with ma_waveform where glitching occurs after changing frequency.
   - Fix compilation with OpenWatcom.
+  - Fix compilation with TCC.
+  - Fix compilation with Digital Mars.
   - Fix compilation warnings.
 
 v0.10.25 - 2020-11-15
