@@ -1604,8 +1604,8 @@ struct ma_engine
     ma_uint32 periodSizeInFrames;
     ma_uint32 periodSizeInMilliseconds;
     ma_allocation_callbacks allocationCallbacks;
-    ma_bool32 ownsResourceManager : 1;
-    ma_bool32 ownsDevice          : 1;
+    ma_bool8 ownsResourceManager;
+    ma_bool8 ownsDevice;
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
