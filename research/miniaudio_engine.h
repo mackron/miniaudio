@@ -8298,7 +8298,12 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         deviceConfig.noPreZeroedOutputBuffer  = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
         deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine will do clipping itself. */
 
-        result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
+        if (engineConfig.pContext == NULL) {
+            result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
+        } else {
+            result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
+        }
+
         if (result != MA_SUCCESS) {
             ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
             pEngine->pDevice = NULL;
