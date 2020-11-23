@@ -13802,7 +13802,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         in this case so that the caller can detect it and fall back to shared mode if desired. We should never get here if shared mode was requested, but just for
         completeness we'll check for it and return MA_FORMAT_NOT_SUPPORTED.
         */
-        if (shareMode == ma_share_mode_exclusive) {
+        if (shareMode == MA_AUDCLNT_SHAREMODE_EXCLUSIVE) {
             result = MA_SHARE_MODE_NOT_SUPPORTED;
         } else {
             result = MA_FORMAT_NOT_SUPPORTED;
