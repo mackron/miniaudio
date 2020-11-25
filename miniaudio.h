@@ -6150,12 +6150,10 @@ typedef struct
 } ma_noise;
 
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
+MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_uint32 seed);
 MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
-
-
-MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
 
 #endif  /* MA_NO_GENERATION */
 
