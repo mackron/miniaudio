@@ -1854,15 +1854,15 @@ MA_API ma_result ma_effect_process_pcm_frames_with_conversion(ma_effect* pEffect
 
                 for (iInputStream = 0; iInputStream < inputStreamCount; iInputStream += 1) {
                     ppEffectInBuffer[iInputStream] = ma_offset_ptr(effectInBuffer, effectInBufferCap * iInputStream);
-                    ma_convert_pcm_frames_format_and_channels(ppEffectInBuffer, effectFormatIn, effectChannelsIn, ppRunningFramesIn, formatIn, channelsIn, framesToProcessThisIterationIn, ma_dither_mode_none);
+                    ma_convert_pcm_frames_format_and_channels(ppEffectInBuffer[iInputStream], effectFormatIn, effectChannelsIn, ppRunningFramesIn[iInputStream], formatIn, channelsIn, framesToProcessThisIterationIn, ma_dither_mode_none);
                 }
                 
                 if (effectFormatOut == formatOut && effectChannelsOut == channelsOut) {
                     /* Fast path. No output format conversion required. */
-                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppEffectInBuffer, &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, (const void**)&ppEffectInBuffer[0], &framesToProcessThisIterationIn, pRunningFramesOut, &framesToProcessThisIterationOut);
                 } else {
                     /* Slow path. Output format conversion required. */
-                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, ppEffectInBuffer, &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
+                    ma_effect_process_pcm_frames_ex(pEffect, inputStreamCount, (const void**)&ppEffectInBuffer[0], &framesToProcessThisIterationIn, effectOutBuffer, &framesToProcessThisIterationOut);
                     ma_convert_pcm_frames_format_and_channels(pRunningFramesOut, formatOut, channelsOut, effectOutBuffer, effectFormatOut, effectChannelsOut, framesToProcessThisIterationOut, ma_dither_mode_none);
                 }
             }
@@ -3617,11 +3617,15 @@ static ma_result ma_rb_data_source__on_get_format(ma_data_source* pDataSource, m
 
 static ma_result ma_rb_data_source_init(ma_rb* pRB, ma_format format, ma_uint32 channels, ma_rb_data_source* pDataSource)
 {
-    if (pRB == NULL) {
+    if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pDataSource);    /* For safety. */
+
+    if (pRB == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
     pDataSource->ds.onRead          = NULL;
     pDataSource->ds.onSeek          = NULL;  /* We can't really seek in a ring buffer - there's no notion of a beginning and an end in a ring buffer. */
@@ -4182,6 +4186,11 @@ MA_API ma_result ma_job_queue_free(ma_job_queue* pQueue, ma_job* pJob)
 #endif
 
 /* MurmurHash3. Based on code from https://github.com/PeterScott/murmur3/blob/master/murmur3.c (public domain). */
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#endif
+
 static MA_INLINE ma_uint32 ma_rotl32(ma_uint32 x, ma_int8 r)
 {
     return (x << r) | (x >> (32 - r));
@@ -4250,6 +4259,10 @@ static ma_uint32 ma_hash_32(const void* key, int len, ma_uint32 seed)
 
     return h1;
 }
+
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic push
+#endif
 /* End MurmurHash3 */
 
 static ma_uint32 ma_hash_string_32(const char* str)
