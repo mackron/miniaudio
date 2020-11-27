@@ -1190,8 +1190,7 @@ miniaudio supports generation of white, pink and Brownian noise via the `ma_nois
 The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing requiring reproducibility.
 Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
 
-The amplitude, seed, and type can be changed dynamically with `ma_noise_set_amplitude()`, `ma_noise_set_seed()`,
-and `ma_noise_set_type()` respectively.
+The amplitude, seed, and type can be changed dynamically with `ma_noise_set_amplitude()`, `ma_noise_set_seed()`, and `ma_noise_set_type()` respectively.
 
 By default, the noise API will use different values for different channels. So, for example, the left side in a stereo stream will be different to the right
 side. To instead have each channel use the same random value, set the `duplicateChannels` member of the noise config to true, like so:
@@ -6152,7 +6151,7 @@ typedef struct
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
 MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
-MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_uint32 seed);
+MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
 MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
 
 #endif  /* MA_NO_GENERATION */
