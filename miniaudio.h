@@ -44035,6 +44035,10 @@ static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
 
 static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
 {
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
     if (file == NULL || pDst == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -44048,6 +44052,10 @@ static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst,
 
 static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
 {
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = 0;
+    }
+
     if (file == NULL || pSrc == NULL) {
         return MA_INVALID_ARGS;
     }
