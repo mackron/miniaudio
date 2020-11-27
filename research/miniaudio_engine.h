@@ -3621,11 +3621,15 @@ static ma_result ma_rb_data_source_init(ma_rb* pRB, ma_format format, ma_uint32 
         return MA_INVALID_ARGS;
     }
 
+    MA_ZERO_OBJECT(pDataSource);    /* For safety. */
+
     pDataSource->ds.onRead          = NULL;
     pDataSource->ds.onSeek          = NULL;  /* We can't really seek in a ring buffer - there's no notion of a beginning and an end in a ring buffer. */
     pDataSource->ds.onMap           = ma_rb_data_source__on_map;
     pDataSource->ds.onUnmap         = ma_rb_data_source__on_unmap;
     pDataSource->ds.onGetDataFormat = ma_rb_data_source__on_get_format;
+    pDataSource->ds.onGetCursor     = NULL;
+    pDataSource->ds.onGetLength     = NULL;
     pDataSource->pRB                = pRB;
     pDataSource->format             = format;
     pDataSource->channels           = channels;
@@ -6148,6 +6152,14 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
 {
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;

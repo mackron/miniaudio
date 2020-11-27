@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.26 - 2020-11-24
+miniaudio - v0.10.27 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1447,7 +1447,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 26
+#define MA_VERSION_REVISION 27
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -42869,6 +42869,18 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     ma_uint32 sampleRate;
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
 
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+
     if (pCallbacks == NULL || pCallbacks->onGetDataFormat == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -64249,6 +64261,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.27 - TBD
+  - Fix some bugs with trying to access uninitialized variables.
+
 v0.10.26 - 2020-11-24
   - WASAPI: Fix a bug where the exclusive mode format may not be retrieved correctly due to accessing freed memory.
   - Fix a bug with ma_waveform where glitching occurs after changing frequency.
