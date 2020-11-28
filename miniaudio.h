@@ -675,7 +675,7 @@ be one of the following:
     | ma_standard_channel_map_webaudio  | https://webaudio.github.io/web-audio-api/#ChannelOrdering |
     +-----------------------------------+-----------------------------------------------------------+
 
-Below are the channel maps used by default in miniaudio (ma_standard_channel_map_default):
+Below are the channel maps used by default in miniaudio (`ma_standard_channel_map_default`):
 
     +---------------+---------------------------------+
     | Channel Count | Mapping                         |
@@ -842,7 +842,7 @@ The API for the linear resampler is the same as the main resampler API, only it'
 -------------------------
 The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
 domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
-source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
+source files. To opt-in, you must first `#include` the following file before the implementation of miniaudio.h:
 
     ```c
     #include "extras/speex_resampler/ma_speex_resampler.h"
@@ -925,8 +925,8 @@ The data converter supports multiple channels and is always interleaved (both in
 
 Sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the only
 configuration property that can be changed after initialization, but only if the `resampling.allowDynamicSampleRate` member of `ma_data_converter_config` is
-set to MA_TRUE. To change the sample rate, use `ma_data_converter_set_rate()` or `ma_data_converter_set_rate_ratio()`. The ratio must be in/out. The resampling
-algorithm cannot be changed after initialization.
+set to `MA_TRUE`. To change the sample rate, use `ma_data_converter_set_rate()` or `ma_data_converter_set_rate_ratio()`. The ratio must be in/out. The
+resampling algorithm cannot be changed after initialization.
 
 Processing always happens on a per PCM frame basis and always assumes interleaved input and output. De-interleaved processing is not supported. To process
 frames, use `ma_data_converter_process_pcm_frames()`. On input, this function takes the number of output frames you can fit in the output buffer and the number
@@ -1017,7 +1017,7 @@ Filtering can be applied in-place by passing in the same pointer for both the in
     ma_lpf_process_pcm_frames(&lpf, pMyData, pMyData, frameCount);
     ```
 
-The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If you need more, you can chain first and second order filters together.
+The maximum filter order is limited to `MA_MAX_FILTER_ORDER` which is set to 8. If you need more, you can chain first and second order filters together.
 
     ```c
     for (iFilter = 0; iFilter < filterCount; iFilter += 1) {
@@ -1189,7 +1189,7 @@ miniaudio supports generation of white, pink and Brownian noise via the `ma_nois
     ```
 
 The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing requiring reproducibility.
-Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
+Setting the seed to zero will default to `MA_DEFAULT_LCG_SEED`.
 
 The amplitude, seed, and type can be changed dynamically with `ma_noise_set_amplitude()`, `ma_noise_set_seed()`, and `ma_noise_set_type()` respectively.
 
@@ -1238,10 +1238,10 @@ Audio buffers are initialised using the standard configuration system used every
     ma_audio_buffer_uninit(&buffer);
     ```
 
-In the example above, the memory pointed to by `pExistingData` will _not_ be copied and is how an application can do self-managed memory allocation. If you
+In the example above, the memory pointed to by `pExistingData` will *not* be copied and is how an application can do self-managed memory allocation. If you
 would rather make a copy of the data, use `ma_audio_buffer_init_copy()`. To uninitialize the buffer, use `ma_audio_buffer_uninit()`.
 
-Sometimes it can be convenient to allocate the memory for the `ma_audio_buffer` structure _and_ the raw audio data in a contiguous block of memory. That is,
+Sometimes it can be convenient to allocate the memory for the `ma_audio_buffer` structure and the raw audio data in a contiguous block of memory. That is,
 the raw audio data will be located immediately after the `ma_audio_buffer` structure. To do this, use `ma_audio_buffer_alloc_and_init()`:
 
     ```c
@@ -1329,14 +1329,14 @@ routines. Passing in `NULL` for this results in `MA_MALLOC()` and `MA_FREE()` be
 Use `ma_pcm_rb_init_ex()` if you need a deinterleaved buffer. The data for each sub-buffer is offset from each other based on the stride. To manage your
 sub-buffers you can use `ma_pcm_rb_get_subbuffer_stride()`, `ma_pcm_rb_get_subbuffer_offset()` and `ma_pcm_rb_get_subbuffer_ptr()`.
 
-Use 'ma_pcm_rb_acquire_read()` and `ma_pcm_rb_acquire_write()` to retrieve a pointer to a section of the ring buffer. You specify the number of frames you
+Use `ma_pcm_rb_acquire_read()` and `ma_pcm_rb_acquire_write()` to retrieve a pointer to a section of the ring buffer. You specify the number of frames you
 need, and on output it will set to what was actually acquired. If the read or write pointer is positioned such that the number of frames requested will require
 a loop, it will be clamped to the end of the buffer. Therefore, the number of frames you're given may be less than the number you requested.
 
 After calling `ma_pcm_rb_acquire_read()` or `ma_pcm_rb_acquire_write()`, you do your work on the buffer and then "commit" it with `ma_pcm_rb_commit_read()` or
 `ma_pcm_rb_commit_write()`. This is where the read/write pointers are updated. When you commit you need to pass in the buffer that was returned by the earlier
 call to `ma_pcm_rb_acquire_read()` or `ma_pcm_rb_acquire_write()` and is only used for validation. The number of frames passed to `ma_pcm_rb_commit_read()` and
-`ma_pcm_rb_commit_write()` is what's used to increment the pointers.
+`ma_pcm_rb_commit_write()` is what's used to increment the pointers, and can be less that what was originally requested.
 
 If you want to correct for drift between the write pointer and the read pointer you can use a combination of `ma_pcm_rb_pointer_distance()`,
 `ma_pcm_rb_seek_read()` and `ma_pcm_rb_seek_write()`. Note that you can only move the pointers forward, and you should only move the read pointer forward via
