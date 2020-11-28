@@ -343,7 +343,7 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
     |                       | using `-std=c89` or `-std=c99` on Linux builds or else you may end up with compilation errors due to conflicts with `timespec`  |
     |                       | and `timeval` data types.                                                                                                       |
     +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
-    | MA_LOG_LEVEL [level]  | Sets the logging level. Set level to one of the following:                                                                      |
+    | MA_LOG_LEVEL [level]  | Sets the logging level. Set `level` to one of the following:                                                                    |
     |                       |                                                                                                                                 |
     |                       |     ```                                                                                                                         |
     |                       |     MA_LOG_LEVEL_VERBOSE                                                                                                        |
@@ -352,7 +352,7 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
     |                       |     MA_LOG_LEVEL_ERROR                                                                                                          |
     |                       |     ```                                                                                                                         |
     +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
-    | MA_DEBUG_OUTPUT       | Enable printf() debug output.                                                                                                   |
+    | MA_DEBUG_OUTPUT       | Enable `printf()` debug output.                                                                                                 |
     +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
     | MA_COINIT_VALUE       | Windows only. The value to pass to internal calls to `CoInitializeEx()`. Defaults to `COINIT_MULTITHREADED`.                    |
     +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
