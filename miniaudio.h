@@ -1373,6 +1373,7 @@ The following backends are supported by miniaudio.
     | AAudio      | ma_backend_aaudio     | Android 8+                                             |
     | OpenSL ES   | ma_backend_opensl     | Android (API level 16+)                                |
     | Web Audio   | ma_backend_webaudio   | Web (via Emscripten)                                   |
+    | Custom      | ma_backend_custom     | Cross Platform                                         |
     | Null        | ma_backend_null       | Cross Platform (not used on Web)                       |
     +-------------+-----------------------+--------------------------------------------------------+
 
