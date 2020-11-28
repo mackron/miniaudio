@@ -2618,11 +2618,19 @@ Interleaves a group of deinterleaved buffers.
 */
 MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_uint64 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames);
 
+
 /************************************************************************************************************************************************************
 
 Channel Maps
 
 ************************************************************************************************************************************************************/
+
+/*
+Initializes a blank channel map.
+
+When a blank channel map is specified anywhere it indicates that the native channel map should be used.
+*/
+MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap);
 
 /*
 Helper for retrieving a standard channel map.
@@ -3297,6 +3305,7 @@ struct ma_device_config
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } playback;
     struct
@@ -3305,6 +3314,7 @@ struct ma_device_config
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } capture;
 
@@ -3948,6 +3958,7 @@ struct ma_device
         ma_channel internalChannelMap[MA_MAX_CHANNELS];
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
+        ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
         ma_bool8 usingDefaultFormat;
         ma_bool8 usingDefaultChannels;
@@ -3967,6 +3978,7 @@ struct ma_device
         ma_channel internalChannelMap[MA_MAX_CHANNELS];
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
+        ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
         ma_bool8 usingDefaultFormat;
         ma_bool8 usingDefaultChannels;
@@ -31900,7 +31912,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             if (pDevice->capture.internalChannels == pDevice->capture.channels) {
                 ma_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
             } else {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.channels, pDevice->capture.channelMap);
+                if (pDevice->capture.channelMixMode == ma_channel_mix_mode_simple) {
+                    ma_channel_map_init_blank(pDevice->capture.channels, pDevice->capture.channelMap);
+                } else {
+                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.channels, pDevice->capture.channelMap);
+                }
             }
         }
     }
@@ -31917,7 +31933,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             if (pDevice->playback.internalChannels == pDevice->playback.channels) {
                 ma_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
             } else {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.channels, pDevice->playback.channelMap);
+                if (pDevice->playback.channelMixMode == ma_channel_mix_mode_simple) {
+                    ma_channel_map_init_blank(pDevice->playback.channels, pDevice->playback.channelMap);
+                } else {
+                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.channels, pDevice->playback.channelMap);
+                }
             }
         }
     }
@@ -31942,6 +31962,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.channelsOut                = pDevice->capture.channels;
         converterConfig.sampleRateOut              = pDevice->sampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, ma_min(pDevice->capture.channels, MA_MAX_CHANNELS));
+        converterConfig.channelMixMode             = pDevice->capture.channelMixMode;
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
@@ -31964,6 +31985,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.channelsOut                = pDevice->playback.internalChannels;
         converterConfig.sampleRateOut              = pDevice->playback.internalSampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, ma_min(pDevice->playback.internalChannels, MA_MAX_CHANNELS));
+        converterConfig.channelMixMode             = pDevice->playback.channelMixMode;
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
@@ -32981,15 +33003,18 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->resampling.linear.lpfOrder = config.resampling.linear.lpfOrder;
     pDevice->resampling.speex.quality   = config.resampling.speex.quality;
 
-    pDevice->capture.shareMode   = config.capture.shareMode;
-    pDevice->capture.format      = config.capture.format;
-    pDevice->capture.channels    = config.capture.channels;
+    pDevice->capture.shareMode          = config.capture.shareMode;
+    pDevice->capture.format             = config.capture.format;
+    pDevice->capture.channels           = config.capture.channels;
     ma_channel_map_copy(pDevice->capture.channelMap, config.capture.channelMap, config.capture.channels);
-
-    pDevice->playback.shareMode  = config.playback.shareMode;
-    pDevice->playback.format     = config.playback.format;
-    pDevice->playback.channels   = config.playback.channels;
+    pDevice->capture.channelMixMode     = config.capture.channelMixMode;
+    
+    pDevice->playback.shareMode         = config.playback.shareMode;
+    pDevice->playback.format            = config.playback.format;
+    pDevice->playback.channels          = config.playback.channels;
     ma_channel_map_copy(pDevice->playback.channelMap, config.playback.channelMap, config.playback.channels);
+    pDevice->playback.channelMixMode    = config.playback.channelMixMode;
+    
 
 
     /* The internal format, channel count and sample rate can be modified by the backend. */
@@ -39874,8 +39899,24 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
             }
         } break;
 
-        case ma_channel_mix_mode_custom_weights:
         case ma_channel_mix_mode_simple:
+        {
+            /* In simple mode, excess channels need to be silenced or dropped. */
+            ma_uint32 iChannel;
+            for (iChannel = 0; iChannel < ma_min(pConverter->channelsIn, pConverter->channelsOut); iChannel += 1) {
+                if (pConverter->format == ma_format_f32) {
+                    if (pConverter->weights.f32[iChannel][iChannel] == 0) {
+                        pConverter->weights.f32[iChannel][iChannel] = 1;
+                    }
+                } else {
+                    if (pConverter->weights.s16[iChannel][iChannel] == 0) {
+                        pConverter->weights.s16[iChannel][iChannel] = ma_channel_converter_float_to_fixed(1);
+                    }
+                }
+            }
+        } break;
+
+        case ma_channel_mix_mode_custom_weights:
         default:
         {
             /* Fallthrough. */
@@ -41235,6 +41276,15 @@ MA_API ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConver
 Channel Maps
 
 **************************************************************************************************************************************************************/
+MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap)
+{
+    if (pChannelMap == NULL) {
+        return;
+    }
+
+    MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channels);
+}
+
 static void ma_get_standard_channel_map_microsoft(ma_uint32 channels, ma_channel* pChannelMap)
 {
     /* Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config */
@@ -64402,8 +64452,11 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.27 - TBD
-  - Fix some bugs with trying to access uninitialized variables.
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
+  - Add support for configuring the channel mixing mode in the device config.
+  - Fix a bug with simple channel mixing mode (drop or silence excess channels).
+  - Fix some bugs with trying to access uninitialized variables.
+  
 
 v0.10.26 - 2020-11-24
   - WASAPI: Fix a bug where the exclusive mode format may not be retrieved correctly due to accessing freed memory.
