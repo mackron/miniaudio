@@ -64305,6 +64305,7 @@ REVISION HISTORY
 ================
 v0.10.27 - TBD
   - Fix some bugs with trying to access uninitialized variables.
+  - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
 
 v0.10.26 - 2020-11-24
   - WASAPI: Fix a bug where the exclusive mode format may not be retrieved correctly due to accessing freed memory.
