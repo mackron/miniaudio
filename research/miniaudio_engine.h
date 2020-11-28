@@ -2312,6 +2312,8 @@ static void ma_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint6
 }
 
 
+/* Not used at the moment, but leaving it here in case I want to use it again later. */
+#if 0
 static void ma_clipped_accumulate_u8(ma_uint8* pDst, const ma_uint8* pSrc, ma_uint64 sampleCount)
 {
     ma_uint64 iSample;
@@ -2375,8 +2377,6 @@ static void ma_clipped_accumulate_f32(float* pDst, const float* pSrc, ma_uint64 
     }
 }
 
-/* Not used at the moment, but leaving it here in case I want to use it again later. */
-#if 0
 static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
     ma_uint64 sampleCount;
