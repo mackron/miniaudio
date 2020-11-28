@@ -1035,9 +1035,9 @@ The slot index is stored in the low 32 bits. The reference counter is stored in 
 */
 typedef struct
 {
-    volatile struct
+    struct
     {
-        ma_uint32 bitfield;
+        volatile ma_uint32 bitfield;                            /* Marking as volatile because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
     } groups[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY/32];
     ma_uint32 slots[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY];    /* 32 bits for reference counting for ABA mitigation. */
     ma_uint32 count;    /* Allocation count. */
@@ -3828,11 +3828,11 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
         for (iGroup = 0; iGroup < ma_countof(pAllocator->groups); iGroup += 1) {
             /* CAS */
             for (;;) {
+                volatile ma_uint32 oldBitfield; /* Making this volatile because we want to make sure the compiler does not optimize away the oldBitfield assignment. */
                 ma_uint32 newBitfield;
-                ma_uint32 oldBitfield;
                 ma_uint32 bitOffset;
 
-                oldBitfield = pAllocator->groups[iGroup].bitfield;
+                oldBitfield = pAllocator->groups[iGroup].bitfield;  /* <-- This copy must happen. The compiler must not optimize this away. */
 
                 /* Fast check to see if anything is available. */
                 if (oldBitfield == 0xFFFFFFFF) {
@@ -3896,10 +3896,10 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 
     while (pAllocator->count > 0) {
         /* CAS */
+        volatile ma_uint32 oldBitfield; /* Making this volatile because we want to make sure the compiler does not optimize away the oldBitfield assignment. */
         ma_uint32 newBitfield;
-        ma_uint32 oldBitfield;
 
-        oldBitfield = pAllocator->groups[iGroup].bitfield;
+        oldBitfield = pAllocator->groups[iGroup].bitfield;  /* <-- This copy must happen. The compiler must not optimize this away. */
         newBitfield = oldBitfield & ~(1 << iBit);
 
         if (c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
