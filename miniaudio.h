@@ -1429,7 +1429,7 @@ Some backends have some nuance details you may want to be aware of.
 =======================
 - Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for WASAPI and Core Audio, however other backends such as
   PulseAudio may naturally support it, though not all have been tested.
-- The contents of the output buffer passed into the data callback will always be pre-initialized to zero unless the `noPreZeroedOutputBuffer` config variable
+- The contents of the output buffer passed into the data callback will always be pre-initialized to silence unless the `noPreZeroedOutputBuffer` config variable
   in `ma_device_config` is set to true, in which case it'll be undefined which will require you to write something to the entire buffer.
 - By default miniaudio will automatically clip samples. This only applies when the playback sample format is configured as `ma_format_f32`. If you are doing
   clipping yourself, you can disable this overhead by setting `noClip` to true in the device config.
