@@ -5305,7 +5305,7 @@ static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manag
         The data buffer has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
         want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
         */
-        c89atomic_exchange_32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
+        c89atomic_exchange_i32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
 
         if (asyncUninit == MA_FALSE) {
             /* The data buffer can be deleted synchronously. */
@@ -5854,7 +5854,7 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     }
 
     /* The first thing to do is set the result to unavailable. This will prevent future page decoding. */
-    c89atomic_exchange_32(&pDataStream->result, MA_UNAVAILABLE);
+    c89atomic_exchange_i32(&pDataStream->result, MA_UNAVAILABLE);
 
     /*
     We need to post a job to ensure we're not in the middle or decoding or anything. Because the object is owned by the caller, we'll need
