@@ -410,7 +410,8 @@ All formats are native-endian.
 
 4. Decoding
 ===========
-The `ma_decoder` API is used for reading audio files. The following formats are supported:
+The `ma_decoder` API is used for reading audio files. Decoders are completely decoupled from devices and can be used independently. The following formats are
+supported:
 
     +---------+------------------+----------+
     | Format  | Decoding Backend | Built-In |
@@ -463,14 +464,14 @@ with `ma_decoder_init()`. Here is an example for loading a decoder from a file:
     ma_decoder_uninit(&decoder);
     ```
 
-When initializing a decoder, you can optionally pass in a pointer to a ma_decoder_config object (the NULL argument in the example above) which allows you to
-configure the output format, channel count, sample rate and channel map:
+When initializing a decoder, you can optionally pass in a pointer to a `ma_decoder_config` object (the `NULL` argument in the example above) which allows you
+to configure the output format, channel count, sample rate and channel map:
 
     ```c
     ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 2, 48000);
     ```
 
-When passing in NULL for decoder config in `ma_decoder_init*()`, the output format will be the same as that defined by the decoding backend.
+When passing in `NULL` for decoder config in `ma_decoder_init*()`, the output format will be the same as that defined by the decoding backend.
 
 Data is read from the decoder as PCM frames. This will return the number of PCM frames actually read. If the return value is less than the requested number of
 PCM frames it means you've reached the end:
