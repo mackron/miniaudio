@@ -2375,6 +2375,8 @@ static void ma_clipped_accumulate_f32(float* pDst, const float* pSrc, ma_uint64 
     }
 }
 
+/* Not used at the moment, but leaving it here in case I want to use it again later. */
+#if 0
 static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
 {
     ma_uint64 sampleCount;
@@ -2397,7 +2399,7 @@ static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_ui
             break;
     }
 }
-
+#endif
 
 
 static void ma_unclipped_accumulate_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 sampleCount)
@@ -8019,6 +8021,8 @@ static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* p
     return ma_engine_effect_init(pEngine, pEffect);
 }
 
+/* Not used at the moment, but might re-enable this later. */
+#if 0
 static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
 {
     MA_ASSERT(pEffect != NULL);
@@ -8035,6 +8039,7 @@ static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
 
     return MA_TRUE;
 }
+#endif
 
 static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 timeInFrames)
 {
