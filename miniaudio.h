@@ -22577,7 +22577,7 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
         pDevice->onStop(pDevice);
     }
 
-    return result;
+    return MA_SUCCESS;
 }
 
 static ma_result ma_context_uninit__pulse(ma_context* pContext)
