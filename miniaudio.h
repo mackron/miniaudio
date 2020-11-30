@@ -22289,7 +22289,13 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         devCapture = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (devCapture != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice));
+            ma_pa_operation* pOP;
+
+            ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+            pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice);
+            ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
+
+            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
         }
     }
 
@@ -22386,7 +22392,13 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         devPlayback = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (devPlayback != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice));
+            ma_pa_operation* pOP;
+
+            ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+            pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice);
+            ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
+
+            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
         }
     }
 
