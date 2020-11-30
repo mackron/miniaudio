@@ -11825,13 +11825,16 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
     MA_ASSERT(pDevice != NULL);
 
     for (;;) {  /* Keep the thread alive until the device is uninitialized. */
+        ma_uint32 operation;
+
         /* Wait for an operation to be requested. */
         ma_event_wait(&pDevice->null_device.operationEvent);
 
         /* At this point an event should have been triggered. */
+        operation = c89atomic_load_32(&pDevice->null_device.operation);
 
         /* Starting the device needs to put the thread into a loop. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_START__NULL) {
+        if (operation == MA_DEVICE_OP_START__NULL) {
             c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
 
             /* Reset the timer just in case. */
@@ -11849,7 +11852,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         }
 
         /* Suspending the device means we need to stop the timer and just continue the loop. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_SUSPEND__NULL) {
+        if (operation == MA_DEVICE_OP_SUSPEND__NULL) {
             c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
 
             /* We need to add the current run time to the prior run time, then reset the timer. */
@@ -11863,7 +11866,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         }
 
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_KILL__NULL) {
+        if (operation == MA_DEVICE_OP_KILL__NULL) {
             c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
@@ -11871,7 +11874,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         }
 
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
+        if (operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
@@ -11893,7 +11896,7 @@ static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 oper
         return MA_ERROR;
     }
 
-    return pDevice->null_device.operationResult;
+    return c89atomic_load_i32(&pDevice->null_device.operationResult);
 }
 
 static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice)
