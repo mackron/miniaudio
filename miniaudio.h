@@ -3439,7 +3439,7 @@ sample rate will need to be determined before calculating the period size in fra
 object should be set to a valid value, except for `periodSizeInMilliseconds` which is optional (`periodSizeInFrames` *must* be set).
 
 Starting and stopping of the device is done with `onDeviceStart()` and `onDeviceStop()` and should be self-explanatory. If the backend uses
-asynchronous reading and writing, `onDeviceStart()` is optional, so long as the device is automatically started in `onDeviceWrite()`.
+asynchronous reading and writing, `onDeviceStart()` and `onDeviceStop()` should always be implemented.
 
 The handling of data delivery between the application and the device is the most complicated part of the process. To make this a bit
 easier, some helper callbacks are available. If the backend uses a blocking read/write style of API, the `onDeviceRead()` and
@@ -3450,11 +3450,8 @@ This allows miniaudio to then process any necessary data conversion and then pas
 If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceWorkerThread()` callback
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
-The audio thread follows this general flow:
-
-    1) Start the device before entering the main loop.
-    2) Run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been encounted.
-    3) Stop thd device after leaving the main loop.
+The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
+encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceAudioThread()` callback.
 
 The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
@@ -4158,6 +4155,7 @@ struct ma_device
             ma_thread deviceThread;
             ma_event operationEvent;
             ma_event operationCompletionEvent;
+            ma_semaphore operationSemaphore;
             ma_uint32 operation;
             ma_result operationResult;
             ma_timer timer;
@@ -11645,15 +11643,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
         }
     }
 
-    /* The device needs to be started immediately. */
-    if (pCallbacks->onDeviceStart != NULL) {
-        result = pCallbacks->onDeviceStart(pDevice);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    } else {
-        /* Getting here means no start callback is defined. This is OK, as the backend may auto-start the device when reading or writing data. */
-    }
+    /* NOTE: The device was started outside of this function, in the worker thread. */
 
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type) {
@@ -11797,11 +11787,6 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
         }
     }
 
-    /* We've exited the loop so we'll need to stop the device. */
-    if (pCallbacks->onDeviceStop != NULL) {
-        pCallbacks->onDeviceStop(pDevice);
-    }
-
     return result;
 }
 
@@ -11835,26 +11820,18 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 
         /* Starting the device needs to put the thread into a loop. */
         if (operation == MA_DEVICE_OP_START__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-
             /* Reset the timer just in case. */
             ma_timer_init(&pDevice->null_device.timer);
-
-            /* Keep looping until an operation has been requested. */
-            while (pDevice->null_device.operation != MA_DEVICE_OP_NONE__NULL && pDevice->null_device.operation != MA_DEVICE_OP_START__NULL) {
-                ma_sleep(10); /* Don't hog the CPU. */
-            }
 
             /* Getting here means a suspend or kill operation has been requested. */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
         }
 
         /* Suspending the device means we need to stop the timer and just continue the loop. */
         if (operation == MA_DEVICE_OP_SUSPEND__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-
             /* We need to add the current run time to the prior run time, then reset the timer. */
             pDevice->null_device.priorRunTime += ma_timer_get_time_in_seconds(&pDevice->null_device.timer);
             ma_timer_init(&pDevice->null_device.timer);
@@ -11862,14 +11839,15 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             /* We're done. */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
         }
 
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
         if (operation == MA_DEVICE_OP_KILL__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             break;
         }
 
@@ -11878,6 +11856,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;   /* Continue the loop. Don't terminate. */
         }
     }
@@ -11887,11 +11866,29 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 
 static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 operation)
 {
+    ma_result result;
+
+    /*
+    The first thing to do is wait for an operation slot to become available. We only have a single slot for this, but we could extend this later
+    to support queing of operations.
+    */
+    result = ma_semaphore_wait(&pDevice->null_device.operationSemaphore);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to wait for the event. */
+    }
+
+    /*
+    When we get here it means the background thread is not referencing the operation code and it can be changed. After changing this we need to
+    signal an event to the worker thread to let it know that it can start work.
+    */
     c89atomic_exchange_32(&pDevice->null_device.operation, operation);
+
+    /* Once the operation code has been set, the worker thread can start work. */
     if (ma_event_signal(&pDevice->null_device.operationEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
 
+    /* We want everything to be synchronous so we're going to wait for the worker thread to complete it's operation. */
     if (ma_event_wait(&pDevice->null_device.operationCompletionEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
@@ -11907,7 +11904,6 @@ static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice
     } else {
         internalSampleRate = pDevice->playback.internalSampleRate;
     }
-
 
     return (ma_uint64)((pDevice->null_device.priorRunTime + ma_timer_get_time_in_seconds(&pDevice->null_device.timer)) * internalSampleRate);
 }
@@ -11972,7 +11968,11 @@ static ma_result ma_device_uninit__null(ma_device* pDevice)
     /* Keep it clean and wait for the device thread to finish before returning. */
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_KILL__NULL);
 
+    /* Wait for the thread to finish before continuing. */
+    ma_thread_wait(&pDevice->null_device.deviceThread);
+
     /* At this point the loop in the device thread is as good as terminated so we can uninitialize our events. */
+    ma_semaphore_uninit(&pDevice->null_device.operationSemaphore);
     ma_event_uninit(&pDevice->null_device.operationCompletionEvent);
     ma_event_uninit(&pDevice->null_device.operationEvent);
 
@@ -12047,7 +12047,12 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
         return result;
     }
 
-    result = ma_thread_create(&pDevice->thread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice);
+    result = ma_semaphore_init(1, &pDevice->null_device.operationSemaphore);    /* <-- It's important that the initial value is set to 1. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_thread_create(&pDevice->null_device.deviceThread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -32127,6 +32132,14 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         */
         MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTING);
 
+        /* If the device has a start callback, start it now. */
+        if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
+            ma_result result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+            if (result != MA_SUCCESS) {
+                pDevice->workResult = result;   /* Failed to start the device. */
+            }
+        }
+
         /* Make sure the state is set appropriately. */
         ma_device__set_state(pDevice, MA_STATE_STARTED);
         ma_event_signal(&pDevice->startEvent);
@@ -32146,15 +32159,20 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             }
         }
 
-
         /*
         Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
         may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
         don't want to be doing this a second time.
         */
         if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            if (pDevice->pContext->onDeviceStop) {
-                pDevice->pContext->onDeviceStop(pDevice);
+            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+                    pDevice->pContext->callbacks.onDeviceStop(pDevice);
+                }
+            } else {
+                if (pDevice->pContext->onDeviceStop != NULL) {
+                    pDevice->pContext->onDeviceStop(pDevice);
+                }
             }
         }
 
@@ -33285,6 +33303,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
         /* Wait for the worker thread to put the device into it's stopped state for real. */
         ma_event_wait(&pDevice->stopEvent);
+        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
     } else {
         /*
         If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. Note that this needs to be done
@@ -33558,20 +33577,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
         } else {
-            /* Synchronous backends. Devices can optionally have a stop operation here. */
-            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
-                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                    result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
-                } else {
-                    result = MA_SUCCESS;
-                }
-            } else {
-                if (pDevice->pContext->onDeviceStop != NULL) {
-                    result = pDevice->pContext->onDeviceStop(pDevice);
-                } else {
-                    result = MA_SUCCESS;
-                }
-            }
+            /* Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. */
 
             /*
             We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
@@ -64534,7 +64540,9 @@ v0.10.27 - TBD
   - Add support for configuring the channel mixing mode in the device config.
   - Fix a bug with simple channel mixing mode (drop or silence excess channels).
   - Fix some bugs with trying to access uninitialized variables.
+  - Fix some errors with stopping devices for synchronous backends where the backend's stop callback would get fired twice.
   - PulseAudio: Fix some data race errors.
+  - Null Backend: Fix some data races and deadlocking bugs.
   
 
 v0.10.26 - 2020-11-24
