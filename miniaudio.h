@@ -22818,9 +22818,13 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
         return result;
     }
 
+    /* We should start the mainloop locked and unlock once ready to wait . */
+    ma_mainloop_lock__pulse(pContext, "ma_context_init__pulse");
+
     /* With the mainloop created we can now start it. */
     result = ma_result_from_pulse(((ma_pa_threaded_mainloop_start_proc)pContext->pulse.pa_threaded_mainloop_start)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop));
     if (result != MA_SUCCESS) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to start mainloop.", result);
         ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
         ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
@@ -22830,10 +22834,9 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
         return result;
     }
 
-    ma_mainloop_lock__pulse(pContext, "ma_context_init__pulse");
     pContext->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(((ma_pa_threaded_mainloop_get_api_proc)pContext->pulse.pa_threaded_mainloop_get_api)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop), pConfig->pulse.pApplicationName);
-    ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
     if (pContext->pulse.pPulseContext == NULL) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
         result = ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio context.", MA_FAILED_TO_INIT_BACKEND);
         ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
         ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
@@ -22844,10 +22847,9 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     }
 
     /* Now we need to connect to the context. Everything is asynchronous so we need to wait for it to connect before returning. */
-    ma_mainloop_lock__pulse(pContext, "ma_context_init__pulse");
     result = ma_result_from_pulse(((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pContext->pulse.pPulseContext, pConfig->pulse.pServerName, (pConfig->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
-    ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
     if (result != MA_SUCCESS) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.", result);
         ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
         ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
@@ -22856,6 +22858,9 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     #endif
         return result;
     }
+
+    /* Can now unlock. */
+    ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
 
     /* Since ma_context_init() runs synchronously we need to wait for the PulseAudio context to connect before we return. */
     result = ma_context_wait_for_pa_context_to_connect__pulse(pContext);
