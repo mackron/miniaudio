@@ -11931,6 +11931,8 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
 
+    (void)cbResult; /* Silence a static analysis warning. */
+
     return MA_SUCCESS;
 }
 
@@ -23001,6 +23003,8 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
 
+    (void)cbResult; /* For silencing a static analysis warning. */
+
     return MA_SUCCESS;
 }
 
@@ -33487,7 +33491,6 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_start() called when the device is already started.", MA_INVALID_OPERATION);  /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
@@ -33555,7 +33558,6 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_stop() called when the device is already stopped.", MA_INVALID_OPERATION);   /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
