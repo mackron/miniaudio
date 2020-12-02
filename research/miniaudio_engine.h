@@ -1636,6 +1636,7 @@ MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
 MA_API ma_result ma_sound_set_effect(ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
+MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
@@ -9013,6 +9014,15 @@ MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan)
     }
 
     return ma_panner_set_pan(&pSound->effect.panner, pan);
+}
+
+MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_panner_set_mode(&pSound->effect.panner, pan_mode);
 }
 
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
