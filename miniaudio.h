@@ -44466,7 +44466,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  15
+#define DRWAV_VERSION_REVISION  16
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -51114,7 +51114,7 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_le(drwav* pWav, drwav_uint64 frames
     }
     bytesToRead = framesToRead * bytesPerFrame;
     if (bytesToRead > DRWAV_SIZE_MAX) {
-        framesToRead = DRWAV_SIZE_MAX / bytesPerFrame;
+        bytesToRead = (DRWAV_SIZE_MAX / bytesPerFrame) * bytesPerFrame;
     }
     if (bytesToRead == 0) {
         return 0;

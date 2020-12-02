@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.15 - 2020-11-21
+dr_wav - v0.12.16 - 2020-12-02
 
 David Reid - mackron@gmail.com
 
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  15
+#define DRWAV_VERSION_REVISION  16
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -3604,7 +3604,7 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_le(drwav* pWav, drwav_uint64 frames
     /* Don't try to read more samples than can potentially fit in the output buffer. */
     bytesToRead = framesToRead * bytesPerFrame;
     if (bytesToRead > DRWAV_SIZE_MAX) {
-        framesToRead = DRWAV_SIZE_MAX / bytesPerFrame;
+        bytesToRead = (DRWAV_SIZE_MAX / bytesPerFrame) * bytesPerFrame; /* Round the number of bytes to read to a clean frame boundary. */
     }
 
     /*
@@ -6053,6 +6053,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.16 - 2020-12-02
+  - Fix a bug when trying to read more bytes than can fit in a size_t.
+
 v0.12.15 - 2020-11-21
   - Fix compilation with OpenWatcom.
 
