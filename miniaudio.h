@@ -42431,7 +42431,6 @@ MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes)
     writeOffset = pRB->encodedWriteOffset;
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    newReadOffsetInBytes = readOffsetInBytes;
     newReadOffsetLoopFlag = readOffsetLoopFlag;
 
     /* We cannot go past the write buffer. */
@@ -42476,7 +42475,6 @@ MA_API ma_result ma_rb_seek_write(ma_rb* pRB, size_t offsetInBytes)
     writeOffset = pRB->encodedWriteOffset;
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    newWriteOffsetInBytes = writeOffsetInBytes;
     newWriteOffsetLoopFlag = writeOffsetLoopFlag;
 
     /* We cannot go past the write buffer. */
