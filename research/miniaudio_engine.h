@@ -6714,12 +6714,14 @@ done:
             pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
         }
 
-        /* The job has been set up so it can now be posted. */
-        result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferJob);
-
-        /* The result needs to be set to MA_BUSY to ensure the status of the data buffer is set properly in the next section. */
         if (result == MA_SUCCESS) {
-            result = MA_BUSY;
+            /* The job has been set up so it can now be posted. */
+            result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferJob);
+
+            /* The result needs to be set to MA_BUSY to ensure the status of the data buffer is set properly in the next section. */
+            if (result == MA_SUCCESS) {
+                result = MA_BUSY;
+            }
         }
             
         /* We want to make sure we don't signal the event here. It needs to be delayed until the last page. */
