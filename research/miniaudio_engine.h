@@ -5598,46 +5598,47 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
 }
 
 
-static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData)
 {
     ma_result result;
     ma_resource_manager_data_buffer_node* pInsertPoint;
+    ma_resource_manager_data_buffer_node* pNode;
 
     result = ma_resource_manager_data_buffer_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
     if (result == MA_ALREADY_EXISTS) {
         /* Fast path. The data buffer already exists. We just need to increment the reference counter and signal the event, if any. */
-        pDataBuffer->pNode = pInsertPoint;
+        pNode = pInsertPoint;
 
-        result = ma_resource_manager_data_buffer_node_increment_ref(pResourceManager, pDataBuffer->pNode, NULL);
+        result = ma_resource_manager_data_buffer_node_increment_ref(pResourceManager, pNode, NULL);
         if (result != MA_SUCCESS) {
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
     } else {
         /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
-        pDataBuffer->pNode = (ma_resource_manager_data_buffer_node*)ma__malloc_from_callbacks(sizeof(*pDataBuffer->pNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
-        if (pDataBuffer->pNode == NULL) {
+        pNode = (ma_resource_manager_data_buffer_node*)ma__malloc_from_callbacks(sizeof(*pNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+        if (pNode == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
-        MA_ZERO_OBJECT(pDataBuffer->pNode);
-        pDataBuffer->pNode->hashedName32 = hashedName32;
-        pDataBuffer->pNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
-        pDataBuffer->pNode->data.type    = type;
-        pDataBuffer->pNode->result       = MA_SUCCESS;
+        MA_ZERO_OBJECT(pNode);
+        pNode->hashedName32 = hashedName32;
+        pNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
+        pNode->data.type    = type;
+        pNode->result       = MA_SUCCESS;
 
-        result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBuffer->pNode, pInsertPoint);
+        result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pNode, pInsertPoint);
         if (result != MA_SUCCESS) {
             return result;  /* Should never happen. Failed to insert the data buffer into the BST. */
         }
 
-        pDataBuffer->pNode->isDataOwnedByResourceManager = MA_FALSE;
-        pDataBuffer->pNode->data = *pExistingData;
+        pNode->isDataOwnedByResourceManager = MA_FALSE;
+        pNode->data = *pExistingData;
     }
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 hashedName32;
@@ -5650,7 +5651,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
 
     ma_mutex_lock(&pResourceManager->dataBufferLock);
     {
-        result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, type, pExistingData, pDataBuffer);
+        result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, type, pExistingData);
     }
     ma_mutex_lock(&pResourceManager->dataBufferLock);
 
@@ -5667,7 +5668,7 @@ MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* 
     data.decoded.channels   = channels;
     data.decoded.sampleRate = sampleRate;
 
-    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data, NULL);
+    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data);
 }
 
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
@@ -5677,7 +5678,7 @@ MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* 
     data.encoded.pData       = pData;
     data.encoded.sizeInBytes = sizeInBytes;
 
-    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data, NULL);
+    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data);
 }
 
 
