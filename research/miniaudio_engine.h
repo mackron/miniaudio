@@ -3155,7 +3155,6 @@ MA_API ma_result ma_mixer_begin(ma_mixer* pMixer, ma_mixer* pParentMixer, ma_uin
     if (pParentMixer != NULL) {
         /* The output frame count must match the input frame count of the parent. If this cannot be accommodated we need to fail. */
         frameCountOut = pParentMixer->mixingState.frameCountIn;
-        frameCountIn  = frameCountOut;
     } else {
         if (pFrameCountOut == NULL) {
             return MA_INVALID_ARGS; /* The desired output frame count is required for a root level mixer. */
@@ -3421,7 +3420,7 @@ static ma_result ma_mixer_mix_data_source_read(ma_mixer* pMixer, ma_data_source*
     ma_uint8  preMixBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 preMixBufferCap;
     ma_uint64 totalFramesProcessed = 0;
-    void* pRunningAccumulationBuffer = pMixer->pAccumulationBuffer;
+    void* pRunningAccumulationBuffer;
     ma_format effectFormatIn = ma_format_unknown;
     ma_uint32 effectChannelsIn = 0;
     ma_format preMixFormat = ma_format_unknown;
