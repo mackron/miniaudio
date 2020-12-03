@@ -7425,7 +7425,7 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
 
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
-    if (pSpatializer || pFramesOut == NULL || pFramesIn) {
+    if (pSpatializer == NULL || pFramesOut == NULL || pFramesIn == NULL) {
         return MA_INVALID_ARGS;
     }
 
