@@ -47701,6 +47701,8 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                 if (requiredInputFrameCount > 0) {
                     framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
                     totalFramesReadIn += framesReadThisIterationIn;
+                } else {
+                    framesReadThisIterationIn = 0;
                 }
 
                 /*
@@ -64562,6 +64564,7 @@ v0.10.27 - TBD
   - Fix a bug with simple channel mixing mode (drop or silence excess channels).
   - Fix some bugs with trying to access uninitialized variables.
   - Fix some errors with stopping devices for synchronous backends where the backend's stop callback would get fired twice.
+  - Fix a bug in the decoder due to using an uninitialized variable.
   - PulseAudio: Fix some data race errors.
   - Null Backend: Fix some data races and deadlocking bugs.
   
