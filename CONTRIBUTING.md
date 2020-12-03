@@ -75,7 +75,7 @@ incur the cost of maintaining build systems in miniaudio.
 
 ### "Would you consider feature XYZ? It requires C11, but don't worry, all compilers support it."
 One of the philosophies of miniaudio is that it should just work, and that includes compilation environment. There's
-no real reason to not support support older compilers. Newer versions of C will not add anything of any significance
+no real reason to not support older compilers. Newer versions of C will not add anything of any significance
 that cannot already be done in C89.
 
 ### "Will you consider adding a third license option such as [my favourite license]?"
