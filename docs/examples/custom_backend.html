@@ -590,7 +590,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     ma_device_handle_backend_data_callback((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, pBuffer, NULL, (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx-&gt;device.capture.internalFormat, pDeviceEx-&gt;device.capture.internalChannels));
 }
 
-<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, ma_device_type deviceType, ma_device_descriptor* pDescriptor)
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, <span style="color:#0033ff">const</span> <span style="color:#0099cc">ma_device_config</span>* pConfig, ma_device_descriptor* pDescriptor)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pDeviceEx-&gt;device.pContext;
     MA_SDL_AudioSpec desiredSpec;
@@ -611,8 +611,32 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
         pDescriptor-&gt;sampleRate = MA_DEFAULT_SAMPLE_RATE;
     }
 
+    <span style="color:#009900">/*
+    When determining the period size, you need to take defaults into account. This is how the size of the period should be determined.
+
+        1) If periodSizeInFrames is not 0, use periodSizeInFrames; else
+        2) If periodSizeInMilliseconds is not 0, use periodSizeInMilliseconds; else
+        3) If both periodSizeInFrames and periodSizeInMilliseconds is 0, use the backend&#39;s default. If the backend does not allow a default
+           buffer size, use a default value of MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY or 
+           MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE depending on the value of pConfig-&gt;performanceProfile.
+
+    Note that options 2 and 3 require knowledge of the sample rate in order to convert it to a frame count. You should try to keep the
+    calculation of the period size as accurate as possible, but sometimes it&#39;s just not practical so just use whatever you can.
+    */</span>
     <span style="color:#0033ff">if</span> (pDescriptor-&gt;periodSizeInFrames == 0) {
-        pDescriptor-&gt;periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor-&gt;periodSizeInMilliseconds, pDescriptor-&gt;sampleRate);
+        <span style="color:#0033ff">if</span> (pDescriptor-&gt;periodSizeInMilliseconds == 0) {
+            <span style="color:#009900">/* The default period size has been requested. I don&#39;t think SDL has an API to retrieve this, so just using defaults defined by miniaudio. */</span>
+            <span style="color:#0033ff">if</span> (pConfig-&gt;performanceProfile == ma_performance_profile_low_latency) {
+                pDescriptor-&gt;periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptor-&gt;sampleRate);
+            } <span style="color:#0033ff">else</span> {
+                pDescriptor-&gt;periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptor-&gt;sampleRate);
+            }
+        } <span style="color:#0033ff">else</span> {
+            <span style="color:#009900">/* An explicit period size in milliseconds was specified. */</span>
+            pDescriptor-&gt;periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor-&gt;periodSizeInMilliseconds, pDescriptor-&gt;sampleRate);
+        }
+    } <span style="color:#0033ff">else</span> {
+        <span style="color:#009900">/* Nothing to do here. An explicit period size in frames was specified. */</span>
     }
 
     <span style="color:#009900">/* SDL wants the buffer size to be a power of 2 for some reason. */</span>
@@ -629,7 +653,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     desiredSpec.format   = ma_format_to_sdl(pDescriptor-&gt;format);
     desiredSpec.channels = (<span style="color:#0099cc">ma_uint8</span>)pDescriptor-&gt;channels;
     desiredSpec.samples  = (<span style="color:#0099cc">ma_uint16</span>)pDescriptor-&gt;periodSizeInFrames;
-    desiredSpec.callback = (deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
+    desiredSpec.callback = (pConfig-&gt;deviceType == ma_device_type_capture) ? ma_audio_callback_capture__sdl : ma_audio_callback_playback__sdl;
     desiredSpec.userdata = pDeviceEx;
 
     <span style="color:#009900">/* We&#39;ll fall back to f32 if we don&#39;t have an appropriate mapping between SDL and miniaudio. */</span>
@@ -639,15 +663,15 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 
     pDeviceName = NULL;
     <span style="color:#0033ff">if</span> (pDescriptor-&gt;pDeviceID != NULL) {
-        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(pDescriptor-&gt;pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>, (deviceType == ma_device_type_playback) ? 0 : 1);
+        pDeviceName = ((MA_PFN_SDL_GetAudioDeviceName)pContextEx-&gt;sdl.SDL_GetAudioDeviceName)(pDescriptor-&gt;pDeviceID-&gt;custom.<span style="color:#0033ff">i</span>, (pConfig-&gt;deviceType == ma_device_type_playback) ? 0 : 1);
     }
 
-    deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
+    deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (pConfig-&gt;deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
     <span style="color:#0033ff">if</span> (deviceID == 0) {
         <span style="color:#0033ff">return</span> ma_post_error((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL2 device.&quot;</span>, MA_FAILED_TO_OPEN_BACKEND_DEVICE);
     }
 
-    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback) {
+    <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_playback) {
         pDeviceEx-&gt;sdl.deviceIDPlayback = deviceID;
     } <span style="color:#0033ff">else</span> {
         pDeviceEx-&gt;sdl.deviceIDCapture = deviceID;
@@ -664,7 +688,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     <span style="color:#0033ff">return</span> MA_SUCCESS;
 }
 
-<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init__sdl(<span style="color:#0099cc">ma_device</span>* pDevice, ma_device_type deviceType, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_device_init__sdl(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">const</span> <span style="color:#0099cc">ma_device_config</span>* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
@@ -673,21 +697,21 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     MA_ASSERT(pDevice != NULL);
     
     <span style="color:#009900">/* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it&#39;s requested. */</span>
-    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_loopback) {
+    <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_loopback) {
         <span style="color:#0033ff">return</span> MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_capture, pDescriptorCapture);
+    <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_capture || pConfig-&gt;deviceType == ma_device_type_duplex) {
+        result = ma_device_init_internal__sdl(pDeviceEx, pConfig, pDescriptorCapture);
         <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
             <span style="color:#0033ff">return</span> result;
         }
     }
 
-    <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        result = ma_device_init_internal__sdl(pDeviceEx, ma_device_type_playback, pDescriptorPlayback);
+    <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_playback || pConfig-&gt;deviceType == ma_device_type_duplex) {
+        result = ma_device_init_internal__sdl(pDeviceEx, pConfig, pDescriptorPlayback);
         <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-            <span style="color:#0033ff">if</span> (deviceType == ma_device_type_duplex) {
+            <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_duplex) {
                 ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture);
             }
 
@@ -767,7 +791,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     <span style="color:#0033ff">return</span> MA_SUCCESS;
 }
 
-<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__sdl(<span style="color:#0099cc">ma_context</span>* pContext, ma_backend_callbacks* pCallbacks)
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__sdl(<span style="color:#0099cc">ma_context</span>* pContext, <span style="color:#0033ff">const</span> <span style="color:#0099cc">ma_context_config</span>* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
     <span style="color:#0033ff">int</span> resultSDL;
@@ -786,6 +810,8 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     };
 
     MA_ASSERT(pContext != NULL);
+
+    (<span style="color:#0033ff">void</span>)pConfig;
 
     <span style="color:#009900">/* Check if we have SDL2 installed somewhere. If not it&#39;s not usable and we need to abort. */</span>
     <span style="color:#0033ff">for</span> (iName = 0; iName &lt; ma_countof(pSDLNames); iName += 1) {
@@ -848,7 +874,7 @@ you want to handle backend selection.
 
 This is used as the onContextInit() callback in the context config.
 */</span>
-<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__custom_loader(<span style="color:#0099cc">ma_context</span>* pContext, ma_backend_callbacks* pCallbacks)
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_init__custom_loader(<span style="color:#0099cc">ma_context</span>* pContext, <span style="color:#0033ff">const</span> <span style="color:#0099cc">ma_context_config</span>* pConfig, ma_backend_callbacks* pCallbacks)
 {
     <span style="color:#0099cc">ma_result</span> result = MA_NO_BACKEND;
 
@@ -859,7 +885,7 @@ This is used as the onContextInit() callback in the context config.
     <span style="color:#009900">/* SDL. */</span>
 <span style="color:#666666">#if</span> !defined(MA_NO_SDL)
     <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-        result = ma_context_init__sdl(pContext, pCallbacks);
+        result = ma_context_init__sdl(pContext, pConfig, pCallbacks);
     }
 <span style="color:#666666">#endif</span>
 
@@ -937,7 +963,7 @@ Main program starts here.
     ma_waveform_init(&amp;sineWaveConfig, &amp;sineWave);
 
     <span style="color:#009900">/* The device is created exactly as per normal. */</span>
-    deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = DEVICE_FORMAT;
     deviceConfig.playback.channels = DEVICE_CHANNELS;
     deviceConfig.capture.format    = DEVICE_FORMAT;

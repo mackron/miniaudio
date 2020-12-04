@@ -638,7 +638,7 @@ first is to use the <span style="font-family:monospace;">MA_NO_RUNTIME_LINKING</
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#666666">#ifdef</span> __APPLE__
     <span style="color:#666666">#define</span> MA_NO_RUNTIME_LINKING
-<span style="color:#666666">#endif</span> 
+<span style="color:#666666">#endif</span>
 <span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 </pre></div><p>
@@ -963,7 +963,7 @@ MA_LOG_LEVEL [level]
 </p>
 </td>
 <td class="doc" valign="top"><p>
-Sets the logging level. Set level to one of the following:
+Sets the logging level. Set <span style="font-family:monospace;">level</span> to one of the following:
 
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
@@ -978,7 +978,7 @@ MA_LOG_LEVEL_ERROR
 MA_DEBUG_OUTPUT</p>
 </td>
 <td class="doc" valign="top"><p>
-Enable printf() debug output.</p>
+Enable <span style="font-family:monospace;">printf()</span> debug output.</p>
 </td>
 </tr>
 <tr>
@@ -1140,7 +1140,8 @@ All formats are native-endian.
 </p>
 <h1 id="Decoding" class="man">4. Decoding</h1>
 <p>
-The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. The following formats are supported:
+The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. Decoders are completely decoupled from devices and can be used independently. The following formats are
+supported:
 </p>
 <p>
 
@@ -1256,8 +1257,8 @@ with <span style="font-family:monospace;">ma_decoder_init()</span>. Here is an e
 ma_decoder_uninit(&amp;decoder);
 </pre></div><p>
 
-When initializing a decoder, you can optionally pass in a pointer to a ma_decoder_config object (the NULL argument in the example above) which allows you to
-configure the output format, channel count, sample rate and channel map:
+When initializing a decoder, you can optionally pass in a pointer to a <span style="font-family:monospace;">ma_decoder_config</span> object (the <span style="font-family:monospace;">NULL</span> argument in the example above) which allows you
+to configure the output format, channel count, sample rate and channel map:
 </p>
 <p>
 
@@ -1266,7 +1267,7 @@ configure the output format, channel count, sample rate and channel map:
 <span style="color:#0099cc">ma_decoder_config</span> config = ma_decoder_config_init(ma_format_f32, 2, 48000);
 </pre></div><p>
 
-When passing in NULL for decoder config in <span style="font-family:monospace;">ma_decoder_init*()</span>, the output format will be the same as that defined by the decoding backend.
+When passing in <span style="font-family:monospace;">NULL</span> for decoder config in <span style="font-family:monospace;">ma_decoder_init*()</span>, the output format will be the same as that defined by the decoding backend.
 </p>
 <p>
 
@@ -1662,7 +1663,7 @@ ma_standard_channel_map_webaudio</p>
 </td>
 </tr>
 </table></div><p>
-Below are the channel maps used by default in miniaudio (ma_standard_channel_map_default):
+Below are the channel maps used by default in miniaudio (<span style="font-family:monospace;">ma_standard_channel_map_default</span>):
 </p>
 <p>
 
@@ -2011,7 +2012,7 @@ The API for the linear resampler is the same as the main resampler API, only it&
 <p>
 The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
 domain, it is strictly opt-in and all of it&#39;s code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it&#39;s
-source files. To opt-in, you must first #include the following file before the implementation of miniaudio.h:
+source files. To opt-in, you must first <span style="font-family:monospace;">#include</span> the following file before the implementation of miniaudio.h:
 </p>
 <p>
 
@@ -2123,8 +2124,8 @@ The data converter supports multiple channels and is always interleaved (both in
 
 Sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the only
 configuration property that can be changed after initialization, but only if the <span style="font-family:monospace;">resampling.allowDynamicSampleRate</span> member of <span style="font-family:monospace;">ma_data_converter_config</span> is
-set to MA_TRUE. To change the sample rate, use <span style="font-family:monospace;">ma_data_converter_set_rate()</span> or <span style="font-family:monospace;">ma_data_converter_set_rate_ratio()</span>. The ratio must be in/out. The resampling
-algorithm cannot be changed after initialization.
+set to <span style="font-family:monospace;">MA_TRUE</span>. To change the sample rate, use <span style="font-family:monospace;">ma_data_converter_set_rate()</span> or <span style="font-family:monospace;">ma_data_converter_set_rate_ratio()</span>. The ratio must be in/out. The
+resampling algorithm cannot be changed after initialization.
 </p>
 <p>
 
@@ -2282,7 +2283,7 @@ Filtering can be applied in-place by passing in the same pointer for both the in
 ma_lpf_process_pcm_frames(&amp;lpf, pMyData, pMyData, frameCount);
 </pre></div><p>
 
-The maximum filter order is limited to MA_MAX_FILTER_ORDER which is set to 8. If you need more, you can chain first and second order filters together.
+The maximum filter order is limited to <span style="font-family:monospace;">MA_MAX_FILTER_ORDER</span> which is set to 8. If you need more, you can chain first and second order filters together.
 </p>
 <p>
 
@@ -2558,8 +2559,8 @@ miniaudio supports generation of sine, square, triangle and sawtooth waveforms. 
 ma_waveform_read_pcm_frames(&amp;waveform, pOutput, frameCount);
 </pre></div><p>
 
-The amplitude, frequency and sample rate can be changed dynamically with <span style="font-family:monospace;">ma_waveform_set_amplitude()</span>, <span style="font-family:monospace;">ma_waveform_set_frequency()</span> and
-<span style="font-family:monospace;">ma_waveform_set_sample_rate()</span> respectively.
+The amplitude, frequency, type, and sample rate can be changed dynamically with <span style="font-family:monospace;">ma_waveform_set_amplitude()</span>, <span style="font-family:monospace;">ma_waveform_set_frequency()</span>,
+<span style="font-family:monospace;">ma_waveform_set_type()</span>, and <span style="font-family:monospace;">ma_waveform_set_sample_rate()</span> respectively.
 </p>
 <p>
 
@@ -2631,7 +2632,11 @@ ma_noise_read_pcm_frames(&amp;noise, pOutput, frameCount);
 </pre></div><p>
 
 The noise API uses simple LCG random number generation. It supports a custom seed which is useful for things like automated testing requiring reproducibility.
-Setting the seed to zero will default to MA_DEFAULT_LCG_SEED.
+Setting the seed to zero will default to <span style="font-family:monospace;">MA_DEFAULT_LCG_SEED</span>.
+</p>
+<p>
+
+The amplitude, seed, and type can be changed dynamically with <span style="font-family:monospace;">ma_noise_set_amplitude()</span>, <span style="font-family:monospace;">ma_noise_set_seed()</span>, and <span style="font-family:monospace;">ma_noise_set_type()</span> respectively.
 </p>
 <p>
 
@@ -2707,12 +2712,12 @@ result = ma_audio_buffer_init(&amp;config, &amp;buffer);
 ma_audio_buffer_uninit(&amp;buffer);
 </pre></div><p>
 
-In the example above, the memory pointed to by <span style="font-family:monospace;">pExistingData</span> will _not_ be copied and is how an application can do self-managed memory allocation. If you
+In the example above, the memory pointed to by <span style="font-family:monospace;">pExistingData</span> will *not* be copied and is how an application can do self-managed memory allocation. If you
 would rather make a copy of the data, use <span style="font-family:monospace;">ma_audio_buffer_init_copy()</span>. To uninitialize the buffer, use <span style="font-family:monospace;">ma_audio_buffer_uninit()</span>.
 </p>
 <p>
 
-Sometimes it can be convenient to allocate the memory for the <span style="font-family:monospace;">ma_audio_buffer</span> structure _and_ the raw audio data in a contiguous block of memory. That is,
+Sometimes it can be convenient to allocate the memory for the <span style="font-family:monospace;">ma_audio_buffer</span> structure and the raw audio data in a contiguous block of memory. That is,
 the raw audio data will be located immediately after the <span style="font-family:monospace;">ma_audio_buffer</span> structure. To do this, use <span style="font-family:monospace;">ma_audio_buffer_alloc_and_init()</span>:
 </p>
 <p>
@@ -2829,7 +2834,7 @@ sub-buffers you can use <span style="font-family:monospace;">ma_pcm_rb_get_subbu
 </p>
 <p>
 
-Use &#39;ma_pcm_rb_acquire_read()<span style="font-family:monospace;"> and </span>ma_pcm_rb_acquire_write()` to retrieve a pointer to a section of the ring buffer. You specify the number of frames you
+Use <span style="font-family:monospace;">ma_pcm_rb_acquire_read()</span> and <span style="font-family:monospace;">ma_pcm_rb_acquire_write()</span> to retrieve a pointer to a section of the ring buffer. You specify the number of frames you
 need, and on output it will set to what was actually acquired. If the read or write pointer is positioned such that the number of frames requested will require
 a loop, it will be clamped to the end of the buffer. Therefore, the number of frames you&#39;re given may be less than the number you requested.
 </p>
@@ -2838,7 +2843,7 @@ a loop, it will be clamped to the end of the buffer. Therefore, the number of fr
 After calling <span style="font-family:monospace;">ma_pcm_rb_acquire_read()</span> or <span style="font-family:monospace;">ma_pcm_rb_acquire_write()</span>, you do your work on the buffer and then &quot;commit&quot; it with <span style="font-family:monospace;">ma_pcm_rb_commit_read()</span> or
 <span style="font-family:monospace;">ma_pcm_rb_commit_write()</span>. This is where the read/write pointers are updated. When you commit you need to pass in the buffer that was returned by the earlier
 call to <span style="font-family:monospace;">ma_pcm_rb_acquire_read()</span> or <span style="font-family:monospace;">ma_pcm_rb_acquire_write()</span> and is only used for validation. The number of frames passed to <span style="font-family:monospace;">ma_pcm_rb_commit_read()</span> and
-<span style="font-family:monospace;">ma_pcm_rb_commit_write()</span> is what&#39;s used to increment the pointers.
+<span style="font-family:monospace;">ma_pcm_rb_commit_write()</span> is what&#39;s used to increment the pointers, and can be less that what was originally requested.
 </p>
 <p>
 
@@ -3033,6 +3038,17 @@ Web (via Emscripten)</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
+Custom</p>
+</td>
+<td class="doc" valign="top"><p>
+ma_backend_custom</p>
+</td>
+<td class="doc" valign="top"><p>
+Cross Platform</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
 Null</p>
 </td>
 <td class="doc" valign="top"><p>
@@ -3049,8 +3065,8 @@ Some backends have some nuance details you may want to be aware of.
 
 </p>
 <h2 id="WASAPI" class="man">11.1. WASAPI</h2>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 Low-latency shared mode will be disabled when using an application-defined sample rate which is different to the device&#39;s native sample rate. To work around
   this, set <span style="font-family:monospace;">wasapi.noAutoConvertSRC</span> to true in the device config. This is due to IAudioClient3_InitializeSharedAudioStream() failing when the
   <span style="font-family:monospace;">AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM</span> flag is specified. Setting wasapi.noAutoConvertSRC will result in miniaudio&#39;s internal resampler being used instead
@@ -3059,37 +3075,37 @@ Low-latency shared mode will be disabled when using an application-defined sampl
 </li>
 </ul>
 <h2 id="PulseAudio" class="man">11.2. PulseAudio</h2>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 If you experience bad glitching/noise on Arch Linux, consider this fix from the Arch wiki:
   <a href="https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling">https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting#Glitches,_skips_or_crackling</a>. Alternatively, consider using a different backend such as ALSA.
 
 </li>
 </ul>
 <h2 id="Android" class="man">11.3. Android</h2>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 To capture audio on Android, remember to add the RECORD_AUDIO permission to your manifest: <span style="font-family:monospace;">&lt;uses-permission android:name=&quot;android.permission.RECORD_AUDIO&quot; /&gt;</span>
 </li>
-<li style="overflow:hidden;">
+<li>
 With OpenSL|ES, only a single ma_context can be active at any given time. This is due to a limitation with OpenSL|ES.
 </li>
-<li style="overflow:hidden;">
+<li>
 With AAudio, only default devices are enumerated. This is due to AAudio not having an enumeration API (devices are enumerated through Java). You can however
   perform your own device enumeration through Java and then set the ID in the ma_device_id structure (ma_device_id.aaudio) and pass it to ma_device_init().
 </li>
-<li style="overflow:hidden;">
+<li>
 The backend API will perform resampling where possible. The reason for this as opposed to using miniaudio&#39;s built-in resampler is to take advantage of any
   potential device-specific optimizations the driver may implement.
 
 </li>
 </ul>
 <h2 id="UWP" class="man">11.4. UWP</h2>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 UWP only supports default playback and capture devices.
 </li>
-<li style="overflow:hidden;">
+<li>
 UWP requires the Microphone capability to be enabled in the application&#39;s manifest (Package.appxmanifest):
 
 </li>
@@ -3105,17 +3121,17 @@ UWP requires the Microphone capability to be enabled in the application&#39;s ma
 
 </p>
 <h2 id="WebAudio/Emscripten" class="man">11.5. Web Audio / Emscripten</h2>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 You cannot use <span style="font-family:monospace;">-std=c*</span> compiler flags, nor <span style="font-family:monospace;">-ansi</span>. This only applies to the Emscripten build.
 </li>
-<li style="overflow:hidden;">
+<li>
 The first time a context is initialized it will create a global object called &quot;miniaudio&quot; whose primary purpose is to act as a factory for device objects.
 </li>
-<li style="overflow:hidden;">
+<li>
 Currently the Web Audio backend uses ScriptProcessorNode&#39;s, but this may need to change later as they&#39;ve been deprecated.
 </li>
-<li style="overflow:hidden;">
+<li>
 Google has implemented a policy in their browsers that prevent automatic media output without first receiving some kind of user input. The following web page
   has additional details: <a href="https://developers.google.com/web/updates/2017/09/autoplay-policy-changes">https://developers.google.com/web/updates/2017/09/autoplay-policy-changes</a>. Starting the device may fail if you try to start playback
   without first handling some kind of user input.
@@ -3129,29 +3145,29 @@ Google has implemented a policy in their browsers that prevent automatic media o
 
 </p>
 <h1 id="MiscellaneousNotes" class="man">12. Miscellaneous Notes</h1>
-<ul>
-<li style="overflow:hidden;">
+<ul style="overflow:hidden;">
+<li>
 Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for WASAPI and Core Audio, however other backends such as
   PulseAudio may naturally support it, though not all have been tested.
 </li>
-<li style="overflow:hidden;">
-The contents of the output buffer passed into the data callback will always be pre-initialized to zero unless the <span style="font-family:monospace;">noPreZeroedOutputBuffer</span> config variable
+<li>
+The contents of the output buffer passed into the data callback will always be pre-initialized to silence unless the <span style="font-family:monospace;">noPreZeroedOutputBuffer</span> config variable
   in <span style="font-family:monospace;">ma_device_config</span> is set to true, in which case it&#39;ll be undefined which will require you to write something to the entire buffer.
 </li>
-<li style="overflow:hidden;">
+<li>
 By default miniaudio will automatically clip samples. This only applies when the playback sample format is configured as <span style="font-family:monospace;">ma_format_f32</span>. If you are doing
   clipping yourself, you can disable this overhead by setting <span style="font-family:monospace;">noClip</span> to true in the device config.
 </li>
-<li style="overflow:hidden;">
+<li>
 The sndio backend is currently only enabled on OpenBSD builds.
 </li>
-<li style="overflow:hidden;">
+<li>
 The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can use it.
 </li>
-<li style="overflow:hidden;">
+<li>
 Note that GCC and Clang requires <span style="font-family:monospace;">-msse2</span>, <span style="font-family:monospace;">-mavx2</span>, etc. for SIMD optimizations.
 </li>
-<li style="overflow:hidden;">
+<li>
 When compiling with VC6 and earlier, decoding is restricted to files less than 2GB in size. This is due to 64-bit file APIs not being available.
 </li>
 </ul>
