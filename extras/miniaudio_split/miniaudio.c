@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.26 - 2020-11-24
+miniaudio - v0.10.27 - 2020-12-04
 
 David Reid - mackron@gmail.com
 
@@ -3181,52 +3181,52 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 #endif
 #define c89atomic_flag_test_and_set(ptr)                                c89atomic_flag_test_and_set_explicit(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_flag_clear(ptr)                                       c89atomic_flag_clear_explicit(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_test_and_set_8( ptr)                                  c89atomic_test_and_set_explicit_8 (ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_ptr(dst, src)                                   c89atomic_store_explicit_ptr((volatile void**)dst, (void*)src, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_ptr(ptr)                                         c89atomic_load_explicit_ptr((volatile void**)ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_ptr(dst, src)                                c89atomic_exchange_explicit_ptr((volatile void**)dst, (void*)src, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_ptr(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_ptr((volatile void**)dst, (void*)expected, (void*)desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_ptr(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_ptr((volatile void**)dst, (void*)expected, (void*)desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_test_and_set_8( ptr)                                  c89atomic_test_and_set_explicit_8( ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_test_and_set_16(ptr)                                  c89atomic_test_and_set_explicit_16(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_test_and_set_32(ptr)                                  c89atomic_test_and_set_explicit_32(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_test_and_set_64(ptr)                                  c89atomic_test_and_set_explicit_64(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_clear_8( ptr)                                         c89atomic_clear_explicit_8 (ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_8( ptr)                                         c89atomic_clear_explicit_8( ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_clear_16(ptr)                                         c89atomic_clear_explicit_16(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_clear_32(ptr)                                         c89atomic_clear_explicit_32(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_clear_64(ptr)                                         c89atomic_clear_explicit_64(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_store_8(  dst, src)                                   c89atomic_store_explicit_8 ( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_store_16( dst, src)                                   c89atomic_store_explicit_16( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_store_32( dst, src)                                   c89atomic_store_explicit_32( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_store_64( dst, src)                                   c89atomic_store_explicit_64( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_store_ptr(dst, src)                                   c89atomic_store_explicit_ptr((volatile void**)dst, (void*)src, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_8(  ptr)                                         c89atomic_load_explicit_8 ( ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_16( ptr)                                         c89atomic_load_explicit_16( ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_32( ptr)                                         c89atomic_load_explicit_32( ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_64( ptr)                                         c89atomic_load_explicit_64( ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_ptr(ptr)                                         c89atomic_load_explicit_ptr((volatile void**)ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_8(  dst, src)                                c89atomic_exchange_explicit_8 ( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_16( dst, src)                                c89atomic_exchange_explicit_16( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_32( dst, src)                                c89atomic_exchange_explicit_32( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_64( dst, src)                                c89atomic_exchange_explicit_64( dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_ptr(dst, src)                                c89atomic_exchange_explicit_ptr((volatile void**)dst, (void*)src, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_strong_8(  dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_8 ( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_strong_16( dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_16( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_strong_32( dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_32( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_strong_64( dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_64( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_strong_ptr(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_ptr((volatile void**)dst, (void*)expected, (void*)desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_weak_8(  dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_8 ( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_weak_16( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_16( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_weak_32( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_32( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_weak_64( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_64( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_compare_exchange_weak_ptr(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_ptr((volatile void**)dst, (void*)expected, (void*)desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
-#define c89atomic_fetch_add_8( dst, src)                                c89atomic_fetch_add_explicit_8 (dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_8( dst, src)                                    c89atomic_store_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_16(dst, src)                                    c89atomic_store_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_32(dst, src)                                    c89atomic_store_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_64(dst, src)                                    c89atomic_store_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_8( ptr)                                          c89atomic_load_explicit_8( ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_16(ptr)                                          c89atomic_load_explicit_16(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_32(ptr)                                          c89atomic_load_explicit_32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_64(ptr)                                          c89atomic_load_explicit_64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_8( dst, src)                                 c89atomic_exchange_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_16(dst, src)                                 c89atomic_exchange_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_32(dst, src)                                 c89atomic_exchange_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_64(dst, src)                                 c89atomic_exchange_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_8( dst, expected, desired)    c89atomic_compare_exchange_strong_explicit_8( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_16(dst, expected, desired)    c89atomic_compare_exchange_strong_explicit_16(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_32(dst, expected, desired)    c89atomic_compare_exchange_strong_explicit_32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_64(dst, expected, desired)    c89atomic_compare_exchange_strong_explicit_64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_8(  dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_8( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_16( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_16(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_32( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_64( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_8( dst, src)                                c89atomic_fetch_add_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_add_16(dst, src)                                c89atomic_fetch_add_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_add_32(dst, src)                                c89atomic_fetch_add_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_add_64(dst, src)                                c89atomic_fetch_add_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_fetch_sub_8( dst, src)                                c89atomic_fetch_sub_explicit_8 (dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_8( dst, src)                                c89atomic_fetch_sub_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_sub_16(dst, src)                                c89atomic_fetch_sub_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_sub_32(dst, src)                                c89atomic_fetch_sub_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_sub_64(dst, src)                                c89atomic_fetch_sub_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_fetch_or_8( dst, src)                                 c89atomic_fetch_or_explicit_8 (dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_8( dst, src)                                 c89atomic_fetch_or_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_or_16(dst, src)                                 c89atomic_fetch_or_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_or_32(dst, src)                                 c89atomic_fetch_or_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_or_64(dst, src)                                 c89atomic_fetch_or_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_fetch_xor_8( dst, src)                                c89atomic_fetch_xor_explicit_8 (dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_8( dst, src)                                c89atomic_fetch_xor_explicit_8( dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_xor_16(dst, src)                                c89atomic_fetch_xor_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_xor_32(dst, src)                                c89atomic_fetch_xor_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_xor_64(dst, src)                                c89atomic_fetch_xor_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
@@ -3234,6 +3234,162 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 #define c89atomic_fetch_and_16(dst, src)                                c89atomic_fetch_and_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_32(dst, src)                                c89atomic_fetch_and_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_64(dst, src)                                c89atomic_fetch_and_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_test_and_set_explicit_i8( ptr, order)                 c89atomic_test_and_set_explicit_8( (c89atomic_uint8* )ptr, order)
+#define c89atomic_test_and_set_explicit_i16(ptr, order)                 c89atomic_test_and_set_explicit_16((c89atomic_uint16*)ptr, order)
+#define c89atomic_test_and_set_explicit_i32(ptr, order)                 c89atomic_test_and_set_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_test_and_set_explicit_i64(ptr, order)                 c89atomic_test_and_set_explicit_64((c89atomic_uint64*)ptr, order)
+#define c89atomic_clear_explicit_i8( ptr, order)                        c89atomic_clear_explicit_8( (c89atomic_uint8* )ptr, order)
+#define c89atomic_clear_explicit_i16(ptr, order)                        c89atomic_clear_explicit_16((c89atomic_uint16*)ptr, order)
+#define c89atomic_clear_explicit_i32(ptr, order)                        c89atomic_clear_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_clear_explicit_i64(ptr, order)                        c89atomic_clear_explicit_64((c89atomic_uint64*)ptr, order)
+#define c89atomic_store_explicit_i8( dst, src, order)                   c89atomic_store_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_store_explicit_i16(dst, src, order)                   c89atomic_store_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_store_explicit_i32(dst, src, order)                   c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_store_explicit_i64(dst, src, order)                   c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_load_explicit_i8( ptr, order)                         c89atomic_load_explicit_8( (c89atomic_uint8* )ptr, order)
+#define c89atomic_load_explicit_i16(ptr, order)                         c89atomic_load_explicit_16((c89atomic_uint16*)ptr, order)
+#define c89atomic_load_explicit_i32(ptr, order)                         c89atomic_load_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_load_explicit_i64(ptr, order)                         c89atomic_load_explicit_64((c89atomic_uint64*)ptr, order)
+#define c89atomic_exchange_explicit_i8( dst, src, order)                c89atomic_exchange_explicit_8 ((c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_exchange_explicit_i16(dst, src, order)                c89atomic_exchange_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_exchange_explicit_i32(dst, src, order)                c89atomic_exchange_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_exchange_explicit_i64(dst, src, order)                c89atomic_exchange_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_compare_exchange_strong_explicit_i8( dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8* )expected, (c89atomic_uint8 )desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_strong_explicit_i16(dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16*)expected, (c89atomic_uint16)desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_strong_explicit_i32(dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32*)expected, (c89atomic_uint32)desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_strong_explicit_i64(dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64*)expected, (c89atomic_uint64)desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_weak_explicit_i8( dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8* )expected, (c89atomic_uint8 )desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_weak_explicit_i16(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16*)expected, (c89atomic_uint16)desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_weak_explicit_i32(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32*)expected, (c89atomic_uint32)desired, successOrder, failureOrder)
+#define c89atomic_compare_exchange_weak_explicit_i64(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64*)expected, (c89atomic_uint64)desired, successOrder, failureOrder)
+#define c89atomic_fetch_add_explicit_i8( dst, src, order)               c89atomic_fetch_add_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_add_explicit_i16(dst, src, order)               c89atomic_fetch_add_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_add_explicit_i32(dst, src, order)               c89atomic_fetch_add_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_add_explicit_i64(dst, src, order)               c89atomic_fetch_add_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_sub_explicit_i8( dst, src, order)               c89atomic_fetch_sub_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_sub_explicit_i16(dst, src, order)               c89atomic_fetch_sub_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_sub_explicit_i32(dst, src, order)               c89atomic_fetch_sub_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_sub_explicit_i64(dst, src, order)               c89atomic_fetch_sub_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_or_explicit_i8( dst, src, order)                c89atomic_fetch_or_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_or_explicit_i16(dst, src, order)                c89atomic_fetch_or_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_or_explicit_i32(dst, src, order)                c89atomic_fetch_or_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_or_explicit_i64(dst, src, order)                c89atomic_fetch_or_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_xor_explicit_i8( dst, src, order)               c89atomic_fetch_xor_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_xor_explicit_i16(dst, src, order)               c89atomic_fetch_xor_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_xor_explicit_i32(dst, src, order)               c89atomic_fetch_xor_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_xor_explicit_i64(dst, src, order)               c89atomic_fetch_xor_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_and_explicit_i8( dst, src, order)               c89atomic_fetch_and_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_and_explicit_i16(dst, src, order)               c89atomic_fetch_and_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_and_explicit_i32(dst, src, order)               c89atomic_fetch_and_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_and_explicit_i64(dst, src, order)               c89atomic_fetch_and_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_test_and_set_i8( ptr)                                 c89atomic_test_and_set_explicit_i8( ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_test_and_set_i16(ptr)                                 c89atomic_test_and_set_explicit_i16(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_test_and_set_i32(ptr)                                 c89atomic_test_and_set_explicit_i32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_test_and_set_i64(ptr)                                 c89atomic_test_and_set_explicit_i64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_i8( ptr)                                        c89atomic_clear_explicit_i8( ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_i16(ptr)                                        c89atomic_clear_explicit_i16(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_i32(ptr)                                        c89atomic_clear_explicit_i32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_i64(ptr)                                        c89atomic_clear_explicit_i64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_i8( dst, src)                                   c89atomic_store_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_i16(dst, src)                                   c89atomic_store_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_i32(dst, src)                                   c89atomic_store_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_i64(dst, src)                                   c89atomic_store_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_i8( ptr)                                         c89atomic_load_explicit_i8( ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_i16(ptr)                                         c89atomic_load_explicit_i16(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_i32(ptr)                                         c89atomic_load_explicit_i32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_i64(ptr)                                         c89atomic_load_explicit_i64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_i8( dst, src)                                c89atomic_exchange_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_i16(dst, src)                                c89atomic_exchange_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_i32(dst, src)                                c89atomic_exchange_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_i64(dst, src)                                c89atomic_exchange_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_i8( dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_i8( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_i16(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_i16(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_i32(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_i32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_i64(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_i64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_i8( dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_i8( dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_i16(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_i16(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_i32(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_i32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_i64(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_i64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_i8( dst, src)                               c89atomic_fetch_add_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_i16(dst, src)                               c89atomic_fetch_add_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_i32(dst, src)                               c89atomic_fetch_add_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_i64(dst, src)                               c89atomic_fetch_add_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_i8( dst, src)                               c89atomic_fetch_sub_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_i16(dst, src)                               c89atomic_fetch_sub_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_i32(dst, src)                               c89atomic_fetch_sub_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_i64(dst, src)                               c89atomic_fetch_sub_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_i8( dst, src)                                c89atomic_fetch_or_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_i16(dst, src)                                c89atomic_fetch_or_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_i32(dst, src)                                c89atomic_fetch_or_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_i64(dst, src)                                c89atomic_fetch_or_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_i8( dst, src)                               c89atomic_fetch_xor_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_i16(dst, src)                               c89atomic_fetch_xor_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_i32(dst, src)                               c89atomic_fetch_xor_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_i64(dst, src)                               c89atomic_fetch_xor_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_i8( dst, src)                               c89atomic_fetch_and_explicit_i8( dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_i16(dst, src)                               c89atomic_fetch_and_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_i32(dst, src)                               c89atomic_fetch_and_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_i64(dst, src)                               c89atomic_fetch_and_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+typedef union
+{
+    c89atomic_uint32 i;
+    float f;
+} c89atomic_if32;
+typedef union
+{
+    c89atomic_uint64 i;
+    double f;
+} c89atomic_if64;
+#define c89atomic_clear_explicit_f32(ptr, order)                        c89atomic_clear_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_clear_explicit_f64(ptr, order)                        c89atomic_clear_explicit_64((c89atomic_uint64*)ptr, order)
+static C89ATOMIC_INLINE void c89atomic_store_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 x;
+    x.f = src;
+    c89atomic_store_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+}
+static C89ATOMIC_INLINE void c89atomic_store_explicit_f64(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if64 x;
+    x.f = src;
+    c89atomic_store_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+}
+static C89ATOMIC_INLINE float c89atomic_load_explicit_f32(volatile float* ptr, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    r.i = c89atomic_load_explicit_32((volatile c89atomic_uint32*)ptr, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_load_explicit_f64(volatile double* ptr, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    r.i = c89atomic_load_explicit_64((volatile c89atomic_uint64*)ptr, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE float c89atomic_exchange_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_exchange_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_exchange_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
+#define c89atomic_clear_f32(ptr)                                        c89atomic_clear_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_f64(ptr)                                        c89atomic_clear_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_f32(dst, src)                                   c89atomic_store_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_store_f64(dst, src)                                   c89atomic_store_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_f32(ptr)                                         c89atomic_load_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_f64(ptr)                                         c89atomic_load_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_f32(dst, src)                                c89atomic_exchange_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_f64(dst, src)                                c89atomic_exchange_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
 #if defined(__cplusplus)
 }
 #endif
@@ -5004,7 +5160,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 {
     float masterVolumeFactor;
 
-    masterVolumeFactor = pDevice->masterVolumeFactor;
+    ma_device_get_master_volume(pDevice, &masterVolumeFactor);  /* Use ma_device_get_master_volume() to ensure the volume is loaded atomically. */
 
     if (pDevice->onData) {
         if (!pDevice->noPreZeroedOutputBuffer && pFramesOut != NULL) {
@@ -5374,15 +5530,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
         }
     }
 
-    /* The device needs to be started immediately. */
-    if (pCallbacks->onDeviceStart != NULL) {
-        result = pCallbacks->onDeviceStart(pDevice);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    } else {
-        /* Getting here means no start callback is defined. This is OK, as the backend may auto-start the device when reading or writing data. */
-    }
+    /* NOTE: The device was started outside of this function, in the worker thread. */
 
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
         switch (pDevice->type) {
@@ -5526,11 +5674,6 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
         }
     }
 
-    /* We've exited the loop so we'll need to stop the device. */
-    if (pCallbacks->onDeviceStop != NULL) {
-        pCallbacks->onDeviceStop(pDevice);
-    }
-
     return result;
 }
 
@@ -5554,33 +5697,28 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
     MA_ASSERT(pDevice != NULL);
 
     for (;;) {  /* Keep the thread alive until the device is uninitialized. */
+        ma_uint32 operation;
+
         /* Wait for an operation to be requested. */
         ma_event_wait(&pDevice->null_device.operationEvent);
 
         /* At this point an event should have been triggered. */
+        operation = c89atomic_load_32(&pDevice->null_device.operation);
 
         /* Starting the device needs to put the thread into a loop. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_START__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-
+        if (operation == MA_DEVICE_OP_START__NULL) {
             /* Reset the timer just in case. */
             ma_timer_init(&pDevice->null_device.timer);
-
-            /* Keep looping until an operation has been requested. */
-            while (pDevice->null_device.operation != MA_DEVICE_OP_NONE__NULL && pDevice->null_device.operation != MA_DEVICE_OP_START__NULL) {
-                ma_sleep(10); /* Don't hog the CPU. */
-            }
 
             /* Getting here means a suspend or kill operation has been requested. */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
         }
 
         /* Suspending the device means we need to stop the timer and just continue the loop. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_SUSPEND__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
-
+        if (operation == MA_DEVICE_OP_SUSPEND__NULL) {
             /* We need to add the current run time to the prior run time, then reset the timer. */
             pDevice->null_device.priorRunTime += ma_timer_get_time_in_seconds(&pDevice->null_device.timer);
             ma_timer_init(&pDevice->null_device.timer);
@@ -5588,22 +5726,24 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             /* We're done. */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
         }
 
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_KILL__NULL) {
-            c89atomic_exchange_32(&pDevice->null_device.operation, MA_DEVICE_OP_NONE__NULL);
+        if (operation == MA_DEVICE_OP_KILL__NULL) {
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             break;
         }
 
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
-        if (pDevice->null_device.operation == MA_DEVICE_OP_NONE__NULL) {
+        if (operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
             c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
+            ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;   /* Continue the loop. Don't terminate. */
         }
     }
@@ -5613,16 +5753,34 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 
 static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 operation)
 {
+    ma_result result;
+
+    /*
+    The first thing to do is wait for an operation slot to become available. We only have a single slot for this, but we could extend this later
+    to support queing of operations.
+    */
+    result = ma_semaphore_wait(&pDevice->null_device.operationSemaphore);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to wait for the event. */
+    }
+
+    /*
+    When we get here it means the background thread is not referencing the operation code and it can be changed. After changing this we need to
+    signal an event to the worker thread to let it know that it can start work.
+    */
     c89atomic_exchange_32(&pDevice->null_device.operation, operation);
+
+    /* Once the operation code has been set, the worker thread can start work. */
     if (ma_event_signal(&pDevice->null_device.operationEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
 
+    /* We want everything to be synchronous so we're going to wait for the worker thread to complete it's operation. */
     if (ma_event_wait(&pDevice->null_device.operationCompletionEvent) != MA_SUCCESS) {
         return MA_ERROR;
     }
 
-    return pDevice->null_device.operationResult;
+    return c89atomic_load_i32(&pDevice->null_device.operationResult);
 }
 
 static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice)
@@ -5633,7 +5791,6 @@ static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice
     } else {
         internalSampleRate = pDevice->playback.internalSampleRate;
     }
-
 
     return (ma_uint64)((pDevice->null_device.priorRunTime + ma_timer_get_time_in_seconds(&pDevice->null_device.timer)) * internalSampleRate);
 }
@@ -5660,6 +5817,8 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
+
+    (void)cbResult; /* Silence a static analysis warning. */
 
     return MA_SUCCESS;
 }
@@ -5698,7 +5857,11 @@ static ma_result ma_device_uninit__null(ma_device* pDevice)
     /* Keep it clean and wait for the device thread to finish before returning. */
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_KILL__NULL);
 
+    /* Wait for the thread to finish before continuing. */
+    ma_thread_wait(&pDevice->null_device.deviceThread);
+
     /* At this point the loop in the device thread is as good as terminated so we can uninitialize our events. */
+    ma_semaphore_uninit(&pDevice->null_device.operationSemaphore);
     ma_event_uninit(&pDevice->null_device.operationCompletionEvent);
     ma_event_uninit(&pDevice->null_device.operationEvent);
 
@@ -5773,7 +5936,12 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
         return result;
     }
 
-    result = ma_thread_create(&pDevice->thread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice);
+    result = ma_semaphore_init(1, &pDevice->null_device.operationSemaphore);    /* <-- It's important that the initial value is set to 1. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_thread_create(&pDevice->null_device.deviceThread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -15209,9 +15377,7 @@ static ma_result ma_wait_for_operation__pulse(ma_context* pContext, ma_pa_operat
 
     for (;;) {
         ma_mainloop_lock__pulse(pContext, "ma_wait_for_operation__pulse");
-        {
-            state = ((ma_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP);
-        }
+        state = ((ma_pa_operation_get_state_proc)pContext->pulse.pa_operation_get_state)(pOP);
         ma_mainloop_unlock__pulse(pContext, "ma_wait_for_operation__pulse");
 
         if (state != MA_PA_OPERATION_RUNNING) {
@@ -15244,9 +15410,7 @@ static ma_result ma_context_wait_for_pa_context_to_connect__pulse(ma_context* pC
 
     for (;;) {
         ma_mainloop_lock__pulse(pContext, "ma_context_wait_for_pa_context_to_connect__pulse");
-        {
-            state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)((ma_pa_context*)pContext->pulse.pPulseContext);
-        }
+        state = ((ma_pa_context_get_state_proc)pContext->pulse.pa_context_get_state)((ma_pa_context*)pContext->pulse.pPulseContext);
         ma_mainloop_unlock__pulse(pContext, "ma_context_wait_for_pa_context_to_connect__pulse");
 
         if (state == MA_PA_CONTEXT_READY) {
@@ -15270,9 +15434,7 @@ static ma_result ma_context_wait_for_pa_stream_to_connect__pulse(ma_context* pCo
 
     for (;;) {
         ma_mainloop_lock__pulse(pContext, "ma_context_wait_for_pa_stream_to_connect__pulse");
-        {
-            state = ((ma_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)(pStream);
-        }
+        state = ((ma_pa_stream_get_state_proc)pContext->pulse.pa_stream_get_state)(pStream);
         ma_mainloop_unlock__pulse(pContext, "ma_context_wait_for_pa_stream_to_connect__pulse");
 
         if (state == MA_PA_STREAM_READY) {
@@ -15359,7 +15521,10 @@ static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const cha
 {
     ma_pa_operation* pOP;
 
+    ma_mainloop_lock__pulse(pContext, "ma_context_get_sink_info__pulse");
     pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_sink_info_callback, pSinkInfo);
+    ma_mainloop_unlock__pulse(pContext, "ma_context_get_sink_info__pulse");
+
     if (pOP == NULL) {
         return MA_ERROR;
     }
@@ -15372,7 +15537,10 @@ static ma_result ma_context_get_source_info__pulse(ma_context* pContext, const c
 {
     ma_pa_operation* pOP;
 
+    ma_mainloop_lock__pulse(pContext, "ma_context_get_source_info__pulse");
     pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, pDeviceName, ma_device_source_info_callback, pSourceInfo);
+    ma_mainloop_unlock__pulse(pContext, "ma_context_get_source_info__pulse");
+
     if (pOP == NULL) {
         return MA_ERROR;
     }
@@ -15516,7 +15684,10 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
 
     /* Playback. */
     if (!callbackData.isTerminated) {
+        ma_mainloop_lock__pulse(pContext, "ma_context_enumerate_devices__pulse");
         pOP = ((ma_pa_context_get_sink_info_list_proc)pContext->pulse.pa_context_get_sink_info_list)((ma_pa_context*)(pContext->pulse.pPulseContext), ma_context_enumerate_devices_sink_callback__pulse, &callbackData);
+        ma_mainloop_unlock__pulse(pContext, "ma_context_enumerate_devices__pulse");
+
         if (pOP == NULL) {
             result = MA_ERROR;
             goto done;
@@ -15532,7 +15703,10 @@ static ma_result ma_context_enumerate_devices__pulse(ma_context* pContext, ma_en
 
     /* Capture. */
     if (!callbackData.isTerminated) {
+        ma_mainloop_lock__pulse(pContext, "ma_context_enumerate_devices__pulse");
         pOP = ((ma_pa_context_get_source_info_list_proc)pContext->pulse.pa_context_get_source_info_list)((ma_pa_context*)(pContext->pulse.pPulseContext), ma_context_enumerate_devices_source_callback__pulse, &callbackData);
+        ma_mainloop_unlock__pulse(pContext, "ma_context_enumerate_devices__pulse");
+
         if (pOP == NULL) {
             result = MA_ERROR;
             goto done;
@@ -15641,11 +15815,13 @@ static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_devi
 
     result = ma_context_get_default_device_index__pulse(pContext, deviceType, &callbackData.defaultDeviceIndex);
 
+    ma_mainloop_lock__pulse(pContext, "ma_context_get_device_info__pulse");
     if (deviceType == ma_device_type_playback) {
         pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
     } else {
         pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
     }
+    ma_mainloop_unlock__pulse(pContext, "ma_context_get_device_info__pulse");
 
     if (pOP != NULL) {
         ma_wait_for_operation_and_unref__pulse(pContext, pOP);
@@ -15672,15 +15848,19 @@ static void ma_device_uninit__pulse(ma_device* pDevice)
     pContext = pDevice->pContext;
     MA_ASSERT(pContext != NULL);
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-    }
+    ma_mainloop_lock__pulse(pContext, "ma_device_uninit__pulse");
+    {
+        if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+            ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+            ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        }
     }
+    ma_mainloop_unlock__pulse(pContext, "ma_device_uninit__pulse");
 
     if (pDevice->type == ma_device_type_duplex) {
         ma_pcm_rb_uninit(&pDevice->pulse.duplexRB);
@@ -15701,6 +15881,7 @@ static ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 periodSizeInFra
 
 static ma_pa_stream* ma_context__pa_stream_new__pulse(ma_context* pContext, const char* pStreamName, const ma_pa_sample_spec* ss, const ma_pa_channel_map* cmap)
 {
+    ma_pa_stream* pStream;
     static int g_StreamCounter = 0;
     char actualStreamName[256];
 
@@ -15712,7 +15893,11 @@ static ma_pa_stream* ma_context__pa_stream_new__pulse(ma_context* pContext, cons
     }
     g_StreamCounter += 1;
 
-    return ((ma_pa_stream_new_proc)pContext->pulse.pa_stream_new)((ma_pa_context*)pContext->pulse.pPulseContext, actualStreamName, ss, cmap);
+    ma_mainloop_lock__pulse(pContext, "ma_context__pa_stream_new__pulse");
+    pStream = ((ma_pa_stream_new_proc)pContext->pulse.pa_stream_new)((ma_pa_context*)pContext->pulse.pPulseContext, actualStreamName, ss, cmap);
+    ma_mainloop_unlock__pulse(pContext, "ma_context__pa_stream_new__pulse");
+
+    return pStream;
 }
 
 
@@ -15937,7 +16122,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
 
 
         /* The callback needs to be set before connecting the stream. */
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_set_read_callback_proc)pContext->pulse.pa_stream_set_read_callback)((ma_pa_stream*)pDevice->pulse.pStreamCapture, ma_device_on_read__pulse, pDevice);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
 
 
         /* Connect after we've got all of our internal state set up. */
@@ -15946,7 +16133,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
 
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         error = ((ma_pa_stream_connect_record_proc)pContext->pulse.pa_stream_connect_record)((ma_pa_stream*)pDevice->pulse.pStreamCapture, devCapture, &attr, streamFlags);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (error != MA_PA_OK) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio capture stream.", ma_result_from_pulse(error));
             goto on_error1;
@@ -15958,40 +16147,52 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         }
 
 
-        /* Internal format. */
-        pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (pActualSS != NULL) {
-            ss = *pActualSS;
-        }
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+        {
+            /* Internal format. */
+            pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (pActualSS != NULL) {
+                ss = *pActualSS;
+            }
 
-        pDevice->capture.internalFormat     = ma_format_from_pulse(ss.format);
-        pDevice->capture.internalChannels   = ss.channels;
-        pDevice->capture.internalSampleRate = ss.rate;
+            pDevice->capture.internalFormat     = ma_format_from_pulse(ss.format);
+            pDevice->capture.internalChannels   = ss.channels;
+            pDevice->capture.internalSampleRate = ss.rate;
 
-        /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
-        for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
-            pDevice->capture.internalChannelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
-        }
+            /* Internal channel map. */
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+            for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+                pDevice->capture.internalChannelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
 
-        /* Buffer. */
-        pActualAttr = ((ma_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (pActualAttr != NULL) {
-            attr = *pActualAttr;
+            /* Buffer. */
+            pActualAttr = ((ma_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (pActualAttr != NULL) {
+                attr = *pActualAttr;
+            }
+            pDevice->capture.internalPeriods            = attr.maxlength / attr.fragsize;
+            pDevice->capture.internalPeriodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels) / pDevice->capture.internalPeriods;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] Capture actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->capture.internalPeriodSizeInFrames);
+        #endif
         }
-        pDevice->capture.internalPeriods            = attr.maxlength / attr.fragsize;
-        pDevice->capture.internalPeriodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels) / pDevice->capture.internalPeriods;
-    #ifdef MA_DEBUG_OUTPUT
-        printf("[PulseAudio] Capture actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->capture.internalPeriodSizeInFrames);
-    #endif
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
 
         /* Name. */
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         devCapture = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (devCapture != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice));
+            ma_pa_operation* pOP;
+
+            ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+            pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devCapture, ma_device_source_name_callback, pDevice);
+            ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
+
+            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
         }
     }
 
@@ -16024,7 +16225,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         Note that this callback will be fired as soon as the stream is connected, even though it's started as corked. The callback needs to handle a
         device state of MA_STATE_UNINITIALIZED.
         */
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_set_write_callback_proc)pContext->pulse.pa_stream_set_write_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_write__pulse, pDevice);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
 
 
         /* Connect after we've got all of our internal state set up. */
@@ -16033,7 +16236,9 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
 
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         error = ((ma_pa_stream_connect_playback_proc)pContext->pulse.pa_stream_connect_playback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, devPlayback, &attr, streamFlags, NULL, NULL);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (error != MA_PA_OK) {
             result = ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio playback stream.", ma_result_from_pulse(error));
             goto on_error3;
@@ -16045,40 +16250,52 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
         }
 
 
-        /* Internal format. */
-        pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (pActualSS != NULL) {
-            ss = *pActualSS;
-        }
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+        {
+            /* Internal format. */
+            pActualSS = ((ma_pa_stream_get_sample_spec_proc)pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (pActualSS != NULL) {
+                ss = *pActualSS;
+            }
 
-        pDevice->playback.internalFormat     = ma_format_from_pulse(ss.format);
-        pDevice->playback.internalChannels   = ss.channels;
-        pDevice->playback.internalSampleRate = ss.rate;
+            pDevice->playback.internalFormat     = ma_format_from_pulse(ss.format);
+            pDevice->playback.internalChannels   = ss.channels;
+            pDevice->playback.internalSampleRate = ss.rate;
 
-        /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
-        for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
-            pDevice->playback.internalChannelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
-        }
+            /* Internal channel map. */
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+            for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+                pDevice->playback.internalChannelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
 
-        /* Buffer. */
-        pActualAttr = ((ma_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (pActualAttr != NULL) {
-            attr = *pActualAttr;
+            /* Buffer. */
+            pActualAttr = ((ma_pa_stream_get_buffer_attr_proc)pContext->pulse.pa_stream_get_buffer_attr)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (pActualAttr != NULL) {
+                attr = *pActualAttr;
+            }
+            pDevice->playback.internalPeriods            = attr.maxlength / attr.tlength;
+            pDevice->playback.internalPeriodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels) / pDevice->playback.internalPeriods;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalPeriodSizeInFrames);
+        #endif
         }
-        pDevice->playback.internalPeriods            = attr.maxlength / attr.tlength;
-        pDevice->playback.internalPeriodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels) / pDevice->playback.internalPeriods;
-    #ifdef MA_DEBUG_OUTPUT
-        printf("[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalPeriodSizeInFrames);
-    #endif
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
 
         /* Name. */
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         devPlayback = ((ma_pa_stream_get_device_name_proc)pContext->pulse.pa_stream_get_device_name)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
         if (devPlayback != NULL) {
-            ma_wait_for_operation_and_unref__pulse(pContext, ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice));
+            ma_pa_operation* pOP;
+
+            ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
+            pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)pContext->pulse.pPulseContext, devPlayback, ma_device_sink_name_callback, pDevice);
+            ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
+
+            ma_wait_for_operation_and_unref__pulse(pContext, pOP);
         }
     }
 
@@ -16109,19 +16326,27 @@ static ma_result ma_device_init__pulse(ma_context* pContext, const ma_device_con
 
 on_error4:
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
     }
 on_error3:
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
     }
 on_error2:
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_disconnect_proc)pContext->pulse.pa_stream_disconnect)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
     }
 on_error1:
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
+        ma_mainloop_lock__pulse(pContext, "ma_device_init__pulse");
         ((ma_pa_stream_unref_proc)pContext->pulse.pa_stream_unref)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        ma_mainloop_unlock__pulse(pContext, "ma_device_init__pulse");
     }
 on_error0:
     return result;
@@ -16156,7 +16381,10 @@ static ma_result ma_device__cork_stream__pulse(ma_device* pDevice, ma_device_typ
     pStream = (ma_pa_stream*)((deviceType == ma_device_type_capture) ? pDevice->pulse.pStreamCapture : pDevice->pulse.pStreamPlayback);
     MA_ASSERT(pStream != NULL);
 
+    ma_mainloop_lock__pulse(pContext, "ma_device__cork_stream__pulse");
     pOP = ((ma_pa_stream_cork_proc)pContext->pulse.pa_stream_cork)(pStream, cork, ma_pulse_operation_complete_callback, &wasSuccessful);
+    ma_mainloop_unlock__pulse(pContext, "ma_device__cork_stream__pulse");
+
     if (pOP == NULL) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to cork PulseAudio stream.", (cork == 0) ? MA_FAILED_TO_START_BACKEND_DEVICE : MA_FAILED_TO_STOP_BACKEND_DEVICE);
     }
@@ -16193,9 +16421,7 @@ static ma_result ma_device_start__pulse(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         /* We need to fill some data before uncorking. Not doing this will result in the write callback never getting fired. */
         ma_mainloop_lock__pulse(pDevice->pContext, "ma_device_start__pulse");
-        {
-            result = ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), NULL);
-        }
+        result = ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), NULL);
         ma_mainloop_unlock__pulse(pDevice->pContext, "ma_device_start__pulse");
 
         if (result != MA_SUCCESS) {
@@ -16227,7 +16453,13 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         /* The stream needs to be drained if it's a playback device. */
-        ma_wait_for_operation_and_unref__pulse(pDevice->pContext, ((ma_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_pulse_operation_complete_callback, &wasSuccessful));
+        ma_pa_operation* pOP;
+
+        ma_mainloop_lock__pulse(pDevice->pContext, "ma_device_stop__pulse");
+        pOP = ((ma_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_pulse_operation_complete_callback, &wasSuccessful);
+        ma_mainloop_unlock__pulse(pDevice->pContext, "ma_device_stop__pulse");
+
+        ma_wait_for_operation_and_unref__pulse(pDevice->pContext, pOP);
 
         result = ma_device__cork_stream__pulse(pDevice, ma_device_type_playback, 1);
         if (result != MA_SUCCESS) {
@@ -16239,7 +16471,7 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
         pDevice->onStop(pDevice);
     }
 
-    return result;
+    return MA_SUCCESS;
 }
 
 static ma_result ma_context_uninit__pulse(ma_context* pContext)
@@ -16247,8 +16479,12 @@ static ma_result ma_context_uninit__pulse(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_pulseaudio);
 
-    ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((ma_pa_context*)pContext->pulse.pPulseContext);
-    ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
+    ma_mainloop_lock__pulse(pContext, "ma_context_uninit__pulse");
+    {
+        ((ma_pa_context_disconnect_proc)pContext->pulse.pa_context_disconnect)((ma_pa_context*)pContext->pulse.pPulseContext);
+        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
+    }
+    ma_mainloop_unlock__pulse(pContext, "ma_context_uninit__pulse");
 
     /* The mainloop needs to be stopped before freeing. */
     ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop);
@@ -16471,9 +16707,27 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
         return result;
     }
 
+    /* We should start the mainloop locked and unlock once ready to wait . */
+    ma_mainloop_lock__pulse(pContext, "ma_context_init__pulse");
+
+    /* With the mainloop created we can now start it. */
+    result = ma_result_from_pulse(((ma_pa_threaded_mainloop_start_proc)pContext->pulse.pa_threaded_mainloop_start)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop));
+    if (result != MA_SUCCESS) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
+        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to start mainloop.", result);
+        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
+        ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
+    #ifndef MA_NO_RUNTIME_LINKING
+        ma_dlclose(pContext, pContext->pulse.pulseSO);
+    #endif
+        return result;
+    }
+
     pContext->pulse.pPulseContext = ((ma_pa_context_new_proc)pContext->pulse.pa_context_new)(((ma_pa_threaded_mainloop_get_api_proc)pContext->pulse.pa_threaded_mainloop_get_api)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop), pConfig->pulse.pApplicationName);
     if (pContext->pulse.pPulseContext == NULL) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
         result = ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to create PulseAudio context.", MA_FAILED_TO_INIT_BACKEND);
+        ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
         ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
     #ifndef MA_NO_RUNTIME_LINKING
         ma_dlclose(pContext, pContext->pulse.pulseSO);
@@ -16484,7 +16738,9 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
     /* Now we need to connect to the context. Everything is asynchronous so we need to wait for it to connect before returning. */
     result = ma_result_from_pulse(((ma_pa_context_connect_proc)pContext->pulse.pa_context_connect)((ma_pa_context*)pContext->pulse.pPulseContext, pConfig->pulse.pServerName, (pConfig->pulse.tryAutoSpawn) ? 0 : MA_PA_CONTEXT_NOAUTOSPAWN, NULL));
     if (result != MA_SUCCESS) {
+        ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
         ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to connect PulseAudio context.", result);
+        ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
         ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
     #ifndef MA_NO_RUNTIME_LINKING
         ma_dlclose(pContext, pContext->pulse.pulseSO);
@@ -16492,18 +16748,10 @@ static ma_result ma_context_init__pulse(const ma_context_config* pConfig, ma_con
         return result;
     }
 
-    /* We now need to start the mainloop. Once the loop has started we can then wait for the PulseAudio context to connect. */
-    result = ma_result_from_pulse(((ma_pa_threaded_mainloop_start_proc)pContext->pulse.pa_threaded_mainloop_start)((ma_pa_threaded_mainloop*)pContext->pulse.pMainLoop));
-    if (result != MA_SUCCESS) {
-        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to start mainloop.", result);
-        ((ma_pa_context_unref_proc)pContext->pulse.pa_context_unref)((ma_pa_context*)pContext->pulse.pPulseContext);
-        ((ma_pa_threaded_mainloop_free_proc)pContext->pulse.pa_threaded_mainloop_free)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
-    #ifndef MA_NO_RUNTIME_LINKING
-        ma_dlclose(pContext, pContext->pulse.pulseSO);
-    #endif
-        return result;
-    }
+    /* Can now unlock. */
+    ma_mainloop_unlock__pulse(pContext, "ma_context_init__pulse");
 
+    /* Since ma_context_init() runs synchronously we need to wait for the PulseAudio context to connect before we return. */
     result = ma_context_wait_for_pa_context_to_connect__pulse(pContext);
     if (result != MA_SUCCESS) {
         ((ma_pa_threaded_mainloop_stop_proc)pContext->pulse.pa_threaded_mainloop_stop)((ma_pa_threaded_mainloop*)(pContext->pulse.pMainLoop));
@@ -16641,6 +16889,8 @@ static ma_result ma_context_enumerate_devices__jack(ma_context* pContext, ma_enu
         deviceInfo.isDefault = MA_TRUE;    /* JACK only uses default devices. */
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
+
+    (void)cbResult; /* For silencing a static analysis warning. */
 
     return MA_SUCCESS;
 }
@@ -25641,7 +25891,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             if (pDevice->capture.internalChannels == pDevice->capture.channels) {
                 ma_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
             } else {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.channels, pDevice->capture.channelMap);
+                if (pDevice->capture.channelMixMode == ma_channel_mix_mode_simple) {
+                    ma_channel_map_init_blank(pDevice->capture.channels, pDevice->capture.channelMap);
+                } else {
+                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.channels, pDevice->capture.channelMap);
+                }
             }
         }
     }
@@ -25658,7 +25912,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             if (pDevice->playback.internalChannels == pDevice->playback.channels) {
                 ma_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
             } else {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.channels, pDevice->playback.channelMap);
+                if (pDevice->playback.channelMixMode == ma_channel_mix_mode_simple) {
+                    ma_channel_map_init_blank(pDevice->playback.channels, pDevice->playback.channelMap);
+                } else {
+                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.channels, pDevice->playback.channelMap);
+                }
             }
         }
     }
@@ -25683,6 +25941,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.channelsOut                = pDevice->capture.channels;
         converterConfig.sampleRateOut              = pDevice->sampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, ma_min(pDevice->capture.channels, MA_MAX_CHANNELS));
+        converterConfig.channelMixMode             = pDevice->capture.channelMixMode;
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
@@ -25705,6 +25964,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.channelsOut                = pDevice->playback.internalChannels;
         converterConfig.sampleRateOut              = pDevice->playback.internalSampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, ma_min(pDevice->playback.internalChannels, MA_MAX_CHANNELS));
+        converterConfig.channelMixMode             = pDevice->playback.channelMixMode;
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
@@ -25768,6 +26028,14 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         */
         MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTING);
 
+        /* If the device has a start callback, start it now. */
+        if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
+            ma_result result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+            if (result != MA_SUCCESS) {
+                pDevice->workResult = result;   /* Failed to start the device. */
+            }
+        }
+
         /* Make sure the state is set appropriately. */
         ma_device__set_state(pDevice, MA_STATE_STARTED);
         ma_event_signal(&pDevice->startEvent);
@@ -25787,15 +26055,20 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             }
         }
 
-
         /*
         Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
         may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
         don't want to be doing this a second time.
         */
         if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            if (pDevice->pContext->onDeviceStop) {
-                pDevice->pContext->onDeviceStop(pDevice);
+            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+                    pDevice->pContext->callbacks.onDeviceStop(pDevice);
+                }
+            } else {
+                if (pDevice->pContext->onDeviceStop != NULL) {
+                    pDevice->pContext->onDeviceStop(pDevice);
+                }
             }
         }
 
@@ -26722,15 +26995,18 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->resampling.linear.lpfOrder = config.resampling.linear.lpfOrder;
     pDevice->resampling.speex.quality   = config.resampling.speex.quality;
 
-    pDevice->capture.shareMode   = config.capture.shareMode;
-    pDevice->capture.format      = config.capture.format;
-    pDevice->capture.channels    = config.capture.channels;
+    pDevice->capture.shareMode          = config.capture.shareMode;
+    pDevice->capture.format             = config.capture.format;
+    pDevice->capture.channels           = config.capture.channels;
     ma_channel_map_copy(pDevice->capture.channelMap, config.capture.channelMap, config.capture.channels);
-
-    pDevice->playback.shareMode  = config.playback.shareMode;
-    pDevice->playback.format     = config.playback.format;
-    pDevice->playback.channels   = config.playback.channels;
+    pDevice->capture.channelMixMode     = config.capture.channelMixMode;
+    
+    pDevice->playback.shareMode         = config.playback.shareMode;
+    pDevice->playback.format            = config.playback.format;
+    pDevice->playback.channels          = config.playback.channels;
     ma_channel_map_copy(pDevice->playback.channelMap, config.playback.channelMap, config.playback.channels);
+    pDevice->playback.channelMixMode    = config.playback.channelMixMode;
+    
 
 
     /* The internal format, channel count and sample rate can be modified by the backend. */
@@ -26923,6 +27199,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
         /* Wait for the worker thread to put the device into it's stopped state for real. */
         ma_event_wait(&pDevice->stopEvent);
+        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
     } else {
         /*
         If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. Note that this needs to be done
@@ -27101,7 +27378,6 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_start() called when the device is already started.", MA_INVALID_OPERATION);  /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
@@ -27169,7 +27445,6 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_stop() called when the device is already stopped.", MA_INVALID_OPERATION);   /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    result = MA_ERROR;
     ma_mutex_lock(&pDevice->lock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
@@ -27196,20 +27471,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
         } else {
-            /* Synchronous backends. Devices can optionally have a stop operation here. */
-            if (ma_context__is_using_new_callbacks(pDevice->pContext)) {
-                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                    result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
-                } else {
-                    result = MA_SUCCESS;
-                }
-            } else {
-                if (pDevice->pContext->onDeviceStop != NULL) {
-                    result = pDevice->pContext->onDeviceStop(pDevice);
-                } else {
-                    result = MA_SUCCESS;
-                }
-            }
+            /* Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. */
 
             /*
             We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
@@ -27235,7 +27497,7 @@ MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice)
         return MA_STATE_UNINITIALIZED;
     }
 
-    return pDevice->state;
+    return c89atomic_load_32((ma_uint32*)&pDevice->state);  /* Naughty cast to get rid of a const warning. */
 }
 
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
@@ -27248,7 +27510,7 @@ MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
         return MA_INVALID_ARGS;
     }
 
-    pDevice->masterVolumeFactor = volume;
+    c89atomic_exchange_f32(&pDevice->masterVolumeFactor, volume);
 
     return MA_SUCCESS;
 }
@@ -27264,7 +27526,7 @@ MA_API ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
         return MA_INVALID_ARGS;
     }
 
-    *pVolume = pDevice->masterVolumeFactor;
+    *pVolume = c89atomic_load_f32(&pDevice->masterVolumeFactor);
 
     return MA_SUCCESS;
 }
@@ -33615,8 +33877,24 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
             }
         } break;
 
-        case ma_channel_mix_mode_custom_weights:
         case ma_channel_mix_mode_simple:
+        {
+            /* In simple mode, excess channels need to be silenced or dropped. */
+            ma_uint32 iChannel;
+            for (iChannel = 0; iChannel < ma_min(pConverter->channelsIn, pConverter->channelsOut); iChannel += 1) {
+                if (pConverter->format == ma_format_f32) {
+                    if (pConverter->weights.f32[iChannel][iChannel] == 0) {
+                        pConverter->weights.f32[iChannel][iChannel] = 1;
+                    }
+                } else {
+                    if (pConverter->weights.s16[iChannel][iChannel] == 0) {
+                        pConverter->weights.s16[iChannel][iChannel] = ma_channel_converter_float_to_fixed(1);
+                    }
+                }
+            }
+        } break;
+
+        case ma_channel_mix_mode_custom_weights:
         default:
         {
             /* Fallthrough. */
@@ -34976,6 +35254,15 @@ MA_API ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConver
 Channel Maps
 
 **************************************************************************************************************************************************************/
+MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap)
+{
+    if (pChannelMap == NULL) {
+        return;
+    }
+
+    MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channels);
+}
+
 static void ma_get_standard_channel_map_microsoft(ma_uint32 channels, ma_channel* pChannelMap)
 {
     /* Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config */
@@ -36033,7 +36320,6 @@ MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes)
     writeOffset = pRB->encodedWriteOffset;
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    newReadOffsetInBytes = readOffsetInBytes;
     newReadOffsetLoopFlag = readOffsetLoopFlag;
 
     /* We cannot go past the write buffer. */
@@ -36078,7 +36364,6 @@ MA_API ma_result ma_rb_seek_write(ma_rb* pRB, size_t offsetInBytes)
     writeOffset = pRB->encodedWriteOffset;
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    newWriteOffsetInBytes = writeOffsetInBytes;
     newWriteOffsetLoopFlag = writeOffsetLoopFlag;
 
     /* We cannot go past the write buffer. */
@@ -36710,6 +36995,18 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     ma_uint32 channels;
     ma_uint32 sampleRate;
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
 
     if (pCallbacks == NULL || pCallbacks->onGetDataFormat == NULL) {
         return MA_INVALID_ARGS;
@@ -37862,6 +38159,10 @@ static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
 
 static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
 {
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
     if (file == NULL || pDst == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -37875,6 +38176,10 @@ static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst,
 
 static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
 {
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = 0;
+    }
+
     if (file == NULL || pSrc == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -38048,7 +38353,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  15
+#define DRWAV_VERSION_REVISION  16
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -38421,7 +38726,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  23
+#define DRFLAC_VERSION_REVISION  24
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -38782,7 +39087,7 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  20
+#define DRMP3_VERSION_REVISION  23
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drmp3_int8;
@@ -41283,6 +41588,8 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                 if (requiredInputFrameCount > 0) {
                     framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
                     totalFramesReadIn += framesReadThisIterationIn;
+                } else {
+                    framesReadThisIterationIn = 0;
                 }
 
                 /*
@@ -42270,6 +42577,37 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
         }
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude)
+{
+    if (pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNoise->config.amplitude = amplitude;
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed)
+{
+    if (pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNoise->lcg.state = seed;
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type)
+{
+    if (pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNoise->config.type = type;
     return MA_SUCCESS;
 }
 
@@ -44665,7 +45003,7 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_le(drwav* pWav, drwav_uint64 frames
     }
     bytesToRead = framesToRead * bytesPerFrame;
     if (bytesToRead > DRWAV_SIZE_MAX) {
-        framesToRead = DRWAV_SIZE_MAX / bytesPerFrame;
+        bytesToRead = (DRWAV_SIZE_MAX / bytesPerFrame) * bytesPerFrame;
     }
     if (bytesToRead == 0) {
         return 0;
@@ -46418,7 +46756,7 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
     #define DRFLAC_X64
 #elif defined(__i386) || defined(_M_IX86)
     #define DRFLAC_X86
-#elif defined(__arm__) || defined(_M_ARM)
+#elif defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64)
     #define DRFLAC_ARM
 #endif
 #if !defined(DR_FLAC_NO_SIMD)
@@ -54598,7 +54936,7 @@ DRMP3_API const char* drmp3_version_string(void)
 #define DRMP3_MIN(a, b)           ((a) > (b) ? (b) : (a))
 #define DRMP3_MAX(a, b)           ((a) < (b) ? (b) : (a))
 #if !defined(DR_MP3_NO_SIMD)
-#if !defined(DR_MP3_ONLY_SIMD) && (defined(_M_X64) || defined(_M_ARM64) || defined(__x86_64__) || defined(__aarch64__))
+#if !defined(DR_MP3_ONLY_SIMD) && (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) || defined(_M_ARM64))
 #define DR_MP3_ONLY_SIMD
 #endif
 #if ((defined(_MSC_VER) && _MSC_VER >= 1400) && (defined(_M_IX86) || defined(_M_X64))) || ((defined(__i386__) || defined(__x86_64__)) && defined(__SSE2__))
@@ -54671,7 +55009,7 @@ end:
     return g_have_simd - 1;
 #endif
 }
-#elif defined(__ARM_NEON) || defined(__aarch64__)
+#elif defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
 #include <arm_neon.h>
 #define DRMP3_HAVE_SSE 0
 #define DRMP3_HAVE_SIMD 1
@@ -54700,7 +55038,7 @@ static int drmp3_have_simd(void)
 #else
 #define DRMP3_HAVE_SIMD 0
 #endif
-#if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__)
+#if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__) && !defined(_M_ARM64)
 #define DRMP3_HAVE_ARMV6 1
 static __inline__ __attribute__((always_inline)) drmp3_int32 drmp3_clip_int16_arm(int32_t a)
 {
@@ -56563,7 +56901,7 @@ static drmp3_bool32 drmp3_init_internal(drmp3* pMP3, drmp3_read_proc onRead, drm
         return DRMP3_FALSE;
     }
     if (!drmp3_decode_next_frame(pMP3)) {
-        drmp3_uninit(pMP3);
+        drmp3__free_from_callbacks(pMP3->pData, &pMP3->allocationCallbacks);
         return DRMP3_FALSE;
     }
     pMP3->channels   = pMP3->mp3FrameChannels;
@@ -57150,19 +57488,31 @@ static drmp3_bool32 drmp3__on_seek_stdio(void* pUserData, int offset, drmp3_seek
 }
 DRMP3_API drmp3_bool32 drmp3_init_file(drmp3* pMP3, const char* pFilePath, const drmp3_allocation_callbacks* pAllocationCallbacks)
 {
+    drmp3_bool32 result;
     FILE* pFile;
     if (drmp3_fopen(&pFile, pFilePath, "rb") != DRMP3_SUCCESS) {
         return DRMP3_FALSE;
     }
-    return drmp3_init(pMP3, drmp3__on_read_stdio, drmp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    result = drmp3_init(pMP3, drmp3__on_read_stdio, drmp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    if (result != DRMP3_TRUE) {
+        fclose(pFile);
+        return result;
+    }
+    return DRMP3_TRUE;
 }
 DRMP3_API drmp3_bool32 drmp3_init_file_w(drmp3* pMP3, const wchar_t* pFilePath, const drmp3_allocation_callbacks* pAllocationCallbacks)
 {
+    drmp3_bool32 result;
     FILE* pFile;
     if (drmp3_wfopen(&pFile, pFilePath, L"rb", pAllocationCallbacks) != DRMP3_SUCCESS) {
         return DRMP3_FALSE;
     }
-    return drmp3_init(pMP3, drmp3__on_read_stdio, drmp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    result = drmp3_init(pMP3, drmp3__on_read_stdio, drmp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    if (result != DRMP3_TRUE) {
+        fclose(pFile);
+        return result;
+    }
+    return DRMP3_TRUE;
 }
 #endif
 DRMP3_API void drmp3_uninit(drmp3* pMP3)
@@ -57172,7 +57522,11 @@ DRMP3_API void drmp3_uninit(drmp3* pMP3)
     }
 #ifndef DR_MP3_NO_STDIO
     if (pMP3->onRead == drmp3__on_read_stdio) {
-        fclose((FILE*)pMP3->pUserData);
+        FILE* pFile = (FILE*)pMP3->pUserData;
+        if (pFile != NULL) {
+            fclose(pFile);
+            pMP3->pUserData = NULL;
+        }
     }
 #endif
     drmp3__free_from_callbacks(pMP3->pData, &pMP3->allocationCallbacks);

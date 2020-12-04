@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.27 - TBD
+miniaudio - v0.10.27 - 2020-12-04
 
 David Reid - mackron@gmail.com
 
@@ -64618,7 +64618,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.27 - TBD
+v0.10.27 - 2020-12-04
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
   - Add support for configuring the channel mixing mode in the device config.
   - Fix a bug with simple channel mixing mode (drop or silence excess channels).

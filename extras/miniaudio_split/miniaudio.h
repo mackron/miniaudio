@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.26 - 2020-11-24
+miniaudio - v0.10.27 - 2020-12-04
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 26
+#define MA_VERSION_REVISION 27
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -456,7 +456,7 @@ typedef struct
 
 
 #ifndef MA_NO_THREADING
-/* Thread priorties should be ordered such that the default priority of the worker thread is 0. */
+/* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
 typedef enum
 {
     ma_thread_priority_idle     = -5,
@@ -1187,11 +1187,19 @@ Interleaves a group of deinterleaved buffers.
 */
 MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_uint64 frameCount, const void** ppDeinterleavedPCMFrames, void* pInterleavedPCMFrames);
 
+
 /************************************************************************************************************************************************************
 
 Channel Maps
 
 ************************************************************************************************************************************************************/
+
+/*
+Initializes a blank channel map.
+
+When a blank channel map is specified anywhere it indicates that the native channel map should be used.
+*/
+MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap);
 
 /*
 Helper for retrieving a standard channel map.
@@ -1866,6 +1874,7 @@ struct ma_device_config
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } playback;
     struct
@@ -1874,6 +1883,7 @@ struct ma_device_config
         ma_format format;
         ma_uint32 channels;
         ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } capture;
 
@@ -1998,7 +2008,7 @@ sample rate will need to be determined before calculating the period size in fra
 object should be set to a valid value, except for `periodSizeInMilliseconds` which is optional (`periodSizeInFrames` *must* be set).
 
 Starting and stopping of the device is done with `onDeviceStart()` and `onDeviceStop()` and should be self-explanatory. If the backend uses
-asynchronous reading and writing, `onDeviceStart()` is optional, so long as the device is automatically started in `onDeviceWrite()`.
+asynchronous reading and writing, `onDeviceStart()` and `onDeviceStop()` should always be implemented.
 
 The handling of data delivery between the application and the device is the most complicated part of the process. To make this a bit
 easier, some helper callbacks are available. If the backend uses a blocking read/write style of API, the `onDeviceRead()` and
@@ -2009,11 +2019,8 @@ This allows miniaudio to then process any necessary data conversion and then pas
 If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceWorkerThread()` callback
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
-The audio thread follows this general flow:
-
-    1) Start the device before entering the main loop.
-    2) Run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been encounted.
-    3) Stop thd device after leaving the main loop.
+The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
+encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceAudioThread()` callback.
 
 The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
@@ -2517,6 +2524,7 @@ struct ma_device
         ma_channel internalChannelMap[MA_MAX_CHANNELS];
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
+        ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
         ma_bool8 usingDefaultFormat;
         ma_bool8 usingDefaultChannels;
@@ -2536,6 +2544,7 @@ struct ma_device
         ma_channel internalChannelMap[MA_MAX_CHANNELS];
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
+        ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
         ma_bool8 usingDefaultFormat;
         ma_bool8 usingDefaultChannels;
@@ -2715,6 +2724,7 @@ struct ma_device
             ma_thread deviceThread;
             ma_event operationEvent;
             ma_event operationCompletionEvent;
+            ma_semaphore operationSemaphore;
             ma_uint32 operation;
             ma_result operationResult;
             ma_timer timer;
@@ -4680,8 +4690,6 @@ MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double freque
 MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type type);
 MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
-
-
 typedef enum
 {
     ma_noise_type_white,
@@ -4723,6 +4731,9 @@ typedef struct
 
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
 MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
+MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
+MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
+MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
 
 #endif  /* MA_NO_GENERATION */
 
