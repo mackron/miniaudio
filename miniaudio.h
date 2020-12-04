@@ -33655,7 +33655,7 @@ MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
         return MA_INVALID_ARGS;
     }
 
-    pDevice->masterVolumeFactor = volume;
+    c89atomic_exchange_f32(&pDevice->masterVolumeFactor, volume);
 
     return MA_SUCCESS;
 }
@@ -33671,7 +33671,7 @@ MA_API ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
         return MA_INVALID_ARGS;
     }
 
-    *pVolume = pDevice->masterVolumeFactor;
+    *pVolume = c89atomic_load_f32(pVolume);
 
     return MA_SUCCESS;
 }
