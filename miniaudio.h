@@ -9503,29 +9503,57 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 #define c89atomic_fetch_and_i16(dst, src)                               c89atomic_fetch_and_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_i32(dst, src)                               c89atomic_fetch_and_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_i64(dst, src)                               c89atomic_fetch_and_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+typedef union
+{
+    c89atomic_uint32 i;
+    float f;
+} c89atomic_if32;
+typedef union
+{
+    c89atomic_uint64 i;
+    double f;
+} c89atomic_if64;
 #define c89atomic_clear_explicit_f32(ptr, order)                        c89atomic_clear_explicit_32((c89atomic_uint32*)ptr, order)
 #define c89atomic_clear_explicit_f64(ptr, order)                        c89atomic_clear_explicit_64((c89atomic_uint64*)ptr, order)
-#define c89atomic_store_explicit_f32(dst, src, order)                   c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_store_explicit_f64(dst, src, order)                   c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+static C89ATOMIC_INLINE void c89atomic_store_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 x;
+    x.f = src;
+    c89atomic_store_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+}
+static C89ATOMIC_INLINE void c89atomic_store_explicit_f64(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if64 x;
+    x.f = src;
+    c89atomic_store_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+}
 static C89ATOMIC_INLINE float c89atomic_load_explicit_f32(volatile float* ptr, c89atomic_memory_order order)
 {
-    c89atomic_uint32 r = c89atomic_load_explicit_32((volatile c89atomic_uint32*)ptr, order);
-    return *((float*)&r);
+    c89atomic_if32 r;
+    r.i = c89atomic_load_explicit_32((volatile c89atomic_uint32*)ptr, order);
+    return r.f;
 }
 static C89ATOMIC_INLINE double c89atomic_load_explicit_f64(volatile double* ptr, c89atomic_memory_order order)
 {
-    c89atomic_uint64 r = c89atomic_load_explicit_64((volatile c89atomic_uint64*)ptr, order);
-    return *((double*)&r);
+    c89atomic_if64 r;
+    r.i = c89atomic_load_explicit_64((volatile c89atomic_uint64*)ptr, order);
+    return r.f;
 }
 static C89ATOMIC_INLINE float c89atomic_exchange_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
 {
-    c89atomic_uint32 r = c89atomic_exchange_explicit_32((volatile c89atomic_uint32*)dst, *((c89atomic_uint32*)&src), order);
-    return *((float*)&r);
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_exchange_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
 }
 static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
 {
-    c89atomic_uint64 r = c89atomic_exchange_explicit_64((volatile c89atomic_uint64*)dst, *((c89atomic_uint64*)&src), order);
-    return *((double*)&r);
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_exchange_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
 }
 #define c89atomic_clear_f32(ptr)                                        c89atomic_clear_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_clear_f64(ptr)                                        c89atomic_clear_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
