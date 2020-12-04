@@ -64597,8 +64597,7 @@ v0.10.27 - TBD
   - Fix some bugs with trying to access uninitialized variables.
   - Fix some errors with stopping devices for synchronous backends where the backend's stop callback would get fired twice.
   - Fix a bug in the decoder due to using an uninitialized variable.
-  - PulseAudio: Fix some data race errors.
-  - Null Backend: Fix some data races and deadlocking bugs.
+  - Fix some data race errors.
   
 
 v0.10.26 - 2020-11-24
