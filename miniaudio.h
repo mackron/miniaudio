@@ -11305,7 +11305,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 {
     float masterVolumeFactor;
 
-    masterVolumeFactor = pDevice->masterVolumeFactor;
+    ma_device_get_master_volume(pDevice, &masterVolumeFactor);  /* Use ma_device_get_master_volume() to ensure the volume is loaded atomically. */
 
     if (pDevice->onData) {
         if (!pDevice->noPreZeroedOutputBuffer && pFramesOut != NULL) {
