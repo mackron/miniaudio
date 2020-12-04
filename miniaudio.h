@@ -1887,7 +1887,7 @@ typedef struct
 
 
 #ifndef MA_NO_THREADING
-/* Thread priorties should be ordered such that the default priority of the worker thread is 0. */
+/* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
 typedef enum
 {
     ma_thread_priority_idle     = -5,
