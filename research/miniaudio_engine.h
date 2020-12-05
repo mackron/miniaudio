@@ -8099,11 +8099,12 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
 
     /* If we're seeking, do so now before reading. */
     if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
-        pSound->seekTarget  = MA_SEEK_TARGET_NONE;
         ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
                 
         /* Any time-dependant effects need to have their times updated. */
         ma_engine_effect_set_time(&pSound->effect, pSound->seekTarget);
+
+        pSound->seekTarget  = MA_SEEK_TARGET_NONE;
     }
 
     /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
