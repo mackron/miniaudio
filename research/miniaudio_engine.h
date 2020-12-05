@@ -1646,6 +1646,7 @@ MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volum
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume);
 MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_cancel_stop_delay(ma_sound* pSound);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
@@ -1668,6 +1669,7 @@ MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup,
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume);
 MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
 MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_group_cancel_stop_delay(ma_sound_group* pGroup);
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
 
@@ -9126,6 +9128,17 @@ MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMill
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_sound_cancel_stop_delay(ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->stopDelayInEngineFramesRemaining = 0;
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
 {
     if (pSound == NULL) {
@@ -9536,6 +9549,17 @@ MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64
     MA_ASSERT(pGroup->pEngine != NULL);
 
     pGroup->stopDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_group_cancel_stop_delay(ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pGroup->stopDelayInEngineFramesRemaining = 0;
 
     return MA_SUCCESS;
 }
