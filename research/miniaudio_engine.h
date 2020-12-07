@@ -8358,7 +8358,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->channels                 = pEngine->pDevice->playback.channels;
     pEngine->sampleRate               = pEngine->pDevice->sampleRate;
     pEngine->periodSizeInFrames       = pEngine->pDevice->playback.internalPeriodSizeInFrames;
-    pEngine->periodSizeInMilliseconds = (pEngine->periodSizeInFrames * pEngine->sampleRate) / 1000;
+    pEngine->periodSizeInMilliseconds = (pEngine->periodSizeInFrames * 1000) / pEngine->sampleRate;
 
 
     /* We need a default sound group. This must be done after setting the format, channels and sample rate to their proper values. */
