@@ -10003,8 +10003,6 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
                 }
             }
         }
-
-        pthread_attr_destroy(&attr);
     }
 #else
     /* It's the emscripten build. We'll have a few unused parameters. */
@@ -10013,6 +10011,12 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 #endif
 
     result = pthread_create(pThread, pAttr, entryProc, pData);
+
+    /* The thread attributes object is no longer required. */
+    if (pAttr != NULL) {
+        pthread_attr_destroy(pAttr);
+    }
+
     if (result != 0) {
         return ma_result_from_errno(result);
     }
