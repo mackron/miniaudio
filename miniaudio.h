@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.27 - 2020-12-04
+miniaudio - v0.10.28 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1451,7 +1451,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 27
+#define MA_VERSION_REVISION 28
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -64622,6 +64622,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.28 - TBD
+  - Fix a crash when initializing a POSIX thread.
+
 v0.10.27 - 2020-12-04
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
   - Add support for configuring the channel mixing mode in the device config.
@@ -64630,7 +64633,6 @@ v0.10.27 - 2020-12-04
   - Fix some errors with stopping devices for synchronous backends where the backend's stop callback would get fired twice.
   - Fix a bug in the decoder due to using an uninitialized variable.
   - Fix some data race errors.
-  
 
 v0.10.26 - 2020-11-24
   - WASAPI: Fix a bug where the exclusive mode format may not be retrieved correctly due to accessing freed memory.
