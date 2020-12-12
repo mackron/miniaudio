@@ -31373,46 +31373,55 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
     }
 
     if (pContext->opensl.libOpenSLES == NULL) {
-        return MA_NO_BACKEND;   /* Couldn't find libOpenSLES.so */
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Could not find libOpenSLES.so");
+        return MA_NO_BACKEND;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ENGINE", &pContext->opensl.SL_IID_ENGINE);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_AUDIOIODEVICECAPABILITIES", &pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDSIMPLEBUFFERQUEUE", &pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_RECORD", &pContext->opensl.SL_IID_RECORD);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_PLAY", &pContext->opensl.SL_IID_PLAY);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_OUTPUTMIX", &pContext->opensl.SL_IID_OUTPUTMIX);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDCONFIGURATION", &pContext->opensl.SL_IID_ANDROIDCONFIGURATION);
     if (result != MA_SUCCESS) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         return result;
     }
 
     pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(pContext, pContext->opensl.libOpenSLES, "slCreateEngine");
     if (pContext->opensl.slCreateEngine == NULL) {
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
         ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
         return MA_NO_BACKEND;
     }
@@ -31426,7 +31435,9 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
     ma_spinlock_unlock(&g_maOpenSLSpinlock);
 
     if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the OpenSL engine. */
+        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Failed to initialize OpenSL engine.");
+        return result;
     }
 
 
