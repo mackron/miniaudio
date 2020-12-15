@@ -10534,6 +10534,13 @@ certain unused functions and variables can be excluded from the build to avoid w
 #endif
 #ifdef MA_ENABLE_AAUDIO
     #define MA_HAS_AAUDIO
+    #ifdef MA_NO_RUNTIME_LINKING
+        #ifdef __has_include
+            #if !__has_include(<AAudio/AAudio.h>)
+                #undef MA_HAS_AAUDIO
+            #endif
+        #endif
+    #endif
 #endif
 #ifdef MA_ENABLE_OPENSL
     #define MA_HAS_OPENSL
@@ -29472,20 +29479,39 @@ AAudio Backend
 
 ******************************************************************************/
 #ifdef MA_HAS_AAUDIO
-/*#include <AAudio/AAudio.h>*/
 
-#define MA_AAUDIO_UNSPECIFIED 0
+#if defined(MA_NO_RUNTIME_LINKING)
+/* Compile-Time Linking */
+#include <AAudio/AAudio.h>
+typedef aaudio_result_t                     ma_aaudio_result_t;
+typedef aaudio_direction_t                  ma_aaudio_direction_t;
+typedef aaudio_sharing_mode_t               ma_aaudio_sharing_mode_t;
+typedef aaudio_format_t                     ma_aaudio_format_t;
+typedef aaudio_stream_state_t               ma_aaudio_stream_state_t;
+typedef aaudio_performance_mode_t           ma_aaudio_performance_mode_t;
+typedef aaudio_usage_t                      ma_aaudio_usage_t;
+typedef aaudio_content_type_t               ma_aaudio_content_type_t;
+typedef aaudio_input_preset_t               ma_aaudio_input_preset_t;
+typedef aaudio_data_callback_result_t       ma_aaudio_data_callback_result_t;
+typedef AAudioStreamBuilder                 ma_AAudioStreamBuilder;
+typedef AAudioStream                        ma_AAudioStream;
+#else
+/* Run-Time Linking */
+typedef int32_t                             ma_aaudio_result_t;
+typedef int32_t                             ma_aaudio_direction_t;
+typedef int32_t                             ma_aaudio_sharing_mode_t;
+typedef int32_t                             ma_aaudio_format_t;
+typedef int32_t                             ma_aaudio_stream_state_t;
+typedef int32_t                             ma_aaudio_performance_mode_t;
+typedef int32_t                             ma_aaudio_usage_t;
+typedef int32_t                             ma_aaudio_content_type_t;
+typedef int32_t                             ma_aaudio_input_preset_t;
+typedef int32_t                             ma_aaudio_data_callback_result_t;
+typedef struct ma_AAudioStreamBuilder_t*    ma_AAudioStreamBuilder;
+typedef struct ma_AAudioStream_t*           ma_AAudioStream;
+#endif
 
-typedef int32_t ma_aaudio_result_t;
-typedef int32_t ma_aaudio_direction_t;
-typedef int32_t ma_aaudio_sharing_mode_t;
-typedef int32_t ma_aaudio_format_t;
-typedef int32_t ma_aaudio_stream_state_t;
-typedef int32_t ma_aaudio_performance_mode_t;
-typedef int32_t ma_aaudio_usage_t;
-typedef int32_t ma_aaudio_content_type_t;
-typedef int32_t ma_aaudio_input_preset_t;
-typedef int32_t ma_aaudio_data_callback_result_t;
+#define MA_AAUDIO_UNSPECIFIED                           0
 
 /* Result codes. miniaudio only cares about the success code. */
 #define MA_AAUDIO_OK                                    0
@@ -29559,9 +29585,6 @@ typedef int32_t ma_aaudio_data_callback_result_t;
 #define MA_AAUDIO_CALLBACK_RESULT_CONTINUE              0
 #define MA_AAUDIO_CALLBACK_RESULT_STOP                  1
 
-/* Objects. */
-typedef struct ma_AAudioStreamBuilder_t* ma_AAudioStreamBuilder;
-typedef struct ma_AAudioStream_t*        ma_AAudioStream;
 
 typedef ma_aaudio_data_callback_result_t (* ma_AAudioStream_dataCallback) (ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t numFrames);
 typedef void                             (* ma_AAudioStream_errorCallback)(ma_AAudioStream *pStream, void *pUserData, ma_aaudio_result_t error);
@@ -30171,11 +30194,14 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 
 static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
+#if !defined(MA_NO_RUNTIME_LINKING)
+    size_t i;
     const char* libNames[] = {
         "libaaudio.so"
     };
-    size_t i;
+#endif
 
+#if !defined(MA_NO_RUNTIME_LINKING)
     for (i = 0; i < ma_countof(libNames); ++i) {
         pContext->aaudio.hAAudio = ma_dlopen(pContext, libNames[i]);
         if (pContext->aaudio.hAAudio != NULL) {
@@ -30215,6 +30241,36 @@ static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_co
     pContext->aaudio.AAudioStream_getFramesPerBurst                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getFramesPerBurst");
     pContext->aaudio.AAudioStream_requestStart                     = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStart");
     pContext->aaudio.AAudioStream_requestStop                      = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStop");
+#else
+    pContext->aaudio.AAudio_createStreamBuilder                    = (ma_proc)AAudio_createStreamBuilder;
+    pContext->aaudio.AAudioStreamBuilder_delete                    = (ma_proc)AAudioStreamBuilder_delete;
+    pContext->aaudio.AAudioStreamBuilder_setDeviceId               = (ma_proc)AAudioStreamBuilder_setDeviceId;
+    pContext->aaudio.AAudioStreamBuilder_setDirection              = (ma_proc)AAudioStreamBuilder_setDirection;
+    pContext->aaudio.AAudioStreamBuilder_setSharingMode            = (ma_proc)AAudioStreamBuilder_setSharingMode;
+    pContext->aaudio.AAudioStreamBuilder_setFormat                 = (ma_proc)AAudioStreamBuilder_setFormat;
+    pContext->aaudio.AAudioStreamBuilder_setChannelCount           = (ma_proc)AAudioStreamBuilder_setChannelCount;
+    pContext->aaudio.AAudioStreamBuilder_setSampleRate             = (ma_proc)AAudioStreamBuilder_setSampleRate;
+    pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames = (ma_proc)AAudioStreamBuilder_setBufferCapacityInFrames;
+    pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback  = (ma_proc)AAudioStreamBuilder_setFramesPerDataCallback;
+    pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (ma_proc)AAudioStreamBuilder_setDataCallback;
+    pContext->aaudio.AAudioStreamBuilder_setErrorCallback          = (ma_proc)AAudioStreamBuilder_setErrorCallback;
+    pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (ma_proc)AAudioStreamBuilder_setPerformanceMode;
+    pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)AAudioStreamBuilder_setUsage;
+    pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)AAudioStreamBuilder_setContentType;
+    pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)AAudioStreamBuilder_setInputPreset;
+    pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)AAudioStreamBuilder_openStream;
+    pContext->aaudio.AAudioStream_close                            = (ma_proc)AAudioStream_close;
+    pContext->aaudio.AAudioStream_getState                         = (ma_proc)AAudioStream_getState;
+    pContext->aaudio.AAudioStream_waitForStateChange               = (ma_proc)AAudioStream_waitForStateChange;
+    pContext->aaudio.AAudioStream_getFormat                        = (ma_proc)AAudioStream_getFormat;
+    pContext->aaudio.AAudioStream_getChannelCount                  = (ma_proc)AAudioStream_getChannelCount;
+    pContext->aaudio.AAudioStream_getSampleRate                    = (ma_proc)AAudioStream_getSampleRate;
+    pContext->aaudio.AAudioStream_getBufferCapacityInFrames        = (ma_proc)AAudioStream_getBufferCapacityInFrames;
+    pContext->aaudio.AAudioStream_getFramesPerDataCallback         = (ma_proc)AAudioStream_getFramesPerDataCallback;
+    pContext->aaudio.AAudioStream_getFramesPerBurst                = (ma_proc)AAudioStream_getFramesPerBurst;
+    pContext->aaudio.AAudioStream_requestStart                     = (ma_proc)AAudioStream_requestStart;
+    pContext->aaudio.AAudioStream_requestStop                      = (ma_proc)AAudioStream_requestStop;
+#endif
 
     pContext->isBackendAsynchronous = MA_TRUE;
 
@@ -64661,6 +64717,7 @@ REVISION HISTORY
 v0.10.28 - TBD
   - Fix a crash when initializing a POSIX thread.
   - OpenSL|ES: Respect the MA_NO_RUNTIME_LINKING option.
+  - AAudio: Respect the MA_NO_RUNTIME_LINKING option.
 
 v0.10.27 - 2020-12-04
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
