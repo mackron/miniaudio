@@ -32592,6 +32592,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         }
 
         if (pContext->callbacks.onContextInit != NULL) {
+            ma_post_log_messagef(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize %s backend...", ma_get_backend_name(backend));
             result = pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
         } else {
             result = MA_NO_BACKEND;
@@ -32619,12 +32620,14 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_ALSA
                 case ma_backend_alsa:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize ALSA backend...");
                     result = ma_context_init__alsa(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_PULSEAUDIO
                 case ma_backend_pulseaudio:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize PulseAudio backend...");
                     result = ma_context_init__pulse(pConfig, pContext);
                 } break;
             #endif
@@ -32637,36 +32640,42 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_COREAUDIO
                 case ma_backend_coreaudio:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize CoreAudio backend...");
                     result = ma_context_init__coreaudio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_SNDIO
                 case ma_backend_sndio:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize sndio backend...");
                     result = ma_context_init__sndio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_AUDIO4
                 case ma_backend_audio4:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize audio(4) backend...");
                     result = ma_context_init__audio4(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_OSS
                 case ma_backend_oss:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize OSS backend...");
                     result = ma_context_init__oss(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_AAUDIO
                 case ma_backend_aaudio:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize AAudio backend...");
                     result = ma_context_init__aaudio(pConfig, pContext);
                 } break;
             #endif
             #ifdef MA_HAS_OPENSL
                 case ma_backend_opensl:
                 {
+                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize OpenSL backend...");
                     result = ma_context_init__opensl(pConfig, pContext);
                 } break;
             #endif
@@ -32714,6 +32723,8 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
 
             pContext->backend = backend;
             return result;
+        } else {
+            ma_post_log_messagef(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Failed to initialize %s backend.", ma_get_backend_name(backend));
         }
     }
 
