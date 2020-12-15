@@ -10472,7 +10472,7 @@ not officially supporting this, but I'm leaving it here in case it's useful for 
 
 /* Disable run-time linking on certain backends. */
 #ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_ANDROID) || defined(MA_EMSCRIPTEN)
+    #if defined(MA_EMSCRIPTEN)
         #define MA_NO_RUNTIME_LINKING
     #endif
 #endif
@@ -31350,15 +31350,19 @@ static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext)
 static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
 {
     ma_result result;
+
+#if !defined(MA_NO_RUNTIME_LINKING)
     size_t i;
     const char* libOpenSLESNames[] = {
         "libOpenSLES.so"
     };
+#endif
 
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
+#if !defined(MA_NO_RUNTIME_LINKING)
     /*
     Dynamically link against libOpenSLES.so. I have now had multiple reports that SL_IID_ANDROIDSIMPLEBUFFERQUEUE cannot be found. One
     report was happening at compile time and another at runtime. To try working around this, I'm going to link to libOpenSLES at runtime
@@ -31425,6 +31429,16 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
         ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
         return MA_NO_BACKEND;
     }
+#else
+    pContext->opensl.SL_IID_ENGINE                    = (ma_handle)SL_IID_ENGINE;
+    pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES = (ma_handle)SL_IID_AUDIOIODEVICECAPABILITIES;
+    pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE  = (ma_handle)SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+    pContext->opensl.SL_IID_RECORD                    = (ma_handle)SL_IID_RECORD;
+    pContext->opensl.SL_IID_PLAY                      = (ma_handle)SL_IID_PLAY;
+    pContext->opensl.SL_IID_OUTPUTMIX                 = (ma_handle)SL_IID_OUTPUTMIX;
+    pContext->opensl.SL_IID_ANDROIDCONFIGURATION      = (ma_handle)SL_IID_ANDROIDCONFIGURATION;
+    pContext->opensl.slCreateEngine                   = (ma_proc)slCreateEngine;
+#endif
 
 
     /* Initialize global data first if applicable. */
@@ -64646,6 +64660,7 @@ REVISION HISTORY
 ================
 v0.10.28 - TBD
   - Fix a crash when initializing a POSIX thread.
+  - OpenSL|ES: Respect the MA_NO_RUNTIME_LINKING option.
 
 v0.10.27 - 2020-12-04
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
