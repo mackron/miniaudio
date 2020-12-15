@@ -10534,13 +10534,15 @@ certain unused functions and variables can be excluded from the build to avoid w
 #endif
 #ifdef MA_ENABLE_AAUDIO
     #define MA_HAS_AAUDIO
-    #ifdef MA_NO_RUNTIME_LINKING
-        #ifdef __has_include
-            #if !__has_include(<AAudio/AAudio.h>)
-                #undef MA_HAS_AAUDIO
+    #if 0 /* Forcing runtime linking of AAudio for now. */
+        #ifdef MA_NO_RUNTIME_LINKING
+            #ifdef __has_include
+                #if !__has_include(<AAudio/AAudio.h>)
+                    #undef MA_HAS_AAUDIO
+                #endif
             #endif
         #endif
-    #endif
+    #endif  /* 0 */
 #endif
 #ifdef MA_ENABLE_OPENSL
     #define MA_HAS_OPENSL
@@ -30194,14 +30196,14 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 
 static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_context* pContext)
 {
-#if !defined(MA_NO_RUNTIME_LINKING)
+#if 1 /*!defined(MA_NO_RUNTIME_LINKING)*/
     size_t i;
     const char* libNames[] = {
         "libaaudio.so"
     };
 #endif
 
-#if !defined(MA_NO_RUNTIME_LINKING)
+#if 1 /*!defined(MA_NO_RUNTIME_LINKING)*/
     for (i = 0; i < ma_countof(libNames); ++i) {
         pContext->aaudio.hAAudio = ma_dlopen(pContext, libNames[i]);
         if (pContext->aaudio.hAAudio != NULL) {
@@ -64717,7 +64719,6 @@ REVISION HISTORY
 v0.10.28 - TBD
   - Fix a crash when initializing a POSIX thread.
   - OpenSL|ES: Respect the MA_NO_RUNTIME_LINKING option.
-  - AAudio: Respect the MA_NO_RUNTIME_LINKING option.
 
 v0.10.27 - 2020-12-04
   - Add support for dynamically configuring some properties of `ma_noise` objects post-initialization.
