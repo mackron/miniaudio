@@ -268,8 +268,8 @@ The BSD build only requires linking to `-lpthread` and `-lm`. NetBSD uses audio(
 AAudio is the highest priority backend on Android. This should work out of the box without needing any kind of compiler configuration. Support for AAudio
 starts with Android 8 which means older versions will fall back to OpenSL|ES which requires API level 16+.
 
-There have been reports that the OpenSL|ES backend fails to initialize on some Android based devices. If this happens you'll need to disable run-time
-linking with `MA_NO_RUNTIME_LINKING` which you'll need to link with -lOpenSLES.
+There have been reports that the OpenSL|ES backend fails to initialize on some Android based devices due to `dlopen()` failing to open "libOpenSLES.so". If
+this happens on your platform you'll need to disable run-time linking with `MA_NO_RUNTIME_LINKING` and link with -lOpenSLES.
 
 2.6. Emscripten
 ---------------
@@ -345,6 +345,8 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
     | MA_NO_RUNTIME_LINKING | Disables runtime linking. This is useful for passing Apple's notarization process. When enabling this, you may need to avoid    |
     |                       | using `-std=c89` or `-std=c99` on Linux builds or else you may end up with compilation errors due to conflicts with `timespec`  |
     |                       | and `timeval` data types.                                                                                                       |
+    |                       |                                                                                                                                 |
+    |                       | You may need to enable this if your target platform does not allow runtime linking via `dlopen()`.                              |
     +-----------------------+---------------------------------------------------------------------------------------------------------------------------------+
     | MA_LOG_LEVEL [level]  | Sets the logging level. Set `level` to one of the following:                                                                    |
     |                       |                                                                                                                                 |
