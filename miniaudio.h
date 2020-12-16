@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.28 - TBD
+miniaudio - v0.10.28 - 2020-12-16
 
 David Reid - mackron@gmail.com
 
@@ -9568,6 +9568,21 @@ static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* 
 #define c89atomic_load_f64(ptr)                                         c89atomic_load_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_exchange_f32(dst, src)                                c89atomic_exchange_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_exchange_f64(dst, src)                                c89atomic_exchange_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+typedef c89atomic_flag c89atomic_spinlock;
+static C89ATOMIC_INLINE void c89atomic_spinlock_lock(volatile c89atomic_spinlock* pSpinlock)
+{
+    for (;;) {
+        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
+            break;
+        }
+        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
+        }
+    }
+}
+static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlock* pSpinlock)
+{
+    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
+}
 #if defined(__cplusplus)
 }
 #endif
@@ -10539,15 +10554,6 @@ certain unused functions and variables can be excluded from the build to avoid w
 #endif
 #ifdef MA_ENABLE_AAUDIO
     #define MA_HAS_AAUDIO
-    #if 0 /* Forcing runtime linking of AAudio for now. */
-        #ifdef MA_NO_RUNTIME_LINKING
-            #ifdef __has_include
-                #if !__has_include(<AAudio/AAudio.h>)
-                    #undef MA_HAS_AAUDIO
-                #endif
-            #endif
-        #endif
-    #endif  /* 0 */
 #endif
 #ifdef MA_ENABLE_OPENSL
     #define MA_HAS_OPENSL
@@ -64672,7 +64678,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.28 - TBD
+v0.10.28 - 2020-12-16
   - Fix a crash when initializing a POSIX thread.
   - OpenSL|ES: Respect the MA_NO_RUNTIME_LINKING option.
 
