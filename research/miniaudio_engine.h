@@ -1540,7 +1540,7 @@ struct ma_sound
     ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
     volatile ma_bool32 isPlaying;               /* False by default. Sounds need to be explicitly started with ma_sound_start() and stopped with ma_sound_stop(). */
     volatile ma_bool32 isMixing;
-    volatile ma_bool32 isLooping;                        /* False by default. */
+    volatile ma_bool32 isLooping;               /* False by default. */
     volatile ma_bool32 atEnd;
     ma_bool32 ownsDataSource;
     ma_bool32 _isInternal;                      /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
