@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.28 - 2020-12-16
+miniaudio - v0.10.29 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1456,7 +1456,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 28
+#define MA_VERSION_REVISION 29
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -64678,6 +64678,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.29 - TBD
+  - Fix some subtle multi-threading bugs on non-x86 platforms.
+
 v0.10.28 - 2020-12-16
   - Fix a crash when initializing a POSIX thread.
   - OpenSL|ES: Respect the MA_NO_RUNTIME_LINKING option.
