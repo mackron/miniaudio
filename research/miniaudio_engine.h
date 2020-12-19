@@ -1213,7 +1213,7 @@ struct ma_resource_manager_data_buffer_node
 {
     ma_uint32 hashedName32;                         /* The hashed name. This is the key. */
     ma_uint32 refCount;
-    ma_result result;                               /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    volatile ma_result result;                      /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
     ma_uint32 executionCounter;                     /* For allocating execution orders for jobs. */
     ma_uint32 executionPointer;                     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_bool32 isDataOwnedByResourceManager;         /* Set to true when the underlying data buffer was allocated the resource manager. Set to false if it is owned by the application (via ma_resource_manager_register_*()). */
@@ -1232,7 +1232,7 @@ struct ma_resource_manager_data_buffer
     ma_uint64 cursorInPCMFrames;                    /* Only updated by the public API. Never written nor read from the job thread. */
     ma_uint64 lengthInPCMFrames;                    /* The total length of the sound in PCM frames. This is set at load time. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
-    ma_bool32 isLooping;
+    volatile ma_bool32 isLooping;
     ma_resource_manager_data_buffer_connector connectorType;
     union
     {
@@ -1256,17 +1256,17 @@ struct ma_resource_manager_data_stream
     ma_uint32 executionPointer;             /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 
     /* Written by the public API, read by the job thread. */
-    ma_bool32 isLooping;                    /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
+    volatile ma_bool32 isLooping;           /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
 
     /* Written by the job thread, read by the public API. */
     void* pPageData;                        /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
-    ma_uint32 pageFrameCount[2];            /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
+    volatile ma_uint32 pageFrameCount[2];   /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
 
     /* Written and read by both the public API and the job thread. */
-    ma_result result;                       /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
-    ma_bool32 isDecoderAtEnd;               /* Whether or not the decoder has reached the end. */
-    ma_bool32 isPageValid[2];               /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
-    ma_bool32 seekCounter;                  /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
+    volatile ma_result result;              /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
+    volatile ma_bool32 isDecoderAtEnd;      /* Whether or not the decoder has reached the end. */
+    volatile ma_bool32 isPageValid[2];      /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
+    volatile ma_bool32 seekCounter;         /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
 };
 
 struct ma_resource_manager_data_source
@@ -1529,8 +1529,8 @@ struct ma_sound
     ma_engine* pEngine;                         /* A pointer to the object that owns this sound. */
     ma_data_source* pDataSource;
     ma_sound_group* pGroup;                     /* The group the sound is attached to. */
-    ma_sound* pPrevSoundInGroup;
-    ma_sound* pNextSoundInGroup;
+    volatile ma_sound* pPrevSoundInGroup;
+    volatile ma_sound* pNextSoundInGroup;
     ma_engine_effect effect;                    /* The effect containing all of the information for spatialization, pitching, etc. */
     float volume;
     ma_uint64 seekTarget;                       /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
@@ -1538,10 +1538,10 @@ struct ma_sound
     ma_uint64 startDelayInEngineFrames;         /* In the engine's sample rate. */
     ma_uint64 stopDelayInEngineFrames;          /* In the engine's sample rate. */
     ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
-    ma_bool32 isPlaying;                        /* False by default. Sounds need to be explicitly started with ma_sound_start() and stopped with ma_sound_stop(). */
-    ma_bool32 isMixing;
-    ma_bool32 isLooping;                        /* False by default. */
-    ma_bool32 atEnd;
+    volatile ma_bool32 isPlaying;               /* False by default. Sounds need to be explicitly started with ma_sound_start() and stopped with ma_sound_stop(). */
+    volatile ma_bool32 isMixing;
+    volatile ma_bool32 isLooping;                        /* False by default. */
+    volatile ma_bool32 atEnd;
     ma_bool32 ownsDataSource;
     ma_bool32 _isInternal;                      /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
     ma_resource_manager_data_source resourceManagerDataSource;
@@ -1554,7 +1554,7 @@ struct ma_sound_group
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
     ma_sound_group* pNextSibling;
-    ma_sound* pFirstSoundInGroup;
+    volatile ma_sound* pFirstSoundInGroup;
     ma_engine_effect effect;                    /* The main effect for panning, etc. This is set on the mixer at initialisation time. */
     ma_mixer mixer;
     ma_mutex lock;                              /* Only used by ma_sound_init_*() and ma_sound_uninit(). Not used in the mixing thread. */
@@ -1562,7 +1562,7 @@ struct ma_sound_group
     ma_uint64 startDelayInEngineFrames;
     ma_uint64 stopDelayInEngineFrames;          /* In the engine's sample rate. */
     ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
-    ma_bool32 isPlaying;                        /* True by default. Sound groups can be stopped with ma_sound_stop() and resumed with ma_sound_start(). Also affects children. */
+    volatile ma_bool32 isPlaying;               /* True by default. Sound groups can be stopped with ma_sound_stop() and resumed with ma_sound_start(). Also affects children. */
 };
 
 struct ma_listener
@@ -1641,6 +1641,7 @@ MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume);
@@ -4599,8 +4600,6 @@ static ma_result ma_resource_manager_data_buffer_node_decrement_ref(ma_resource_
     return MA_SUCCESS;
 }
 
-
-
 static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode)
 {
     MA_ASSERT(pResourceManager != NULL);
@@ -4622,6 +4621,12 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
     ma__free_from_callbacks(pDataBufferNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
 }
 
+static ma_result ma_resource_manager_data_buffer_node_result(const ma_resource_manager_data_buffer_node* pDataBufferNode)
+{
+    MA_ASSERT(pDataBufferNode != NULL);
+
+    return c89atomic_load_i32((ma_result*)&pDataBufferNode->result);    /* Need a naughty const-cast here. */
+}
 
 
 static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUserData)
@@ -5017,7 +5022,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
         /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
         /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
-        while (pDataBuffer->pNode->result == MA_BUSY) {
+        while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
             ma_yield();
         }
 
@@ -5297,7 +5302,7 @@ static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manag
             return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
         }
 
-        if (pDataBuffer->pNode->result == MA_SUCCESS) {
+        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
             asyncUninit = MA_FALSE;
         }
 
@@ -5364,13 +5369,14 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 {
     ma_result result;
     ma_uint64 framesRead;
+    ma_bool32 isLooping;
     ma_bool32 skipBusyCheck = MA_FALSE;
 
     /*
     We cannot be using the data buffer after it's been uninitialized. If you trigger this assert it means you're trying to read from the data buffer after
     it's been uninitialized or is in the process of uninitializing.
     */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
@@ -5392,7 +5398,12 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         }
     }
 
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, pDataBuffer->isLooping);
+    result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
     pDataBuffer->cursorInPCMFrames += framesRead;
 
     if (pFramesRead != NULL) {
@@ -5407,7 +5418,7 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
     ma_result result;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
@@ -5433,7 +5444,7 @@ MA_API ma_result ma_resource_manager_data_buffer_map(ma_resource_manager_data_bu
     ma_bool32 skipBusyCheck = MA_FALSE;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
@@ -5464,7 +5475,7 @@ MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_
     ma_result result;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     result = ma_data_source_unmap(ma_resource_manager_data_buffer_get_connector(pDataBuffer), frameCount);
     if (result == MA_SUCCESS) {
@@ -5477,7 +5488,7 @@ MA_API ma_result ma_resource_manager_data_buffer_unmap(ma_resource_manager_data_
 MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_manager_data_buffer* pDataBuffer, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_unknown) {
@@ -5500,7 +5511,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
 MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pCursor)
 {
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     if (pDataBuffer == NULL || pCursor == NULL) {
         return MA_INVALID_ARGS;
@@ -5514,7 +5525,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_res
 MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength)
 {
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataBuffer->pNode->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     if (pDataBuffer == NULL || pLength == NULL) {
         return MA_INVALID_ARGS;
@@ -5538,7 +5549,7 @@ MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return pDataBuffer->pNode->result;
+    return ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping)
@@ -5554,11 +5565,17 @@ MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager
 
 MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping)
 {
-    if (pDataBuffer == NULL || pIsLooping == NULL) {
+    if (pIsLooping == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    *pIsLooping = pDataBuffer->isLooping;
+    *pIsLooping = MA_FALSE;
+
+    if (pDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pIsLooping = c89atomic_load_32((ma_bool32*)&pDataBuffer->isLooping);
 
     return MA_SUCCESS;
 }
@@ -5743,6 +5760,18 @@ static ma_uint32 ma_resource_manager_data_stream_next_execution_order(ma_resourc
     return c89atomic_fetch_add_32(&pDataStream->executionCounter, 1);
 }
 
+static ma_bool32 ma_resource_manager_data_stream_is_decoder_at_end(const ma_resource_manager_data_stream* pDataStream)
+{
+    MA_ASSERT(pDataStream != NULL);
+    return c89atomic_load_32((ma_bool32*)&pDataStream->isDecoderAtEnd);
+}
+
+static ma_uint32 ma_resource_manager_data_stream_seek_counter(const ma_resource_manager_data_stream* pDataStream)
+{
+    MA_ASSERT(pDataStream != NULL);
+    return c89atomic_load_32((ma_uint32*)&pDataStream->seekCounter);
+}
+
 
 static ma_result ma_resource_manager_data_stream_cb__read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -5896,13 +5925,16 @@ static void* ma_resource_manager_data_stream_get_page_data_pointer(ma_resource_m
 
 static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
 {
+    ma_bool32 isLooping;
     ma_uint64 pageSizeInFrames;
     ma_uint64 totalFramesReadForThisPage = 0;
     void* pPageData = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pageIndex, 0);
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    if (pDataStream->isLooping) {
+    ma_resource_manager_data_stream_get_looping(pDataStream, &isLooping);   /* Won't fail. */
+
+    if (isLooping) {
         while (totalFramesReadForThisPage < pageSizeInFrames) {
             ma_uint64 framesRemaining;
             ma_uint64 framesRead;
@@ -5943,7 +5975,7 @@ static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_
         ma_resource_manager_data_stream_fill_page(pDataStream, iPage);
 
         /* If we reached the end make sure we get out of the loop to prevent us from trying to load the second page. */
-        if (pDataStream->isDecoderAtEnd) {
+        if (ma_resource_manager_data_stream_is_decoder_at_end(pDataStream)) {
             break;
         }
     }
@@ -5957,18 +5989,18 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
     ma_uint32 channels;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         return MA_INVALID_OPERATION;
     }
 
     /* Don't attempt to read while we're in the middle of seeking. Tell the caller that we're busy. */
-    if (pDataStream->seekCounter > 0) {
+    if (ma_resource_manager_data_stream_seek_counter(pDataStream) > 0) {
         return MA_BUSY;
     }
 
@@ -6012,7 +6044,7 @@ MA_API ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_st
     ma_uint64 frameCount = 0;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
     if (pFrameCount != NULL) {
         frameCount = *pFrameCount;
@@ -6026,30 +6058,32 @@ MA_API ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_st
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         return MA_INVALID_OPERATION;
     }
 
     /* Don't attempt to read while we're in the middle of seeking. Tell the caller that we're busy. */
-    if (pDataStream->seekCounter > 0) {
+    if (ma_resource_manager_data_stream_seek_counter(pDataStream) > 0) {
         return MA_BUSY;
     }
 
     /* If the page we're on is invalid it means we've caught up to the job thread. */
-    if (pDataStream->isPageValid[pDataStream->currentPageIndex] == MA_FALSE) {
+    if (c89atomic_load_32(&pDataStream->isPageValid[pDataStream->currentPageIndex]) == MA_FALSE) {
         framesAvailable = 0;
     } else {
         /*
         The page we're on is valid so we must have some frames available. We need to make sure that we don't overflow into the next page, even if it's valid. The reason is
         that the unmap process will only post an update for one page at a time. Keeping mapping tied to page boundaries makes this simpler.
         */
-        MA_ASSERT(pDataStream->pageFrameCount[pDataStream->currentPageIndex] >= pDataStream->relativeCursor);
-        framesAvailable = pDataStream->pageFrameCount[pDataStream->currentPageIndex] - pDataStream->relativeCursor;
+        ma_uint32 currentPageFrameCount = c89atomic_load_32(&pDataStream->pageFrameCount[pDataStream->currentPageIndex]);
+        MA_ASSERT(currentPageFrameCount >= pDataStream->relativeCursor);
+
+        framesAvailable = currentPageFrameCount - pDataStream->relativeCursor;
     }
 
     /* If there's no frames available and the result is set to MA_AT_END we need to return MA_AT_END. */
     if (framesAvailable == 0) {
-        if (pDataStream->isDecoderAtEnd) {
+        if (ma_resource_manager_data_stream_is_decoder_at_end(pDataStream)) {
             return MA_AT_END;
         } else {
             return MA_BUSY; /* There are no frames available, but we're not marked as EOF so we might have caught up to the job thread. Need to return MA_BUSY and wait for more data. */
@@ -6075,13 +6109,13 @@ MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
     ma_job job;
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         return MA_INVALID_OPERATION;
     }
 
@@ -6128,15 +6162,18 @@ MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
 {
     ma_job job;
+    ma_result streamResult;
+
+    streamResult = ma_resource_manager_data_stream_result(pDataStream);
 
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(streamResult != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS && pDataStream->result != MA_BUSY) {
+    if (streamResult != MA_SUCCESS && streamResult != MA_BUSY) {
         return MA_INVALID_OPERATION;
     }
 
@@ -6167,7 +6204,7 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_manager_data_stream* pDataStream, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
     if (pFormat != NULL) {
         *pFormat = ma_format_unknown;
@@ -6177,11 +6214,15 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
         *pChannels = 0;
     }
 
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         return MA_INVALID_OPERATION;
     }
 
@@ -6194,14 +6235,20 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pCursor)
 {
-    /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
-
-    if (pDataStream == NULL || pCursor == NULL) {
+    if (pCursor == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
+    *pCursor = 0;
+
+    /* We cannot be using the data source after it's been uninitialized. */
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
+
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         return MA_INVALID_OPERATION;
     }
 
@@ -6212,15 +6259,25 @@ MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_res
 
 MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength)
 {
+    ma_result streamResult;
+
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    streamResult = ma_resource_manager_data_stream_result(pDataStream);
+
     /* We cannot be using the data source after it's been uninitialized. */
-    MA_ASSERT(pDataStream->result != MA_UNAVAILABLE);
+    MA_ASSERT(streamResult != MA_UNAVAILABLE);
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pDataStream->result != MA_SUCCESS) {
-        return pDataStream->result;
+    if (streamResult != MA_SUCCESS) {
+        return streamResult;
     }
 
     /*
@@ -6241,7 +6298,7 @@ MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return pDataStream->result;
+    return c89atomic_load_i32(&pDataStream->result);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
@@ -6257,11 +6314,17 @@ MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager
 
 MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping)
 {
-    if (pDataStream == NULL || pIsLooping == NULL) {
+    if (pIsLooping == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    *pIsLooping = pDataStream->isLooping;
+    *pIsLooping = MA_FALSE;
+
+    if (pDataStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pIsLooping = c89atomic_load_32((ma_bool32*)&pDataStream->isLooping);   /* Naughty const-cast. Value won't change from here in practice (maybe from another thread). */
 
     return MA_SUCCESS;
 }
@@ -6288,10 +6351,10 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
     relativeCursor =  pDataStream->relativeCursor;
 
     availableFrames = 0;
-    if (pDataStream->isPageValid[pageIndex0]) {
-        availableFrames += pDataStream->pageFrameCount[pageIndex0] - relativeCursor;
-        if (pDataStream->isPageValid[pageIndex1]) {
-            availableFrames += pDataStream->pageFrameCount[pageIndex1];
+    if (c89atomic_load_32(&pDataStream->isPageValid[pageIndex0])) {
+        availableFrames += c89atomic_load_32(&pDataStream->pageFrameCount[pageIndex0]) - relativeCursor;
+        if (c89atomic_load_32(&pDataStream->isPageValid[pageIndex1])) {
+            availableFrames += c89atomic_load_32(&pDataStream->pageFrameCount[pageIndex1]);
         }
     }
 
@@ -6532,7 +6595,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     pDataBuffer = pJob->loadDataBuffer.pDataBuffer;
 
     /* First thing we need to do is check whether or not the data buffer is getting deleted. If so we just abort. */
-    if (pDataBuffer->pNode->result != MA_BUSY) {
+    if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_BUSY) {
         result = MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
         goto done;
     }
@@ -6747,7 +6810,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     MA_ASSERT(pJob             != NULL);
     MA_ASSERT(pJob->freeDataBuffer.pDataBuffer        != NULL);
     MA_ASSERT(pJob->freeDataBuffer.pDataBuffer->pNode != NULL);
-    MA_ASSERT(pJob->freeDataBuffer.pDataBuffer->pNode->result == MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pJob->freeDataBuffer.pDataBuffer->pNode) == MA_UNAVAILABLE);
 
     if (pJob->order != pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -6779,7 +6842,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
     pDataBuffer = pJob->pageDataBuffer.pDataBuffer;
 
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
-    if (pDataBuffer->pNode->result != MA_BUSY) {
+    if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_BUSY) {
         return MA_INVALID_OPERATION;
     }
 
@@ -6908,7 +6971,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
 
     pDataStream = pJob->loadDataStream.pDataStream;
 
-    if (pDataStream->result != MA_BUSY) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_BUSY) {
         result = MA_INVALID_OPERATION;  /* Most likely the data stream is being uninitialized. */
         goto done;
     }
@@ -6978,7 +7041,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     MA_ASSERT(pDataStream != NULL);
 
     /* If our status is not MA_UNAVAILABLE we have a bug somewhere. */
-    MA_ASSERT(pDataStream->result == MA_UNAVAILABLE);
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) == MA_UNAVAILABLE);
 
     if (pJob->order != pDataStream->executionPointer) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -7014,7 +7077,7 @@ static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_m
     MA_ASSERT(pDataStream != NULL);
 
     /* For streams, the status should be MA_SUCCESS. */
-    if (pDataStream->result != MA_SUCCESS) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         result = MA_INVALID_OPERATION;
         goto done;
     }
@@ -7042,7 +7105,7 @@ static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_m
     MA_ASSERT(pDataStream != NULL);
 
     /* For streams the status should be MA_SUCCESS for this to do anything. */
-    if (pDataStream->result != MA_SUCCESS || pDataStream->isDecoderInitialized == MA_FALSE) {
+    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS || pDataStream->isDecoderInitialized == MA_FALSE) {
         result = MA_INVALID_OPERATION;
         goto done;
     }
@@ -8068,13 +8131,34 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
 }
 
 
+static ma_sound* ma_sound_group_first_sound(ma_sound_group* pGroup)
+{
+    return c89atomic_load_ptr(&pGroup->pFirstSoundInGroup);
+}
+
+static ma_sound* ma_sound_next_sound_in_group(ma_sound* pSound)
+{
+    return c89atomic_load_ptr(&pSound->pNextSoundInGroup);
+}
+
+static ma_sound* ma_sound_prev_sound_in_group(ma_sound* pSound)
+{
+    return c89atomic_load_ptr(&pSound->pPrevSoundInGroup);
+}
+
+static ma_bool32 ma_sound_is_mixing(const ma_sound* pSound)
+{
+    MA_ASSERT(pSound != NULL);
+    return c89atomic_load_32((ma_bool32*)&pSound->isMixing);
+}
+
 static void ma_sound_mix_wait(ma_sound* pSound)
 {
     /* This function is only safe when the sound is not flagged as playing. */
-    MA_ASSERT(pSound->isPlaying == MA_FALSE);
+    MA_ASSERT(ma_sound_is_playing(pSound) == MA_FALSE);
 
     /* Just do a basic spin wait. */
-    while (pSound->isMixing) {
+    while (ma_sound_is_mixing(pSound)) {
         ma_yield();
     }
 }
@@ -8087,12 +8171,12 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
     (void)pEngine;  /* Unused at the moment. */
 
     /* Don't do anything if we're not playing. */
-    if (pSound->isPlaying == MA_FALSE) {
+    if (ma_sound_is_playing(pSound) == MA_FALSE) {
         return;
     }
 
     /* If we're marked at the end we need to stop the sound and do nothing. */
-    if (pSound->atEnd) {
+    if (ma_sound_at_end(pSound)) {
         ma_sound_stop_internal(pSound);
         return;
     }
@@ -8125,7 +8209,7 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
         internal state such as timing information for things like fades, delays, echos, etc. We're going to always mix the sound if it's active and trust
         the mixer to optimize the volume = 0 case, and let the effect do it's own internal optimizations in non-audible cases.
         */
-        result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, pSound->isLooping);
+        result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, ma_sound_is_looping(pSound));
                 
         /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
         if (result == MA_AT_END) {
@@ -8190,7 +8274,7 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
     MA_ASSERT(frameCount != 0);
 
     /* Don't do anything if we're not playing. */
-    if (pGroup->isPlaying == MA_FALSE) {
+    if (ma_sound_group_is_playing(pGroup) == MA_FALSE) {
         return;
     }
 
@@ -8229,7 +8313,7 @@ static void ma_engine_mix_sound_group(ma_engine* pEngine, ma_sound_group* pGroup
             }
 
             /* Sounds in the group can now be mixed. This is where the real mixing work is done. */
-            for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
+            for (pNextSound = ma_sound_group_first_sound(pGroup); pNextSound != NULL; pNextSound = ma_sound_next_sound_in_group(pNextSound)) {
                 ma_engine_mix_sound(pEngine, pGroup, pNextSound, frameCountIn);
             }
 
@@ -8611,7 +8695,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
     The first thing to do is find an available sound. We will only be doing a forward iteration here so we should be able to do this part without locking. A
     sound will be available for recycling if it's marked as internal and is at the end.
     */
-    for (pNextSound = pGroup->pFirstSoundInGroup; pNextSound != NULL; pNextSound = pNextSound->pNextSoundInGroup) {
+    for (pNextSound = ma_sound_group_first_sound(pGroup); pNextSound != NULL; pNextSound = ma_sound_next_sound_in_group(pNextSound)) {
         if (pNextSound->_isInternal) {
             /*
             We need to check that atEnd flag to determine if this sound is available. The problem is that another thread might be wanting to acquire this
@@ -8634,7 +8718,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
         */
 
         /* The at-end flag should have been set to false when we acquired the sound for recycling. */
-        MA_ASSERT(pSound->atEnd == MA_FALSE);
+        MA_ASSERT(ma_sound_at_end(pSound) == MA_FALSE);
 
         /* We're just going to reuse the same data source as before so we need to make sure we uninitialize the old one first. */
         if (pSound->pDataSource != NULL) {  /* <-- Safety. Should never happen. */
@@ -8689,7 +8773,6 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 }
 
 
-
 static ma_result ma_sound_detach(ma_sound* pSound)
 {
     ma_sound_group* pGroup;
@@ -8703,7 +8786,7 @@ static ma_result ma_sound_detach(ma_sound* pSound)
     The sound should never be in a playing state when this is called. It *can*, however, but in the middle of mixing in the mixing thread. It needs to finish
     mixing before being uninitialized completely, but that is done at a higher level to this function.
     */
-    MA_ASSERT(pSound->isPlaying == MA_FALSE);
+    MA_ASSERT(ma_sound_is_playing(pSound) == MA_FALSE);
 
     /*
     We want the creation and deletion of sounds to be supported across multiple threads. An application may have any thread that want's to call
@@ -8720,22 +8803,25 @@ static ma_result ma_sound_detach(ma_sound* pSound)
     */
     ma_mutex_lock(&pGroup->lock);
     {
-        if (pSound->pPrevSoundInGroup == NULL) {
+        ma_sound* pNextSoundInGroup = ma_sound_next_sound_in_group(pSound);
+        ma_sound* pPrevSoundInGroup = ma_sound_prev_sound_in_group(pSound);
+
+        if (pPrevSoundInGroup == NULL) {
             /* The sound is the head of the list. All we need to do is change the pPrevSoundInGroup member of the next sound to NULL and make it the new head. */
 
             /* Make a new head. */
-            c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pSound->pNextSoundInGroup);
+            c89atomic_exchange_ptr(&pGroup->pFirstSoundInGroup, pNextSoundInGroup);
         } else {
             /*
             The sound is not the head. We need to remove the sound from the group by simply changing the pNextSoundInGroup member of the previous sound. This is
             the important part. This is the part that allows the mixing thread to continue iteration without locking.
             */
-            c89atomic_exchange_ptr(&pSound->pPrevSoundInGroup->pNextSoundInGroup, pSound->pNextSoundInGroup);
+            c89atomic_exchange_ptr(&pPrevSoundInGroup->pNextSoundInGroup, pNextSoundInGroup);
         }
 
         /* This doesn't really need to be done atomically because we've wrapped this in a lock and it's not used by the mixing thread. */
-        if (pSound->pNextSoundInGroup != NULL) {
-            c89atomic_exchange_ptr(&pSound->pNextSoundInGroup->pPrevSoundInGroup, pSound->pPrevSoundInGroup);
+        if (pNextSoundInGroup != NULL) {
+            c89atomic_exchange_ptr(&pNextSoundInGroup->pPrevSoundInGroup, pPrevSoundInGroup);
         }
     }
     ma_mutex_unlock(&pGroup->lock);
@@ -8750,7 +8836,7 @@ static ma_result ma_sound_attach(ma_sound* pSound, ma_sound_group* pGroup)
     MA_ASSERT(pSound->pGroup == NULL);
 
     /* This should only ever be called when the sound is first initialized which means we should never be in a playing state. */
-    MA_ASSERT(pSound->isPlaying == MA_FALSE);
+    MA_ASSERT(ma_sound_is_playing(pSound) == MA_FALSE);
 
     /* We can set the group at the start. */
     pSound->pGroup = pGroup;
@@ -8765,7 +8851,7 @@ static ma_result ma_sound_attach(ma_sound* pSound, ma_sound_group* pGroup)
     ma_mutex_lock(&pGroup->lock);
     {
         ma_sound* pNewFirstSoundInGroup = pSound;
-        ma_sound* pOldFirstSoundInGroup = pGroup->pFirstSoundInGroup;
+        ma_sound* pOldFirstSoundInGroup = ma_sound_group_first_sound(pGroup);
 
         pNewFirstSoundInGroup->pNextSoundInGroup = pOldFirstSoundInGroup;
         if (pOldFirstSoundInGroup != NULL) {
@@ -8922,19 +9008,19 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
     }
 
     /* If the sound is already playing, do nothing. */
-    if (pSound->isPlaying) {
+    if (ma_sound_is_playing(pSound)) {
         return MA_SUCCESS;
     }
 
     /* If the sound is at the end it means we want to start from the start again. */
-    if (pSound->atEnd) {
+    if (ma_sound_at_end(pSound)) {
         ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
         if (result != MA_SUCCESS) {
             return result;  /* Failed to seek back to the start. */
         }
 
         /* Make sure we clear the end indicator. */
-        pSound->atEnd = MA_FALSE;
+        c89atomic_exchange_32(&pSound->atEnd, MA_FALSE);
     }
 
     /* Once everything is set up we can tell the mixer thread about it. */
@@ -9069,6 +9155,15 @@ MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
     return MA_SUCCESS;
 }
 
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
+}
+
 
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
@@ -9133,7 +9228,7 @@ MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return pSound->isPlaying;
+    return c89atomic_load_32((ma_bool32*)&pSound->isPlaying);
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
@@ -9142,7 +9237,7 @@ MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return pSound->atEnd;
+    return c89atomic_load_32((ma_bool32*)&pSound->atEnd);
 }
 
 MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames)
@@ -9358,7 +9453,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
     }
 
     /* The group needs to be started by default, but needs to be done after attaching to the internal list. */
-    pGroup->isPlaying = MA_TRUE;
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
 
     return MA_SUCCESS;
 }
@@ -9368,10 +9463,10 @@ static void ma_sound_group_uninit_all_internal_sounds(ma_sound_group* pGroup)
     ma_sound* pCurrentSound;
 
     /* We need to be careful here that we keep our iteration valid. */
-    pCurrentSound = pGroup->pFirstSoundInGroup;
+    pCurrentSound = ma_sound_group_first_sound(pGroup);
     while (pCurrentSound != NULL) {
         ma_sound* pSoundToDelete = pCurrentSound;
-        pCurrentSound = pCurrentSound->pNextSoundInGroup;
+        pCurrentSound = ma_sound_next_sound_in_group(pCurrentSound);
 
         if (pSoundToDelete->_isInternal) {
             ma_sound_uninit(pSoundToDelete);
@@ -9547,7 +9642,7 @@ MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup)
         return MA_FALSE;
     }
 
-    return pGroup->isPlaying;
+    return c89atomic_load_32((ma_bool32*)&pGroup->isPlaying);
 }
 
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
