@@ -25870,12 +25870,12 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     OSStatus status;
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
-    ma_uint32 actualPeriodSizeInFrames;
+    UInt32 actualPeriodSizeInFrames;
     AURenderCallbackStruct callbackInfo;
 #if defined(MA_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
 #else
-    ma_uint32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
+    UInt32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
 #endif
 
     /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
@@ -26177,7 +26177,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         return ma_result_from_OSStatus(status);
     }
 
-    pData->periodSizeInFramesOut = actualPeriodSizeInFrames;
+    pData->periodSizeInFramesOut = (ma_uint32)actualPeriodSizeInFrames;
 
     /* We need a buffer list if this is an input device. We render into this in the input callback. */
     if (deviceType == ma_device_type_capture) {
