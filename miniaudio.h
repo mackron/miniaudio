@@ -64680,6 +64680,7 @@ REVISION HISTORY
 ================
 v0.10.29 - TBD
   - Fix some subtle multi-threading bugs on non-x86 platforms.
+  - Fix a bug resulting in superfluous memory allocations when enumerating devices.
   - Core Audio: Fix a compilation error when compiling for iOS.
 
 v0.10.28 - 2020-12-16
