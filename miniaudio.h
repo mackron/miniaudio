@@ -32845,7 +32845,7 @@ static ma_bool32 ma_context_get_devices__enum_callback(ma_context* pContext, ma_
     const ma_uint32 bufferExpansionCount = 2;
     const ma_uint32 totalDeviceInfoCount = pContext->playbackDeviceInfoCount + pContext->captureDeviceInfoCount;
 
-    if (pContext->deviceInfoCapacity >= totalDeviceInfoCount) {
+    if (totalDeviceInfoCount >= pContext->deviceInfoCapacity) {
         ma_uint32 oldCapacity = pContext->deviceInfoCapacity;
         ma_uint32 newCapacity = oldCapacity + bufferExpansionCount;
         ma_device_info* pNewInfos = (ma_device_info*)ma__realloc_from_callbacks(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity, sizeof(*pContext->pDeviceInfos)*oldCapacity, &pContext->allocationCallbacks);
