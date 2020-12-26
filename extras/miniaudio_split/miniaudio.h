@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.28 - 2020-12-16
+miniaudio - v0.10.29 - 2020-12-26
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 28
+#define MA_VERSION_REVISION 29
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2570,12 +2570,12 @@ struct ma_device
             ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
             ma_performance_profile originalPerformanceProfile;
-            ma_bool32 hasDefaultPlaybackDeviceChanged;          /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            ma_bool32 hasDefaultCaptureDeviceChanged;           /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            volatile ma_bool32 hasDefaultPlaybackDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            volatile ma_bool32 hasDefaultCaptureDeviceChanged;  /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            ma_bool32 isStartedCapture;                         /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            ma_bool32 isStartedPlayback;                        /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            volatile ma_bool32 isStartedCapture;                /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
+            volatile ma_bool32 isStartedPlayback;               /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_bool8 noAutoConvertSRC;                          /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
             ma_bool8 noDefaultQualitySRC;                       /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
             ma_bool8 noHardwareOffloading;
@@ -2726,14 +2726,14 @@ struct ma_device
             ma_event operationCompletionEvent;
             ma_semaphore operationSemaphore;
             ma_uint32 operation;
-            ma_result operationResult;
+            volatile ma_result operationResult;
             ma_timer timer;
             double priorRunTime;
             ma_uint32 currentPeriodFramesRemainingPlayback;
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            ma_bool32 isStarted;
+            volatile ma_bool32 isStarted;
         } null_device;
 #endif
     };

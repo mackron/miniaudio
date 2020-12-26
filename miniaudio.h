@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.29 - TBD
+miniaudio - v0.10.29 - 2020-12-26
 
 David Reid - mackron@gmail.com
 
@@ -64672,7 +64672,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.29 - TBD
+v0.10.29 - 2020-12-26
   - Fix some subtle multi-threading bugs on non-x86 platforms.
   - Fix a bug resulting in superfluous memory allocations when enumerating devices.
   - Core Audio: Fix a compilation error when compiling for iOS.

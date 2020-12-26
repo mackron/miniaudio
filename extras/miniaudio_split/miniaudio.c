@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.28 - 2020-12-16
+miniaudio - v0.10.29 - 2020-12-26
 
 David Reid - mackron@gmail.com
 
@@ -5998,7 +5998,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         *pFramesWritten = 0;
     }
 
-    wasStartedOnEntry = pDevice->null_device.isStarted;
+    wasStartedOnEntry = c89atomic_load_32(&pDevice->null_device.isStarted);
 
     /* Keep going until everything has been read. */
     totalPCMFramesProcessed = 0;
@@ -6024,7 +6024,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         if (pDevice->null_device.currentPeriodFramesRemainingPlayback == 0) {
             pDevice->null_device.currentPeriodFramesRemainingPlayback = 0;
 
-            if (!pDevice->null_device.isStarted && !wasStartedOnEntry) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
                 result = ma_device_start__null(pDevice);
                 if (result != MA_SUCCESS) {
                     break;
@@ -6044,7 +6044,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!pDevice->null_device.isStarted) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -6115,7 +6115,7 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!pDevice->null_device.isStarted) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -6975,7 +6975,7 @@ typedef struct
 struct ma_completion_handler_uwp
 {
     ma_completion_handler_uwp_vtbl* lpVtbl;
-    ma_uint32 counter;
+    volatile ma_uint32 counter;
     HANDLE hEvent;
 };
 
@@ -7189,7 +7189,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
         c89atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_TRUE);
     }
     if (dataFlow == ma_eCapture || pThis->pDevice->type == ma_device_type_loopback) {
-        c89atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_TRUE);
+        c89atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged, MA_TRUE);
     }
 
     (void)pDefaultDeviceID;
@@ -8372,7 +8372,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualPeriodSizeInFramesCapture);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (pDevice->wasapi.isStartedCapture) {
+        if (c89atomic_load_32(&pDevice->wasapi.isStartedCapture)) {
             HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
             if (FAILED(hr)) {
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device after reinitialization.", ma_result_from_HRESULT(hr));
@@ -8408,7 +8408,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (pDevice->wasapi.isStartedPlayback) {
+        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
             HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
             if (FAILED(hr)) {
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device after reinitialization.", ma_result_from_HRESULT(hr));
@@ -8671,11 +8671,11 @@ static ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_de
     MA_ASSERT(pDevice != NULL);
 
     if (deviceType == ma_device_type_playback) {
-        return pDevice->wasapi.hasDefaultPlaybackDeviceChanged;
+        return c89atomic_load_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged);
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        return pDevice->wasapi.hasDefaultCaptureDeviceChanged;
+        return c89atomic_load_32(&pDevice->wasapi.hasDefaultCaptureDeviceChanged);
     }
 
     return MA_FALSE;
@@ -9080,7 +9080,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     mappedDeviceBufferSizeInFramesPlayback    = 0;
                 }
 
-                if (!pDevice->wasapi.isStartedPlayback) {
+                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
                     ma_uint32 startThreshold = pDevice->playback.internalPeriodSizeInFrames * 1;
 
                     /* Prevent a deadlock. If we don't clamp against the actual buffer size we'll never end up starting the playback device which will result in a deadlock. */
@@ -9246,7 +9246,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                 }
 
                 framesWrittenToPlaybackDevice += framesAvailablePlayback;
-                if (!pDevice->wasapi.isStartedPlayback) {
+                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
                     if (pDevice->playback.shareMode == ma_share_mode_exclusive || framesWrittenToPlaybackDevice >= pDevice->playback.internalPeriodSizeInFrames*1) {
                         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                         if (FAILED(hr)) {
@@ -9294,7 +9294,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
-        if (pDevice->wasapi.isStartedPlayback) {
+        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
             DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
 
@@ -19605,11 +19605,11 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
 
     if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->capture.channels = (ma_uint32)pSession.inputNumberOfChannels;
+        m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
         ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
     }
     if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->playback.channels = (ma_uint32)pSession.outputNumberOfChannels;
+        m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
         ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
     }
 }
@@ -19692,12 +19692,12 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     OSStatus status;
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
-    ma_uint32 actualPeriodSizeInFrames;
+    UInt32 actualPeriodSizeInFrames;
     AURenderCallbackStruct callbackInfo;
 #if defined(MA_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
 #else
-    ma_uint32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
+    UInt32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
 #endif
 
     /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
@@ -19999,7 +19999,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         return ma_result_from_OSStatus(status);
     }
 
-    pData->periodSizeInFramesOut = actualPeriodSizeInFrames;
+    pData->periodSizeInFramesOut = (ma_uint32)actualPeriodSizeInFrames;
 
     /* We need a buffer list if this is an input device. We render into this in the input callback. */
     if (deviceType == ma_device_type_capture) {
@@ -24523,7 +24523,7 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
     */
 
     /* Don't do anything if the device is not started. */
-    if (pDevice->state != MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
         return;
     }
 
@@ -24561,7 +24561,7 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
     (void)pBufferQueue;
 
     /* Don't do anything if the device is not started. */
-    if (pDevice->state != MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
         return;
     }
 
@@ -26667,7 +26667,7 @@ static ma_bool32 ma_context_get_devices__enum_callback(ma_context* pContext, ma_
     const ma_uint32 bufferExpansionCount = 2;
     const ma_uint32 totalDeviceInfoCount = pContext->playbackDeviceInfoCount + pContext->captureDeviceInfoCount;
 
-    if (pContext->deviceInfoCapacity >= totalDeviceInfoCount) {
+    if (totalDeviceInfoCount >= pContext->deviceInfoCapacity) {
         ma_uint32 oldCapacity = pContext->deviceInfoCapacity;
         ma_uint32 newCapacity = oldCapacity + bufferExpansionCount;
         ma_device_info* pNewInfos = (ma_device_info*)ma__realloc_from_callbacks(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity, sizeof(*pContext->pDeviceInfos)*oldCapacity, &pContext->allocationCallbacks);
@@ -36085,13 +36085,13 @@ static MA_INLINE ma_uint32 ma_rb__extract_offset_loop_flag(ma_uint32 encodedOffs
 static MA_INLINE void* ma_rb__get_read_ptr(ma_rb* pRB)
 {
     MA_ASSERT(pRB != NULL);
-    return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(pRB->encodedReadOffset));
+    return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(c89atomic_load_32(&pRB->encodedReadOffset)));
 }
 
 static MA_INLINE void* ma_rb__get_write_ptr(ma_rb* pRB)
 {
     MA_ASSERT(pRB != NULL);
-    return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(pRB->encodedWriteOffset));
+    return ma_offset_ptr(pRB->pBuffer, ma_rb__extract_offset_in_bytes(c89atomic_load_32(&pRB->encodedWriteOffset)));
 }
 
 static MA_INLINE ma_uint32 ma_rb__construct_offset(ma_uint32 offsetInBytes, ma_uint32 offsetLoopFlag)
@@ -36184,8 +36184,8 @@ MA_API void ma_rb_reset(ma_rb* pRB)
         return;
     }
 
-    pRB->encodedReadOffset  = 0;
-    pRB->encodedWriteOffset = 0;
+    c89atomic_exchange_32(&pRB->encodedReadOffset, 0);
+    c89atomic_exchange_32(&pRB->encodedWriteOffset, 0);
 }
 
 MA_API ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
@@ -36204,10 +36204,10 @@ MA_API ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppB
     }
 
     /* The returned buffer should never move ahead of the write pointer. */
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
     /*
@@ -36248,7 +36248,7 @@ MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes, void* pBuffer
         return MA_INVALID_ARGS;
     }
 
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
     /* Check that sizeInBytes is correct. It should never go beyond the end of the buffer. */
@@ -36284,10 +36284,10 @@ MA_API ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** pp
     }
 
     /* The returned buffer should never overtake the read buffer. */
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     /*
@@ -36334,7 +36334,7 @@ MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes, void* pBuffe
         return MA_INVALID_ARGS;
     }
 
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     /* Check that sizeInBytes is correct. It should never go beyond the end of the buffer. */
@@ -36369,10 +36369,10 @@ MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes)
         return MA_INVALID_ARGS;
     }
 
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     newReadOffsetLoopFlag = readOffsetLoopFlag;
@@ -36413,10 +36413,10 @@ MA_API ma_result ma_rb_seek_write(ma_rb* pRB, size_t offsetInBytes)
         return MA_INVALID_ARGS;
     }
 
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     newWriteOffsetLoopFlag = writeOffsetLoopFlag;
@@ -36455,10 +36455,10 @@ MA_API ma_int32 ma_rb_pointer_distance(ma_rb* pRB)
         return 0;
     }
 
-    readOffset = pRB->encodedReadOffset;
+    readOffset = c89atomic_load_32(&pRB->encodedReadOffset);
     ma_rb__deconstruct_offset(readOffset, &readOffsetInBytes, &readOffsetLoopFlag);
 
-    writeOffset = pRB->encodedWriteOffset;
+    writeOffset = c89atomic_load_32(&pRB->encodedWriteOffset);
     ma_rb__deconstruct_offset(writeOffset, &writeOffsetInBytes, &writeOffsetLoopFlag);
 
     if (readOffsetLoopFlag == writeOffsetLoopFlag) {
@@ -38781,7 +38781,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  24
+#define DRFLAC_VERSION_REVISION  25
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -39142,7 +39142,7 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  23
+#define DRMP3_VERSION_REVISION  25
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drmp3_int8;
@@ -39290,12 +39290,6 @@ typedef struct
 DRMP3_API void drmp3dec_init(drmp3dec *dec);
 DRMP3_API int drmp3dec_decode_frame(drmp3dec *dec, const drmp3_uint8 *mp3, int mp3_bytes, void *pcm, drmp3dec_frame_info *info);
 DRMP3_API void drmp3dec_f32_to_s16(const float *in, drmp3_int16 *out, size_t num_samples);
-#ifndef DRMP3_DEFAULT_CHANNELS
-#define DRMP3_DEFAULT_CHANNELS      2
-#endif
-#ifndef DRMP3_DEFAULT_SAMPLE_RATE
-#define DRMP3_DEFAULT_SAMPLE_RATE   44100
-#endif
 typedef enum
 {
     drmp3_seek_origin_start,
