@@ -2743,7 +2743,7 @@ static ma_result ma_volume_and_clip_and_effect_pcm_frames(void* pDst, ma_format 
 }
 
 
-static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint32 channels, ma_uint64 frameCount, float volume)
+static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
@@ -2772,7 +2772,7 @@ static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_u
     return MA_SUCCESS;
 }
 
-static ma_result ma_mix_pcm_frames_s16(ma_int32* pDst, const ma_int16* pSrc, ma_uint32 channels, ma_uint64 frameCount, float volume)
+static ma_result ma_mix_pcm_frames_s16(ma_int32* pDst, const ma_int16* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
@@ -2801,7 +2801,7 @@ static ma_result ma_mix_pcm_frames_s16(ma_int32* pDst, const ma_int16* pSrc, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_mix_pcm_frames_s24(ma_int64* pDst, const ma_uint8* pSrc, ma_uint32 channels, ma_uint64 frameCount, float volume)
+static ma_result ma_mix_pcm_frames_s24(ma_int64* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
@@ -2830,7 +2830,7 @@ static ma_result ma_mix_pcm_frames_s24(ma_int64* pDst, const ma_uint8* pSrc, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_uint32 channels, ma_uint64 frameCount, float volume)
+static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
@@ -2860,7 +2860,7 @@ static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint32 channels, ma_uint64 frameCount, float volume)
+static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
@@ -2894,11 +2894,11 @@ static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frame
 
     switch (format)
     {
-        case ma_format_u8:  result = ma_mix_pcm_frames_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, channels, frameCount, volume); break;
-        case ma_format_s16: result = ma_mix_pcm_frames_s16((ma_int32*)pDst, (const ma_int16*)pSrc, channels, frameCount, volume); break;
-        case ma_format_s24: result = ma_mix_pcm_frames_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, channels, frameCount, volume); break;
-        case ma_format_s32: result = ma_mix_pcm_frames_s32((ma_int64*)pDst, (const ma_int32*)pSrc, channels, frameCount, volume); break;
-        case ma_format_f32: result = ma_mix_pcm_frames_f32((   float*)pDst, (const    float*)pSrc, channels, frameCount, volume); break;
+        case ma_format_u8:  result = ma_mix_pcm_frames_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s16: result = ma_mix_pcm_frames_s16((ma_int32*)pDst, (const ma_int16*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s24: result = ma_mix_pcm_frames_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s32: result = ma_mix_pcm_frames_s32((ma_int64*)pDst, (const ma_int32*)pSrc, frameCount, channels, volume); break;
+        case ma_format_f32: result = ma_mix_pcm_frames_f32((   float*)pDst, (const    float*)pSrc, frameCount, channels, volume); break;
         default: return MA_INVALID_ARGS;    /* Unknown format. */
     }
 
