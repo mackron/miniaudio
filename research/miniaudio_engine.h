@@ -5670,7 +5670,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
     {
         result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, type, pExistingData);
     }
-    ma_mutex_lock(&pResourceManager->dataBufferLock);
+    ma_mutex_unlock(&pResourceManager->dataBufferLock);
 
     return result;
 }
