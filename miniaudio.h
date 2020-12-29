@@ -12331,6 +12331,7 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
+    (void)pContext;
 
     pCallbacks->onContextInit             = ma_context_init__null;
     pCallbacks->onContextUninit           = ma_context_uninit__null;
@@ -13590,6 +13591,8 @@ static LPWSTR ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(
 
     MA_ASSERT(pContext          != NULL);
     MA_ASSERT(pDeviceEnumerator != NULL);
+
+    (void)pContext;
 
     /* Grab the EDataFlow type from the device type. */
     dataFlow = ma_device_type_to_EDataFlow(deviceType);
@@ -45764,6 +45767,8 @@ static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig,
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
+    (void)pConfig;
+
     pWav = (drwav*)ma__malloc_from_callbacks(sizeof(*pWav), &pDecoder->allocationCallbacks);
     if (pWav == NULL) {
         return MA_OUT_OF_MEMORY;
@@ -46024,6 +46029,8 @@ static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig,
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
+
+    (void)pConfig;
 
     pMP3 = (drmp3*)ma__malloc_from_callbacks(sizeof(*pMP3), &pDecoder->allocationCallbacks);
     if (pMP3 == NULL) {
@@ -46489,6 +46496,8 @@ static ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigI
     MA_ASSERT(pConfigIn != NULL);
     MA_ASSERT(pConfigOut != NULL);
     MA_ASSERT(pDecoder != NULL);
+
+    (void)pConfigOut;
 
     pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__raw;
     pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__raw;
