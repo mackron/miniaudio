@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.29 - 2020-12-26
+miniaudio - v0.10.30 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1456,7 +1456,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 29
+#define MA_VERSION_REVISION 30
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -64681,6 +64681,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.30 - TBD
+  - Silence some unused parameter warnings.
+
 v0.10.29 - 2020-12-26
   - Fix some subtle multi-threading bugs on non-x86 platforms.
   - Fix a bug resulting in superfluous memory allocations when enumerating devices.
