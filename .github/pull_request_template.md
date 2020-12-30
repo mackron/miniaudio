@@ -10,5 +10,7 @@ if you do any of the following:
   * Include a dependency on an external library
   * Include copyrighted code
   
-Your pull request may still be rejected for other reasons to those listed above, but we will inform you of
-the reasons.
+Your pull request may still be rejected for other reasons to those listed above, but you will be informed
+of the reasons.
+
+Please base your branch off the `dev` branch.
