@@ -5572,17 +5572,17 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 /*
 Locks a spinlock.
 */
-MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
 
 /*
 Locks a spinlock, but does not yield() when looping.
 */
-MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
 
 /*
 Unlocks a spinlock.
 */
-MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
 
 
 /*
@@ -9783,7 +9783,7 @@ Threading
 #endif
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
 
-static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
+static MA_INLINE ma_result ma_spinlock_lock_ex(volatile ma_spinlock* pSpinlock, ma_bool32 yield)
 {
     if (pSpinlock == NULL) {
         return MA_INVALID_ARGS;
@@ -9804,17 +9804,17 @@ static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock)
 {
     return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
 }
 
-MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock)
 {
     return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
 }
 
-MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 {
     if (pSpinlock == NULL) {
         return MA_INVALID_ARGS;
@@ -64682,6 +64682,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.30 - TBD
+  - Update spinlock APIs to take a volatile parameter as input.
   - Silence some unused parameter warnings.
 
 v0.10.29 - 2020-12-26
