@@ -64686,6 +64686,7 @@ REVISION HISTORY
 v0.10.30 - TBD
   - Update spinlock APIs to take a volatile parameter as input.
   - Silence some unused parameter warnings.
+  - Fix a warning on GCC when compiling as C++.
 
 v0.10.29 - 2020-12-26
   - Fix some subtle multi-threading bugs on non-x86 platforms.
