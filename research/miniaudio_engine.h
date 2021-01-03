@@ -323,6 +323,567 @@ extern "C" {
 
 
 /*
+Routing Infrastructure
+======================
+miniaudio's routing infrastructure follows a node graph paradigm. The idea is that you create a
+node whose outputs are attached to inputs of another node, thereby creating a graph. There are
+different types of nodes, with each node in the graph processing input data to produce output,
+which is then fed through the chain. Each node in the graph can apply their own custom effects. At
+the end of the graph is an endpoint which represents the end of the chain and is where the final
+output is ultimately extracted from.
+
+Each node has a number of input buses and a number of output buses. Currently the maximum number
+of input buses and output buses is 2 each (2 input buses, 2 output buses). This may change later
+as new requirements come up. An output bus from a node is attached to an input bus of another.
+Multiple nodes can connect their output buses to another node's input bus, in which case their
+outputs will be mixed before processing by the node.
+
+Each input bus must be configured to accept the same number of channels, but input buses and output
+buses can each have different channel counts, in which case miniaudio will automatically convert
+the input data to the output channel count before processing. The number of channels of an output
+bus of one node must match the channel count of the input bus it's attached to. The channel counts
+cannot be changed after the node has been initialized. If you attempt to attach an output bus to
+an input bus with a different channel count, attachment will fail.
+
+To use a node graph, you first need to initialize a `ma_node_graph` object. This is essentially a
+container around the entire graph. The `ma_node_graph` object is required for some thread-safety
+issues which will be explained later. A `ma_node_graph` object is initialized using miniaudio's
+standard config/init system:
+
+    ```c
+    ma_node_graph_config nodeGraphConfig = ma_node_graph_config_init(myChannelCount);
+    result = ma_node_graph_init(&nodeGraphConfig, NULL, &nodeGraph);    // Second parameter is a pointer to allocation callbacks.
+    if (result != MA_SUCCESS) {
+        // Failed to initialize node graph.
+    }
+    ```
+
+When you initialize the node graph, you're specifying the channel count of the endpoint. The
+endpoint is a special node which has one input bus and one output bus, both of which have the
+same channel count, which is specified in the config. Any nodes that ultimately connect to the
+endpoint must be configured such that their output buses have the same channel count. When you read
+audio data from the node graph, it'll have the channel count you specified in the config. To read
+data from the graph:
+
+    ```c
+    ma_uint32 framesRead;
+    result = ma_node_graph_read_pcm_frames(&nodeGraph, pFramesOut, frameCount, &framesRead);
+    if (result != MA_SUCCESS) {
+        // Failed to read data from the node graph.
+    }
+    ```
+
+When you read audio data, miniaudio starts at the node graph's special internal endpoint node which
+then pulls in data from it's input attachments, which in turn recusively pull in data from their
+inputs, and so on. At the very base of the graph there will be some kind of data source node which
+will have zero inputs and will instead read directly from a data source. The base nodes don't
+literally need to read from a `ma_data_source` object, but they will always have some kind of
+underlying object that sources some kind of audio. The `ma_data_source_node` node can be used to
+read from a `ma_data_source`. Data is always in floating-point format and in the number of channels
+you specified when the graph was initialized. The sample rate is defined by the underlying data
+sources - it's up to you to ensure they use a consistent and appropraite sample rate.
+
+The `ma_node` API is designed to allow custom nodes to be implemented with relative ease. Most
+often you'll just use one of the stock node types. This is how you would initialize a node which
+reads directly from a data source (`ma_data_source_node`):
+
+    ```c
+    ma_data_source_node_config config = ma_data_source_node_config_init(pMyDataSource, isLooping);
+
+    ma_data_source_node dataSourceNode;
+    result = ma_data_source_node_init(&nodeGraph, &config, NULL, &dataSourceNode);
+    if (result != MA_SUCCESS) {
+        // Failed to create data source node.
+    }
+    ```
+
+The data source node will use the output channel count to determine the channel count of the output
+bus. There will be 1 output bus and 0 input buses (data will be drawn directly from the data
+source). The data source must output to floating-point (ma_format_f32) or else an error will be
+returned from `ma_data_source_node_init()`.
+
+By default the node will not be attached to the graph. To do so, use either one of the following
+functions:
+
+    - ma_node_attach_to_output_node()
+    - ma_node_attach_to_input_node()
+
+Note that these are named from the perspective of the node you're about to attach to the graph. So,
+the function `ma_node_attach_to_output_node()` specifies that your node is the input node to some
+output node. `ma_node_attach_to_input_node()` is the other way around. When you attach, you specify
+the index of the relevant bus. So for `ma_node_attach_to_output_node()` you need to specify the
+index of your node's output bus, and the index of the input bus of the other node. Again, this is
+the other way around for `ma_node_attach_to_input_node()`. Example:
+
+    ```c
+    result = ma_node_attach_to_output_node(&dataSourceNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0);
+    if (result != MA_SUCCESS) {
+        // Failed to attach node.
+    }
+    ```
+
+The code above connects the data source node directly to the endpoint. Since the data source node
+has only a single output bus, the index will always be 0. Likewise, the endpoint only has a single
+input bus which means the input bus index will also always be 0.
+
+To detach a specific output bus, use `ma_node_detach_output_bus()`. To do a complete detachment
+where all output buses and all input attachments are detached, use `ma_node_detach()`. If you want
+to just move the output bus from one attachment to another, you do not need to detach first. You
+can just call `ma_node_attach_to_output/input_node()` and it'll deal with it for you.
+
+Less frequently you may want to create a specialized node. This will be a node where you implement
+your own processing callback to apply a custom effect of some kind. This is similar to initalizing
+one of the stock node types, only this time you need to specify a pointer to a vtable containing a
+pointer to the processing function and the number of input and output buses. Example:
+
+    ```c
+    static void my_custom_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+    {
+        // Do some processing of ppFramesIn (one stream of audio data per input bus)
+        const float* pFramesIn_0 = ppFramesIn[0]; // Input bus @ index 0.
+        const float* pFramesIn_1 = ppFramesIn[1]; // Input bus @ index 1.
+        float* pFramesOut_0 = ppFramesOut[0];     // Output bus @ index 0.
+        ma_uint32 frameCount = *pFrameCount;
+
+        // Do some processing. Process as many frames as you can. If you're implementing a data
+        // source node and you run out of source data, set `pFrameCount` to the number of frames
+        // that were actually read.
+    }
+
+    static ma_node_vtable my_custom_node_vtable = 
+    {
+        my_custom_node_process_pcm_frames,
+        NULL,   // No extended processing function. Set to null when the callback above is non-null.
+        2,      // 2 input buses.
+        1,      // 1 output bus.
+        0       // Default flags.
+    };
+
+    ...
+    
+    ma_node_config nodeConfig = ma_node_config_init(&my_custom_node_vtable, channelsIn, channelsOut);
+
+    ma_node_base node;
+    result = ma_node_init(&nodeGraph, &nodeConfig, NULL, &node);
+    if (result != MA_SUCCESS) {
+        // Failed to initialize node.
+    }
+    ```
+
+When initializing a custom node, as in the code above, you'll normally just place your vtable in
+static space. The number of input and output buses are specified as part of the vtable. If you want
+to do some unusual stuff where the number of buses is dynamically configurable on a per-instance
+basis, you'll need to use a dynamic `ma_node_vtable` object. None of the stock node types do this.
+
+Most often you'll want to create a structure to encapsulate your node with some extra data. You
+need to make sure the `ma_node_base` object is your first member of the structure:
+
+    ```c
+    typedef struct
+    {
+        ma_node_base base; // <-- Make sure this is always the first member.
+        float someCustomData;
+    } my_custom_node;
+    ```
+
+By doing this, your object will be compatible with all `ma_node` APIs and you can attach it to the
+graph just like any other node.
+
+In the custom processing callback (`my_custom_node_process_pcm_frames()` in the example above), all
+data will be in the output channel count, including data in the `ppFramesIn` buffers. This will be
+pre-converted for you by miniaudio. In addition, all attachments to each of the input buses will
+have been pre-mixed by miniaudio.
+
+The example above uses the simple version of the callback. There's an extended version of the
+callback that is more complicated, but necessary for effects that do resampling. This version takes
+the capacity of the output buffer as input, and on output expects you to set it to the number of
+output frames that were actually processed. Likewise, it takes a pointer to the number of input
+frames available in the input buffer, and on output you're expected to set it to the number of
+input frames that were actually processed. Note that when you do any kind of resampling that you
+need to be aware of how each branch in the graph refer back to the underlying data source. If two
+different branches in the graph each pull data at different rates, you'll ended up causing major
+glitching.
+
+If you need to make a copy of an audio stream for effect processing you can use a splitter node
+called `ma_splitter_node`. This takes has 1 input bus and splits the stream into 2 output buses.
+You can use it like this:
+
+    ```c
+    ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channelsIn, channelsOut);
+
+    ma_splitter_node splitterNode;
+    result = ma_splitter_node_init(&nodeGraph, &splitterNodeConfig, NULL, &splitterNode);
+    if (result != MA_SUCCESS) {
+        // Failed to create node.
+    }
+
+    // Attach your output buses to two different input buses (can be on two different nodes).
+    ma_node_attach_to_output_node(&splitterNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0); // Attach directly to the endpoint.
+    ma_node_attach_to_output_node(&splitterNode, 1, &myEffectNode,                          0); // Attach to input bus 0 of some effect node.
+    ```
+
+The volume of an output bus can be configured on a per-bus basis:
+
+    ```c
+    ma_node_set_output_bus_volume(&splitterNode, 0, 0.5f);
+    ma_node_set_output_bus_volume(&splitterNode, 1, 0.5f);
+    ```
+
+In the code above we're using the splitter node from before and changing the volume of each of the
+copied streams.
+
+You can start, stop and mute a node with the following:
+
+    ```c
+    ma_node_set_state(&splitterNode, ma_node_state_started);    // The default state.
+    ma_node_set_state(&splitterNode, ma_node_state_stopped);
+    ma_node_set_state(&splitterNode, ma_node_state_muted);
+    ```
+
+By default the node is in a started state, but since it won't be connected to anything won't
+actually be invoked by the node graph until it's actually connected. When you stop a node, data
+will not be read from any of it's input connections. You can use this property to stop a group of
+sounds atomically.
+
+You can configure the initial state of a node in it's config:
+
+    ```c
+    nodeConfig.initialState = ma_node_state_stopped;
+    ```
+
+Note that for the stock specialized nodes, all of their configs will have a `nodeConfig` member
+which is the config to use with the base node. This is where the initial state can be configured
+for specialized nodes:
+
+    ```c
+    dataSourceNodeConfig.nodeConfig.initialState = ma_node_state_stopped;
+    ```
+
+When using a specialized node like `ma_data_source_node` or `ma_splitter_node`, be sure to not
+modify the `vtable` member of the `nodeConfig` object.
+
+
+
+Thread Safety and Locking
+-------------------------
+When processing audio, it's ideal not to have any kind of locking in the audio thread. Since it's
+expected that `ma_node_graph_read_pcm_frames()` would be run on the audio thread, it does so
+without the use of any locks. This section discusses the implementation used by miniaudio and goes
+over some of the compromises employed by miniaudio to achieve this goal. Note that the current
+implementation may not be ideal - feedback and critiques are most welcome.
+
+The node graph API is not *entirely* lock-free. Only `ma_node_graph_read_pcm_frames()` is expected
+to be lock-free. Attachment, detachment and uninitialization of nodes use locks to simplify the
+implementation, but are crafted in a way such that such locking is not required when reading audio
+data from the graph. Locking in these areas are achieved by means of spinlocks.
+
+The main complication with keeping `ma_node_graph_read_pcm_frames()` lock-free stems from the fact
+that a node can be uninitialized, and it's memory potentially freed, while in the middle of being
+processed by `ma_node_graph_read_pcm_frames()` on the audio thread. To solve this, uninitialization
+of a node with `ma_node_uninit()` will spin until `ma_node_graph_read_pcm_frames()` finishes. This
+is the most significant compromise employed by miniaudio as it can, in the worst case, result in
+`ma_node_uninit()` spinning for as long as it takes to process an entire period of audio. For
+example, if `ma_node_graph_read_pcm_frames()` takes a millisecond to process, then
+`ma_node_uninit()` will spin for 1 millisecond in the worst case. You should take this into
+consideration when designing your node management strategy - you may want to have some kind of
+threaded cleanup routines.
+
+It's intuitive to think that instead of waiting for the *entire* graph to finish reading it would
+be possible to just wait for the node itself to finish, thereby making it a bit more efficient to
+uninitialize the node. This doesn't work because of how nodes are connected to each other. Nodes
+are connected to other nodes, which means there's always hole when doing things on a local level.
+A higher level structure that encompasses the entire node graph is required for things to work
+without holes. This is where the `ma_node_graph` object comes into it. This object encompasses the
+entire node graph which enables us to do a waiting system without holes.
+
+The `ma_node_graph` has two members that are of relevance for implementing the waiting mechanism in
+`ma_node_uninit()`. One is a flag that keeps track of whether or not we are reading from the graph.
+That is, whether or not we are executing `ma_node_graph_read_pcm_frames()`. This assumes that this
+function is never called simultaneously by multiple threads, which wouldn't actually make sense
+anyway. The other variable is a counter which increments at the end of every call to
+`ma_node_graph_read_pcm_frames()`. In `ma_node_uninit()`, the node is first detached from the node
+graph with `ma_node_detach()`. It is safe to detach the node from the graph if it's still in the
+middle of processing, so long as the node remains valid. Once the node is detached, it can be
+guaranteed that future calls to `ma_node_graph_read_pcm_frames()` will never iterate over the node.
+Then, a copy of the current read counter is retrieved followed by a check against the flag that
+tracks whether or not a read is currently being performed. If so, the `ma_node_uninit()` will spin
+until the counter we retrieved earlier does not equal the current counter. Once the counters do not
+match, waiting is over and the uninitialization process can continue without needing to worry about
+thread-safety. See the implementation of `ma_node_uninit()` for more details on this.
+
+Another compromise, albeit less significant, is locking when attaching and detaching nodes. This
+locking is achieved by means of a spinlock in order to reduce overhead. A lock is present for each
+input bus and output bus, totaling 4 for each node. When an output bus is connected to an input
+bus, both the output bus and input bus is locked. This locking is specifically for attaching and
+detaching across different threads and does not affect `ma_node_graph_read_pcm_frames()` in any
+way. The locking and unlocking is mostly self-explanatory, but slightly less intuitive part comes
+into it when considering that iterating over attachments must not break as a result of attaching or
+detaching a node while iteration is occuring.
+
+Attaching and detaching are both quite simple. When an output bus of a node is attached to an input
+bus of another node, it's added to a linked list. Basically, an input bus is a linked list, where
+each item in the list is and output bus. We have some intentional (and convenient) restrictions on
+what can done with the linked list in order to simplify the implementation. First of all, whenever
+something needs to iterate over the list, it must do so in a forward direction. Backwards iteration
+is not supported. Also, items can only be added to the start of the list.
+
+The linked list is a doubly-linked list where each item in the list (an output bus) holds a pointer
+to the next item in the list, and another to the previous item. A pointer to the previous item is
+only required for fast detachment of the node - it is never used in iteration. This is an
+important property because it means from the perspective of iteration, attaching and detaching of
+an item can be done with a single atomic assignment. This is exploited by both the attachment and
+detachment process. When attaching the node, the first thing that is done is the setting of the
+local "next" and "previous" pointers of the node. After that, the item is "attached" to the list
+by simply performing an atomic exchange with the head pointer. After that, the node is "attached"
+to the list from the perspective of iteration. Even though the "previous" pointer of the next item
+hasn't yet been set, from the perspective of iteration it's been attached because iteration will
+only be happening in a forward direction which means the "previous" pointer won't actually ever get
+used. The same general process applies to detachment. See `ma_node_attach_to_output/input_node()`
+and `ma_node_detach_output_bus()` for the implementation of this mechanism.
+
+One outstanding problem exists regarding attaching and detaching. It is possible for an output bus
+to be detached while the audio thread is in the middle of processing it. This by itself is not a
+problem because the node is still valid. The problem is that of reattaching the output bus to a new
+input bus while a read is still happening on the audio thread. What *could* happen is that the node
+is reattached to a new input bus which hasn't yet been iterated in the current call to
+`ma_node_graph_read_pcm_frames()` thereby resulting in the node getting processed twice. This would
+flow through the base data source and result in a desync because it's ready from it twice in the
+same call to `ma_node_graph_read_pcm_frames()`. This is an unusual scenario and would most likely
+go unnoticed by the majority of people, but it's still an issue to consider.
+*/
+
+/*
+Open Questions
+==============
+- What should the maximum bus count be for each node? This is defined at compile time and each node
+  has a fixed sized array of structs representing the input and output buses. It's therefore
+  important to keep this within reason. It's currently set to 2 for each side (maximum of 2 input
+  buses and 2 output buses). The limit can be increased with MA_MAX_NODE_BUS_COUNT, so I'm thinking
+  that this should be set to the maximum needed by the stock nodes and if an application needs more
+  to support their custom effects they can just increase it themselves.
+*/
+
+/* Must never exceed 255. */
+#ifndef MA_MAX_NODE_BUS_COUNT
+#define MA_MAX_NODE_BUS_COUNT   2
+#endif
+
+typedef struct ma_node_graph ma_node_graph;
+typedef void ma_node;
+
+
+/* The playback state of a node. */
+typedef enum
+{
+    ma_node_state_stopped = 0x00,
+    ma_node_state_started = 0x01,
+    ma_node_state_muted   = 0x02,   /* Can be combined with ma_node_state_stopped and ma_node_state_started. */
+} ma_node_state;
+
+
+typedef struct
+{
+    /*
+    Simplified processing callback. Use this callback if you have a simple effect where no
+    resampling is involved and the output rate is the same as the input rate. This will be the case
+    for the vast majority of effects.
+
+    On input, `pFrameCount` is the number of PCM frames in each of the streams in `ppFramesOut` and
+    `ppFramesIn`. On output, the callback must set the number the number of PCM frames that were
+    processed. You must process the same number of PCM frames for each bus. The number of buses
+    in `ppFramesOut` and `ppFramesIn` are specified by the bus counts below.
+    */
+    void (* onProcess)(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount);
+
+    /*
+    Extended processing callback. This callback is used for effects that process input and output
+    at different rates (i.e. they perform resampling). This is similar to the simple version, only
+    they take two sepate frame counts: one for input, and one for output.
+
+    On input, `pFrameCountOut` is equal to the capacity of the output buffer for each bus, whereas
+    `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.
+
+    On output, set `pFrameCountOut` to the number of PCM frames that were actually output and set
+    `pFrameCountIn` to the number of input frames that were consumed. 
+    */
+    void (* onProcessEx)(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn);
+
+    /*
+    The number of input buses. This is how many sub-buffers will be contained in the `ppFramesIn`
+    parameters of the callbacks above.
+    */
+    ma_uint8 inputBusCount;
+
+    /*
+    The number of output buses. This is how many sub-buffers will be contained in the `ppFramesOut`
+    parameters of the callbacks above.
+    */
+    ma_uint8 outputBusCount;
+
+    /*
+    Flags describing characteristics of the node. This is currently just a placeholder for some
+    ideas for later on.
+    */
+    ma_uint32 flags;
+} ma_node_vtable;
+
+typedef struct
+{
+    const ma_node_vtable* vtable;   /* Should never be null. Initialization of the node will fail if so. */
+    ma_uint32 inputChannels;
+    ma_uint32 outputChannels;
+    ma_node_state initialState;     /* Defaults to ma_node_state_started. */
+} ma_node_config;
+
+MA_API ma_node_config ma_node_config_init(ma_node_vtable* vtable, ma_uint32 inputChannels, ma_uint32 outputChannels);
+
+
+/*
+A node has multiple output buses. An output bus is attached to an input bus as an item in a linked
+list. Think of the input bus as a linked list, with the output bus being an item in that list.
+*/
+#define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
+
+typedef struct ma_node_output_bus ma_node_output_bus;
+struct ma_node_output_bus
+{
+    /* Immutable. */
+    ma_node* pNode;                             /* The node that owns this output bus. The input node. Will be null for dummy head and tail nodes. */
+    ma_uint8 outputBusIndex;                    /* The index of the output bus on pNode that this output bus represents. */
+
+    /* Mutable via multiple threads. The weird ordering here is for packing reasons. */
+    volatile ma_uint8 inputNodeInputBusIndex;   /* The index of the input bus on the input. Required for detaching. */
+    volatile ma_uint8 flags;                    /* Some state flags for tracking the read state of the output buffer. */
+    volatile ma_spinlock lock;                  /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    volatile float volume;                      /* Linear 0..1 */
+    volatile ma_node_output_bus* pNext;         /* If null, it's the tail node or detached. */
+    volatile ma_node_output_bus* pPrev;         /* If null, it's the head node or detached. */
+    volatile ma_node* pInputNode;               /* The node that this output bus is attached to. Required for detaching. */    
+};
+
+/*
+A node has multiple input buses. The output buses of a node are connecting to the input busses of
+another. An input bus is essentially just a linked list of output buses.
+*/
+typedef struct ma_node_input_bus ma_node_input_bus;
+struct ma_node_input_bus
+{
+    /* Mutable via multiple threads. */
+    volatile ma_node_output_bus* pHead; /* If null, the list is empty. */
+    volatile ma_spinlock lock;          /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+};
+
+
+typedef struct ma_node_base ma_node_base;
+struct ma_node_base
+{
+    /* These variables are set once at startup. */
+    ma_node_graph* pNodeGraph;  /* The graph this node belongs to. */
+    const ma_node_vtable* vtable;
+    float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
+    ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
+    ma_uint8 inputChannels;
+    ma_uint8 outputChannels;
+
+    /* These variables are read and written only from the audio thread. */
+    ma_uint16 cachedFrameCountOut;
+    ma_uint16 cachedFrameCountIn;
+    ma_uint16 consumedFrameCountIn;
+    ma_uint16 padding;  /* Padding due to structure packing. Add any new members that fit here. */
+    
+    /* These variables are read and written between different threads. */
+    volatile ma_node_state state;
+    ma_node_input_bus inputBuses[MA_MAX_NODE_BUS_COUNT];
+    ma_node_output_bus outputBuses[MA_MAX_NODE_BUS_COUNT];
+};
+
+MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
+MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_uint32 ma_node_get_input_bus_count(const ma_node* pNode);
+MA_API ma_uint32 ma_node_get_output_bus_count(const ma_node* pNode);
+MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode);
+MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode);
+MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
+MA_API ma_result ma_node_detach(ma_node* pNode);    /* A full detach of all input attachments and output buses. */
+MA_API ma_result ma_node_attach_to_input_node(ma_node* pOutputNode, ma_uint32 outputNodeInputStreamIndex, ma_node* pInputNode, ma_uint32 inputNodeOutputStreamIndex);
+MA_API ma_result ma_node_attach_to_output_node(ma_node* pInputNode, ma_uint32 inputNodeOutputStreamIndex, ma_node* pOutputNode, ma_uint32 outputNodeInputStreamIndex);
+MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
+MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
+MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume);
+MA_API float ma_node_get_output_bus_volume(const ma_node* pNode, ma_uint32 outputBusIndex);
+
+
+
+typedef struct
+{
+    ma_uint32 channels;
+} ma_node_graph_config;
+
+MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
+
+
+struct ma_node_graph
+{
+    /* Immutable. */
+    ma_node_base endpoint;          /* Special node that all nodes eventually connect to. Data is ready from this node in ma_node_graph_read_pcm_frames(). */
+
+    /* Read and written by multiple threads. */
+    volatile ma_uint32 readCounter; /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
+    volatile ma_uint8 isReading;
+};
+
+MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
+MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph);
+MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
+
+
+
+/* Data source node. 0 input buses, 1 output bus. Used for reading from a data source. */
+typedef struct
+{
+    ma_node_config nodeConfig;
+    ma_data_source* pDataSource;
+    ma_bool32 looping;  /* Can be changed after initialization with ma_data_source_node_set_looping(). */
+} ma_data_source_node_config;
+
+MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource, ma_bool32 looping);
+
+
+typedef struct
+{
+    ma_node_base base;
+    ma_data_source* pDataSource;
+    volatile ma_bool32 looping;  /* This can be modified and read across different threads so marking as volatile to make it clear that we need to use atomics to read and modify this. */
+} ma_data_source_node;
+
+MA_API ma_result ma_data_source_node_init(ma_node_graph* pNodeGraph, const ma_data_source_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source_node* pDataSourceNode);
+MA_API void ma_data_source_node_uninit(ma_data_source_node* pDataSourceNode, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 looping);
+MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode);
+
+
+/* Splitter Node. 1 input, 2 outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
+typedef struct
+{
+    ma_node_config nodeConfig;
+} ma_splitter_node_config;
+
+MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 inputChannels, ma_uint32 outputChannels);
+
+
+typedef struct
+{
+    ma_node_base base;
+} ma_splitter_node;
+
+MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_splitter_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_splitter_node* pSplitterNode);
+MA_API void ma_splitter_node_uninit(ma_splitter_node* pSplitterNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+
+
+/*
 Effects
 =======
 The `ma_effect` API is a mid-level API for chaining together effects. This is a wrapper around lower level APIs which you can continue to use by themselves if
@@ -1680,23 +2241,45 @@ MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup,
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
 
-#ifndef MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS
-#define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS   1000
+
+/* 10ms @ 48K = 480. Must never exceed 65535. */
+#ifndef MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS
+#define MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS 480
 #endif
 
 
-static ma_uint32 ma_ffs_32(ma_uint32 x)
+static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
+
+
+static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
 {
-    ma_uint32 i;
+    return (ma_int16)(x * (1 << 8));
+}
 
-    /* Just a naive implementation just to get things working for now. Will optimize this later. */
-    for (i = 0; i < 32; i += 1) {
-        if ((x & (1 << i)) != 0) {
-            return i;
-        }
-    }
 
-    return i;
+static MA_INLINE ma_int16 ma_apply_volume_unclipped_u8(ma_int16 x, ma_int16 volume)
+{
+    return (ma_int16)(((ma_int32)x * (ma_int32)volume) >> 8);
+}
+
+static MA_INLINE ma_int32 ma_apply_volume_unclipped_s16(ma_int32 x, ma_int16 volume)
+{
+    return (ma_int32)((x * volume) >> 8);
+}
+
+static MA_INLINE ma_int64 ma_apply_volume_unclipped_s24(ma_int64 x, ma_int16 volume)
+{
+    return (ma_int64)((x * volume) >> 8);
+}
+
+static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 volume)
+{
+    return (ma_int64)((x * volume) >> 8);
+}
+
+static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
+{
+    return x * volume;
 }
 
 
@@ -1760,6 +2343,1558 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
         }
     }
 }
+
+static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount)
+{
+    ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pFramesIn, ma_format_f32, channelsIn, frameCount, ma_dither_mode_none);
+}
+
+
+static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+    
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_pcm_sample_u8_to_s16_no_scale(pSrc[iSample]);
+        }
+    } else {
+        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_u8(ma_pcm_sample_u8_to_s16_no_scale(pSrc[iSample]), volumeFixed);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mix_pcm_frames_s16(ma_int32* pDst, const ma_int16* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+    
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += pSrc[iSample];
+        }
+    } else {
+        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_s16(pSrc[iSample], volumeFixed);
+        }
+    }
+    
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mix_pcm_frames_s24(ma_int64* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+    
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_pcm_sample_s24_to_s32_no_scale(&pSrc[iSample*3]);
+        }
+    } else {
+        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_s24(ma_pcm_sample_s24_to_s32_no_scale(&pSrc[iSample*3]), volumeFixed);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+    
+    
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += pSrc[iSample];
+        }
+    } else {
+        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_s32(pSrc[iSample], volumeFixed);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += pSrc[iSample];
+        }
+    } else {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_f32(pSrc[iSample], volume);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume)
+{
+    ma_result result;
+
+    switch (format)
+    {
+        case ma_format_u8:  result = ma_mix_pcm_frames_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s16: result = ma_mix_pcm_frames_s16((ma_int32*)pDst, (const ma_int16*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s24: result = ma_mix_pcm_frames_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
+        case ma_format_s32: result = ma_mix_pcm_frames_s32((ma_int64*)pDst, (const ma_int32*)pSrc, frameCount, channels, volume); break;
+        case ma_format_f32: result = ma_mix_pcm_frames_f32((   float*)pDst, (const    float*)pSrc, frameCount, channels, volume); break;
+        default: return MA_INVALID_ARGS;    /* Unknown format. */
+    }
+
+    return result;
+}
+
+static ma_result ma_mix_pcm_frames_ex(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
+{
+    if (pDst == NULL || pSrc == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (formatOut == formatIn && channelsOut == channelsIn) {
+        /* Fast path. */
+        return ma_mix_pcm_frames(pDst, pSrc, frameCount, formatOut, channelsOut, volume);
+    } else {
+        /* Slow path. Data conversion required. */
+        ma_uint8  buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        ma_uint32 bufferCapInFrames = sizeof(buffer) / ma_get_bytes_per_frame(formatOut, channelsOut);
+        ma_uint64 totalFramesProcessed = 0;
+        /* */ void* pRunningDst = pDst;
+        const void* pRunningSrc = pSrc;
+
+        while (totalFramesProcessed < frameCount) {
+            ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
+            if (framesToProcess > bufferCapInFrames) {
+                framesToProcess = bufferCapInFrames;
+            }
+
+            /* Conversion. */
+            ma_convert_pcm_frames_format_and_channels(buffer, formatOut, channelsOut, pRunningSrc, formatIn, channelsIn, framesToProcess, ma_dither_mode_none);
+
+            /* Mixing. */
+            ma_mix_pcm_frames(pRunningDst, buffer, framesToProcess, formatOut, channelsOut, volume);
+
+            totalFramesProcessed += framesToProcess;
+            pRunningDst = ma_offset_ptr(pRunningDst, framesToProcess * ma_get_accumulation_bytes_per_frame(formatOut, channelsOut));
+            pRunningSrc = ma_offset_ptr(pRunningSrc, framesToProcess * ma_get_bytes_per_frame(formatIn, channelsIn));
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static void ma_convert_pcm_frames_channels_and_mix_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
+{
+    if (pFramesOut == NULL || pFramesIn == NULL) {
+        return;
+    }
+
+    if (channelsOut == channelsIn) {
+        /* Fast path. No channel conversion required. */
+        ma_mix_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, channelsIn, volume);
+    } else {
+        /* Slow path. Channel conversion required. Needs to be done in two steps with an intermediary buffer. */
+        float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];    /* In output channels. */
+        ma_uint64 tempCapInFrames = ma_countof(temp) / channelsOut;
+        ma_uint64 totalFramesProcessed = 0;
+    
+        while (totalFramesProcessed < frameCount) {
+            ma_uint64 framesToProcess;
+
+            framesToProcess = frameCount - totalFramesProcessed;
+            if (framesToProcess > tempCapInFrames) {
+                framesToProcess = tempCapInFrames;
+            }
+
+            /* Step 1: Convert channels. */
+            ma_convert_pcm_frames_channels_f32(temp, channelsOut, ma_offset_pcm_frames_const_ptr_f32(pFramesIn, totalFramesProcessed, channelsIn), channelsIn, framesToProcess);
+
+            /* Step 2: Mix. */
+            ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesProcessed, channelsIn), temp, framesToProcess, channelsOut, volume);
+
+            totalFramesProcessed += framesToProcess;
+        }
+    }
+}
+
+
+
+MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
+{
+    ma_node_graph_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.channels = channels;
+
+    return config;
+}
+
+
+static void ma_node_graph_set_is_reading(ma_node_graph* pNodeGraph, ma_bool8 isReading)
+{
+    MA_ASSERT(pNodeGraph != NULL);
+    c89atomic_exchange_8(&pNodeGraph->isReading, isReading);
+}
+
+static ma_bool8 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
+{
+    MA_ASSERT(pNodeGraph != NULL);
+    return c89atomic_load_8(&pNodeGraph->isReading);
+}
+
+static void ma_node_graph_increment_read_counter(ma_node_graph* pNodeGraph)
+{
+    MA_ASSERT(pNodeGraph != NULL);
+    c89atomic_fetch_add_32(&pNodeGraph->readCounter, 1);
+}
+
+static ma_uint32 ma_node_graph_get_read_counter(ma_node_graph* pNodeGraph)
+{
+    MA_ASSERT(pNodeGraph != NULL);
+    return c89atomic_load_32(&pNodeGraph->readCounter);
+}
+
+
+static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+
+    MA_ASSERT(pNodeBase != NULL);
+    MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) == 1);
+    MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) == 1);
+
+    /* The data has already been mixed. We just need to move it to the output buffer. */
+    ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCount, ma_format_f32, ma_node_get_output_channels(pNodeBase));
+}
+
+static ma_node_vtable g_node_graph_endpoint_vtable =
+{
+    ma_node_graph_endpoint_process_pcm_frames,
+    NULL,
+    1,  /* 1 input bus. */
+    1,  /* 1 output bus. */
+    0   /* Default flags. */
+};
+
+MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph)
+{
+    ma_result result;
+    ma_node_config endpointConfig;
+
+    if (pNodeGraph == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNodeGraph);
+
+    endpointConfig = ma_node_config_init(&g_node_graph_endpoint_vtable, pConfig->channels, pConfig->channels);
+
+    result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pNodeGraph == NULL) {
+        return;
+    }
+
+    ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+}
+
+MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph)
+{
+    if (pNodeGraph == NULL) {
+        return NULL;
+    }
+
+    return &pNodeGraph->endpoint;
+}
+
+MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint32 totalFramesRead;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;   /* Safety. */
+    }
+
+    if (pNodeGraph == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
+    {
+        /* We'll be nice and try to do a full read of all frameCount frames. */
+        totalFramesRead = 0;
+        while (totalFramesRead < frameCount) {
+            ma_uint32 framesJustRead;
+            ma_uint32 framesToRead = frameCount - totalFramesRead;
+        
+            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, pNodeGraph->endpoint.inputChannels), framesToRead, &framesJustRead);
+            totalFramesRead += framesJustRead;
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+        }
+
+        /* Let's go ahead and silence any leftover frames just for some added safety to ensure the caller doesn't try emitting garbage out of the speakers. */
+        if (totalFramesRead < frameCount) {
+            ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, pNodeGraph->endpoint.inputChannels), (frameCount - totalFramesRead), ma_format_f32, pNodeGraph->endpoint.inputChannels);
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
+        }
+    }
+    ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+    ma_node_graph_increment_read_counter(pNodeGraph);
+
+    return result;
+}
+
+
+
+static ma_result ma_node_output_bus_init(ma_node* pNode, ma_uint32 outputBusIndex, ma_node_output_bus* pOutputBus)
+{
+    MA_ASSERT(pOutputBus != NULL);
+    MA_ASSERT(outputBusIndex < MA_MAX_NODE_BUS_COUNT);
+    MA_ASSERT(outputBusIndex < ma_node_get_output_bus_count(pNode));
+
+    MA_ZERO_OBJECT(pOutputBus);
+
+    pOutputBus->pNode          = pNode;
+    pOutputBus->outputBusIndex = (ma_uint8)outputBusIndex;
+    pOutputBus->flags          = MA_NODE_OUTPUT_BUS_FLAG_HAS_READ; /* <-- Important that this flag is set by default. */
+    pOutputBus->volume         = 1;
+
+    return MA_SUCCESS;
+}
+
+static void ma_node_output_bus_lock(ma_node_output_bus* pOutputBus)
+{
+    ma_spinlock_lock(&pOutputBus->lock);
+}
+
+static void ma_node_output_bus_unlock(ma_node_output_bus* pOutputBus)
+{
+    ma_spinlock_unlock(&pOutputBus->lock);
+}
+
+
+static void ma_node_output_bus_set_has_read(ma_node_output_bus* pOutputBus, ma_bool32 hasRead)
+{
+    if (hasRead) {
+        c89atomic_fetch_or_8(&pOutputBus->flags, MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
+    } else {
+        c89atomic_fetch_and_8(&pOutputBus->flags, (ma_uint8)~MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
+    }
+}
+
+static ma_bool32 ma_node_output_bus_has_read(ma_node_output_bus* pOutputBus)
+{
+    return (c89atomic_load_8(&pOutputBus->flags) & MA_NODE_OUTPUT_BUS_FLAG_HAS_READ) != 0;
+}
+
+
+static ma_result ma_node_output_bus_set_volume(ma_node_output_bus* pOutputBus, float volume)
+{
+    MA_ASSERT(pOutputBus != NULL);
+
+    /* Returning an error if outside the 0..1 range for consistency with how it's handled with ma_device_set_master_volume(). */
+    if (volume < 0.0f || volume > 1.0f) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_f32(&pOutputBus->volume, volume);
+
+    return MA_SUCCESS;
+}
+
+static float ma_node_output_bus_get_volume(const ma_node_output_bus* pOutputBus)
+{
+    return c89atomic_load_f32((float*)&pOutputBus->volume);
+}
+
+
+
+static ma_result ma_node_input_bus_init(ma_node_input_bus* pInputBus)
+{
+    MA_ASSERT(pInputBus != NULL);
+
+    MA_ZERO_OBJECT(pInputBus);
+    pInputBus->pHead = NULL;
+
+    return MA_SUCCESS;
+}
+
+static void ma_node_input_bus_lock(ma_node_input_bus* pInputBus)
+{
+    ma_spinlock_lock(&pInputBus->lock);
+}
+
+static void ma_node_input_bus_unlock(ma_node_input_bus* pInputBus)
+{
+    ma_spinlock_unlock(&pInputBus->lock);
+}
+
+static void ma_node_input_bus_detach__no_output_bus_lock(ma_node_input_bus* pInputBus, ma_node_output_bus* pOutputBus)
+{
+    MA_ASSERT(pInputBus  != NULL);
+    MA_ASSERT(pOutputBus != NULL);
+
+    /*
+    We cannot use the output bus lock here since it'll be getting used at a higher level, but we do
+    still need to use the input bus lock since we'll be updating pointers on two different output
+    buses. The same rules apply here as the attaching case. Although we're using a lock here, we're
+    *not* using a lock when iterating over the list in the audio thread. We therefore need to craft
+    this in a way such that the iteration on the audio thread doesn't break.
+
+    The the first thing to do is swap out the "next" pointer of the previous output bus with the
+    new "next" output bus. This is the operation that matters for iteration on the audio thread.
+    After that, the previous pointer on the new "next" pointer needs to be updated, after which
+    point the linked list will be in a good state.
+    */
+    ma_node_input_bus_lock(pInputBus);
+    {
+        ma_node_output_bus* pOldPrev = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pPrev);
+        ma_node_output_bus* pOldNext = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext);
+
+        if (pOldPrev != NULL) {
+            c89atomic_exchange_ptr(&pOldPrev->pNext, pOldNext); /* <-- This is where the output bus is detached from the list. */
+        }
+        if (pOldNext != NULL) {
+            c89atomic_exchange_ptr(&pOldNext->pPrev, pOldPrev); /* <-- This is required for detachment. */
+        }
+    }
+    ma_node_input_bus_unlock(pInputBus);
+
+    /* At this point the output bus is detached and the linked list is completely unaware of it. Reset some data for safety. */
+    c89atomic_exchange_ptr(&pOutputBus->pNext, NULL);   /* Using atomic exchanges here, mainly for the benefit of analysis tools which don't always recognize spinlocks. */
+    c89atomic_exchange_ptr(&pOutputBus->pPrev, NULL);   /* As above. */
+    pOutputBus->pInputNode             = NULL;
+    pOutputBus->inputNodeInputBusIndex = 0;
+}
+
+#if 0   /* Not used at the moment, but leaving here in case I need it later. */
+static void ma_node_input_bus_detach(ma_node_input_bus* pInputBus, ma_node_output_bus* pOutputBus)
+{
+    MA_ASSERT(pInputBus  != NULL);
+    MA_ASSERT(pOutputBus != NULL);
+
+    ma_node_output_bus_lock(pOutputBus);
+    {
+        ma_node_input_bus_detach__no_output_bus_lock(pInputBus, pOutputBus);
+    }
+    ma_node_output_bus_unlock(pOutputBus);
+}
+#endif
+
+static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_output_bus* pOutputBus, ma_node* pNewInputNode, ma_uint32 inputNodeInputBusIndex)
+{
+    MA_ASSERT(pInputBus  != NULL);
+    MA_ASSERT(pOutputBus != NULL);
+
+    ma_node_output_bus_lock(pOutputBus);
+    {
+        ma_node_output_bus* pOldInputNode = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pInputNode);
+
+        /* Detach from any existing attachment first if necessary. */
+        if (pOldInputNode != NULL) {
+            ma_node_input_bus_detach__no_output_bus_lock(pInputBus, pOutputBus);
+        }
+
+        /*
+        At this point we can be sure the output bus is not attached to anything. The linked list in the
+        old input bus has been updated so that pOutputBus will not get iterated again.
+        */
+        pOutputBus->pInputNode             = pNewInputNode;                     /* No need for an atomic assignment here because modification of this variable always happens within a lock. */
+        pOutputBus->inputNodeInputBusIndex = (ma_uint8)inputNodeInputBusIndex;  /* As above. */
+
+        /*
+        Now we need to attach the output bus to the linked list. This involves updating two pointers on
+        two different output buses so I'm going to go ahead and keep this simple and just use a lock.
+        There are ways to do this without a lock, but it's just too hard to maintain for it's value.
+
+        Although we're locking here, it's important to remember that we're *not* locking when iterating
+        and reading audio data since that'll be running on the audio thread. As a result we need to be
+        careful how we craft this so that we don't break iteration. What we're going to do is always
+        attach the new item so that it becomes the first item in the list. That way, as we're iterating
+        we won't break any links in the list and iteration will continue safely. The detaching case will
+        also be crafted in a way as to not break list iteration. It's important to remember to use
+        atomic exchanges here since no locking is happening on the audio thread during iteration.
+        */
+        ma_node_input_bus_lock(pInputBus);
+        {
+            ma_node_output_bus* pNewPrev = NULL;
+            ma_node_output_bus* pNewNext = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->pHead);
+
+            /* Update the local output bus. */
+            c89atomic_exchange_ptr(&pOutputBus->pPrev, pNewPrev);
+            c89atomic_exchange_ptr(&pOutputBus->pNext, pNewNext);
+
+            /* Update the other output buses to point back to the local output bus. */
+            c89atomic_exchange_ptr(&pInputBus->pHead, pOutputBus); /* <-- This is where the output bus is actually attached to the input bus. */
+
+            /* Do the previous pointer last. This is only used for detachment. */
+            if (pNewNext != NULL) {
+                c89atomic_exchange_ptr(&pNewNext->pPrev,  pOutputBus);
+            }
+        }
+        ma_node_input_bus_unlock(pInputBus);
+    }
+    ma_node_output_bus_unlock(pOutputBus);
+}
+
+static ma_node_output_bus* ma_node_input_bus_next(ma_node_input_bus* pInputBus, ma_node_output_bus* pOutputBus)
+{
+    MA_ASSERT(pInputBus != NULL);
+
+    if (pOutputBus == NULL) {
+        return NULL;
+    }
+
+    return (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext);
+}
+
+static ma_node_output_bus* ma_node_input_bus_first(ma_node_input_bus* pInputBus)
+{
+    return (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->pHead);
+}
+
+
+
+static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_input_bus* pInputBus, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    ma_node_output_bus* pOutputBus;
+
+    /*
+    This will be called from the audio thread which means we can't be doing any locking. Basically,
+    this function will not perfom any locking, whereas attaching and detaching will, but crafted in
+    such a way that we don't need to perform any locking here. The important thing to remember is
+    to always iterate in a forward direction.
+
+    In order to process any data we need to first read from all input buses. That's where this
+    function comes in. This iterates over each of the attachments and accumulates/mixes them. We
+    also convert the channels to the nodes output channel count before mixing. We want to do this
+    channel conversion so that the caller of this function can invoke the processing callback
+    without having to do it themselves.
+    */
+    MA_ASSERT(pInputNode  != NULL);
+    MA_ASSERT(pFramesRead != NULL); /* pFramesRead is critical and must always be specified. On input it's undefined and on output it'll be set to the number of frames actually read. */
+
+    *pFramesRead = 0;   /* Safety. */
+    
+    /*
+    A few optimizations here:
+                
+        1) If there's only a single attachment we just write directly to the output buffer.
+        2) For the first attachment, we do not mix. Instead we just overwrite.
+    */
+    if (ma_node_input_bus_next(pInputBus, ma_node_input_bus_first(pInputBus)) == NULL && ma_node_get_input_channels(pInputNode) == ma_node_get_output_channels(pInputNode)) {
+        /* Fast path. There's only one attachment and no channel conversion. Read straight into the output buffer. */
+        pOutputBus = ma_node_input_bus_first(pInputBus);
+        if (pOutputBus != NULL) {
+            /* Fast path. Input and output channel counts are the same. No conversion necessary. */
+            ma_uint32 framesRead;
+            float volume = ma_node_output_bus_get_volume(pOutputBus);
+
+            if (volume > 0) {
+                result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pFramesOut, frameCount, &framesRead);
+            } else {
+                result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL,       frameCount, &framesRead);   /* Volume is muted. This resolves to a seek. */
+            }
+
+            if (result == MA_SUCCESS) {
+                /* Any frames that were not read need to be filled with silence. */
+                if (framesRead < frameCount) {
+                    ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesRead, ma_format_f32, ma_node_get_output_channels(pInputNode)), (frameCount - framesRead), ma_format_f32, ma_node_get_output_channels(pInputNode));
+                }
+            }
+
+            /* Apply volume, if necessary. */
+            if (volume > 0 && volume != 1) {
+                ma_apply_volume_factor_f32(pFramesOut, framesRead * ma_node_get_output_channels(pInputNode), volume);
+            }
+
+            *pFramesRead = framesRead;
+        }
+    } else {
+        /* Slow path. There's multiple output buses or channel conversion is required. We need to mix before outputting. pFramesOut is the accumulation buffer. */
+
+        /*
+        In order to reduce the amount of computation we'll be doing for volume control, we're going
+        to be smart about when we apply the volume. If we're increasing the number of channels,
+        we'll want to apply the volume factor before channel conversion. Otherwise we'll want to do
+        it after.
+        */
+        ma_bool32 applyVolumeInPost = ma_node_get_input_channels(pInputNode) >= ma_node_get_output_channels(pInputNode);
+
+        for (pOutputBus = ma_node_input_bus_first(pInputBus); pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
+            ma_uint32 framesProcessed = 0;
+
+            MA_ASSERT(pOutputBus->pNode != NULL);
+
+            if (pFramesOut != NULL) {
+                /* Read. */
+                float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
+                ma_uint32 tempCapInFrames = ma_countof(temp) / ma_node_get_input_channels(pInputNode);
+                float volume = ma_node_output_bus_get_volume(pOutputBus);
+                    
+                while (framesProcessed < frameCount) {
+                    float* pRunningFramesOut;
+                    ma_uint32 framesToRead;
+                    ma_uint32 framesJustRead;
+
+                    framesToRead = frameCount - framesProcessed;
+                    if (framesToRead > tempCapInFrames) {
+                        framesToRead = tempCapInFrames;
+                    }
+
+                    pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, ma_node_get_output_channels(pInputNode));
+
+                    /* If we're not doing channel conversion we can run on a slightly faster path. */
+                    if (ma_node_get_input_channels(pInputNode) == ma_node_get_output_channels(pInputNode)) {
+                        /* Fast path. No channel conversion. */
+                        if (pOutputBus == ma_node_input_bus_first(pInputBus)) {
+                            /* Fast path. First attachment. We just read straight into the output buffer (no mixing or channel conversion required). */
+                            result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead);
+                        } else {
+                            /* Slow path. Not the first attachment. Mixing required, but no channel conversion. */
+                            result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead);
+                            if (result == MA_SUCCESS || result == MA_AT_END) {
+                                ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, ma_node_get_output_channels(pInputNode), /*volume*/1);
+                            }
+                        }
+                    } else {
+                        /* Slow path. Channel conversion required. */
+                        result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead);
+                        if (result == MA_SUCCESS || result == MA_AT_END) {
+                            if (pOutputBus == ma_node_input_bus_first(pInputBus)) {
+                                /* Fast path. First attachment. Channel conversion required, but no mixing. */
+                                ma_convert_pcm_frames_channels_f32(pRunningFramesOut, ma_node_get_output_channels(pInputNode), temp, ma_node_get_input_channels(pInputNode), framesJustRead);
+
+                                if (volume != 0 && !applyVolumeInPost) {
+                                    ma_apply_volume_factor_f32(pRunningFramesOut, framesJustRead * ma_node_get_output_channels(pInputNode), volume);
+                                }
+                            } else {
+                                /* Slow(est) path. Not the first attachment. Both channel conversion and mixing required. */
+                                ma_convert_pcm_frames_channels_and_mix_f32(pRunningFramesOut, ma_node_get_output_channels(pInputNode), temp, ma_node_get_input_channels(pInputNode), framesJustRead, (volume != 1 && !applyVolumeInPost) ? volume : 1);
+                            }
+                        }
+                    }
+
+                    framesProcessed += framesJustRead;
+
+                    /* If we reached the end or otherwise failed to read any data we need to finish up with this output node. */
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
+                }
+
+                /* If it's the first attachment we didn't do any mixing. Any leftover samples need to be silenced. */
+                if (pOutputBus == ma_node_input_bus_first(pInputBus) && framesProcessed < frameCount) {
+                    ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesProcessed, ma_format_f32, ma_node_get_output_channels(pInputNode)), (frameCount - framesProcessed), ma_format_f32, ma_node_get_output_channels(pInputNode));
+                }
+
+                /* Apply volume, if necessary. */
+                if (volume != 1 && applyVolumeInPost) {
+                    ma_apply_volume_factor_f32(pFramesOut, framesProcessed * ma_node_get_output_channels(pInputNode), volume);
+                }
+            } else {
+                /* Seek. */
+                ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed);
+            }
+        }
+
+        /* In this path we always "process" the entire amount. */
+        *pFramesRead = frameCount;
+    }
+
+    return result;
+}
+
+
+MA_API ma_node_config ma_node_config_init(ma_node_vtable* vtable, ma_uint32 inputChannels, ma_uint32 outputChannels)
+{
+    ma_node_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.vtable         = vtable;
+    config.inputChannels  = inputChannels;
+    config.outputChannels = outputChannels;
+    config.initialState   = ma_node_state_started;    /* Nodes are started by default. */
+
+    return config;
+}
+
+
+static float* ma_node_get_cached_input_ptr(ma_node* pNode, ma_uint32 inputBusIndex)
+{
+    /*
+    NOTE: We store cached input data *after* it's been converted to the output channel count. If
+    you're reading this in the future and confused that we're using the output channel count here
+    instead of the input channel count, this is why. It's intentional.
+    */
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    float* pBasePtr;
+
+    MA_ASSERT(pNodeBase != NULL);
+
+    /* Input data is stored at the front of the buffer. */
+    pBasePtr = pNodeBase->pCachedData;
+    return pBasePtr + (inputBusIndex * (pNodeBase->cachedDataCapInFramesPerBus * ma_node_get_output_channels(pNodeBase))); /* <-- Intentional use of output channel count here. Not a bug. */
+}
+
+static float* ma_node_get_cached_output_ptr(ma_node* pNode, ma_uint32 outputBusIndex)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    float* pBasePtr;
+
+    /* Cached output data starts after the input data. */
+    pBasePtr = pNodeBase->pCachedData + (ma_node_get_input_channels(pNodeBase) * (pNodeBase->cachedDataCapInFramesPerBus * ma_node_get_output_channels(pNodeBase)));
+    return pBasePtr + (outputBusIndex * (pNodeBase->cachedDataCapInFramesPerBus * ma_node_get_output_channels(pNodeBase)));
+}
+
+
+MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 iInputBus;
+    ma_uint32 iOutputBus;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNodeBase);
+
+    if (pConfig == NULL || pConfig->vtable == NULL || pConfig->vtable->onProcess == NULL) {
+        return MA_INVALID_ARGS; /* Config is invalid. */
+    }
+
+    if (pConfig->vtable->inputBusCount > MA_MAX_NODE_BUS_COUNT || pConfig->vtable->outputBusCount > MA_MAX_NODE_BUS_COUNT) {
+        return MA_INVALID_ARGS; /* Invalid bus count. */
+    }
+
+    if (pConfig->inputChannels < MA_MIN_CHANNELS || pConfig->inputChannels > MA_MAX_CHANNELS || pConfig->outputChannels < MA_MIN_CHANNELS || pConfig->outputChannels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS; /* Invalid channels counts. */
+    }
+
+    pNodeBase->pNodeGraph     = pNodeGraph;
+    pNodeBase->vtable         = pConfig->vtable;
+    pNodeBase->state          = pConfig->initialState;
+    pNodeBase->inputChannels  = (ma_uint8)pConfig->inputChannels;
+    pNodeBase->outputChannels = (ma_uint8)pConfig->outputChannels;
+
+    /* We need to run an initialization step for each input bus. This just sets up the dummy head and tail nodes. */ 
+    for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNodeBase); iInputBus += 1) {
+        ma_node_input_bus_init(&pNodeBase->inputBuses[iInputBus]);
+    }
+
+    /*
+    The read flag on all output buses needs to default to 1. This ensures fresh input data is read
+    on the first call to ma_node_read_pcm_frames(). Not doing this will result in the first call
+    having garbage data returned.
+    */
+    for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNodeBase); iOutputBus += 1) {
+        ma_node_output_bus_init(pNodeBase, iOutputBus, &pNodeBase->outputBuses[iOutputBus]);
+    }
+
+
+    /*
+    We need to allocate memory for a caching both input and output data. We have an optimization
+    where no caching is necessary for specific conditions:
+
+        - The node has 0 inputs and 1 output.
+
+    When a node meets the above conditions, no cache is allocated.
+
+    The size choice for this buffer is a little bit finicky. We don't want to be too wasteful by
+    allocating too much, but at the same time we want it be large enough so that enough frames can
+    be processed for each call to ma_node_read_pcm_frames() so that it keeps things efficient. For
+    now I'm going with 10ms @ 48K which is 480 frames per bus. This is configurable at compile
+    time. It might also be worth investigating whether or not this can be configured at run time.
+    */
+    if (ma_node_get_input_bus_count(pNode) == 0 && ma_node_get_output_bus_count(pNode) == 1) {
+        /* Fast path. No cache needed. */
+    } else {
+        /* Slow path. Cache needed. */
+        pNodeBase->cachedDataCapInFramesPerBus = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+        MA_ASSERT(pNodeBase->cachedDataCapInFramesPerBus <= 0xFFFF);    /* Clamped to 16 bits. */
+
+        pNodeBase->pCachedData = (float*)ma_malloc(pNodeBase->cachedDataCapInFramesPerBus * (ma_node_get_input_bus_count(pNodeBase) + ma_node_get_output_bus_count(pNodeBase)) * ma_get_bytes_per_frame(ma_format_f32, ma_node_get_output_channels(pNodeBase)), pAllocationCallbacks);
+        if (pNodeBase->pCachedData == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+    
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    volatile ma_uint32 readCounter; /* <-- Marking this as volatile just to make it clear that a copy of this variable must be made, and the compiler must not optimize it away. */
+
+    if (pNodeBase == NULL) {
+        return;
+    }
+
+    /*
+    The first thing we need to do is fully detach the node. This will detach all inputs and
+    outputs. We need to do this first because the next section, where we wait for any current reads
+    to complete, depends on the property of this node being guaranteed not to be enumerated in any
+    future reads that might happen on another thread while this function is running.
+
+    There's a possibility that the node will be in the middle of a read at this point. This is OK
+    because thread-safety on detachment is handled for this case.
+    */
+    ma_node_detach(pNode);
+
+    /*
+    Now that the node has been detached need to wait for any active reads to complete. If we don't
+    do this, the caller may end up freeing memory allocating for this node while the node graph is
+    in the middle of reading.
+
+    If at this point the audio thread calls `ma_node_graph_read_pcm_frames()`, we will be safe
+    because we've already detached the node.
+    */
+
+    /*
+    We need to retrieve the read counter *before* checking whether or not a read is in progress.
+    */
+    readCounter = ma_node_graph_get_read_counter(pNodeBase->pNodeGraph);    /* <-- This copy must happen. */
+    c89atomic_compiler_fence(); /* <-- We must extract the read counter before checking ma_node_graph_is_reading(). */
+
+    /*
+    Once we've got a local copy of the read counter we can check whether or not the node graph is
+    in the middle of a read. If it is, we need to wait for it to complete. This is where the read
+    counter we retrieved just above comes into it. Every time a read completes, the counter is
+    incremented. While the read counter is equal to the counter we just extracted above, the read
+    is still happening.
+
+    If we were to not check if the graph is currently reading (`ma_node_graph_is_reading()`) we'd
+    end up stuck in an infinite loop because the counter would never end up incrementing. This is
+    why we need to extract the read counter before performing this check. If we were to do the
+    reading check first, it would be possible to end up in a situation where the reading process
+    completes *just* before we extract the counter and enter the wait loop, thereby creating an
+    infinite loop.
+    */
+    if (ma_node_graph_is_reading(pNodeBase->pNodeGraph)) {
+        while (readCounter == ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
+            ma_yield();
+        }
+    }
+
+    /*
+    At this point the node should be completely unreferenced by the node graph and we can finish up
+    the uninitialization process without needing to worry about thread-safety.
+    */
+    if (pNodeBase->pCachedData != NULL) {
+        ma_free(pNodeBase->pCachedData, pAllocationCallbacks);
+        pNodeBase->pCachedData = NULL;
+    }
+}
+
+
+MA_API ma_uint32 ma_node_get_input_bus_count(const ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+
+    return ((ma_node_base*)pNode)->vtable->inputBusCount;
+}
+
+MA_API ma_uint32 ma_node_get_output_bus_count(const ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+
+    return ((ma_node_base*)pNode)->vtable->outputBusCount;
+}
+
+
+MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+    
+    return ((ma_node_base*)pNode)->inputChannels;
+}
+
+MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+    
+    return ((ma_node_base*)pNode)->outputChannels;
+}
+
+
+MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex)
+{
+    ma_result result = MA_SUCCESS;
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_node_base* pInputNodeBase;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (outputBusIndex >= ma_node_get_output_bus_count(pNode)) {
+        return MA_INVALID_ARGS; /* Invalid output bus index. */
+    }
+
+    /* We need to lock the output bus because we need to inspect the input node and grab it's input bus. */
+    ma_node_output_bus_lock(&pNodeBase->outputBuses[outputBusIndex]);
+    {
+        pInputNodeBase = (ma_node_base*)pNodeBase->outputBuses[outputBusIndex].pInputNode;
+        if (pInputNodeBase != NULL) {
+            ma_node_input_bus_detach__no_output_bus_lock(&pInputNodeBase->inputBuses[pNodeBase->outputBuses[outputBusIndex].inputNodeInputBusIndex], &pNodeBase->outputBuses[outputBusIndex]);
+        }
+    }
+    ma_node_output_bus_unlock(&pNodeBase->outputBuses[outputBusIndex]);
+
+    return result;
+}
+
+MA_API ma_result ma_node_detach(ma_node* pNode)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 iInputBus;
+    ma_uint32 iOutputBus;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Make sure the node is completely detached first. */
+    for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNode); iOutputBus += 1) {
+        ma_node_detach_output_bus(pNode, iOutputBus);
+    }
+
+    /* Any nodes attached to this node as an input need to be detached as well. */
+    for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNode); iInputBus += 1) {
+        ma_node_input_bus* pInputBus;
+        ma_node_output_bus* pOutputBus;
+
+        pInputBus = &pNodeBase->inputBuses[iInputBus];
+
+        for (pOutputBus = ma_node_input_bus_first(pInputBus); pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
+            ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_node_attach_to_output_node(ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex, ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex)
+{
+    ma_node_base* pInputNodeBase  = (ma_node_base*)pInputNode;
+    ma_node_base* pOutputNodeBase = (ma_node_base*)pOutputNode;
+
+    if (pInputNodeBase == NULL || pOutputNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pInputNodeBase == pOutputNodeBase) {
+        return MA_INVALID_OPERATION;    /* Cannot attach a node to itself. */
+    }
+
+    if (inputNodeOutputBusIndex >= ma_node_get_output_bus_count(pInputNode) || outputNodeInputBusIndex >= ma_node_get_input_bus_count(pOutputNode)) {
+        return MA_INVALID_OPERATION;    /* Invalid bus index. */
+    }
+
+    /* The output channel count of the output node must be the same as the input channel count of the input node. */
+    if (ma_node_get_output_channels(pOutputNode) != ma_node_get_input_channels(pInputNode)) {
+        return MA_INVALID_OPERATION;    /* Channel count is incompatible. */
+    }
+
+    /* This will deal with detaching if the output bus is already attached to something. */
+    ma_node_input_bus_attach(&pOutputNodeBase->inputBuses[outputNodeInputBusIndex], &pInputNodeBase->outputBuses[inputNodeOutputBusIndex], pOutputNode, outputNodeInputBusIndex);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_node_attach_to_input_node(ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex, ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex)
+{
+    return ma_node_attach_to_output_node(pInputNode, inputNodeOutputBusIndex, pOutputNode, outputNodeInputBusIndex);
+}
+
+
+MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_i16(&pNodeBase->state, state);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_node_state ma_node_get_state(const ma_node* pNode)
+{
+    const ma_node_base* pNodeBase = (const ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return ma_node_state_stopped;
+    }
+
+    return c89atomic_load_i16(&pNodeBase->state);
+}
+
+MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (outputBusIndex >= ma_node_get_output_bus_count(pNode)) {
+        return MA_INVALID_ARGS; /* Invalid bus index. */
+    }
+
+    return ma_node_output_bus_set_volume(&pNodeBase->outputBuses[outputBusIndex], volume);
+}
+
+MA_API float ma_node_get_output_bus_volume(const ma_node* pNode, ma_uint32 outputBusIndex)
+{
+    const ma_node_base* pNodeBase = (const ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return 0;
+    }
+
+    if (outputBusIndex >= ma_node_get_output_bus_count(pNode)) {
+        return 0;   /* Invalid bus index. */
+    }
+
+    return ma_node_output_bus_get_volume(&pNodeBase->outputBuses[outputBusIndex]);
+}
+
+
+static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 frameCount;
+
+    MA_ASSERT(pNodeBase != NULL);
+    MA_ASSERT(pNodeBase->vtable->onProcess != NULL);
+    MA_ASSERT(pFrameCountOut != NULL);
+    MA_ASSERT(pFrameCountIn  != NULL);
+
+    frameCount = *pFrameCountOut;
+    pNodeBase->vtable->onProcess(pNode, ppFramesOut, ppFramesIn, &frameCount);
+
+    *pFrameCountOut = frameCount;
+    *pFrameCountIn  = frameCount;
+}
+
+static void ma_node_process_pcm_frames_ex(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    if (pNodeBase->vtable->onProcessEx) {
+        pNodeBase->vtable->onProcessEx(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn);
+    } else {
+        ma_node_process_pcm_frames_ex_simple(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn);
+    }
+}
+
+static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_result result = MA_SUCCESS;
+    ma_uint32 iInputBus;
+    ma_uint32 iOutputBus;
+    ma_uint32 inputBusCount;
+    ma_uint32 outputBusCount;
+    ma_uint32 totalFramesRead = 0;
+    float* ppFramesIn[MA_MAX_NODE_BUS_COUNT];
+    float* ppFramesOut[MA_MAX_NODE_BUS_COUNT];
+
+    /*
+    pFramesRead is mandatory. It must be used to determine how many frames were read. It's normal and
+    expected that the number of frames read may be different to that requested. Therefore, the caller
+    must look at this value to correctly determine how many frames were read.
+    */
+    MA_ASSERT(pFramesRead != NULL); /* <-- If you've triggered this assert, you're using this function wrong. You *must* use this variable and inspect it after the call returns. */
+    if (pFramesRead == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pFramesRead = 0;   /* Safety. */
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (outputBusIndex >= ma_node_get_output_bus_count(pNodeBase)) {
+        return MA_INVALID_ARGS; /* Invalid output bus index. */
+    }
+
+    /*
+    Don't do anything if we're in a stopped state. When muted, we still need to read from input
+    buses so that time is moved forward for the underlying data sources.
+    */
+    if ((ma_node_get_state(pNode) & ma_node_state_started) == 0) {
+        return MA_SUCCESS;
+    }
+
+
+    /* We run on different paths depending on the bus counts. */
+    inputBusCount  = ma_node_get_input_bus_count(pNode);
+    outputBusCount = ma_node_get_output_bus_count(pNode);
+
+    /*
+    Run a simplified path when there are no inputs and one output. In this case there's nothing to
+    actually read and we can go straight to output. This is a very common scenario because the vast
+    majority of data source nodes will use this setup so this optimization I think is worthwhile.
+    */
+    if (inputBusCount == 0 && outputBusCount == 1) {
+        /* Fast path. No need to read from input and no need for any caching. */
+        ma_uint32 inputFrameCount  = 0;
+        ma_uint32 outputFrameCount = frameCount;    /* Just read as much as we can. The callback will return what was actually read. */
+
+        ppFramesOut[0] = pFramesOut;
+        ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount);
+        totalFramesRead = outputFrameCount;
+    } else {
+        /* Slow path. Need to do caching. */
+        ma_uint32 framesToRead;
+
+        /*
+        We use frameCount as a basis for the number of frames to read since that's what's being
+        requested, however we still need to clamp it to whatever can fit in the cache.
+
+        This will also be used as the basis for determining how many input frames to read. This is
+        not ideal because it can result in too many input frames being read which introduces latency,
+        however the alternative requires us to implement another callback in the node's vtable for
+        calculating the required input frame count which I'm not willing to do.
+
+        This function will be called multiple times for each period of time, once for each output node.
+        We cannot read from each input node each time this function is called. Instead we need to check
+        whether or not this is first output bus to be read from for this time period, and if so, read
+        from our input data.
+
+        To determine whether or not we're ready to read data, we check a flag. There will be one flag
+        for each output. When the flag is set, it means data has been read previously and that we're
+        ready to advance time forward for our input nodes by reading fresh data.
+        */
+        framesToRead = frameCount;
+        if (framesToRead > pNodeBase->cachedDataCapInFramesPerBus) {
+            framesToRead = pNodeBase->cachedDataCapInFramesPerBus;
+        }
+
+        MA_ASSERT(framesToRead <= 0xFFFF);
+
+        if (ma_node_output_bus_has_read(&pNodeBase->outputBuses[outputBusIndex])) {
+            /* Getting here means we need to do another round of processing. */
+            ma_uint32 frameCountIn;
+            ma_uint32 frameCountOut;
+
+            pNodeBase->cachedFrameCountOut = 0;
+
+            /*
+            We need to prepare our output frame pointers for processing. In the same iteration we need
+            to mark every output bus as unread so that future calls to this function for different buses
+            for the current time period don't pull in data when they should instead be reading from cache.
+            */
+            for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
+                ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
+                ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
+            }
+
+            /* We only need to read from input buses if there isn't already some data in the cache. */
+            if (pNodeBase->cachedFrameCountIn == 0) {
+                /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
+                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                    ma_uint32 framesRead;
+
+                    /* The first thing to do is get the offset within our bulk allocation to store this input data. */
+                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
+
+                    /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
+                    result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead);
+                    if (result != MA_SUCCESS) {
+                        /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
+                        *pFramesRead = 0;
+                        break;
+                    }
+
+                    /* Any leftover frames need to silenced for safety. */
+                    if (framesRead < framesToRead) {
+                        ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_output_channels(pNodeBase)), (framesToRead - framesRead), ma_format_f32, ma_node_get_output_channels(pNodeBase));
+                    }
+                }
+
+                pNodeBase->cachedFrameCountIn   = (ma_uint16)framesToRead;
+                pNodeBase->consumedFrameCountIn = 0;
+            } else {
+                /* We don't need to read anything, but we do need to prepare our input frame pointers. */
+                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_output_channels(pNodeBase));    /* This is the correct use of output channels. Not a bug. */
+                }
+            }
+
+            /*
+            At this point we have our input data so now we need to do some processing. Sneaky little
+            optimization here - we can set the pointer to the output buffer for this output bus so
+            that the final copy into the output buffer is done directly by onProcess().
+            */
+            if (pFramesOut != NULL) {
+                ppFramesOut[outputBusIndex] = pFramesOut;
+            }
+
+            frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
+            frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
+            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+
+            /*
+            Thanks to our sneaky optimization above we don't need to do any data copying directly into
+            the output buffer - the onProcess() callback just did that for us. We do, however, need to
+            apply the number of input and output frames that were processed.
+            */
+            pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
+            pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
+            pNodeBase->cachedFrameCountOut   = (ma_uint16)frameCountOut;
+        } else {
+            /*
+            We're not needing to read anything from the input buffer so just read directly from our
+            already-processed data.
+            */
+            if (pFramesOut != NULL) {
+                ma_copy_pcm_frames(pFramesOut, ma_node_get_cached_output_ptr(pNodeBase, outputBusIndex), pNodeBase->cachedFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNodeBase));
+            }
+        }
+
+        /* The number of frames read is always equal to the number of cached output frames. */
+        totalFramesRead = pNodeBase->cachedFrameCountOut;
+
+        /* Now that we've read the data, make sure our read flag is set. */
+        ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[outputBusIndex], MA_TRUE);
+    }
+
+    *pFramesRead = totalFramesRead;
+    return result;
+}
+
+
+
+
+/* Data source node. */
+MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource, ma_bool32 looping)
+{
+    ma_data_source_node_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.nodeConfig  = ma_node_config_init(NULL, 0, 0);
+    config.pDataSource = pDataSource;
+    config.looping     = looping;
+
+    return config;
+}
+
+
+static void ma_data_source_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+{
+    ma_data_source_node* pDataSourceNode = (ma_data_source_node*)pNode;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 frameCount;
+    ma_uint64 framesRead = 0;
+
+    MA_ASSERT(pDataSourceNode != NULL);
+    MA_ASSERT(pDataSourceNode->pDataSource != NULL);
+    MA_ASSERT(ma_node_get_input_bus_count(pDataSourceNode)  == 0);
+    MA_ASSERT(ma_node_get_output_bus_count(pDataSourceNode) == 1);
+
+    /* We don't want to read from ppFramesIn at all. Instead we read from the data source. */
+    (void)ppFramesIn;
+
+    frameCount = *pFrameCount;
+
+    if (ma_data_source_get_data_format(pDataSourceNode->pDataSource, &format, &channels, NULL) == MA_SUCCESS) { /* <-- Don't care about sample rate here. */
+        /* The node graph system requires samples be in floating point format. This is checked in ma_data_source_node_init(). */
+        MA_ASSERT(format == ma_format_f32);
+        (void)format;   /* Just to silence some static analysis tools. */
+
+        ma_data_source_read_pcm_frames(pDataSourceNode->pDataSource, ppFramesOut[0], frameCount, &framesRead, c89atomic_load_32(&pDataSourceNode->looping));
+    }
+
+    *pFrameCount = (ma_uint32)framesRead;
+}
+
+static ma_node_vtable g_ma_data_source_node_vtable =
+{
+    ma_data_source_node_process_pcm_frames,
+    NULL,
+    0,  /* 0 input buses. */
+    1,  /* 1 output bus. */
+    0
+};
+
+MA_API ma_result ma_data_source_node_init(ma_node_graph* pNodeGraph, const ma_data_source_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source_node* pDataSourceNode)
+{
+    ma_result result;
+    ma_format format;   /* For validating the format, which must be ma_format_f32. */
+    ma_uint32 channels; /* For specifying the channel count of the output bus. */
+    ma_node_config baseConfig;
+
+    if (pDataSourceNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pDataSourceNode);
+    
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_data_source_get_data_format(pConfig->pDataSource, &format, &channels, NULL);    /* Don't care about sample rate. This will check pDataSource for NULL. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    MA_ASSERT(format == ma_format_f32); /* <-- If you've triggered this it means your data source is not outputting floating-point samples. You must configure your data source to use ma_format_f32. */
+    if (format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* Invalid format. */
+    }
+
+    /* The channel count is defined by the data source. If the caller has manually changed the channels we just ignore it. */
+    baseConfig = pConfig->nodeConfig;
+    baseConfig.vtable = &g_ma_data_source_node_vtable;  /* Explicitly set the vtable here to prevent callers from setting it incorrectly. */
+
+    /*
+    The channel count is defined by the data source. It is invalid for the caller to manually set
+    the channel counts in the config. `ma_data_source_node_config_init()` will have defaulted the
+    channel count to 0 which is how it must remain. If you trigger any of these asserts, it means
+    you're explicitly setting the channel count. Instead, configure the output channel count of
+    your data source to be the necessary channel count.
+    */
+    MA_ASSERT(baseConfig.inputChannels == 0 && baseConfig.outputChannels == 0);
+    if (baseConfig.inputChannels != 0 || baseConfig.outputChannels != 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    baseConfig.inputChannels  = channels;
+    baseConfig.outputChannels = channels;
+
+    result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pDataSourceNode->base);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataSourceNode->pDataSource = pConfig->pDataSource;
+    pDataSourceNode->looping     = pConfig->looping;
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_data_source_node_uninit(ma_data_source_node* pDataSourceNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(&pDataSourceNode->base, pAllocationCallbacks);
+}
+
+MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 looping)
+{
+    if (pDataSourceNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_32(&pDataSourceNode->looping, looping);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode)
+{
+    if (pDataSourceNode == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_32(&pDataSourceNode->looping);
+}
+
+
+
+/* Splitter Node. */
+MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 inputChannels, ma_uint32 outputChannels)
+{
+    ma_splitter_node_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.nodeConfig = ma_node_config_init(NULL, inputChannels, outputChannels);
+
+    return config;
+}
+
+
+static void ma_splitter_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 iOutputBus;
+
+    MA_ASSERT(pNodeBase != NULL);
+    MA_ASSERT(ma_node_get_input_bus_count(pNodeBase)  == 1);
+    MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) >= 2);
+
+    /* Splitting is just copying the first input bus and copying it over to each output bus. */
+    for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNodeBase); iOutputBus += 1) {
+        ma_copy_pcm_frames(ppFramesOut[iOutputBus], ppFramesIn[0], *pFrameCount, ma_format_f32, ma_node_get_output_channels(pNodeBase));
+    }
+}
+
+static ma_node_vtable g_ma_splitter_node_vtable =
+{
+    ma_splitter_node_process_pcm_frames,
+    NULL,
+    1,  /* 1 input bus. */
+    2,  /* 2 output buses. */
+    0
+};
+
+MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_splitter_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_splitter_node* pSplitterNode)
+{
+    ma_result result;
+    ma_node_config baseConfig;
+
+    if (pSplitterNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSplitterNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    baseConfig = pConfig->nodeConfig;
+    baseConfig.vtable = &g_ma_splitter_node_vtable;
+
+    result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pSplitterNode->base);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the base node. */
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_splitter_node_uninit(ma_splitter_node* pSplitterNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pSplitterNode, pAllocationCallbacks);
+}
+
+
+
+
+
+#ifndef MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS
+#define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS   1000
+#endif
+
+
+static ma_uint32 ma_ffs_32(ma_uint32 x)
+{
+    ma_uint32 i;
+
+    /* Just a naive implementation just to get things working for now. Will optimize this later. */
+    for (i = 0; i < 32; i += 1) {
+        if ((x & (1 << i)) != 0) {
+            return i;
+        }
+    }
+
+    return i;
+}
+
 
 
 MA_API ma_result ma_effect_process_pcm_frames(ma_effect* pEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
@@ -2021,38 +4156,6 @@ MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 ch
 }
 
 
-
-static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
-{
-    return (ma_int16)(x * (1 << 8));
-}
-
-
-
-static MA_INLINE ma_int16 ma_apply_volume_unclipped_u8(ma_int16 x, ma_int16 volume)
-{
-    return (ma_int16)(((ma_int32)x * (ma_int32)volume) >> 8);
-}
-
-static MA_INLINE ma_int32 ma_apply_volume_unclipped_s16(ma_int32 x, ma_int16 volume)
-{
-    return (ma_int32)((x * volume) >> 8);
-}
-
-static MA_INLINE ma_int64 ma_apply_volume_unclipped_s24(ma_int64 x, ma_int16 volume)
-{
-    return (ma_int64)((x * volume) >> 8);
-}
-
-static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 volume)
-{
-    return (ma_int64)((x * volume) >> 8);
-}
-
-static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
-{
-    return x * volume;
-}
 
 
 #if 0
@@ -2742,206 +4845,6 @@ static ma_result ma_volume_and_clip_and_effect_pcm_frames(void* pDst, ma_format 
     return MA_SUCCESS;
 }
 
-
-static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-    
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_pcm_sample_u8_to_s16_no_scale(pSrc[iSample]);
-        }
-    } else {
-        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_u8(ma_pcm_sample_u8_to_s16_no_scale(pSrc[iSample]), volumeFixed);
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mix_pcm_frames_s16(ma_int32* pDst, const ma_int16* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-    
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += pSrc[iSample];
-        }
-    } else {
-        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_s16(pSrc[iSample], volumeFixed);
-        }
-    }
-    
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mix_pcm_frames_s24(ma_int64* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-    
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_pcm_sample_s24_to_s32_no_scale(&pSrc[iSample*3]);
-        }
-    } else {
-        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_s24(ma_pcm_sample_s24_to_s32_no_scale(&pSrc[iSample*3]), volumeFixed);
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-    
-    
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += pSrc[iSample];
-        }
-    } else {
-        ma_int16 volumeFixed = ma_float_to_fixed_16(volume);
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_s32(pSrc[iSample], volumeFixed);
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += pSrc[iSample];
-        }
-    } else {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_f32(pSrc[iSample], volume);
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume)
-{
-    ma_result result;
-
-    switch (format)
-    {
-        case ma_format_u8:  result = ma_mix_pcm_frames_u8( (ma_int16*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
-        case ma_format_s16: result = ma_mix_pcm_frames_s16((ma_int32*)pDst, (const ma_int16*)pSrc, frameCount, channels, volume); break;
-        case ma_format_s24: result = ma_mix_pcm_frames_s24((ma_int64*)pDst, (const ma_uint8*)pSrc, frameCount, channels, volume); break;
-        case ma_format_s32: result = ma_mix_pcm_frames_s32((ma_int64*)pDst, (const ma_int32*)pSrc, frameCount, channels, volume); break;
-        case ma_format_f32: result = ma_mix_pcm_frames_f32((   float*)pDst, (const    float*)pSrc, frameCount, channels, volume); break;
-        default: return MA_INVALID_ARGS;    /* Unknown format. */
-    }
-
-    return result;
-}
-
-static ma_result ma_mix_pcm_frames_ex(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
-{
-    if (pDst == NULL || pSrc == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (formatOut == formatIn && channelsOut == channelsIn) {
-        /* Fast path. */
-        return ma_mix_pcm_frames(pDst, pSrc, frameCount, formatOut, channelsOut, volume);
-    } else {
-        /* Slow path. Data conversion required. */
-        ma_uint8  buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-        ma_uint32 bufferCapInFrames = sizeof(buffer) / ma_get_bytes_per_frame(formatOut, channelsOut);
-        ma_uint64 totalFramesProcessed = 0;
-        /* */ void* pRunningDst = pDst;
-        const void* pRunningSrc = pSrc;
-
-        while (totalFramesProcessed < frameCount) {
-            ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
-            if (framesToProcess > bufferCapInFrames) {
-                framesToProcess = bufferCapInFrames;
-            }
-
-            /* Conversion. */
-            ma_convert_pcm_frames_format_and_channels(buffer, formatOut, channelsOut, pRunningSrc, formatIn, channelsIn, framesToProcess, ma_dither_mode_none);
-
-            /* Mixing. */
-            ma_mix_pcm_frames(pRunningDst, buffer, framesToProcess, formatOut, channelsOut, volume);
-
-            totalFramesProcessed += framesToProcess;
-            pRunningDst = ma_offset_ptr(pRunningDst, framesToProcess * ma_get_accumulation_bytes_per_frame(formatOut, channelsOut));
-            pRunningSrc = ma_offset_ptr(pRunningSrc, framesToProcess * ma_get_bytes_per_frame(formatIn, channelsIn));
-        }
-    }
-
-    return MA_SUCCESS;
-}
 
 
 static void ma_mix_accumulation_buffers_u8(ma_int16* pDst, const ma_int16* pSrc, ma_uint64 sampleCount, float volume)
