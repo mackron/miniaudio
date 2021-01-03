@@ -8133,17 +8133,17 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
 
 static ma_sound* ma_sound_group_first_sound(ma_sound_group* pGroup)
 {
-    return c89atomic_load_ptr(&pGroup->pFirstSoundInGroup);
+    return (ma_sound*)c89atomic_load_ptr(&pGroup->pFirstSoundInGroup);
 }
 
 static ma_sound* ma_sound_next_sound_in_group(ma_sound* pSound)
 {
-    return c89atomic_load_ptr(&pSound->pNextSoundInGroup);
+    return (ma_sound*)c89atomic_load_ptr(&pSound->pNextSoundInGroup);
 }
 
 static ma_sound* ma_sound_prev_sound_in_group(ma_sound* pSound)
 {
-    return c89atomic_load_ptr(&pSound->pPrevSoundInGroup);
+    return (ma_sound*)c89atomic_load_ptr(&pSound->pPrevSoundInGroup);
 }
 
 static ma_bool32 ma_sound_is_mixing(const ma_sound* pSound)
