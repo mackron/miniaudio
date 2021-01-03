@@ -1,3 +1,5 @@
+/* !!! THIS FILE WILL BE MERGED INTO miniaudio.h WHEN COMPLETE !!! */
+
 /*
 EXPERIMENTAL
 ============
@@ -649,7 +651,7 @@ problem because the node is still valid. The problem is that of reattaching the 
 input bus while a read is still happening on the audio thread. What *could* happen is that the node
 is reattached to a new input bus which hasn't yet been iterated in the current call to
 `ma_node_graph_read_pcm_frames()` thereby resulting in the node getting processed twice. This would
-flow through the base data source and result in a desync because it's ready from it twice in the
+flow through the base data source and result in a desync because it's read from it twice in the
 same call to `ma_node_graph_read_pcm_frames()`. This is an unusual scenario and would most likely
 go unnoticed by the majority of people, but it's still an issue to consider.
 */
@@ -830,7 +832,7 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
 struct ma_node_graph
 {
     /* Immutable. */
-    ma_node_base endpoint;          /* Special node that all nodes eventually connect to. Data is ready from this node in ma_node_graph_read_pcm_frames(). */
+    ma_node_base endpoint;          /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
 
     /* Read and written by multiple threads. */
     volatile ma_uint32 readCounter; /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
