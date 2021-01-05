@@ -583,43 +583,39 @@ data from the graph. Locking in these areas are achieved by means of spinlocks.
 
 The main complication with keeping `ma_node_graph_read_pcm_frames()` lock-free stems from the fact
 that a node can be uninitialized, and it's memory potentially freed, while in the middle of being
-processed by `ma_node_graph_read_pcm_frames()` on the audio thread. To solve this, uninitialization
-of a node with `ma_node_uninit()` will spin until `ma_node_graph_read_pcm_frames()` finishes. This
-is the most significant compromise employed by miniaudio as it can, in the worst case, result in
-`ma_node_uninit()` spinning for as long as it takes to process an entire period of audio. For
-example, if `ma_node_graph_read_pcm_frames()` takes a millisecond to process, then
-`ma_node_uninit()` will spin for 1 millisecond in the worst case. You should take this into
-consideration when designing your node management strategy - you may want to have some kind of
-threaded cleanup routines.
+processed on the audio thread. There are times when the audio thread will be referencing a node,
+which means the uninitialization process of a node needs to make sure it delays returning until the
+audio thread is finished so that control is not handed back to the caller thereby giving them a
+chance to free the node's memory.
 
-It's intuitive to think that instead of waiting for the *entire* graph to finish reading it would
-be possible to just wait for the node itself to finish, thereby making it a bit more efficient to
-uninitialize the node. This doesn't work because of how nodes are connected to each other. Nodes
-are connected to other nodes, which means there's always hole when doing things on a local level.
-A higher level structure that encompasses the entire node graph is required for things to work
-without holes. This is where the `ma_node_graph` object comes into it. This object encompasses the
-entire node graph which enables us to do a waiting system without holes.
+When the audio thread is processing a node, it does so by reading from each of the output buses of
+the node. In order for a node to process data for one of it's output buses, it needs to read from
+each of it's input buses, and so on an so forth. It follows that once all output buses of a node
+are detached, the node as a whole will be disconnected and no further processing will occur unless
+it's output buses are reattached, which won't be happening when the node is being uninitialized.
+By having `ma_node_detach_output_bus()` wait until the audio thread is finished with it, we can
+simplify a few things, at the expense of making `ma_node_detach_output_bus()` a bit slower. By
+doing this, the implementation of `ma_node_uninit()` becomes trivial - just detach all output
+nodes, followed by each of the attachments to each of it's input nodes, and then do any final clean
+up.
 
-The `ma_node_graph` has two members that are of relevance for implementing the waiting mechanism in
-`ma_node_uninit()`. One is a flag that keeps track of whether or not we are reading from the graph.
-That is, whether or not we are executing `ma_node_graph_read_pcm_frames()`. This assumes that this
-function is never called simultaneously by multiple threads, which wouldn't actually make sense
-anyway. The other variable is a counter which increments at the end of every call to
-`ma_node_graph_read_pcm_frames()`. In `ma_node_uninit()`, the node is first detached from the node
-graph with `ma_node_detach()`. It is safe to detach the node from the graph if it's still in the
-middle of processing, so long as the node remains valid. Once the node is detached, it can be
-guaranteed that future calls to `ma_node_graph_read_pcm_frames()` will never iterate over the node.
-Then, a copy of the current read counter is retrieved followed by a check against the flag that
-tracks whether or not a read is currently being performed. If so, the `ma_node_uninit()` will spin
-until the counter we retrieved earlier does not equal the current counter. Once the counters do not
-match, waiting is over and the uninitialization process can continue without needing to worry about
-thread-safety. See the implementation of `ma_node_uninit()` for more details on this.
+With the above design, the worst-case scenario is `ma_node_detach_output_bus()` taking as long as
+it takes to process the output bus being detached. This will happen if it's called at just the
+wrong moment where the audio thread has just iterated it and has just started processing. The
+caller of `ma_node_detach_output_bus()` will stall until the audio thread is finished, which
+includes the cost of recursively processing it's inputs. This is the biggest compromise made with
+the approach taken by miniaudio for it's lock-free processing system. The cost of detaching nodes
+earlier in the pipeline (data sources, for example) will be cheaper than the cost of detaching
+higher level nodes, such as some kind of final post-processing endpoint. If you need to do mass
+detachments, detach starting from the lowest level nodes and work your way towards the final
+endpoint node (but don't try detaching the node graph's endpoint). If the audio thread is not
+running, detachment will be fast and detachment in any order will be the same.
 
 Another compromise, albeit less significant, is locking when attaching and detaching nodes. This
-locking is achieved by means of a spinlock in order to reduce overhead. A lock is present for each
-input bus and output bus, totaling 4 for each node. When an output bus is connected to an input
-bus, both the output bus and input bus is locked. This locking is specifically for attaching and
-detaching across different threads and does not affect `ma_node_graph_read_pcm_frames()` in any
+locking is achieved by means of a spinlock in order to reduce memory overhead. A lock is present
+for each input bus and output bus, totaling 4 for each node. When an output bus is connected to an
+input bus, both the output bus and input bus is locked. This locking is specifically for attaching
+and detaching across different threads and does not affect `ma_node_graph_read_pcm_frames()` in any
 way. The locking and unlocking is mostly self-explanatory, but slightly less intuitive part comes
 into it when considering that iterating over attachments must not break as a result of attaching or
 detaching a node while iteration is occuring.
@@ -656,16 +652,6 @@ same call to `ma_node_graph_read_pcm_frames()`. This is an unusual scenario and 
 go unnoticed by the majority of people, but it's still an issue to consider.
 */
 
-/*
-Open Questions
-==============
-- What should the maximum bus count be for each node? This is defined at compile time and each node
-  has a fixed sized array of structs representing the input and output buses. It's therefore
-  important to keep this within reason. It's currently set to 2 for each side (maximum of 2 input
-  buses and 2 output buses). The limit can be increased with MA_MAX_NODE_BUS_COUNT, so I'm thinking
-  that this should be set to the maximum needed by the stock nodes and if an application needs more
-  to support their custom effects they can just increase it themselves.
-*/
 
 /* Must never exceed 255. */
 #ifndef MA_MAX_NODE_BUS_COUNT
@@ -759,8 +745,9 @@ struct ma_node_output_bus
     /* Mutable via multiple threads. The weird ordering here is for packing reasons. */
     volatile ma_uint8 inputNodeInputBusIndex;   /* The index of the input bus on the input. Required for detaching. */
     volatile ma_uint8 flags;                    /* Some state flags for tracking the read state of the output buffer. */
+    volatile ma_uint16 refCount;                /* Reference count for some thread-safety when detaching. */
+    volatile ma_bool8 isAttached;               /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
     volatile ma_spinlock lock;                  /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
-    ma_uint8 padding[3];
     volatile float volume;                      /* Linear 0..1 */
     volatile ma_node_output_bus* pNext;         /* If null, it's the tail node or detached. */
     volatile ma_node_output_bus* pPrev;         /* If null, it's the head node or detached. */
@@ -775,12 +762,12 @@ typedef struct ma_node_input_bus ma_node_input_bus;
 struct ma_node_input_bus
 {
     /* Mutable via multiple threads. */
-    volatile ma_node_output_bus* pHead; /* If null, the list is empty. */
-    volatile ma_spinlock lock;          /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    ma_node_output_bus head;        /* Dummy head node for simplifying some lock-free thread-safety stuff. */
+    volatile ma_spinlock lock;      /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    volatile ma_uint16 nextCounter; /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
 
     /* Set once at startup. */
-    ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
-    ma_uint8 padding[2];
+    ma_uint8 channels;                      /* The number of channels in the audio stream for this bus. */
 };
 
 
@@ -2792,6 +2779,17 @@ static ma_bool32 ma_node_output_bus_has_read(ma_node_output_bus* pOutputBus)
 }
 
 
+static void ma_node_output_bus_set_is_attached(ma_node_output_bus* pOutputBus, ma_bool8 isAttached)
+{
+    c89atomic_exchange_8(&pOutputBus->isAttached, isAttached);
+}
+
+static ma_bool8 ma_node_output_bus_is_attached(ma_node_output_bus* pOutputBus)
+{
+    return c89atomic_load_8(&pOutputBus->isAttached);
+}
+
+
 static ma_result ma_node_output_bus_set_volume(ma_node_output_bus* pOutputBus, float volume)
 {
     MA_ASSERT(pOutputBus != NULL);
@@ -2819,7 +2817,6 @@ static ma_result ma_node_input_bus_init(ma_uint32 channels, ma_node_input_bus* p
     MA_ASSERT(channels < 256);
 
     MA_ZERO_OBJECT(pInputBus);
-    pInputBus->pHead    = NULL;
     pInputBus->channels = (ma_uint8)channels;
 
     return MA_SUCCESS;
@@ -2836,6 +2833,22 @@ static void ma_node_input_bus_unlock(ma_node_input_bus* pInputBus)
 }
 
 
+static void ma_node_input_bus_next_begin(ma_node_input_bus* pInputBus)
+{
+    c89atomic_fetch_add_16(&pInputBus->nextCounter, 1);
+}
+
+static void ma_node_input_bus_next_end(ma_node_input_bus* pInputBus)
+{
+    c89atomic_fetch_sub_16(&pInputBus->nextCounter, 1);
+}
+
+static ma_uint16 ma_node_input_bus_get_next_counter(ma_node_input_bus* pInputBus)
+{
+    return c89atomic_load_16(&pInputBus->nextCounter);
+}
+
+
 static ma_uint32 ma_node_input_bus_get_channels(const ma_node_input_bus* pInputBus)
 {
     return pInputBus->channels;
@@ -2846,6 +2859,12 @@ static void ma_node_input_bus_detach__no_output_bus_lock(ma_node_input_bus* pInp
 {
     MA_ASSERT(pInputBus  != NULL);
     MA_ASSERT(pOutputBus != NULL);
+
+    /*
+    Mark the output bus as detached first. This will prevent future iterations on the audio thread
+    from iterating this output bus.
+    */
+    ma_node_output_bus_set_is_attached(pOutputBus, MA_FALSE);
 
     /*
     We cannot use the output bus lock here since it'll be getting used at a higher level, but we do
@@ -2878,6 +2897,35 @@ static void ma_node_input_bus_detach__no_output_bus_lock(ma_node_input_bus* pInp
     c89atomic_exchange_ptr(&pOutputBus->pPrev, NULL);   /* As above. */
     pOutputBus->pInputNode             = NULL;
     pOutputBus->inputNodeInputBusIndex = 0;
+
+
+    /*
+    For thread-safety reasons, we don't want to be returning from this straight away. We need to
+    wait for the audio thread to finish with the output bus. There's two things we need to wait
+    for. The first is the part that selects the next output bus in the list, and the other is the
+    part that reads from the output bus. Basically all we're doing is waiting for the input bus
+    to stop referencing the output bus.
+
+    We're doing this part last because we want the section above to run while the audio thread
+    is finishing up with the output bus, just for efficiency reasons. We marked the output bus as
+    detached right at the top of this function which is going to prevent the audio thread from
+    iterating the output bus again.
+    */
+
+    /* Part 1: Wait for the current iteration to complete. */
+    while (ma_node_input_bus_get_next_counter(pInputBus) > 0) {
+        ma_yield();
+    }
+
+    /* Part 2: Wait for any reads to complete. */
+    while (c89atomic_load_16(&pOutputBus->refCount) > 0) {
+        ma_yield();
+    }
+
+    /*
+    At this point we're done detaching and we can be guaranteed that the audio thread is not going
+    to attempt to reference this output bus again (until attached again).
+    */
 }
 
 #if 0   /* Not used at the moment, but leaving here in case I need it later. */
@@ -2931,14 +2979,14 @@ static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_outpu
         ma_node_input_bus_lock(pInputBus);
         {
             ma_node_output_bus* pNewPrev = NULL;
-            ma_node_output_bus* pNewNext = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->pHead);
+            ma_node_output_bus* pNewNext = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->head.pNext);
 
             /* Update the local output bus. */
             c89atomic_exchange_ptr(&pOutputBus->pPrev, pNewPrev);
             c89atomic_exchange_ptr(&pOutputBus->pNext, pNewNext);
 
             /* Update the other output buses to point back to the local output bus. */
-            c89atomic_exchange_ptr(&pInputBus->pHead, pOutputBus); /* <-- This is where the output bus is actually attached to the input bus. */
+            c89atomic_exchange_ptr(&pInputBus->head.pNext, pOutputBus); /* <-- This is where the output bus is actually attached to the input bus. */
 
             /* Do the previous pointer last. This is only used for detachment. */
             if (pNewNext != NULL) {
@@ -2946,24 +2994,59 @@ static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_outpu
             }
         }
         ma_node_input_bus_unlock(pInputBus);
+
+        /*
+        Mark the node as attached last. This is used to controlling whether or the output bus will be
+        iterated on the audio thread. Mainly required for detachment purposes.
+        */
+        ma_node_output_bus_set_is_attached(pOutputBus, MA_TRUE);
     }
     ma_node_output_bus_unlock(pOutputBus);
 }
 
 static ma_node_output_bus* ma_node_input_bus_next(ma_node_input_bus* pInputBus, ma_node_output_bus* pOutputBus)
 {
+    ma_node_output_bus* pNext;
+
     MA_ASSERT(pInputBus != NULL);
 
     if (pOutputBus == NULL) {
         return NULL;
     }
 
-    return (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext);
+    ma_node_input_bus_next_begin(pInputBus);
+    {
+        pNext = pOutputBus;
+        for (;;) {
+            pNext = (ma_node_output_bus*)c89atomic_load_ptr(&pNext->pNext);
+            if (pNext == NULL) {
+                break;      /* Reached the end. */
+            }
+
+            if (ma_node_output_bus_is_attached(pNext) == MA_FALSE) {
+                continue;   /* The node is not attached. Keep checking. */
+            }
+
+            /* The next node has been selected. */
+            break;
+        }
+
+        /* We need to increment the reference count of the selected node. */
+        if (pNext != NULL) {
+            c89atomic_fetch_add_16(&pNext->refCount, 1);
+        }
+        
+        /* The previous node is no longer being referenced. */
+        c89atomic_fetch_sub_16(&pOutputBus->refCount, 1);
+    }
+    ma_node_input_bus_next_end(pInputBus);
+
+    return pNext;
 }
 
 static ma_node_output_bus* ma_node_input_bus_first(ma_node_input_bus* pInputBus)
 {
-    return (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->pHead);
+    return ma_node_input_bus_next(pInputBus, &pInputBus->head);
 }
 
 
@@ -2972,6 +3055,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 {
     ma_result result = MA_SUCCESS;
     ma_node_output_bus* pOutputBus;
+    ma_node_output_bus* pFirst;
     ma_uint32 inputChannels;
 
     /*
@@ -2992,103 +3076,77 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     *pFramesRead = 0;   /* Safety. */
 
     inputChannels = ma_node_input_bus_get_channels(pInputBus);
-    
-    /*
-    A few optimizations here:
-                
-        1) If there's only a single attachment we just write directly to the output buffer.
-        2) For the first attachment, we do not mix. Instead we just overwrite.
-    */
-    if (ma_node_input_bus_next(pInputBus, ma_node_input_bus_first(pInputBus)) == NULL) {
-        /* Fast path. There's only one attachment Read straight into the output buffer. */
-        pOutputBus = ma_node_input_bus_first(pInputBus);
-        if (pOutputBus != NULL) {
-            /* Fast path. Input and output channel counts are the same. No conversion necessary. */
-            ma_uint32 framesRead;
-            float volume = ma_node_output_bus_get_volume(pOutputBus);
 
-            if (volume > 0) {
-                result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pFramesOut, frameCount, &framesRead);
-            } else {
-                result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL,       frameCount, &framesRead);   /* Volume is muted. This resolves to a seek. */
+    /*
+    We need to be careful with how we call ma_node_input_bus_first() and ma_node_input_bus_next(). They
+    are both critical to our lock-free thread-safety system. We can only call ma_node_input_bus_first()
+    once per iteration, however we have an optimization to checks whether or not it's the first item in
+    the list. We therefore need to store a pointer to the first item rather than repeatedly calling
+    ma_node_input_bus_first(). It's safe to keep hold of this point, so long as we don't dereference it
+    after calling ma_node_input_bus_next(), which we won't be.
+    */
+    pFirst = ma_node_input_bus_first(pInputBus);
+    
+    /* Slow path. There's multiple output buses or channel conversion is required. We need to mix before outputting. pFramesOut is the accumulation buffer. */
+    for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
+        ma_uint32 framesProcessed = 0;
+
+        MA_ASSERT(pOutputBus->pNode != NULL);
+
+        if (pFramesOut != NULL) {
+            /* Read. */
+            float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
+            ma_uint32 tempCapInFrames = ma_countof(temp) / inputChannels;
+            float volume = ma_node_output_bus_get_volume(pOutputBus);
+                    
+            while (framesProcessed < frameCount) {
+                float* pRunningFramesOut;
+                ma_uint32 framesToRead;
+                ma_uint32 framesJustRead;
+
+                framesToRead = frameCount - framesProcessed;
+                if (framesToRead > tempCapInFrames) {
+                    framesToRead = tempCapInFrames;
+                }
+
+                pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, inputChannels);
+
+                if (pOutputBus == pFirst) {
+                    /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
+                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead);
+                } else {
+                    /* Slow path. Not the first attachment. Mixing required. */
+                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead);
+                    if (result == MA_SUCCESS || result == MA_AT_END) {
+                        ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
+                    }
+                }
+
+                framesProcessed += framesJustRead;
+
+                /* If we reached the end or otherwise failed to read any data we need to finish up with this output node. */
+                if (result != MA_SUCCESS) {
+                    break;
+                }
             }
 
-            if (result == MA_SUCCESS) {
-                /* Any frames that were not read need to be filled with silence. */
-                if (framesRead < frameCount) {
-                    ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesRead, ma_format_f32, inputChannels), (frameCount - framesRead), ma_format_f32, inputChannels);
-                }
+            /* If it's the first attachment we didn't do any mixing. Any leftover samples need to be silenced. */
+            if (pOutputBus == pFirst && framesProcessed < frameCount) {
+                ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesProcessed, ma_format_f32, inputChannels), (frameCount - framesProcessed), ma_format_f32, inputChannels);
             }
 
             /* Apply volume, if necessary. */
-            if (volume > 0 && volume != 1) {
-                ma_apply_volume_factor_f32(pFramesOut, framesRead * inputChannels, volume);
+            if (volume != 1) {
+                ma_apply_volume_factor_f32(pFramesOut, framesProcessed * inputChannels, volume);
             }
-
-            *pFramesRead = framesRead;
+        } else {
+            /* Seek. */
+            ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed);
         }
-    } else {
-        /* Slow path. There's multiple output buses or channel conversion is required. We need to mix before outputting. pFramesOut is the accumulation buffer. */
-        for (pOutputBus = ma_node_input_bus_first(pInputBus); pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
-            ma_uint32 framesProcessed = 0;
-
-            MA_ASSERT(pOutputBus->pNode != NULL);
-
-            if (pFramesOut != NULL) {
-                /* Read. */
-                float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
-                ma_uint32 tempCapInFrames = ma_countof(temp) / inputChannels;
-                float volume = ma_node_output_bus_get_volume(pOutputBus);
-                    
-                while (framesProcessed < frameCount) {
-                    float* pRunningFramesOut;
-                    ma_uint32 framesToRead;
-                    ma_uint32 framesJustRead;
-
-                    framesToRead = frameCount - framesProcessed;
-                    if (framesToRead > tempCapInFrames) {
-                        framesToRead = tempCapInFrames;
-                    }
-
-                    pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, inputChannels);
-
-                    if (pOutputBus == ma_node_input_bus_first(pInputBus)) {
-                        /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
-                        result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead);
-                    } else {
-                        /* Slow path. Not the first attachment. Mixing required. */
-                        result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead);
-                        if (result == MA_SUCCESS || result == MA_AT_END) {
-                            ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
-                        }
-                    }
-
-                    framesProcessed += framesJustRead;
-
-                    /* If we reached the end or otherwise failed to read any data we need to finish up with this output node. */
-                    if (result != MA_SUCCESS) {
-                        break;
-                    }
-                }
-
-                /* If it's the first attachment we didn't do any mixing. Any leftover samples need to be silenced. */
-                if (pOutputBus == ma_node_input_bus_first(pInputBus) && framesProcessed < frameCount) {
-                    ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesProcessed, ma_format_f32, inputChannels), (frameCount - framesProcessed), ma_format_f32, inputChannels);
-                }
-
-                /* Apply volume, if necessary. */
-                if (volume != 1) {
-                    ma_apply_volume_factor_f32(pFramesOut, framesProcessed * inputChannels, volume);
-                }
-            } else {
-                /* Seek. */
-                ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed);
-            }
-        }
-
-        /* In this path we always "process" the entire amount. */
-        *pFramesRead = frameCount;
     }
+
+    /* In this path we always "process" the entire amount. */
+    *pFramesRead = frameCount;
 
     return result;
 }
@@ -3248,7 +3306,6 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
 MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    volatile ma_uint32 readCounter; /* <-- Marking this as volatile just to make it clear that a copy of this variable must be made, and the compiler must not optimize it away. */
 
     if (pNodeBase == NULL) {
         return;
@@ -3256,49 +3313,11 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
 
     /*
     The first thing we need to do is fully detach the node. This will detach all inputs and
-    outputs. We need to do this first because the next section, where we wait for any current reads
-    to complete, depends on the property of this node being guaranteed not to be enumerated in any
-    future reads that might happen on another thread while this function is running.
-
-    There's a possibility that the node will be in the middle of a read at this point. This is OK
-    because thread-safety on detachment is handled for this case.
+    outputs. We need to do this first because it will sever the connection with the node graph and
+    allow us to complete uninitialization without needing to worry about thread-safety with the
+    audio thread. The detachment process will wait for any local processing of the node to finish.
     */
     ma_node_detach(pNode);
-
-    /*
-    Now that the node has been detached need to wait for any active reads to complete. If we don't
-    do this, the caller may end up freeing memory allocating for this node while the node graph is
-    in the middle of reading.
-
-    If at this point the audio thread calls `ma_node_graph_read_pcm_frames()`, we will be safe
-    because we've already detached the node.
-    */
-
-    /*
-    We need to retrieve the read counter *before* checking whether or not a read is in progress.
-    */
-    readCounter = ma_node_graph_get_read_counter(pNodeBase->pNodeGraph);    /* <-- This copy must happen. */
-    c89atomic_compiler_fence(); /* <-- We must extract the read counter before checking ma_node_graph_is_reading(). */
-
-    /*
-    Once we've got a local copy of the read counter we can check whether or not the node graph is
-    in the middle of a read. If it is, we need to wait for it to complete. This is where the read
-    counter we retrieved just above comes into it. Every time a read completes, the counter is
-    incremented. While the read counter is equal to the counter we just extracted above, the read
-    is still happening.
-
-    If we were to not check if the graph is currently reading (`ma_node_graph_is_reading()`) we'd
-    end up stuck in an infinite loop because the counter would never end up incrementing. This is
-    why we need to extract the read counter before performing this check. If we were to do the
-    reading check first, it would be possible to end up in a situation where the reading process
-    completes *just* before we extract the counter and enter the wait loop, thereby creating an
-    infinite loop.
-    */
-    if (ma_node_graph_is_reading(pNodeBase->pNodeGraph)) {
-        while (readCounter == ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
-            ma_yield();
-        }
-    }
 
     /*
     At this point the node should be completely unreferenced by the node graph and we can finish up
@@ -3403,15 +3422,25 @@ MA_API ma_result ma_node_detach(ma_node* pNode)
         ma_node_detach_output_bus(pNode, iOutputBus);
     }
 
-    /* Any nodes attached to this node as an input need to be detached as well. */
+    /*
+    At this point all output buses will have been detached from the graph and we can be guaranteed
+    that none of it's input nodes will be getting processed by the graph. We can detach these
+    without needing to worry about the audio thread touching them.
+    */
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNode); iInputBus += 1) {
         ma_node_input_bus* pInputBus;
         ma_node_output_bus* pOutputBus;
 
         pInputBus = &pNodeBase->inputBuses[iInputBus];
 
-        for (pOutputBus = ma_node_input_bus_first(pInputBus); pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
-            ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);
+        /*
+        This is important. We cannot be using ma_node_input_bus_first() or ma_node_input_bus_next(). Those
+        functions are specifically for the audio thread. We'll instead just manually iterate using standard
+        linked list logic. We don't need to worry about the audio thread referencing these because the step
+        above severed the connection to the graph.
+        */
+        for (pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext)) {
+            ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);   /* This won't do any waiting in practice and should be efficient. */
         }
     }
 
