@@ -792,6 +792,7 @@ MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode, ma_uint32 inpu
 MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode, ma_uint32 outputBusIndex);
 MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex, ma_node* pOtherNode, ma_uint32 otherNodeInputBusIndex);
 MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
+MA_API ma_result ma_node_detach_all_output_buses(ma_node* pNode);
 MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
 MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
 MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume);
@@ -3376,6 +3377,46 @@ MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode, ma_uint32 out
 }
 
 
+static ma_result ma_node_detach_full(ma_node* pNode)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 iInputBus;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    Make sure the node is completely detached first. This will not return until the output bus is
+    guaranteed to no longer be referenced by the audio thread.
+    */
+    ma_node_detach_all_output_buses(pNode);
+
+    /*
+    At this point all output buses will have been detached from the graph and we can be guaranteed
+    that none of it's input nodes will be getting processed by the graph. We can detach these
+    without needing to worry about the audio thread touching them.
+    */
+    for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNode); iInputBus += 1) {
+        ma_node_input_bus* pInputBus;
+        ma_node_output_bus* pOutputBus;
+
+        pInputBus = &pNodeBase->inputBuses[iInputBus];
+
+        /*
+        This is important. We cannot be using ma_node_input_bus_first() or ma_node_input_bus_next(). Those
+        functions are specifically for the audio thread. We'll instead just manually iterate using standard
+        linked list logic. We don't need to worry about the audio thread referencing these because the step
+        above severed the connection to the graph.
+        */
+        for (pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext)) {
+            ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);   /* This won't do any waiting in practice and should be efficient. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex)
 {
     ma_result result = MA_SUCCESS;
@@ -3403,41 +3444,16 @@ MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIn
     return result;
 }
 
-MA_API ma_result ma_node_detach_full(ma_node* pNode)
+MA_API ma_result ma_node_detach_all_output_buses(ma_node* pNode)
 {
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_uint32 iInputBus;
     ma_uint32 iOutputBus;
 
-    if (pNodeBase == NULL) {
+    if (pNode == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    /* Make sure the node is completely detached first. */
     for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNode); iOutputBus += 1) {
         ma_node_detach_output_bus(pNode, iOutputBus);
-    }
-
-    /*
-    At this point all output buses will have been detached from the graph and we can be guaranteed
-    that none of it's input nodes will be getting processed by the graph. We can detach these
-    without needing to worry about the audio thread touching them.
-    */
-    for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNode); iInputBus += 1) {
-        ma_node_input_bus* pInputBus;
-        ma_node_output_bus* pOutputBus;
-
-        pInputBus = &pNodeBase->inputBuses[iInputBus];
-
-        /*
-        This is important. We cannot be using ma_node_input_bus_first() or ma_node_input_bus_next(). Those
-        functions are specifically for the audio thread. We'll instead just manually iterate using standard
-        linked list logic. We don't need to worry about the audio thread referencing these because the step
-        above severed the connection to the graph.
-        */
-        for (pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)c89atomic_load_ptr(&pOutputBus->pNext)) {
-            ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);   /* This won't do any waiting in practice and should be efficient. */
-        }
     }
 
     return MA_SUCCESS;
