@@ -404,21 +404,10 @@ bus. There will be 1 output bus and 0 input buses (data will be drawn directly f
 source). The data source must output to floating-point (ma_format_f32) or else an error will be
 returned from `ma_data_source_node_init()`.
 
-By default the node will not be attached to the graph. To do so, use either one of the following
-functions:
-
-    - ma_node_attach_to_output_node()
-    - ma_node_attach_to_input_node()
-
-Note that these are named from the perspective of the node you're about to attach to the graph. So,
-the function `ma_node_attach_to_output_node()` specifies that your node is the input node to some
-output node. `ma_node_attach_to_input_node()` is the other way around. When you attach, you specify
-the index of the relevant bus. So for `ma_node_attach_to_output_node()` you need to specify the
-index of your node's output bus, and the index of the input bus of the other node. Again, this is
-the other way around for `ma_node_attach_to_input_node()`. Example:
+By default the node will not be attached to the graph. To do so, use `ma_node_attach_output_bus()`:
 
     ```c
-    result = ma_node_attach_to_output_node(&dataSourceNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0);
+    result = ma_node_attach_output_bus(&dataSourceNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0);
     if (result != MA_SUCCESS) {
         // Failed to attach node.
     }
@@ -431,7 +420,7 @@ input bus which means the input bus index will also always be 0.
 To detach a specific output bus, use `ma_node_detach_output_bus()`. To do a complete detachment
 where all output buses and all input attachments are detached, use `ma_node_detach()`. If you want
 to just move the output bus from one attachment to another, you do not need to detach first. You
-can just call `ma_node_attach_to_output/input_node()` and it'll deal with it for you.
+can just call `ma_node_attach_output_bus()` and it'll deal with it for you.
 
 Less frequently you may want to create a specialized node. This will be a node where you implement
 your own processing callback to apply a custom effect of some kind. This is similar to initalizing
@@ -522,8 +511,8 @@ You can use it like this:
     }
 
     // Attach your output buses to two different input buses (can be on two different nodes).
-    ma_node_attach_to_output_node(&splitterNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0); // Attach directly to the endpoint.
-    ma_node_attach_to_output_node(&splitterNode, 1, &myEffectNode,                          0); // Attach to input bus 0 of some effect node.
+    ma_node_attach_output_bus(&splitterNode, 0, ma_node_graph_get_endpoint(&nodeGraph), 0); // Attach directly to the endpoint.
+    ma_node_attach_output_bus(&splitterNode, 1, &myEffectNode,                          0); // Attach to input bus 0 of some effect node.
     ```
 
 The volume of an output bus can be configured on a per-bus basis:
@@ -644,8 +633,8 @@ by simply performing an atomic exchange with the head pointer. After that, the n
 to the list from the perspective of iteration. Even though the "previous" pointer of the next item
 hasn't yet been set, from the perspective of iteration it's been attached because iteration will
 only be happening in a forward direction which means the "previous" pointer won't actually ever get
-used. The same general process applies to detachment. See `ma_node_attach_to_output/input_node()`
-and `ma_node_detach_output_bus()` for the implementation of this mechanism.
+used. The same general process applies to detachment. See `ma_node_attach_output_bus()` and
+`ma_node_detach_output_bus()` for the implementation of this mechanism.
 
 Loop detection is achieved through the use of a counter. At the ma_node_graph level there is a
 counter which is updated after each read. There is also a counter for each node which is set to the
@@ -803,8 +792,7 @@ MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode, ma_uint32 inpu
 MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode, ma_uint32 outputBusIndex);
 MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
 MA_API ma_result ma_node_detach(ma_node* pNode);    /* A full detach of all input attachments and output buses. */
-MA_API ma_result ma_node_attach_to_input_node(ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex, ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex);
-MA_API ma_result ma_node_attach_to_output_node(ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex, ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex);
+MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex, ma_node* pOtherNode, ma_uint32 otherNodeInputBusIndex);
 MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
 MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
 MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume);
@@ -3453,39 +3441,33 @@ MA_API ma_result ma_node_detach(ma_node* pNode)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_node_attach_to_output_node(ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex, ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex)
+MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex, ma_node* pOtherNode, ma_uint32 otherNodeInputBusIndex)
 {
-    ma_node_base* pInputNodeBase  = (ma_node_base*)pInputNode;
-    ma_node_base* pOutputNodeBase = (ma_node_base*)pOutputNode;
+    ma_node_base* pNodeBase  = (ma_node_base*)pNode;
+    ma_node_base* pOtherNodeBase = (ma_node_base*)pOtherNode;
 
-    if (pInputNodeBase == NULL || pOutputNodeBase == NULL) {
+    if (pNodeBase == NULL || pOtherNodeBase == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pInputNodeBase == pOutputNodeBase) {
+    if (pNodeBase == pOtherNodeBase) {
         return MA_INVALID_OPERATION;    /* Cannot attach a node to itself. */
     }
 
-    if (inputNodeOutputBusIndex >= ma_node_get_output_bus_count(pInputNode) || outputNodeInputBusIndex >= ma_node_get_input_bus_count(pOutputNode)) {
+    if (outputBusIndex >= ma_node_get_output_bus_count(pNode) || otherNodeInputBusIndex >= ma_node_get_input_bus_count(pOtherNode)) {
         return MA_INVALID_OPERATION;    /* Invalid bus index. */
     }
 
     /* The output channel count of the output node must be the same as the input channel count of the input node. */
-    if (ma_node_get_output_channels(pInputNode, inputNodeOutputBusIndex) != ma_node_get_input_channels(pOutputNode, outputNodeInputBusIndex)) {
+    if (ma_node_get_output_channels(pNode, outputBusIndex) != ma_node_get_input_channels(pOtherNode, otherNodeInputBusIndex)) {
         return MA_INVALID_OPERATION;    /* Channel count is incompatible. */
     }
 
     /* This will deal with detaching if the output bus is already attached to something. */
-    ma_node_input_bus_attach(&pOutputNodeBase->inputBuses[outputNodeInputBusIndex], &pInputNodeBase->outputBuses[inputNodeOutputBusIndex], pOutputNode, outputNodeInputBusIndex);
+    ma_node_input_bus_attach(&pOtherNodeBase->inputBuses[otherNodeInputBusIndex], &pNodeBase->outputBuses[outputBusIndex], pOtherNode, otherNodeInputBusIndex);
 
     return MA_SUCCESS;
 }
-
-MA_API ma_result ma_node_attach_to_input_node(ma_node* pOutputNode, ma_uint32 outputNodeInputBusIndex, ma_node* pInputNode, ma_uint32 inputNodeOutputBusIndex)
-{
-    return ma_node_attach_to_output_node(pInputNode, inputNodeOutputBusIndex, pOutputNode, outputNodeInputBusIndex);
-}
-
 
 MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state)
 {

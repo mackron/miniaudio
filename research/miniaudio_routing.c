@@ -83,7 +83,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    result = ma_node_attach_to_output_node(&g_dataSourceNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    result = ma_node_attach_output_bus(&g_dataSourceNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
     if (result != MA_SUCCESS) {
         printf("Failed to attach node.");
         return -1;
@@ -107,8 +107,8 @@ int main(int argc, char** argv)
     }
 
     /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
-    ma_node_attach_to_output_node(&g_loopNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
-    ma_node_attach_to_output_node(&g_loopNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    ma_node_attach_output_bus(&g_loopNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    ma_node_attach_output_bus(&g_loopNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
 
     /* Adjust the volume of the splitter node's endpoints. We'll just do it 50/50 so that both of them combine to reproduce the original signal at the endpoint. */
     ma_node_set_output_bus_volume(&g_loopNode, 0, 0.5f);
@@ -126,23 +126,23 @@ int main(int argc, char** argv)
 
 #if 0
     /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
-    ma_node_attach_to_output_node(&g_splitterNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
-    ma_node_attach_to_output_node(&g_splitterNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    ma_node_attach_output_bus(&g_splitterNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    ma_node_attach_output_bus(&g_splitterNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
 
     /* Adjust the volume of the splitter node's endpoints. We'll just do it 50/50 so that both of them combine to reproduce the original signal at the endpoint. */
     ma_node_set_output_bus_volume(&g_splitterNode, 0, 0.5f);
     ma_node_set_output_bus_volume(&g_splitterNode, 1, 0.5f);
 #else
     /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
-    ma_node_attach_to_output_node(&g_splitterNode, 0, &g_loopNode, 0);
-    ma_node_attach_to_output_node(&g_splitterNode, 1, &g_loopNode, 1);
+    ma_node_attach_output_bus(&g_splitterNode, 0, &g_loopNode, 0);
+    ma_node_attach_output_bus(&g_splitterNode, 1, &g_loopNode, 1);
 
     /* Now loop back to the splitter node to form a loop. */
-    ma_node_attach_to_output_node(&g_loopNode, 1, &g_splitterNode, 0);
+    ma_node_attach_output_bus(&g_loopNode, 1, &g_splitterNode, 0);
 #endif
 
     /* The data source needs to have it's connection changed from the endpoint to the splitter. */
-    ma_node_attach_to_output_node(&g_dataSourceNode, 0, &g_splitterNode, 0);
+    ma_node_attach_output_bus(&g_dataSourceNode, 0, &g_splitterNode, 0);
 
 
     
