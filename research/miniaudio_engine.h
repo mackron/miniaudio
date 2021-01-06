@@ -417,10 +417,10 @@ The code above connects the data source node directly to the endpoint. Since the
 has only a single output bus, the index will always be 0. Likewise, the endpoint only has a single
 input bus which means the input bus index will also always be 0.
 
-To detach a specific output bus, use `ma_node_detach_output_bus()`. To do a complete detachment
-where all output buses and all input attachments are detached, use `ma_node_detach_full()`. If you want
-to just move the output bus from one attachment to another, you do not need to detach first. You
-can just call `ma_node_attach_output_bus()` and it'll deal with it for you.
+To detach a specific output bus, use `ma_node_detach_output_bus()`. To detach all output buses, use
+`ma_node_detach_all_output_buses()`. If you want to just move the output bus from one attachment to
+another, you do not need to detach first. You can just call `ma_node_attach_output_bus()` and it'll
+deal with it for you.
 
 Less frequently you may want to create a specialized node. This will be a node where you implement
 your own processing callback to apply a custom effect of some kind. This is similar to initalizing
