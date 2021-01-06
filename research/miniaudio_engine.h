@@ -418,7 +418,7 @@ has only a single output bus, the index will always be 0. Likewise, the endpoint
 input bus which means the input bus index will also always be 0.
 
 To detach a specific output bus, use `ma_node_detach_output_bus()`. To do a complete detachment
-where all output buses and all input attachments are detached, use `ma_node_detach()`. If you want
+where all output buses and all input attachments are detached, use `ma_node_detach_full()`. If you want
 to just move the output bus from one attachment to another, you do not need to detach first. You
 can just call `ma_node_attach_output_bus()` and it'll deal with it for you.
 
@@ -790,9 +790,8 @@ MA_API ma_uint32 ma_node_get_input_bus_count(const ma_node* pNode);
 MA_API ma_uint32 ma_node_get_output_bus_count(const ma_node* pNode);
 MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode, ma_uint32 inputBusIndex);
 MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode, ma_uint32 outputBusIndex);
-MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
-MA_API ma_result ma_node_detach(ma_node* pNode);    /* A full detach of all input attachments and output buses. */
 MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex, ma_node* pOtherNode, ma_uint32 otherNodeInputBusIndex);
+MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
 MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
 MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
 MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume);
@@ -3168,6 +3167,9 @@ MA_API ma_node_config ma_node_config_init(ma_node_vtable* vtable, ma_uint32 inpu
 }
 
 
+
+static ma_result ma_node_detach_full(ma_node* pNode);
+
 static float* ma_node_get_cached_input_ptr(ma_node* pNode, ma_uint32 inputBusIndex)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
@@ -3311,7 +3313,7 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
     allow us to complete uninitialization without needing to worry about thread-safety with the
     audio thread. The detachment process will wait for any local processing of the node to finish.
     */
-    ma_node_detach(pNode);
+    ma_node_detach_full(pNode);
 
     /*
     At this point the node should be completely unreferenced by the node graph and we can finish up
@@ -3401,7 +3403,7 @@ MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIn
     return result;
 }
 
-MA_API ma_result ma_node_detach(ma_node* pNode)
+MA_API ma_result ma_node_detach_full(ma_node* pNode)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
     ma_uint32 iInputBus;
