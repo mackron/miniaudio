@@ -3552,8 +3552,8 @@ static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCount
     MA_ASSERT(pNodeBase != NULL);
 
     /*
-    This function will be only ever be called in a controlled environment (only on the audio
-    thread, and never concurrently).
+    This function will only ever be called in a controlled environment (only on the audio thread,
+    and never concurrently).
     */
     oldReadCounter = pNodeBase->readCounter;
     pNodeBase->readCounter = newReadCounter;
