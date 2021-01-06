@@ -778,9 +778,9 @@ struct ma_node_base
     ma_uint16 cachedFrameCountOut;
     ma_uint16 cachedFrameCountIn;
     ma_uint16 consumedFrameCountIn;
+    ma_uint32 readCounter;                  /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     
     /* These variables are read and written between different threads. */
-    volatile ma_uint32 readCounter;         /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     volatile ma_node_state state;
     ma_node_input_bus inputBuses[MA_MAX_NODE_BUS_COUNT];
     ma_node_output_bus outputBuses[MA_MAX_NODE_BUS_COUNT];
@@ -3555,8 +3555,8 @@ static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCount
     This function will be only ever be called in a controlled environment (only on the audio
     thread, and never concurrently).
     */
-    oldReadCounter = c89atomic_load_32(&pNodeBase->readCounter);
-    c89atomic_exchange_32(&pNodeBase->readCounter, newReadCounter);
+    oldReadCounter = pNodeBase->readCounter;
+    pNodeBase->readCounter = newReadCounter;
 
     return oldReadCounter;
 }
