@@ -436,9 +436,11 @@ pointer to the processing function and the number of input and output buses. Exa
         float* pFramesOut_0 = ppFramesOut[0];     // Output bus @ index 0.
         ma_uint32 frameCount = *pFrameCount;
 
-        // Do some processing. Process as many frames as you can. If you're implementing a data
-        // source node and you run out of source data, set `pFrameCount` to the number of frames
-        // that were actually read.
+        // Do some processing. Process as many frames as you can. On input, `pFrameCount` will be
+        // the number of frames miniaudio wants you to process, and is the capacity of each buffer
+        // in `ppFramesOut` and the number of frames in each buffer in `ppFramesIn`. If you're
+        // implementing a data source node and you run out of source data, set `pFrameCount` to the
+        // number of frames that were actually read.
     }
 
     static ma_node_vtable my_custom_node_vtable = 
