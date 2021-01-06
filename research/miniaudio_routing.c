@@ -5,6 +5,7 @@
 ma_node_graph g_nodeGraph;
 ma_data_source_node g_dataSourceNode;
 ma_splitter_node g_splitterNode;
+ma_splitter_node g_loopNode;    /* For testing loop detection. We're going to route one of these endpoints back to g_splitterNode to form a loop. */
 
 void data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -89,11 +90,32 @@ int main(int argc, char** argv)
     }
 
 
+
     /*
     Splitter node. Note that we've already attached the data source node to another, so this section
     will test that changing of attachments works as expected.
     */
     splitterNodeConfig = ma_splitter_node_config_init(device.playback.channels);
+
+
+
+    /* Loop detection testing. */
+    result = ma_splitter_node_init(&g_nodeGraph, &splitterNodeConfig, NULL, &g_loopNode);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize loop node.");
+        return -1;
+    }
+
+    /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
+    ma_node_attach_to_output_node(&g_loopNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+    ma_node_attach_to_output_node(&g_loopNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
+
+    /* Adjust the volume of the splitter node's endpoints. We'll just do it 50/50 so that both of them combine to reproduce the original signal at the endpoint. */
+    ma_node_set_output_bus_volume(&g_loopNode, 0, 0.5f);
+    ma_node_set_output_bus_volume(&g_loopNode, 1, 0.5f);
+
+
+    
 
     result = ma_splitter_node_init(&g_nodeGraph, &splitterNodeConfig, NULL, &g_splitterNode);
     if (result != MA_SUCCESS) {
@@ -101,6 +123,8 @@ int main(int argc, char** argv)
         return -1;
     }
 
+
+#if 0
     /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
     ma_node_attach_to_output_node(&g_splitterNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
     ma_node_attach_to_output_node(&g_splitterNode, 1, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
@@ -108,9 +132,20 @@ int main(int argc, char** argv)
     /* Adjust the volume of the splitter node's endpoints. We'll just do it 50/50 so that both of them combine to reproduce the original signal at the endpoint. */
     ma_node_set_output_bus_volume(&g_splitterNode, 0, 0.5f);
     ma_node_set_output_bus_volume(&g_splitterNode, 1, 0.5f);
+#else
+    /* Connect both outputs of the splitter to the endpoint for now. Later on we'll test effects and whatnot. */
+    ma_node_attach_to_output_node(&g_splitterNode, 0, &g_loopNode, 0);
+    ma_node_attach_to_output_node(&g_splitterNode, 1, &g_loopNode, 1);
+
+    /* Now loop back to the splitter node to form a loop. */
+    ma_node_attach_to_output_node(&g_loopNode, 1, &g_splitterNode, 0);
+#endif
 
     /* The data source needs to have it's connection changed from the endpoint to the splitter. */
     ma_node_attach_to_output_node(&g_dataSourceNode, 0, &g_splitterNode, 0);
+
+
+    
 
 
     /* Stop the splitter node for testing. */

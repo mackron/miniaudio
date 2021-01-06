@@ -1774,6 +1774,7 @@ typedef int ma_result;
 #define MA_NO_DEVICE                                   -104
 #define MA_API_NOT_FOUND                               -105
 #define MA_INVALID_DEVICE_CONFIG                       -106
+#define MA_LOOP                                        -107
 
 /* State errors. */
 #define MA_DEVICE_NOT_INITIALIZED                      -200

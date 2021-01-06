@@ -609,7 +609,13 @@ earlier in the pipeline (data sources, for example) will be cheaper than the cos
 higher level nodes, such as some kind of final post-processing endpoint. If you need to do mass
 detachments, detach starting from the lowest level nodes and work your way towards the final
 endpoint node (but don't try detaching the node graph's endpoint). If the audio thread is not
-running, detachment will be fast and detachment in any order will be the same.
+running, detachment will be fast and detachment in any order will be the same. The reason nodes
+need to wait for their input attachments to complete is due to the potential for desyncs between
+data sources. If the node was to terminate processing mid way through processing it's inputs,
+there's a chance that some of the underlying data sources will have been read, but then others not.
+That will then result in a potential desynchronization when detaching and reattaching higher-level
+nodes. A possible solution to this is to have an option when detaching to terminate processing
+before processing all input attachments which should be fairly simple.
 
 Another compromise, albeit less significant, is locking when attaching and detaching nodes. This
 locking is achieved by means of a spinlock in order to reduce memory overhead. A lock is present
@@ -641,15 +647,12 @@ only be happening in a forward direction which means the "previous" pointer won'
 used. The same general process applies to detachment. See `ma_node_attach_to_output/input_node()`
 and `ma_node_detach_output_bus()` for the implementation of this mechanism.
 
-One outstanding problem exists regarding attaching and detaching. It is possible for an output bus
-to be detached while the audio thread is in the middle of processing it. This by itself is not a
-problem because the node is still valid. The problem is that of reattaching the output bus to a new
-input bus while a read is still happening on the audio thread. What *could* happen is that the node
-is reattached to a new input bus which hasn't yet been iterated in the current call to
-`ma_node_graph_read_pcm_frames()` thereby resulting in the node getting processed twice. This would
-flow through the base data source and result in a desync because it's read from it twice in the
-same call to `ma_node_graph_read_pcm_frames()`. This is an unusual scenario and would most likely
-go unnoticed by the majority of people, but it's still an issue to consider.
+Loop detection is achieved through the use of a counter. At the ma_node_graph level there is a
+counter which is updated after each read. There is also a counter for each node which is set to the
+counter of the node graph plus 1 after each time it processes data. Before anything is processed, a
+check is performed that the node's counter is lower or equal to the node graph. If so, it's fine to
+proceed with processing. If not, MA_LOOP is returned and nothing is output. This represents a sort
+of termination point.
 */
 
 
@@ -786,6 +789,7 @@ struct ma_node_base
     ma_uint16 consumedFrameCountIn;
     
     /* These variables are read and written between different threads. */
+    volatile ma_uint32 readCounter;         /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     volatile ma_node_state state;
     ma_node_input_bus inputBuses[MA_MAX_NODE_BUS_COUNT];
     ma_node_output_bus outputBuses[MA_MAX_NODE_BUS_COUNT];
@@ -2696,33 +2700,35 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
 
     channels = ma_node_get_output_channels(&pNodeGraph->endpoint, 0);
 
-    ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
-    {
-        /* We'll be nice and try to do a full read of all frameCount frames. */
-        totalFramesRead = 0;
-        while (totalFramesRead < frameCount) {
-            ma_uint32 framesJustRead;
-            ma_uint32 framesToRead = frameCount - totalFramesRead;
+    
+    /* We'll be nice and try to do a full read of all frameCount frames. */
+    totalFramesRead = 0;
+    while (totalFramesRead < frameCount) {
+        ma_uint32 framesJustRead;
+        ma_uint32 framesToRead = frameCount - totalFramesRead;
         
+        ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
+        {
             result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), framesToRead, &framesJustRead);
-            totalFramesRead += framesJustRead;
-
-            if (result != MA_SUCCESS) {
-                break;
-            }
         }
+        ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+        ma_node_graph_increment_read_counter(pNodeGraph);
 
-        /* Let's go ahead and silence any leftover frames just for some added safety to ensure the caller doesn't try emitting garbage out of the speakers. */
-        if (totalFramesRead < frameCount) {
-            ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), (frameCount - totalFramesRead), ma_format_f32, channels);
-        }
+        totalFramesRead += framesJustRead;
 
-        if (pFramesRead != NULL) {
-            *pFramesRead = totalFramesRead;
+        if (result != MA_SUCCESS) {
+            break;
         }
     }
-    ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
-    ma_node_graph_increment_read_counter(pNodeGraph);
+
+    /* Let's go ahead and silence any leftover frames just for some added safety to ensure the caller doesn't try emitting garbage out of the speakers. */
+    if (totalFramesRead < frameCount) {
+        ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), (frameCount - totalFramesRead), ma_format_f32, channels);
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
 
     return result;
 }
@@ -3536,6 +3542,24 @@ MA_API float ma_node_get_output_bus_volume(const ma_node* pNode, ma_uint32 outpu
 }
 
 
+static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCounter)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 oldReadCounter;
+
+    MA_ASSERT(pNodeBase != NULL);
+
+    /*
+    This function will be only ever be called in a controlled environment (only on the audio
+    thread, and never concurrently).
+    */
+    oldReadCounter = c89atomic_load_32(&pNodeBase->readCounter);
+    c89atomic_exchange_32(&pNodeBase->readCounter, newReadCounter);
+
+    return oldReadCounter;
+}
+
+
 static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
@@ -3575,6 +3599,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
     ma_uint32 totalFramesRead = 0;
+    ma_uint32 readCounter;
     float* ppFramesIn[MA_MAX_NODE_BUS_COUNT];
     float* ppFramesOut[MA_MAX_NODE_BUS_COUNT];
 
@@ -3612,6 +3637,12 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     outputBusCount = ma_node_get_output_bus_count(pNode);
 
     /*
+    We need to grab the read counter at the start so we can set a new read counter first up. We
+    need to do this first so that recursive reads can have access to the new counter.
+    */
+    readCounter = ma_node_set_read_counter(pNode, ma_node_graph_get_read_counter(pNodeBase->pNodeGraph) + 1);
+    
+    /*
     Run a simplified path when there are no inputs and one output. In this case there's nothing to
     actually read and we can go straight to output. This is a very common scenario because the vast
     majority of data source nodes will use this setup so this optimization I think is worthwhile.
@@ -3621,9 +3652,16 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         ma_uint32 inputFrameCount  = 0;
         ma_uint32 outputFrameCount = frameCount;    /* Just read as much as we can. The callback will return what was actually read. */
 
-        ppFramesOut[0] = pFramesOut;
-        ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount);
-        totalFramesRead = outputFrameCount;
+        /* Don't do anything if our read counter is ahead of the node graph. That means we're */
+        if (readCounter <= ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
+            ppFramesOut[0] = pFramesOut;
+            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount);
+            totalFramesRead = outputFrameCount;
+        } else {
+            /* Read counter is ahead of the node graph. Loop detected. Abort this read with nothing read. */
+            totalFramesRead = 0;
+            result = MA_LOOP;   /* So the caller knows to stop attempting to read more data. */
+        }
     } else {
         /* Slow path. Need to do caching. */
         ma_uint32 framesToRead;
@@ -3660,69 +3698,75 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
             pNodeBase->cachedFrameCountOut = 0;
 
-            /*
-            We need to prepare our output frame pointers for processing. In the same iteration we need
-            to mark every output bus as unread so that future calls to this function for different buses
-            for the current time period don't pull in data when they should instead be reading from cache.
-            */
-            for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
-                ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
-                ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
-            }
+            /* If our node's counter is ahead of the node graph's counter it means we've hit a loop. In this case we need to skip reading entirely. */
+            if (readCounter <= ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
+                /*
+                We need to prepare our output frame pointers for processing. In the same iteration we need
+                to mark every output bus as unread so that future calls to this function for different buses
+                for the current time period don't pull in data when they should instead be reading from cache.
+                */
+                for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
+                    ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
+                    ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
+                }
 
-            /* We only need to read from input buses if there isn't already some data in the cache. */
-            if (pNodeBase->cachedFrameCountIn == 0) {
-                /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
-                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                    ma_uint32 framesRead;
+                /* We only need to read from input buses if there isn't already some data in the cache. */
+                if (pNodeBase->cachedFrameCountIn == 0) {
+                    /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
+                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                        ma_uint32 framesRead;
 
-                    /* The first thing to do is get the offset within our bulk allocation to store this input data. */
-                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
+                        /* The first thing to do is get the offset within our bulk allocation to store this input data. */
+                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
 
-                    /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                    result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead);
-                    if (result != MA_SUCCESS) {
-                        /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
-                        *pFramesRead = 0;
-                        break;
+                        /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
+                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead);
+                        if (result != MA_SUCCESS) {
+                            /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
+                            *pFramesRead = 0;
+                            break;
+                        }
+
+                        /* Any leftover frames need to silenced for safety. */
+                        if (framesRead < framesToRead) {
+                            ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                        }
                     }
 
-                    /* Any leftover frames need to silenced for safety. */
-                    if (framesRead < framesToRead) {
-                        ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                    pNodeBase->cachedFrameCountIn   = (ma_uint16)framesToRead;
+                    pNodeBase->consumedFrameCountIn = 0;
+                } else {
+                    /* We don't need to read anything, but we do need to prepare our input frame pointers. */
+                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
                     }
                 }
 
-                pNodeBase->cachedFrameCountIn   = (ma_uint16)framesToRead;
-                pNodeBase->consumedFrameCountIn = 0;
+                /*
+                At this point we have our input data so now we need to do some processing. Sneaky little
+                optimization here - we can set the pointer to the output buffer for this output bus so
+                that the final copy into the output buffer is done directly by onProcess().
+                */
+                if (pFramesOut != NULL) {
+                    ppFramesOut[outputBusIndex] = pFramesOut;
+                }
+
+                frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
+                frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
+                ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+
+                /*
+                Thanks to our sneaky optimization above we don't need to do any data copying directly into
+                the output buffer - the onProcess() callback just did that for us. We do, however, need to
+                apply the number of input and output frames that were processed.
+                */
+                pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
+                pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
+                pNodeBase->cachedFrameCountOut   = (ma_uint16)frameCountOut;
             } else {
-                /* We don't need to read anything, but we do need to prepare our input frame pointers. */
-                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
-                }
+                /* Getting here means the loop counter of the node is ahead of the graph which means we've hit a loop. */
+                result = MA_LOOP;   /* So the caller knows to stop attempting to read more data. */
             }
-
-            /*
-            At this point we have our input data so now we need to do some processing. Sneaky little
-            optimization here - we can set the pointer to the output buffer for this output bus so
-            that the final copy into the output buffer is done directly by onProcess().
-            */
-            if (pFramesOut != NULL) {
-                ppFramesOut[outputBusIndex] = pFramesOut;
-            }
-
-            frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
-            frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
-            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
-
-            /*
-            Thanks to our sneaky optimization above we don't need to do any data copying directly into
-            the output buffer - the onProcess() callback just did that for us. We do, however, need to
-            apply the number of input and output frames that were processed.
-            */
-            pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
-            pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
-            pNodeBase->cachedFrameCountOut   = (ma_uint16)frameCountOut;
         } else {
             /*
             We're not needing to read anything from the input buffer so just read directly from our
