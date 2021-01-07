@@ -2787,9 +2787,8 @@ static ma_result ma_node_output_bus_set_volume(ma_node_output_bus* pOutputBus, f
 {
     MA_ASSERT(pOutputBus != NULL);
 
-    /* Returning an error if outside the 0..1 range for consistency with how it's handled with ma_device_set_master_volume(). */
-    if (volume < 0.0f || volume > 1.0f) {
-        return MA_INVALID_ARGS;
+    if (volume < 0.0f) {
+        volume = 0.0f;
     }
 
     c89atomic_exchange_f32(&pOutputBus->volume, volume);
