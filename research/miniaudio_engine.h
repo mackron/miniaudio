@@ -2062,7 +2062,6 @@ typedef struct
 {
     ma_effect_base baseEffect;
     ma_engine* pEngine;             /* For accessing global, per-engine data such as the listener position and environmental information. */
-    ma_effect* pPreEffect;          /* The application-defined effect that will be applied before spationalization, etc. */
     ma_panner panner;
     ma_spatializer spatializer;
     ma_fader fader;
@@ -2183,7 +2182,6 @@ MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
 MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
-MA_API ma_result ma_sound_set_effect(ma_sound* pSound, ma_effect* pEffect);
 MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
@@ -2210,7 +2208,6 @@ MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume);
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB);
-MA_API ma_result ma_sound_group_set_effect(ma_sound_group* pGroup, ma_effect* pEffect);
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
@@ -9867,74 +9864,6 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engin
     }
 }
 
-static ma_result ma_engine_effect__on_process_pcm_frames__general(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_result result;
-    ma_uint64 frameCountIn  = *pFrameCountIn;
-    ma_uint64 frameCountOut = *pFrameCountOut;
-    ma_uint64 totalFramesProcessedIn  = 0;
-    ma_uint64 totalFramesProcessedOut = 0;
-    ma_format effectFormat;
-    ma_uint32 effectChannels;
-
-    MA_ASSERT(pEngineEffect  != NULL);
-    MA_ASSERT(pEngineEffect->pPreEffect != NULL);
-    MA_ASSERT(pFramesIn      != NULL);
-    MA_ASSERT(pFrameCountIn  != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
-    MA_ASSERT(pFrameCountOut != NULL);
-
-    /* The effect's input and output format will be the engine's format. If the pre-effect is of a different format it will need to be converted appropriately. */
-    effectFormat   = pEngineEffect->pEngine->format;
-    effectChannels = pEngineEffect->pEngine->channels;
-    
-    /*
-    Getting here means we have a pre-effect. This must alway be run first. We do this in chunks into an intermediary buffer and then call ma_engine_effect__on_process_pcm_frames__no_pre_effect()
-    against the intermediary buffer. The output of ma_engine_effect__on_process_pcm_frames__no_pre_effect() will be the final output buffer.
-    */
-    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
-        ma_uint8  preEffectOutBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* effectFormat / effectChannels */
-        ma_uint32 preEffectOutBufferCap = sizeof(preEffectOutBuffer) / ma_get_bytes_per_frame(effectFormat, effectChannels);
-        const void* pRunningFramesIn  = ma_offset_ptr(pFramesIn,  totalFramesProcessedIn  * ma_get_bytes_per_frame(effectFormat, effectChannels));
-        /* */ void* pRunningFramesOut = ma_offset_ptr(pFramesOut, totalFramesProcessedOut * ma_get_bytes_per_frame(effectFormat, effectChannels));
-        ma_uint64 frameCountInThisIteration;
-        ma_uint64 frameCountOutThisIteration;
-
-        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;
-        if (frameCountOutThisIteration > preEffectOutBufferCap) {
-            frameCountOutThisIteration = preEffectOutBufferCap;
-        }
-
-        /* We need to ensure we don't read too many input frames that we won't be able to process them all in the next step. */
-        frameCountInThisIteration = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, frameCountOutThisIteration);
-        if (frameCountInThisIteration > (frameCountIn - totalFramesProcessedIn)) {
-            frameCountInThisIteration = (frameCountIn - totalFramesProcessedIn);
-        }
-
-        result = ma_effect_process_pcm_frames_with_conversion(pEngineEffect->pPreEffect, 1, &pRunningFramesIn, &frameCountInThisIteration, preEffectOutBuffer, &frameCountOutThisIteration, effectFormat, effectChannels, effectFormat, effectChannels);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        totalFramesProcessedIn += frameCountInThisIteration;
-
-        /* At this point we have run the pre-effect and we can now run it through the main engine effect. */
-        frameCountOutThisIteration = frameCountOut - totalFramesProcessedOut;   /* Process as many frames as will fit in the output buffer. */
-        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, preEffectOutBuffer, &frameCountInThisIteration, pRunningFramesOut, &frameCountOutThisIteration);
-        if (result != MA_SUCCESS) {
-            break;
-        }
-
-        totalFramesProcessedOut += frameCountOutThisIteration;
-    }
-
-
-    *pFrameCountIn  = totalFramesProcessedIn;
-    *pFrameCountOut = totalFramesProcessedOut;
-
-    return MA_SUCCESS;
-}
-
 static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
@@ -9948,12 +9877,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, ma_
     /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
     ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
-    /* Optimized path for when there is no pre-effect. */
-    if (pEngineEffect->pPreEffect == NULL) {
-        result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
-    } else {
-        result = ma_engine_effect__on_process_pcm_frames__general(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
-    }
+    result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
 
     pEngineEffect->timeInFrames += *pFrameCountIn;
 
@@ -9972,13 +9896,6 @@ static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* 
 
     inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
 
-    if (pEngineEffect->pPreEffect != NULL) {
-        ma_uint64 preEffectInputFrameCount = ma_effect_get_required_input_frame_count(pEngineEffect->pPreEffect, outputFrameCount);
-        if (inputFrameCount < preEffectInputFrameCount) {
-            inputFrameCount = preEffectInputFrameCount;
-        }
-    }
-
     return inputFrameCount;
 }
 
@@ -9994,13 +9911,6 @@ static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect*
 
     outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
 
-    if (pEngineEffect->pPreEffect != NULL) {
-        ma_uint64 preEffectOutputFrameCount = ma_effect_get_expected_output_frame_count(pEngineEffect->pPreEffect, inputFrameCount);
-        if (outputFrameCount > preEffectOutputFrameCount) {
-            outputFrameCount = preEffectOutputFrameCount;
-        }
-    }
-
     return outputFrameCount;
 }
 
@@ -10010,15 +9920,11 @@ static ma_result ma_engine_effect__on_get_input_data_format(ma_effect* pEffect, 
 
     MA_ASSERT(pEffect != NULL);
 
-    if (pEngineEffect->pPreEffect != NULL) {
-        return ma_effect_get_input_data_format(pEngineEffect->pPreEffect, pFormat, pChannels, pSampleRate);
-    } else {
-        *pFormat     = pEngineEffect->converter.config.formatIn;
-        *pChannels   = pEngineEffect->converter.config.channelsIn;
-        *pSampleRate = pEngineEffect->converter.config.sampleRateIn;
+    *pFormat     = pEngineEffect->converter.config.formatIn;
+    *pChannels   = pEngineEffect->converter.config.channelsIn;
+    *pSampleRate = pEngineEffect->converter.config.sampleRateIn;
 
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 static ma_result ma_engine_effect__on_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
@@ -10053,10 +9959,9 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
     pEffect->baseEffect.onGetInputDataFormat          = ma_engine_effect__on_get_input_data_format;
     pEffect->baseEffect.onGetOutputDataFormat         = ma_engine_effect__on_get_output_data_format;
 
-    pEffect->pEngine    = pEngine;
-    pEffect->pPreEffect = NULL;
-    pEffect->pitch      = 1;
-    pEffect->oldPitch   = 1;
+    pEffect->pEngine  = pEngine;
+    pEffect->pitch    = 1;
+    pEffect->oldPitch = 1;
 
     pannerConfig = ma_panner_config_init(pEngine->format, pEngine->channels);
     result = ma_panner_init(&pannerConfig, &pEffect->panner);
@@ -10126,11 +10031,6 @@ static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* p
 static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
 {
     MA_ASSERT(pEffect != NULL);
-
-    /* A pre-effect will require processing. */
-    if (pEffect->pPreEffect != NULL) {
-        return MA_FALSE;
-    }
 
     /* If pitch shifting we'll need to do processing through the resampler. */
     if (pEffect->pitch != 1) {
@@ -11108,17 +11008,6 @@ MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB)
     return ma_sound_set_volume(pSound, ma_gain_db_to_factor(gainDB));
 }
 
-MA_API ma_result ma_sound_set_effect(ma_sound* pSound, ma_effect* pEffect)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSound->effect.pPreEffect = pEffect;
-
-    return MA_SUCCESS;
-}
-
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
 {
     if (pSound == NULL) {
@@ -11583,17 +11472,6 @@ MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB)
 {
     return ma_sound_group_set_volume(pGroup, ma_gain_db_to_factor(gainDB));
-}
-
-MA_API ma_result ma_sound_group_set_effect(ma_sound_group* pGroup, ma_effect* pEffect)
-{
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pGroup->effect.pPreEffect = pEffect;
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
