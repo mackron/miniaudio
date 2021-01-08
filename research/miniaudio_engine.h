@@ -2125,7 +2125,6 @@ typedef struct
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
-    ma_format format;                       /* The format to use when mixing and spatializing. When set to 0 will use the native format of the device. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
     ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
@@ -2141,12 +2140,12 @@ MA_API ma_engine_config ma_engine_config_init_default(void);
 
 struct ma_engine
 {
+    ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
     ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */
     ma_listener listener;
     ma_sound_group masterSoundGroup;        /* Sounds are associated with this group by default. */
-    ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
     ma_uint32 periodSizeInFrames;
@@ -9797,7 +9796,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
             /* Fast path. No-op. */
         } else {
             /* Slow path. Copy. */
-            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pEngineEffect->pEngine->format, pEngineEffect->pEngine->channels);
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pEngineEffect->pEngine->channels);
         }
     } else {
         /* Slow path. We have sub-effects to execute. The first effect reads from pFramesIn and then outputs to pFramesOut. The remaining read and write to pFramesOut in-place. */
@@ -9962,28 +9961,25 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
     pEffect->pitch    = 1;
     pEffect->oldPitch = 1;
 
-    pannerConfig = ma_panner_config_init(pEngine->format, pEngine->channels);
+    pannerConfig = ma_panner_config_init(ma_format_f32, pEngine->channels);
     result = ma_panner_init(&pannerConfig, &pEffect->panner);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the panner. */
     }
 
-    spatializerConfig = ma_spatializer_config_init(pEngine, pEngine->format, pEngine->channels);
+    spatializerConfig = ma_spatializer_config_init(pEngine, ma_format_f32, pEngine->channels);
     result = ma_spatializer_init(&spatializerConfig, &pEffect->spatializer);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the spatializer. */
     }
 
-    faderConfig = ma_fader_config_init(pEngine->format, pEngine->channels, pEngine->sampleRate);
+    faderConfig = ma_fader_config_init(ma_format_f32, pEngine->channels, pEngine->sampleRate);
     result = ma_fader_init(&faderConfig, &pEffect->fader);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the fader. */
     }
 
-    /* Our effect processor requires f32 for now, but I may implement an s16 optimized pipeline. */
-    
-
-    converterConfig = ma_data_converter_config_init(pEngine->format, pEngine->format, pEngine->channels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
+    converterConfig = ma_data_converter_config_init(ma_format_f32, ma_format_f32, pEngine->channels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
 
     /*
     TODO: A few things to figure out with the resampler:
@@ -10057,8 +10053,6 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
 {
     ma_engine_config config;
     MA_ZERO_OBJECT(&config);
-
-    config.format = ma_format_f32;
 
     return config;
 }
@@ -10307,16 +10301,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         engineConfig = ma_engine_config_init_default();
     }
 
-    /*
-    For now we only support f32 but may add support for other formats later. To do this we need to add support for all formats to ma_panner and ma_spatializer (and any other future effects).
-    */
-    if (engineConfig.format != ma_format_f32) {
-        return MA_INVALID_ARGS; /* Format not supported. */
-    }
-
     pEngine->pResourceManager         = engineConfig.pResourceManager;
     pEngine->pDevice                  = engineConfig.pDevice;
-    pEngine->format                   = engineConfig.format;
     pEngine->channels                 = engineConfig.channels;
     pEngine->sampleRate               = engineConfig.sampleRate;
     pEngine->periodSizeInFrames       = engineConfig.periodSizeInFrames;
@@ -10339,7 +10325,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         deviceConfig = ma_device_config_init(ma_device_type_playback);
         deviceConfig.playback.pDeviceID       = engineConfig.pPlaybackDeviceID;
-        deviceConfig.playback.format          = pEngine->format;
         deviceConfig.playback.channels        = pEngine->channels;
         deviceConfig.sampleRate               = pEngine->sampleRate;
         deviceConfig.dataCallback             = ma_engine_data_callback_internal;
@@ -10371,7 +10356,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 
     /* Now that have the default listener we can ensure we have the format, channels and sample rate set to proper values to ensure future listeners are configured consistently. */
-    pEngine->format                   = pEngine->pDevice->playback.format;
     pEngine->channels                 = pEngine->pDevice->playback.channels;
     pEngine->sampleRate               = pEngine->pDevice->sampleRate;
     pEngine->periodSizeInFrames       = pEngine->pDevice->playback.internalPeriodSizeInFrames;
@@ -10397,7 +10381,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         resourceManagerConfig = ma_resource_manager_config_init();
-        resourceManagerConfig.decodedFormat     = pEngine->format;
+        resourceManagerConfig.decodedFormat     = ma_format_f32;
         resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
         resourceManagerConfig.decodedSampleRate = pEngine->sampleRate;
         ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
@@ -11339,7 +11323,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
     }
 
     /* The sound group needs a mixer. This is what's used to mix each of the sounds contained within the group, and sub-groups. */
-    mixerConfig = ma_mixer_config_init(pEngine->format, pEngine->channels, pEngine->periodSizeInFrames, NULL, &pEngine->allocationCallbacks);
+    mixerConfig = ma_mixer_config_init(ma_format_f32, pEngine->channels, pEngine->periodSizeInFrames, NULL, &pEngine->allocationCallbacks);
     result = ma_mixer_init(&mixerConfig, &pGroup->mixer);
     if (result != MA_SUCCESS) {
         ma_engine_effect_uninit(pEngine, &pGroup->effect);
