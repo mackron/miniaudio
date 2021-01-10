@@ -286,7 +286,7 @@ much memory if fully decoded in memory. Only two pages of audio data are stored 
 been read, a job will be posted to load the next page which is done from the VFS.
 
 For data streams, the `MA_DATA_SOURCE_FLAG_ASYNC` flag will determine whether or not initialization of the data source waits until the two pages have been
-decoded. When unset, `ma_resource_manager_data_source()` will wait until the two pages have been loaded, otherwise it will return immediately.
+decoded. When unset, `ma_resource_manager_data_source_init()` will wait until the two pages have been loaded, otherwise it will return immediately.
 
 When frames are read from a data stream using `ma_resource_manager_data_source_read_pcm_frames()`, `MA_BUSY` will be returned if there are no frames available.
 If there are some frames available, but less than the number requested, `MA_SUCCESS` will be returned, but the actual number of frames read will be less than
@@ -1007,9 +1007,10 @@ Resource Manager Data Source Flags
 ==================================
 The flags below are used for controlling how the resource manager should handle the loading and caching of data sources.
 */
-#define MA_DATA_SOURCE_FLAG_STREAM  0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
-#define MA_DATA_SOURCE_FLAG_DECODE  0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-#define MA_DATA_SOURCE_FLAG_ASYNC   0x00000004  /* When set, the resource manager will load the data source asynchronously. */
+#define MA_DATA_SOURCE_FLAG_STREAM      0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
+#define MA_DATA_SOURCE_FLAG_DECODE      0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+#define MA_DATA_SOURCE_FLAG_ASYNC       0x00000004  /* When set, the resource manager will load the data source asynchronously. */
+#define MA_DATA_SOURCE_FLAG_WAIT_INIT   0x00000008  /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
 
 
 typedef enum
@@ -1081,8 +1082,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 
 /* Notification codes for ma_async_notification. Used to allow some granularity for notification callbacks. */
 #define MA_NOTIFICATION_COMPLETE    0   /* Operation has fully completed. */
-#define MA_NOTIFICATION_INIT        1   /* Object has been initialized, but operation not fully completed yet. */
-#define MA_NOTIFICATION_FAILED      2   /* Failed to initialize. */
+#define MA_NOTIFICATION_FAILED      1   /* Failed to initialize. */
 
 
 /*
@@ -1137,7 +1137,8 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             char* pFilePath;
-            ma_async_notification* pNotification;   /* Signalled when the data buffer has been fully decoded. */
+            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+            ma_async_notification* pCompletedNotification;  /* Signalled when the data buffer has been fully decoded. */
         } loadDataBuffer;
         struct
         {
@@ -1152,7 +1153,7 @@ typedef struct
             void* pData;
             size_t dataSizeInBytes;
             ma_uint64 decodedFrameCount;
-            ma_bool32 isUnknownLength;              /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
+            ma_bool32 isUnknownLength;                      /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
         } pageDataBuffer;
 
         struct
@@ -1541,10 +1542,11 @@ MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume);
 
 
 /* Sound flags. */
-#define MA_SOUND_FLAG_STREAM                MA_DATA_SOURCE_FLAG_STREAM  /* 0x00000001 */
-#define MA_SOUND_FLAG_DECODE                MA_DATA_SOURCE_FLAG_DECODE  /* 0x00000002 */
-#define MA_SOUND_FLAG_ASYNC                 MA_DATA_SOURCE_FLAG_ASYNC   /* 0x00000004 */
-#define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000008  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+#define MA_SOUND_FLAG_STREAM                MA_DATA_SOURCE_FLAG_STREAM      /* 0x00000001 */
+#define MA_SOUND_FLAG_DECODE                MA_DATA_SOURCE_FLAG_DECODE      /* 0x00000002 */
+#define MA_SOUND_FLAG_ASYNC                 MA_DATA_SOURCE_FLAG_ASYNC       /* 0x00000004 */
+#define MA_SOUND_FLAG_WAIT_INIT             MA_DATA_SOURCE_FLAG_WAIT_INIT   /* 0x00000008 */
+#define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
 
 
 /* All of the proprties supported by the engine are handled via an effect. */
@@ -1573,6 +1575,7 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
+    ma_uint32 channels;
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type);
@@ -4895,9 +4898,8 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
 
 static void ma_async_notification_event__on_signal(ma_async_notification* pNotification, int code)
 {
-    if (code == MA_NOTIFICATION_COMPLETE || code == MA_NOTIFICATION_FAILED) {
-        ma_async_notification_event_signal((ma_async_notification_event*)pNotification);
-    }
+    (void)code;
+    ma_async_notification_event_signal((ma_async_notification_event*)pNotification);
 }
 
 MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent)
@@ -5829,12 +5831,12 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     }
 
     /*
-    Initialization of the connector is when we can fire the MA_NOTIFICATION_INIT notification. This will give the application access to
+    Initialization of the connector is when we can fire the MA_NOTIFICATION_COMPLETE notification. This will give the application access to
     the format/channels/rate of the data source.
     */
     if (result == MA_SUCCESS) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_INIT);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
         }
     }
     
@@ -6026,12 +6028,14 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         if (async) {
             /* Asynchronous. Post to the job thread. */
             ma_job job;
+            ma_bool32 waitInit = MA_FALSE;
+            ma_async_notification_event initNotification;
 
             /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
             pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             if (pFilePathCopy == NULL) {
                 if (pNotification != NULL) {
-                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -6039,23 +6043,39 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 return MA_OUT_OF_MEMORY;
             }
 
+            if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                waitInit = MA_TRUE;
+                ma_async_notification_event_init(&initNotification);
+            }
+
             /* We now have everything we need to post the job to the job thread. */
             job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            job.loadDataBuffer.pDataBuffer   = pDataBuffer;
-            job.loadDataBuffer.pFilePath     = pFilePathCopy;
-            job.loadDataBuffer.pNotification = pNotification;
+            job.loadDataBuffer.pDataBuffer            = pDataBuffer;
+            job.loadDataBuffer.pFilePath              = pFilePathCopy;
+            job.loadDataBuffer.pInitNotification      = (waitInit == MA_TRUE) ? &initNotification : NULL;
+            job.loadDataBuffer.pCompletedNotification = pNotification;
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
                 /* Failed to post the job to the queue. Probably ran out of space. */
                 if (pNotification != NULL) {
-                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+                    ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
+                }
+
+                if (waitInit == MA_TRUE) {
+                    ma_async_notification_event_uninit(&initNotification);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
                 ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 ma__free_from_callbacks(pFilePathCopy,      &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 return result;
+            }
+
+            /* If we're waiting for initialization of the connector, do so here before returning. */
+            if (waitInit == MA_TRUE) {
+                ma_async_notification_event_wait(&initNotification);
+                ma_async_notification_event_uninit(&initNotification);
             }
         } else {
             /* Synchronous. Do everything here. */
@@ -6774,6 +6794,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     ma_result result;
     char* pFilePathCopy;
     ma_job job;
+    ma_bool32 waitBeforeReturning = MA_FALSE;
+    ma_async_notification_event waitNotification;
 
     if (pDataStream == NULL) {
         if (pNotification != NULL) {
@@ -6798,7 +6820,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
     if (pResourceManager == NULL || pFilePath == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
 
         return MA_INVALID_ARGS;
@@ -6816,20 +6838,43 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
         return MA_OUT_OF_MEMORY;
     }
 
+    /*
+    We need to check for the presence of MA_DATA_SOURCE_FLAG_ASYNC. If it's not set, we need to wait before returning. Otherwise we
+    can return immediately. Likewise, we'll also check for MA_DATA_SOURCE_FLAG_WAIT_INIT and do the same.
+    */
+    if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0 || (flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+        waitBeforeReturning = MA_TRUE;
+        ma_async_notification_event_init(&waitNotification);
+    }
+
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_job_init(MA_JOB_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.loadDataStream.pDataStream   = pDataStream;
     job.loadDataStream.pFilePath     = pFilePathCopy;
-    job.loadDataStream.pNotification = pNotification;
+    job.loadDataStream.pNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : pNotification;
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         if (pNotification != NULL) {
             ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
 
+        if (waitBeforeReturning) {
+            ma_async_notification_event_uninit(&waitNotification);
+        }
+
         ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
         return result;
+    }
+
+    /* Wait if needed. */
+    if (waitBeforeReturning) {
+        ma_async_notification_event_wait(&waitNotification);
+        ma_async_notification_event_uninit(&waitNotification);
+
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+        }
     }
 
     return MA_SUCCESS;
@@ -7576,7 +7621,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
         }
 
-        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
+        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
     } else  {
         /* Decoding. */
         ma_uint64 dataSizeInFrames;
@@ -7662,19 +7707,21 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             ma_decoder_uninit(pDecoder);
             ma__free_from_callbacks(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
 
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
             goto done;
         } else {
             /* We've still got more to decode. We just set the result to MA_BUSY which will tell the next section below to post a paging event. */
             result = MA_BUSY;
         }
 
+    #if 0
         /* If we successfully initialized and the sound is of a known length we can start initialize the connector. */
         if (result == MA_SUCCESS || result == MA_BUSY) {
             if (pDataBuffer->pNode->data.decoded.decodedFrameCount > 0) {
-                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
+                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
             }
         }
+    #endif
     }
 
 done:
@@ -7705,7 +7752,7 @@ done:
         pageDataBufferJob.order                                 = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
         pageDataBufferJob.pageDataBuffer.pDataBuffer            = pDataBuffer;
         pageDataBufferJob.pageDataBuffer.pDecoder               = pDecoder;
-        pageDataBufferJob.pageDataBuffer.pCompletedNotification = pJob->loadDataBuffer.pNotification;
+        pageDataBufferJob.pageDataBuffer.pCompletedNotification = pJob->loadDataBuffer.pCompletedNotification;
         pageDataBufferJob.pageDataBuffer.pData                  = pData;
         pageDataBufferJob.pageDataBuffer.dataSizeInBytes        = (size_t)dataSizeInBytes;   /* Safe cast. Was checked for > MA_SIZE_MAX earlier. */
         pageDataBufferJob.pageDataBuffer.decodedFrameCount      = framesRead;
@@ -7725,7 +7772,7 @@ done:
             pDataBuffer->pNode->data.decoded.decodedFrameCount = framesRead;
 
             /* The sound is of a known length so we can go ahead and initialize the connector now. */
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pNotification);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
         } else {
             pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
 
@@ -7750,15 +7797,15 @@ done:
         }
             
         /* We want to make sure we don't signal the event here. It needs to be delayed until the last page. */
-        pJob->loadDataBuffer.pNotification = NULL;
+        pJob->loadDataBuffer.pCompletedNotification = NULL;
 
         /* Make sure the buffer's status is updated appropriately, but make sure we never move away from a MA_BUSY state to ensure we don't overwrite any error codes. */
         c89atomic_compare_and_swap_32(&pDataBuffer->pNode->result, MA_BUSY, result);
     }
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
-    if (pJob->loadDataBuffer.pNotification != NULL) {
-        ma_async_notification_signal(pJob->loadDataBuffer.pNotification, MA_NOTIFICATION_COMPLETE);
+    if (pJob->loadDataBuffer.pCompletedNotification != NULL) {
+        ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification, MA_NOTIFICATION_COMPLETE);
     }
 
     c89atomic_fetch_add_32(&pDataBuffer->pNode->executionPointer, 1);
@@ -7983,7 +8030,6 @@ done:
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataStream.pNotification != NULL) {
-        ma_async_notification_signal(pJob->loadDataStream.pNotification, MA_NOTIFICATION_INIT);
         ma_async_notification_signal(pJob->loadDataStream.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
@@ -9200,7 +9246,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->pEngine->channels, pConfig->pEngine->channels);  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
+        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, pConfig->pEngine->channels);  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
@@ -9724,12 +9770,8 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 }
 
 
-
-static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
 {
-    ma_result result;
-    ma_engine_node_config engineNodeConfig;
-
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -9740,9 +9782,41 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_
         return MA_INVALID_ARGS;
     }
 
-    /* Sounds are engine nodes. */
+    return MA_SUCCESS;
+}
+
+static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_result result;
+    ma_engine_node_config engineNodeConfig;
+
+    /* Do not clear pSound to zero here - that's done at a higher level with ma_sound_preinit(). */
+    MA_ASSERT(pEngine != NULL);
+    MA_ASSERT(pSound  != NULL);
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->pDataSource = pDataSource;
+
+    /*
+    Sounds are engine nodes. Before we can initialize this we need to determine the channel count.
+    If we can't do this we need to abort. It's up to the caller to ensure they're using a data
+    source that provides this information upfront.
+    */
     engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound);
 
+    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, NULL);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the channel count. */
+    }
+
+    if (engineNodeConfig.channels == 0) {
+        return MA_INVALID_OPERATION;    /* Invalid channel count. */
+    }
+
+    /* Getting here means we should have a valid channel count and we can initialize the engine node. */
     result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pSound->engineNode);
     if (result != MA_SUCCESS) {
         return result;
@@ -9772,24 +9846,31 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
 {
     ma_result result;
 
-    result = ma_sound_preinit(pEngine, flags, pGroup, pSound);
+    result = ma_sound_preinit(pEngine, pSound);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     /*
-    The preinitialization process has succeeded so now we need to load the data source from the resource manager. This needs to be the very last part of the
-    process because we want to ensure the notification is only fired when the sound is fully initialized and usable. This is important because the caller may
-    want to do things like query the length of the sound, set fade points, etc.
+    The engine requires knowledge of the channel count of the underlying data source before it can
+    initialize the sound. Therefore, we need to make the resource manager wait until initialization
+    of the underlying data source to be initialized so we can get access to the channel count. To
+    do this, the MA_DATA_SOURCE_FLAG_WAIT_INIT is forced.
+
+    Because we're initializing the data source before the sound, there's a chance the notification
+    will get triggered before this function returns. This is OK, so long as the caller is aware of
+    it and can avoid accessing the sound from within the notification.
     */
-    pSound->pDataSource    = &pSound->resourceManagerDataSource;   /* <-- Make sure the pointer to our data source is set before calling into the resource manager. */
+    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags | MA_DATA_SOURCE_FLAG_WAIT_INIT, pNotification, &pSound->resourceManagerDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
     pSound->ownsDataSource = MA_TRUE;
 
-    result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, pNotification, &pSound->resourceManagerDataSource);
+    result = ma_sound_init_from_data_source_internal(pEngine, &pSound->resourceManagerDataSource, flags, pGroup, pSound);
     if (result != MA_SUCCESS) {
-        pSound->pDataSource = NULL;
-        pSound->ownsDataSource = MA_FALSE;
-        ma_sound_uninit(pSound);
+        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
         MA_ZERO_OBJECT(pSound);
         return result;
     }
@@ -9802,13 +9883,17 @@ MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_sour
 {
     ma_result result;
 
-    result = ma_sound_preinit(pEngine, flags, pGroup, pSound);
+    result = ma_sound_preinit(pEngine, pSound);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pSound->pDataSource = pDataSource;
     pSound->ownsDataSource = MA_FALSE;
+
+    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     return MA_SUCCESS;
 }
