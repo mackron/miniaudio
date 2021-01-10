@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.30 - TBD
+miniaudio - v0.10.30 - 2021-01-10
 
 David Reid - mackron@gmail.com
 
@@ -64684,7 +64684,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.30 - TBD
+v0.10.30 - 2021-01-10
   - Fix a crash in ma_audio_buffer_read_pcm_frames().
   - Update spinlock APIs to take a volatile parameter as input.
   - Silence some unused parameter warnings.

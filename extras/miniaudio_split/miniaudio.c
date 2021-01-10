@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.29 - 2020-12-26
+miniaudio - v0.10.30 - 2021-01-10
 
 David Reid - mackron@gmail.com
 
@@ -3605,7 +3605,7 @@ Threading
 #endif
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
 
-static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32 yield)
+static MA_INLINE ma_result ma_spinlock_lock_ex(volatile ma_spinlock* pSpinlock, ma_bool32 yield)
 {
     if (pSpinlock == NULL) {
         return MA_INVALID_ARGS;
@@ -3626,17 +3626,17 @@ static MA_INLINE ma_result ma_spinlock_lock_ex(ma_spinlock* pSpinlock, ma_bool32
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock)
 {
     return ma_spinlock_lock_ex(pSpinlock, MA_TRUE);
 }
 
-MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock)
 {
     return ma_spinlock_lock_ex(pSpinlock, MA_FALSE);
 }
 
-MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock)
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 {
     if (pSpinlock == NULL) {
         return MA_INVALID_ARGS;
@@ -4940,7 +4940,7 @@ Timing
 
 *******************************************************************************/
 #ifdef MA_WIN32
-    static LARGE_INTEGER g_ma_TimerFrequency = {{0}};
+    static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
     static void ma_timer_init(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
@@ -6153,6 +6153,7 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
+    (void)pContext;
 
     pCallbacks->onContextInit             = ma_context_init__null;
     pCallbacks->onContextUninit           = ma_context_uninit__null;
@@ -7412,6 +7413,8 @@ static LPWSTR ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(
 
     MA_ASSERT(pContext          != NULL);
     MA_ASSERT(pDeviceEnumerator != NULL);
+
+    (void)pContext;
 
     /* Grab the EDataFlow type from the device type. */
     dataFlow = ma_device_type_to_EDataFlow(deviceType);
@@ -37371,7 +37374,7 @@ MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, 
         }
 
         if (pFramesOut != NULL) {
-            ma_copy_pcm_frames(pFramesOut, ma_offset_ptr(pAudioBuffer->pData, pAudioBuffer->cursor * ma_get_bytes_per_frame(pAudioBuffer->format, pAudioBuffer->channels)), frameCount, pAudioBuffer->format, pAudioBuffer->channels);
+            ma_copy_pcm_frames(pFramesOut, ma_offset_ptr(pAudioBuffer->pData, pAudioBuffer->cursor * ma_get_bytes_per_frame(pAudioBuffer->format, pAudioBuffer->channels)), framesToRead, pAudioBuffer->format, pAudioBuffer->channels);
         }
 
         totalFramesRead += framesToRead;
@@ -39586,6 +39589,8 @@ static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig,
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
+    (void)pConfig;
+
     pWav = (drwav*)ma__malloc_from_callbacks(sizeof(*pWav), &pDecoder->allocationCallbacks);
     if (pWav == NULL) {
         return MA_OUT_OF_MEMORY;
@@ -39846,6 +39851,8 @@ static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig,
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
+
+    (void)pConfig;
 
     pMP3 = (drmp3*)ma__malloc_from_callbacks(sizeof(*pMP3), &pDecoder->allocationCallbacks);
     if (pMP3 == NULL) {
@@ -40311,6 +40318,8 @@ static ma_result ma_decoder_init_raw__internal(const ma_decoder_config* pConfigI
     MA_ASSERT(pConfigIn != NULL);
     MA_ASSERT(pConfigOut != NULL);
     MA_ASSERT(pDecoder != NULL);
+
+    (void)pConfigOut;
 
     pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__raw;
     pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__raw;

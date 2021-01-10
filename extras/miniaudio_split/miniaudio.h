@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.29 - 2020-12-26
+miniaudio - v0.10.30 - 2021-01-10
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 29
+#define MA_VERSION_REVISION 30
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -338,6 +338,7 @@ typedef int ma_result;
 #define MA_NO_DEVICE                                   -104
 #define MA_API_NOT_FOUND                               -105
 #define MA_INVALID_DEVICE_CONFIG                       -106
+#define MA_LOOP                                        -107
 
 /* State errors. */
 #define MA_DEVICE_NOT_INITIALIZED                      -200
@@ -4136,17 +4137,17 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 /*
 Locks a spinlock.
 */
-MA_API ma_result ma_spinlock_lock(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
 
 /*
 Locks a spinlock, but does not yield() when looping.
 */
-MA_API ma_result ma_spinlock_lock_noyield(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
 
 /*
 Unlocks a spinlock.
 */
-MA_API ma_result ma_spinlock_unlock(ma_spinlock* pSpinlock);
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
 
 
 /*
@@ -4239,6 +4240,8 @@ Offsets a pointer by the specified number of PCM frames.
 */
 MA_API void* ma_offset_pcm_frames_ptr(void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels);
 MA_API const void* ma_offset_pcm_frames_const_ptr(const void* p, ma_uint64 offsetInFrames, ma_format format, ma_uint32 channels);
+static MA_INLINE float* ma_offset_pcm_frames_ptr_f32(float* p, ma_uint64 offsetInFrames, ma_uint32 channels) { return (float*)ma_offset_pcm_frames_const_ptr((void*)p, offsetInFrames, ma_format_f32, channels); }
+static MA_INLINE const float* ma_offset_pcm_frames_const_ptr_f32(const float* p, ma_uint64 offsetInFrames, ma_uint32 channels) { return (const float*)ma_offset_pcm_frames_const_ptr((const void*)p, offsetInFrames, ma_format_f32, channels); }
 
 
 /*
