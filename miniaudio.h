@@ -43555,7 +43555,7 @@ MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, 
         }
 
         if (pFramesOut != NULL) {
-            ma_copy_pcm_frames(pFramesOut, ma_offset_ptr(pAudioBuffer->pData, pAudioBuffer->cursor * ma_get_bytes_per_frame(pAudioBuffer->format, pAudioBuffer->channels)), frameCount, pAudioBuffer->format, pAudioBuffer->channels);
+            ma_copy_pcm_frames(pFramesOut, ma_offset_ptr(pAudioBuffer->pData, pAudioBuffer->cursor * ma_get_bytes_per_frame(pAudioBuffer->format, pAudioBuffer->channels)), framesToRead, pAudioBuffer->format, pAudioBuffer->channels);
         }
 
         totalFramesRead += framesToRead;
@@ -64685,6 +64685,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.30 - TBD
+  - Fix a crash in ma_audio_buffer_read_pcm_frames().
   - Update spinlock APIs to take a volatile parameter as input.
   - Silence some unused parameter warnings.
   - Fix a warning on GCC when compiling as C++.
