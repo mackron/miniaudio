@@ -89,6 +89,9 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    ma_node_set_state_time(&g_dataSourceNode, ma_node_state_started, 48000*1);
+    ma_node_set_state_time(&g_dataSourceNode, ma_node_state_stopped, 48000*5);
+
 
 
     /*

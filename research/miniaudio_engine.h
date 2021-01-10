@@ -558,6 +558,63 @@ When using a specialized node like `ma_data_source_node` or `ma_splitter_node`, 
 modify the `vtable` member of the `nodeConfig` object.
 
 
+Timing
+------
+The node graph supports starting and stopping nodes at scheduled times. This is especially useful
+for data source nodes where you want to get the node set up, but only start playback at a specific
+time. There are two clocks: local and global.
+
+A local clock is per-node, whereas the global clock is per graph. Scheduling starts and stops can
+only be done based on the global clock because the local clock will not be running while the node
+is stopped. The global clocks advances whenever `ma_node_graph_read_pcm_frames()` is called. On the
+other hand, the local clock only advances when the node's processing callback is fired, and is
+advanced based on the output frame count.
+
+To retrieve the global time, use `ma_node_graph_get_time()`. The global time can be set with
+`ma_node_graph_set_time()` which might be useful if you want to do seeking on a global timeline.
+Getting and setting the local time is similar. Use `ma_node_get_time()` to retrieve the local time,
+and `ma_node_set_time()` to set the local time. The global and local times will be advanced by the
+audio thread, so care should be taken to avoid data races. Ideally you should avoid calling these
+outside of the node processing callbacks which are always run on the audio thread.
+
+The node processing callback includes a parameter called `globalTime`. This is what you should use
+when you need to inspect the global time from your node's processing callback. This might be useful
+for any kind of time-based operation, such as fading. You should not use `ma_node_graph_get_time()`
+from inside the processing callback because miniaudio will sometimes need to break down processing
+into multiple calls before the advancing the internal timer. It is OK to use `ma_node_get_time()`
+inside the processing callback.
+
+There is basic support for scheduling the starting and stopping of nodes. You can only schedule one
+start and one stop at a time. This is mainly intended for putting nodes into a started or stopped
+state in a frame-exact manner. Without this mechanism, starting and stopping of a node is limited
+to the resolution of a call to `ma_node_graph_read_pcm_frames()` which would typically be in blocks
+of several milliseconds. The following APIs can be used for scheduling node states:
+
+    ```c
+    ma_node_set_state_time()
+    ma_node_get_state_time()
+    ```
+
+The time is absolute and must be based on the global clock. An example is below:
+
+    ```c
+    ma_node_set_state_time(&myNode, ma_node_state_started, sampleRate*1);   // Delay starting to 1 second.
+    ma_node_set_state_time(&myNode, ma_node_state_stopped, sampleRate*5);   // Delay stopping to 5 seconds.
+    ```
+
+An example for changing the state using a relative time.
+
+    ```c
+    ma_node_set_state_time(&myNode, ma_node_state_started, sampleRate*1 + ma_node_graph_get_time(&myNodeGraph));
+    ma_node_set_state_time(&myNode, ma_node_state_stopped, sampleRate*5 + ma_node_graph_get_time(&myNodeGraph));
+    ```
+
+Note that due to the nature of multi-threading the times may not be 100% exact. If this is an
+issue, consider scheduling state changes from within a processing callback. An idea might be to
+have some kind of passthrough trigger node that is used specifically for tracking time and handling
+events.
+
+
 
 Thread Safety and Locking
 -------------------------
@@ -659,8 +716,8 @@ typedef void ma_node;
 /* The playback state of a node. Either started or stopped. */
 typedef enum
 {
-    ma_node_state_stopped = 0,
-    ma_node_state_started = 1
+    ma_node_state_started = 0,
+    ma_node_state_stopped = 1
 } ma_node_state;
 
 
@@ -687,9 +744,16 @@ typedef struct
     `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.
 
     On output, set `pFrameCountOut` to the number of PCM frames that were actually output and set
-    `pFrameCountIn` to the number of input frames that were consumed. 
+    `pFrameCountIn` to the number of input frames that were consumed.
+
+    `globalTime` specifies the global time of the first PCM frame that will be processed by this
+    callback. This allows you to do timing based operations based on the global clock. If you need
+    to do some timing based operations based on the node's local clock, you can retrieve the local
+    time with `ma_node_get_time()`. Times are in PCM frames and it's assumed your node will have
+    knowledge of the sample rate (the node graph has no knowledge of sample rates - it just
+    processes frames as requested by `ma_node_graph_process_pcm_frames()`).
     */
-    void (* onProcessEx)(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn);
+    void (* onProcessEx)(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime);
 
     /*
     The number of input buses. This is how many sub-buffers will be contained in the `ppFramesIn`
@@ -780,7 +844,9 @@ struct ma_node_base
     ma_uint32 readCounter;                  /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     
     /* These variables are read and written between different threads. */
-    volatile ma_node_state state;
+    volatile ma_node_state state;           /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
+    volatile ma_uint64 stateTimes[2];       /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    volatile ma_uint64 localTime;           /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
     ma_node_input_bus inputBuses[MA_MAX_NODE_BUS_COUNT];
     ma_node_output_bus outputBuses[MA_MAX_NODE_BUS_COUNT];
 };
@@ -794,10 +860,15 @@ MA_API ma_uint32 ma_node_get_output_channels(const ma_node* pNode, ma_uint32 out
 MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex, ma_node* pOtherNode, ma_uint32 otherNodeInputBusIndex);
 MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIndex);
 MA_API ma_result ma_node_detach_all_output_buses(ma_node* pNode);
-MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
-MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
 MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume);
 MA_API float ma_node_get_output_bus_volume(const ma_node* pNode, ma_uint32 outputBusIndex);
+MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
+MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
+MA_API ma_result ma_node_set_state_time(ma_node* pNode, ma_node_state state, ma_uint64 globalTime);
+MA_API ma_uint64 ma_node_get_state_time(ma_node* pNode, ma_node_state state);
+MA_API ma_node_state ma_node_get_state_by_time_range(ma_node* pNode, ma_uint64 globalTimeBeg, ma_uint64 globalTimeEnd);
+MA_API ma_uint64 ma_node_get_time(ma_node* pNode);
+MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 
 
 
@@ -823,7 +894,8 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
-
+MA_API ma_uint64 ma_node_graph_get_time(ma_node_graph* pNodeGraph);
+MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 globalTime);
 
 
 /* Data source node. 0 input buses, 1 output bus. Used for reading from a data source. */
@@ -2264,7 +2336,7 @@ MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup,
 #endif
 
 
-static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
+static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
 
 static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
@@ -2727,7 +2799,7 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
         
         ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
         {
-            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), framesToRead, &framesJustRead);
+            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
         }
         ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
         ma_node_graph_increment_read_counter(pNodeGraph);
@@ -2749,6 +2821,24 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
     }
 
     return result;
+}
+
+MA_API ma_uint64 ma_node_graph_get_time(ma_node_graph* pNodeGraph)
+{
+    if (pNodeGraph == NULL) {
+        return 0;
+    }
+
+    return ma_node_get_time(&pNodeGraph->endpoint); /* Global time is just the local time of the endpoint. */
+}
+
+MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 globalTime)
+{
+    if (pNodeGraph == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_node_set_time(&pNodeGraph->endpoint, globalTime); /* Global time is just the local time of the endpoint. */
 }
 
 
@@ -3074,7 +3164,7 @@ static ma_node_output_bus* ma_node_input_bus_first(ma_node_input_bus* pInputBus)
 
 
 
-static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_input_bus* pInputBus, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_input_bus* pInputBus, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime)
 {
     ma_result result = MA_SUCCESS;
     ma_node_output_bus* pOutputBus;
@@ -3109,8 +3199,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     after calling ma_node_input_bus_next(), which we won't be.
     */
     pFirst = ma_node_input_bus_first(pInputBus);
-    
-    /* Slow path. There's multiple output buses or channel conversion is required. We need to mix before outputting. pFramesOut is the accumulation buffer. */
+
     for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
         ma_uint32 framesProcessed = 0;
 
@@ -3136,10 +3225,10 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
                 if (pOutputBus == pFirst) {
                     /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
-                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead);
+                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
-                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead);
+                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
                     if (result == MA_SUCCESS || result == MA_AT_END) {
                         ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
                     }
@@ -3149,6 +3238,11 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
                 /* If we reached the end or otherwise failed to read any data we need to finish up with this output node. */
                 if (result != MA_SUCCESS) {
+                    break;
+                }
+
+                /* If we didn't read anything, abort so we don't get stuck in a loop. */
+                if (framesJustRead == 0) {
                     break;
                 }
             }
@@ -3164,7 +3258,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
             }
         } else {
             /* Seek. */
-            ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed);
+            ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed, globalTime);
         }
     }
 
@@ -3260,9 +3354,11 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
         return MA_INVALID_ARGS; /* Invalid bus count. */
     }
 
-    pNodeBase->pNodeGraph     = pNodeGraph;
-    pNodeBase->vtable         = pConfig->vtable;
-    pNodeBase->state          = pConfig->initialState;
+    pNodeBase->pNodeGraph = pNodeGraph;
+    pNodeBase->vtable     = pConfig->vtable;
+    pNodeBase->state      = pConfig->initialState;
+    pNodeBase->stateTimes[ma_node_state_started] = 0;
+    pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
 
     /* We need to run an initialization step for each input bus. This just sets up the dummy head and tail nodes. */ 
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNodeBase); iInputBus += 1) {
@@ -3516,30 +3612,6 @@ MA_API ma_result ma_node_attach_output_bus(ma_node* pNode, ma_uint32 outputBusIn
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state)
-{
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-
-    if (pNodeBase == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_exchange_i16(&pNodeBase->state, state);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_node_state ma_node_get_state(const ma_node* pNode)
-{
-    const ma_node_base* pNodeBase = (const ma_node_base*)pNode;
-
-    if (pNodeBase == NULL) {
-        return ma_node_state_stopped;
-    }
-
-    return c89atomic_load_i16(&pNodeBase->state);
-}
-
 MA_API ma_result ma_node_set_output_bus_volume(ma_node* pNode, ma_uint32 outputBusIndex, float volume)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
@@ -3570,6 +3642,112 @@ MA_API float ma_node_get_output_bus_volume(const ma_node* pNode, ma_uint32 outpu
     return ma_node_output_bus_get_volume(&pNodeBase->outputBuses[outputBusIndex]);
 }
 
+MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_i16(&pNodeBase->state, state);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_node_state ma_node_get_state(const ma_node* pNode)
+{
+    const ma_node_base* pNodeBase = (const ma_node_base*)pNode;
+
+    if (pNodeBase == NULL) {
+        return ma_node_state_stopped;
+    }
+
+    return c89atomic_load_i16(&pNodeBase->state);
+}
+
+MA_API ma_result ma_node_set_state_time(ma_node* pNode, ma_node_state state, ma_uint64 globalTime)
+{
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Validation check for safety since we'll be using this as an index into stateTimes[]. */
+    if (state != ma_node_state_started && state != ma_node_state_stopped) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_64(&((ma_node_base*)pNode)->stateTimes[state], globalTime);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_uint64 ma_node_get_state_time(ma_node* pNode, ma_node_state state)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+
+    /* Validation check for safety since we'll be using this as an index into stateTimes[]. */
+    if (state != ma_node_state_started && state != ma_node_state_stopped) {
+        return 0;
+    }
+
+    return c89atomic_load_64(&((ma_node_base*)pNode)->stateTimes[state]);
+}
+
+MA_API ma_node_state ma_node_get_state_by_time_range(ma_node* pNode, ma_uint64 globalTimeBeg, ma_uint64 globalTimeEnd)
+{
+    ma_node_state state;
+
+    if (pNode == NULL) {
+        return ma_node_state_stopped;
+    }
+
+    state = ma_node_get_state(pNode);
+
+    /* An explicitly stopped node is always stopped. */
+    if (state == ma_node_state_stopped) {
+        return ma_node_state_stopped;
+    }
+
+    /*
+    Getting here means the node is marked as started, but it may still not be truly started due to
+    it's start time not having been reached yet. Also, the stop time may have also been reached in
+    which case it'll be considered stopped.
+    */
+    if (ma_node_get_state_time(pNode, ma_node_state_started) >= globalTimeEnd) {
+        return ma_node_state_stopped;   /* Start time has not yet been reached. */
+    }
+
+    if (ma_node_get_state_time(pNode, ma_node_state_stopped) <= globalTimeBeg) {
+        return ma_node_state_stopped;   /* Stop time has been reached. */
+    }
+
+    /* Getting here means the node is marked as started and is within it's start/stop times. */
+    return ma_node_state_started;
+}
+
+MA_API ma_uint64 ma_node_get_time(ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return 0;
+    }
+
+    return c89atomic_load_64(&((ma_node_base*)pNode)->localTime);
+}
+
+MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime)
+{
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    c89atomic_exchange_64(&((ma_node_base*)pNode)->localTime, localTime);
+
+    return MA_SUCCESS;
+}
+
 
 static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCounter)
 {
@@ -3589,7 +3767,7 @@ static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCount
 }
 
 
-static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
     ma_uint32 frameCount;
@@ -3599,6 +3777,8 @@ static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFrame
     MA_ASSERT(pFrameCountOut != NULL);
     MA_ASSERT(pFrameCountIn  != NULL);
 
+    (void)globalTime;   /* Not used with the simple callback. */
+
     frameCount = *pFrameCountOut;
     pNodeBase->vtable->onProcess(pNode, ppFramesOut, ppFramesIn, &frameCount);
 
@@ -3606,20 +3786,20 @@ static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFrame
     *pFrameCountIn  = frameCount;
 }
 
-static void ma_node_process_pcm_frames_ex(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+static void ma_node_process_pcm_frames_ex(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
 
     MA_ASSERT(pNode != NULL);
 
     if (pNodeBase->vtable->onProcessEx) {
-        pNodeBase->vtable->onProcessEx(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn);
+        pNodeBase->vtable->onProcessEx(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
     } else {
-        ma_node_process_pcm_frames_ex_simple(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn);
+        ma_node_process_pcm_frames_ex_simple(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
     }
 }
 
-static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
     ma_result result = MA_SUCCESS;
@@ -3631,6 +3811,12 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     ma_uint32 readCounter;
     float* ppFramesIn[MA_MAX_NODE_BUS_COUNT];
     float* ppFramesOut[MA_MAX_NODE_BUS_COUNT];
+    ma_uint64 globalTimeBeg;
+    ma_uint64 globalTimeEnd;
+    ma_uint64 startTime;
+    ma_uint64 stopTime;
+    ma_uint32 timeOffsetBeg;
+    ma_uint32 timeOffsetEnd;
 
     /*
     pFramesRead is mandatory. It must be used to determine how many frames were read. It's normal and
@@ -3652,12 +3838,39 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         return MA_INVALID_ARGS; /* Invalid output bus index. */
     }
 
+    /* Don't do anything if we're in a stopped state. */
+    if (ma_node_get_state_by_time_range(pNode, globalTime, globalTime + frameCount) != ma_node_state_started) {
+        return MA_SUCCESS;  /* We're in a stopped state. This is not an error - we just need to not read anything. */
+    }
+
+
+    globalTimeBeg = globalTime;
+    globalTimeEnd = globalTime + frameCount;
+    startTime = ma_node_get_state_time(pNode, ma_node_state_started);
+    stopTime  = ma_node_get_state_time(pNode, ma_node_state_stopped);
+
     /*
-    Don't do anything if we're in a stopped state. When muted, we still need to read from input
-    buses so that time is moved forward for the underlying data sources.
+    At this point we know that we are inside our start/stop times. However, we may need to adjust
+    our frame count and output pointer to accomodate since we could be straddling the time period
+    that this function is getting called for.
+
+    It's possible (and likely) that the start time does not line up with the output buffer. We
+    therefore need to offset it by a number of frames to accomodate. The same thing applies for
+    the stop time.
     */
-    if ((ma_node_get_state(pNode) & ma_node_state_started) == 0) {
-        return MA_SUCCESS;
+    timeOffsetBeg = (globalTimeBeg < startTime) ? (ma_uint32)(globalTimeEnd - startTime) : 0;
+    timeOffsetEnd = (globalTimeEnd > stopTime)  ? (ma_uint32)(globalTimeEnd - stopTime)  : 0;
+
+    /* Trim based on the start offset. We need to silence the start of the buffer. */
+    if (timeOffsetBeg > 0) {
+        ma_silence_pcm_frames(pFramesOut, timeOffsetBeg, ma_format_f32, ma_node_get_output_channels(pNode, outputBusIndex));
+        pFramesOut += timeOffsetBeg * ma_node_get_output_channels(pNode, outputBusIndex);
+        frameCount -= timeOffsetBeg;
+    }
+
+    /* Trim based on the end offset. We don't need to silence the tail section because we'll just have a reduced value written to pFramesRead. */
+    if (timeOffsetEnd > 0) {
+        frameCount -= timeOffsetEnd;
     }
 
 
@@ -3684,7 +3897,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         /* Don't do anything if our read counter is ahead of the node graph. That means we're */
         if (readCounter <= ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
             ppFramesOut[0] = pFramesOut;
-            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount);
+            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount, globalTime + timeOffsetBeg);
             totalFramesRead = outputFrameCount;
         } else {
             /* Read counter is ahead of the node graph. Loop detected. Abort this read with nothing read. */
@@ -3749,7 +3962,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
 
                         /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead);
+                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead, globalTime);
                         if (result != MA_SUCCESS) {
                             /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
                             *pFramesRead = 0;
@@ -3782,7 +3995,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
                 frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
                 frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
-                ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn, globalTime + timeOffsetBeg);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
 
                 /*
                 Thanks to our sneaky optimization above we don't need to do any data copying directly into
@@ -3813,7 +4026,10 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[outputBusIndex], MA_TRUE);
     }
 
-    *pFramesRead = totalFramesRead;
+    /* Advance our local time forward. */
+    c89atomic_fetch_add_64(&pNodeBase->localTime, (ma_uint64)totalFramesRead);
+
+    *pFramesRead = totalFramesRead + timeOffsetBeg; /* Must include the silenced section at the start of the buffer. */
     return result;
 }
 
@@ -10104,13 +10320,15 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 }
 
 
-void ma_engine_node_process_pcm_frames__effect(ma_engine_node* pEngineNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+void ma_engine_node_process_pcm_frames__effect(ma_engine_node* pEngineNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     ma_uint64 frameCountIn;
     ma_uint64 frameCountOut;
 
     frameCountIn  = *pFrameCountIn;
     frameCountOut = *pFrameCountOut;
+
+    (void)globalTime;
 
     ma_effect_process_pcm_frames(&pEngineNode->effect, ppFramesIn[0], &frameCountIn, ppFramesOut[0], &frameCountOut);
 
@@ -10122,12 +10340,12 @@ void ma_engine_node_process_pcm_frames__effect(ma_engine_node* pEngineNode, floa
     *pFrameCountOut = (ma_uint32)frameCountOut;
 }
 
-void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     /* For sounds, we need to first read from the data source. Then we need to apply the engine effects (pan, pitch, fades, etc.). */
     ma_result result = MA_SUCCESS;
     ma_sound* pSound = (ma_sound*)pNode;
-    ma_uint32 frameCount = *pFrameCount;
+    ma_uint32 frameCount = *pFrameCountOut;
     ma_uint32 totalFramesRead = 0;
     ma_format dataSourceFormat;
     ma_uint32 dataSourceChannels;
@@ -10135,11 +10353,12 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
     ma_uint32 tempCapInFrames;
 
     (void)ppFramesIn;   /* This is a data source node which means no input buses. */
+    (void)pFrameCountIn;
 
     /* If we're marked at the end we need to stop the sound and do nothing. */
     if (ma_sound_at_end(pSound)) {
         ma_sound_stop_internal(pSound);
-        *pFrameCount = 0;
+        *pFrameCountOut = 0;
         return;
     }
 
@@ -10211,7 +10430,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
                 if (dataSourceFormat == ma_format_f32) {
                     /* Fast path. No data conversion necessary. */
                     pRunningFramesIn = (float*)&temp;
-                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn);
+                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
                 } else {
                     /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
                     float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
@@ -10219,7 +10438,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
 
                     /* Now that we have our samples in f32 format we can process like normal. */
                     pRunningFramesIn = tempf32;
-                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn);
+                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
                 }
 
                 /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
@@ -10258,20 +10477,20 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
         }
     }
 
-    *pFrameCount = totalFramesRead;
+    *pFrameCountOut = totalFramesRead;
 }
 
-void ma_engine_node_process_pcm_frames__group(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn)
+void ma_engine_node_process_pcm_frames__group(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     /* For groups, the input data has already been read and we just need to apply the effect. */
-    ma_engine_node_process_pcm_frames__effect((ma_engine_node*)pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn);
+    ma_engine_node_process_pcm_frames__effect((ma_engine_node*)pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
 }
 
 
 static ma_node_vtable g_ma_engine_node_vtable__sound =
 {
-    ma_engine_node_process_pcm_frames__sound,   /* Need to use the extended processing function. */
-    NULL,   /* Sounds are data source nodes which means we can use the simple processing function. */
+    NULL,
+    ma_engine_node_process_pcm_frames__sound,
     0,      /* Sounds are data source nodes which means they have zero inputs (their input is drawn from the data source itself). */
     1,      /* Sounds have one output bus. */
     0       /* Default flags. */
@@ -10280,7 +10499,7 @@ static ma_node_vtable g_ma_engine_node_vtable__sound =
 static ma_node_vtable g_ma_engine_node_vtable__group =
 {
     NULL,
-    ma_engine_node_process_pcm_frames__group,   /* Need to use the extended processing function due to resampling for the pitch effect. */
+    ma_engine_node_process_pcm_frames__group,
     1,      /* Groups have one input bus. */
     1,      /* Groups have one output bus. */
     0       /* Default flags. */
