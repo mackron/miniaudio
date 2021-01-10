@@ -141,7 +141,7 @@ int main(int argc, char** argv)
     ma_engine_play_sound(&engine, argv[3], NULL);*/
 #endif
 
-#if 1
+#if 0
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
