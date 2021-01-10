@@ -853,6 +853,7 @@ struct ma_node_base
 
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
 MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_node_graph* ma_node_get_node_graph(ma_node* pNode);
 MA_API ma_uint32 ma_node_get_input_bus_count(const ma_node* pNode);
 MA_API ma_uint32 ma_node_get_output_bus_count(const ma_node* pNode);
 MA_API ma_uint32 ma_node_get_input_channels(const ma_node* pNode, ma_uint32 inputBusIndex);
@@ -2128,6 +2129,14 @@ MA_API ma_result ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volu
 MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume);
 
 
+
+/* Sound flags. */
+#define MA_SOUND_FLAG_STREAM                MA_DATA_SOURCE_FLAG_STREAM  /* 0x00000001 */
+#define MA_SOUND_FLAG_DECODE                MA_DATA_SOURCE_FLAG_DECODE  /* 0x00000002 */
+#define MA_SOUND_FLAG_ASYNC                 MA_DATA_SOURCE_FLAG_ASYNC   /* 0x00000004 */
+#define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000008  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+
+
 /* All of the proprties supported by the engine are handled via an effect. */
 typedef struct
 {
@@ -2154,7 +2163,6 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
-    ma_uint32 channelsIn;   /* Only used when the type is ma_engine_node_type_sound. */
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type);
@@ -2177,12 +2185,10 @@ MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 
 struct ma_sound
 {
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
-    ma_engine* pEngine;                         /* A pointer to the object that owns this sound. */
     ma_data_source* pDataSource;
     ma_sound_group* pGroup;                     /* The group the sound is attached to. */
     volatile ma_sound* pPrevSoundInGroup;
     volatile ma_sound* pNextSoundInGroup;
-    ma_engine_effect effect;                    /* The effect containing all of the information for spatialization, pitching, etc. */
     float volume;
     ma_uint64 seekTarget;                       /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     ma_uint64 runningTimeInEngineFrames;        /* The amount of time the sound has been running in engine frames, including start delays. */
@@ -2201,7 +2207,6 @@ struct ma_sound
 struct ma_sound_group
 {
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
-    ma_engine* pEngine;                         /* A pointer to the engine that owns this sound group. */
     ma_sound_group* pParent;
     ma_sound_group* pFirstChild;
     ma_sound_group* pPrevSibling;
@@ -2305,7 +2310,7 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
-MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
+MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
 MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);   /* Not thread-safe. */
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
@@ -3163,6 +3168,23 @@ static ma_node_output_bus* ma_node_input_bus_first(ma_node_input_bus* pInputBus)
 }
 
 
+static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCounter)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_uint32 oldReadCounter;
+
+    MA_ASSERT(pNodeBase != NULL);
+
+    /*
+    This function will only ever be called in a controlled environment (only on the audio thread,
+    and never concurrently).
+    */
+    oldReadCounter = pNodeBase->readCounter;
+    pNodeBase->readCounter = newReadCounter;
+
+    return oldReadCounter;
+}
+
 
 static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_input_bus* pInputBus, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime)
 {
@@ -3182,6 +3204,11 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     also convert the channels to the nodes output channel count before mixing. We want to do this
     channel conversion so that the caller of this function can invoke the processing callback
     without having to do it themselves.
+
+    When we iterate over each of the attachments on the input bus, we need to read as much data as
+    we can from each of them so that we don't end up with holes between each of the attachments. To
+    do this, we need to read from each attachment in a loop and read as many frames as we can, up
+    to `frameCount`.
     */
     MA_ASSERT(pInputNode  != NULL);
     MA_ASSERT(pFramesRead != NULL); /* pFramesRead is critical and must always be specified. On input it's undefined and on output it'll be set to the number of frames actually read. */
@@ -3202,8 +3229,27 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
     for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
         ma_uint32 framesProcessed = 0;
+        ma_uint32 readCounter;
 
         MA_ASSERT(pOutputBus->pNode != NULL);
+
+        /*
+        We need to grab the read counter at the start so we can set a new read counter first up. We
+        need to do this first so that recursive reads can have access to the new counter. Note that
+        we need to do this here and *not* in ma_node_read_pcm_frames() which would be the more
+        intuitive option because we need to loop here in order to fill up as many frames as we can
+        which would cause all iterations after the first to return 0 frames because of the loop
+        detection logic getting triggered.
+        */
+        readCounter = ma_node_set_read_counter(pOutputBus->pNode, ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode)) + 1);
+
+        /*
+        If the node's read counter is larger than that of the graph it means we've hit a loop and
+        we need to skip this attachment.
+        */
+        if (readCounter > ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode))) {
+            continue;   /* This output bus has already been processed by the current iteration. */
+        }
 
         if (pFramesOut != NULL) {
             /* Read. */
@@ -3346,7 +3392,7 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
 
     MA_ZERO_OBJECT(pNodeBase);
 
-    if (pConfig == NULL || pConfig->vtable == NULL || pConfig->vtable->onProcess == NULL) {
+    if (pConfig == NULL || pConfig->vtable == NULL || (pConfig->vtable->onProcess == NULL && pConfig->vtable->onProcessEx == NULL)) {
         return MA_INVALID_ARGS; /* Config is invalid. */
     }
 
@@ -3451,6 +3497,14 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
     }
 }
 
+MA_API ma_node_graph* ma_node_get_node_graph(ma_node* pNode)
+{
+    if (pNode == NULL) {
+        return NULL;
+    }
+
+    return ((ma_node_base*)pNode)->pNodeGraph;
+}
 
 MA_API ma_uint32 ma_node_get_input_bus_count(const ma_node* pNode)
 {
@@ -3749,24 +3803,6 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime)
 }
 
 
-static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCounter)
-{
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_uint32 oldReadCounter;
-
-    MA_ASSERT(pNodeBase != NULL);
-
-    /*
-    This function will only ever be called in a controlled environment (only on the audio thread,
-    and never concurrently).
-    */
-    oldReadCounter = pNodeBase->readCounter;
-    pNodeBase->readCounter = newReadCounter;
-
-    return oldReadCounter;
-}
-
-
 static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
@@ -3808,7 +3844,6 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
     ma_uint32 totalFramesRead = 0;
-    ma_uint32 readCounter;
     float* ppFramesIn[MA_MAX_NODE_BUS_COUNT];
     float* ppFramesOut[MA_MAX_NODE_BUS_COUNT];
     ma_uint64 globalTimeBeg;
@@ -3879,12 +3914,6 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
     outputBusCount = ma_node_get_output_bus_count(pNode);
 
     /*
-    We need to grab the read counter at the start so we can set a new read counter first up. We
-    need to do this first so that recursive reads can have access to the new counter.
-    */
-    readCounter = ma_node_set_read_counter(pNode, ma_node_graph_get_read_counter(pNodeBase->pNodeGraph) + 1);
-    
-    /*
     Run a simplified path when there are no inputs and one output. In this case there's nothing to
     actually read and we can go straight to output. This is a very common scenario because the vast
     majority of data source nodes will use this setup so this optimization I think is worthwhile.
@@ -3895,15 +3924,9 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         ma_uint32 outputFrameCount = frameCount;    /* Just read as much as we can. The callback will return what was actually read. */
 
         /* Don't do anything if our read counter is ahead of the node graph. That means we're */
-        if (readCounter <= ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
-            ppFramesOut[0] = pFramesOut;
-            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount, globalTime + timeOffsetBeg);
-            totalFramesRead = outputFrameCount;
-        } else {
-            /* Read counter is ahead of the node graph. Loop detected. Abort this read with nothing read. */
-            totalFramesRead = 0;
-            result = MA_LOOP;   /* So the caller knows to stop attempting to read more data. */
-        }
+        ppFramesOut[0] = pFramesOut;
+        ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount, globalTime + timeOffsetBeg);
+        totalFramesRead = outputFrameCount;
     } else {
         /* Slow path. Need to do caching. */
         ma_uint32 framesToRead;
@@ -3940,75 +3963,69 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
             pNodeBase->cachedFrameCountOut = 0;
 
-            /* If our node's counter is ahead of the node graph's counter it means we've hit a loop. In this case we need to skip reading entirely. */
-            if (readCounter <= ma_node_graph_get_read_counter(pNodeBase->pNodeGraph)) {
-                /*
-                We need to prepare our output frame pointers for processing. In the same iteration we need
-                to mark every output bus as unread so that future calls to this function for different buses
-                for the current time period don't pull in data when they should instead be reading from cache.
-                */
-                for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
-                    ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
-                    ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
-                }
-
-                /* We only need to read from input buses if there isn't already some data in the cache. */
-                if (pNodeBase->cachedFrameCountIn == 0) {
-                    /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
-                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                        ma_uint32 framesRead;
-
-                        /* The first thing to do is get the offset within our bulk allocation to store this input data. */
-                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
-
-                        /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead, globalTime);
-                        if (result != MA_SUCCESS) {
-                            /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
-                            *pFramesRead = 0;
-                            break;
-                        }
-
-                        /* Any leftover frames need to silenced for safety. */
-                        if (framesRead < framesToRead) {
-                            ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
-                        }
-                    }
-
-                    pNodeBase->cachedFrameCountIn   = (ma_uint16)framesToRead;
-                    pNodeBase->consumedFrameCountIn = 0;
-                } else {
-                    /* We don't need to read anything, but we do need to prepare our input frame pointers. */
-                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
-                    }
-                }
-
-                /*
-                At this point we have our input data so now we need to do some processing. Sneaky little
-                optimization here - we can set the pointer to the output buffer for this output bus so
-                that the final copy into the output buffer is done directly by onProcess().
-                */
-                if (pFramesOut != NULL) {
-                    ppFramesOut[outputBusIndex] = pFramesOut;
-                }
-
-                frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
-                frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
-                ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn, globalTime + timeOffsetBeg);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
-
-                /*
-                Thanks to our sneaky optimization above we don't need to do any data copying directly into
-                the output buffer - the onProcess() callback just did that for us. We do, however, need to
-                apply the number of input and output frames that were processed.
-                */
-                pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
-                pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
-                pNodeBase->cachedFrameCountOut   = (ma_uint16)frameCountOut;
-            } else {
-                /* Getting here means the loop counter of the node is ahead of the graph which means we've hit a loop. */
-                result = MA_LOOP;   /* So the caller knows to stop attempting to read more data. */
+            /*
+            We need to prepare our output frame pointers for processing. In the same iteration we need
+            to mark every output bus as unread so that future calls to this function for different buses
+            for the current time period don't pull in data when they should instead be reading from cache.
+            */
+            for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
+                ma_node_output_bus_set_has_read(&pNodeBase->outputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
+                ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
             }
+
+            /* We only need to read from input buses if there isn't already some data in the cache. */
+            if (pNodeBase->cachedFrameCountIn == 0) {
+                /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
+                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                    ma_uint32 framesRead;
+
+                    /* The first thing to do is get the offset within our bulk allocation to store this input data. */
+                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
+
+                    /* Once we've determined out destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
+                    result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead, globalTime);
+                    if (result != MA_SUCCESS) {
+                        /* We failed to read any data. To prevent any kind of corrupted audio from being output to the speakers we'll abort with the number of frames read being explicitly set to 0. */
+                        *pFramesRead = 0;
+                        break;
+                    }
+
+                    /* Any leftover frames need to silenced for safety. */
+                    if (framesRead < framesToRead) {
+                        ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                    }
+                }
+
+                pNodeBase->cachedFrameCountIn   = (ma_uint16)framesToRead;
+                pNodeBase->consumedFrameCountIn = 0;
+            } else {
+                /* We don't need to read anything, but we do need to prepare our input frame pointers. */
+                for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                    ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
+                }
+            }
+
+            /*
+            At this point we have our input data so now we need to do some processing. Sneaky little
+            optimization here - we can set the pointer to the output buffer for this output bus so
+            that the final copy into the output buffer is done directly by onProcess().
+            */
+            if (pFramesOut != NULL) {
+                ppFramesOut[outputBusIndex] = pFramesOut;
+            }
+
+            frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
+            frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
+            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn, globalTime + timeOffsetBeg);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+
+            /*
+            Thanks to our sneaky optimization above we don't need to do any data copying directly into
+            the output buffer - the onProcess() callback just did that for us. We do, however, need to
+            apply the number of input and output frames that were processed.
+            */
+            pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
+            pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
+            pNodeBase->cachedFrameCountOut   = (ma_uint16)frameCountOut;
         } else {
             /*
             We're not needing to read anything from the input buffer so just read directly from our
@@ -10121,7 +10138,7 @@ static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, ma_
     (void)inputStreamCount;
 
     /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
+    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
 
@@ -10138,7 +10155,7 @@ static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* 
     MA_ASSERT(pEffect != NULL);
 
     /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
+    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
 
@@ -10153,7 +10170,7 @@ static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect*
     MA_ASSERT(pEffect != NULL);
 
     /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
+    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
 
     outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
 
@@ -10299,8 +10316,6 @@ static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound)
 {
     MA_ASSERT(pSound != NULL);
 
-    ma_node_set_state(pSound, ma_node_get_state(pSound) & ~ma_node_state_started);  /* Don't set to ma_node_state_stopped directly because we want to maintain the ma_node_state_muted flag. Instead just clear the started flag. */
-
     c89atomic_exchange_32(&pSound->isPlaying, MA_FALSE);    /* TODO: Delete this once the ma_node integration is done. */
 
     return MA_SUCCESS;
@@ -10352,12 +10367,13 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
     ma_uint8 temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 tempCapInFrames;
 
-    (void)ppFramesIn;   /* This is a data source node which means no input buses. */
+    /* This is a data source node which means no input buses. */
+    (void)ppFramesIn;
     (void)pFrameCountIn;
 
     /* If we're marked at the end we need to stop the sound and do nothing. */
     if (ma_sound_at_end(pSound)) {
-        ma_sound_stop_internal(pSound);
+        ma_sound_stop(pSound);
         *pFrameCountOut = 0;
         return;
     }
@@ -10389,38 +10405,36 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
         For the convenience of the caller, we're doing to allow data sources to use non-floating-point formats and channel counts that differ
         from the main engine.
         */
-        ma_data_source_get_data_format(pSound->pDataSource, &dataSourceFormat, &dataSourceChannels, NULL);
+        result = ma_data_source_get_data_format(pSound->pDataSource, &dataSourceFormat, &dataSourceChannels, NULL);
+        if (result == MA_SUCCESS) {
+            tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
 
-        tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
-
-        /* Keep reading until we've read as much as was requested or we reach the end of the data source. */
-        while (totalFramesRead < frameCount) {
-            ma_uint32 framesRemaining = frameCount - totalFramesRead;
-            ma_uint32 framesToRead;
-            ma_uint64 framesJustRead;
-
-            /*
-            The first thing we need to do is read into the temporary buffer. We can calculate exactly
-            how many input frames we'll need after resampling.
-            */
-            framesToRead = (ma_uint32)ma_effect_get_required_input_frame_count(&pSound->engineNode.effect, framesRemaining);
-            if (framesToRead > tempCapInFrames) {
-                framesToRead = tempCapInFrames;
-            }
-
-            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, pSound->isLooping);
-            totalFramesRead += (ma_uint32)framesJustRead;   /* Safe cast. */
-
-            /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-            if (result == MA_AT_END) {
-                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
-            }
-
-            if (framesJustRead > 0) {
+            /* Keep reading until we've read as much as was requested or we reach the end of the data source. */
+            while (totalFramesRead < frameCount) {
+                ma_uint32 framesRemaining = frameCount - totalFramesRead;
+                ma_uint32 framesToRead;
+                ma_uint64 framesJustRead;
                 ma_uint32 frameCountIn;
                 ma_uint32 frameCountOut;
                 float* pRunningFramesIn;
                 float* pRunningFramesOut;
+
+                /*
+                The first thing we need to do is read into the temporary buffer. We can calculate exactly
+                how many input frames we'll need after resampling.
+                */
+                framesToRead = (ma_uint32)ma_effect_get_required_input_frame_count(&pSound->engineNode.effect, framesRemaining);
+                if (framesToRead > tempCapInFrames) {
+                    framesToRead = tempCapInFrames;
+                }
+
+                result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, pSound->isLooping);
+
+                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+                if (result == MA_AT_END) {
+                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                }
+
                 pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, pSound->engineNode.pEngine->channels);
 
                 frameCountIn = (ma_uint32)framesJustRead;
@@ -10429,7 +10443,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
                 /* Convert if necessary. */
                 if (dataSourceFormat == ma_format_f32) {
                     /* Fast path. No data conversion necessary. */
-                    pRunningFramesIn = (float*)&temp;
+                    pRunningFramesIn = (float*)temp;
                     ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
                 } else {
                     /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
@@ -10442,23 +10456,23 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
                 }
 
                 /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
-                MA_ASSERT(frameCountIn == framesJustRead);
-                totalFramesRead += frameCountOut;
-            }
+                //MA_ASSERT(frameCountIn == framesJustRead);
+                totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
 
-            /*
-            For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
-            support loop transitions properly.
-            */
-            result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
-            if (result == MA_SUCCESS) {
-                ma_engine_node_set_time(&pSound->engineNode, currentTimeInFrames);
-            }
+                /*
+                For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
+                support loop transitions properly.
+                */
+                result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
+                if (result == MA_SUCCESS) {
+                    ma_engine_node_set_time(&pSound->engineNode, currentTimeInFrames);
+                }
 
-            pSound->runningTimeInEngineFrames += offsetInFrames + totalFramesRead;
+                pSound->runningTimeInEngineFrames += offsetInFrames + totalFramesRead;
 
-            if (result != MA_SUCCESS) {
-                break;  /* Might have reached the end. */
+                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                    break;  /* Might have reached the end. */
+                }
             }
         }
     }
@@ -10476,6 +10490,9 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
             ma_sound_stop_internal(pSound);
         }
     }
+
+    /* The effect needs to be updated once per-processing, and must be at the end. */
+    ma_engine_effect__update_resampler_for_pitching(&pSound->engineNode.effect);
 
     *pFrameCountOut = totalFramesRead;
 }
@@ -10526,10 +10543,12 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channelsIn, pConfig->pEngine->channels);  /* The processing function will convert from the data source's channel count to the engine's. */
+        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->pEngine->channels, pConfig->pEngine->channels);  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
+        baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
         baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__group, pConfig->pEngine->channels, pConfig->pEngine->channels);
+        baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
     }
 
     result = ma_node_init(&pConfig->pEngine->nodeGraph, &baseNodeConfig, pAllocationCallbacks, &pEngineNode->baseNode);
@@ -10653,7 +10672,7 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
         ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
                 
         /* Any time-dependant effects need to have their times updated. */
-        ma_engine_effect_set_time(&pSound->effect, pSound->seekTarget);
+        ma_engine_effect_set_time(&pSound->engineNode.effect, pSound->seekTarget);
 
         pSound->seekTarget  = MA_SEEK_TARGET_NONE;
     }
@@ -10676,7 +10695,7 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
         internal state such as timing information for things like fades, delays, echos, etc. We're going to always mix the sound if it's active and trust
         the mixer to optimize the volume = 0 case, and let the effect do it's own internal optimizations in non-audible cases.
         */
-        result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->effect, ma_sound_is_looping(pSound));
+        result = ma_mixer_mix_data_source(&pGroup->mixer, pSound->pDataSource, offsetInFrames, (frameCount - offsetInFrames), &framesProcessed, pSound->volume, &pSound->engineNode.effect, ma_sound_is_looping(pSound));
                 
         /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
         if (result == MA_AT_END) {
@@ -10689,7 +10708,7 @@ static void ma_engine_mix_sound_internal(ma_engine* pEngine, ma_sound_group* pGr
         */
         result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
         if (result == MA_SUCCESS) {
-            ma_engine_effect_set_time(&pSound->effect, currentTimeInFrames);
+            ma_engine_effect_set_time(&pSound->engineNode.effect, currentTimeInFrames);
         }
 
         pSound->runningTimeInEngineFrames += offsetInFrames + framesProcessed;
@@ -10819,8 +10838,10 @@ static void ma_engine_listener__data_callback_fixed(ma_engine* pEngine, void* pF
     MA_ASSERT(pEngine != NULL);
     MA_ASSERT(pEngine->periodSizeInFrames == frameCount);   /* This must always be true. */
 
+    ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, NULL);
+
     /* Recursively mix the sound groups. */
-    ma_engine_mix_sound_group(pEngine, &pEngine->masterSoundGroup, pFramesOut, frameCount);
+    /*ma_engine_mix_sound_group(pEngine, &pEngine->masterSoundGroup, pFramesOut, frameCount);*/
 }
 
 static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
@@ -10831,6 +10852,7 @@ static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOu
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine)
 {
     ma_result result;
+    ma_node_graph_config nodeGraphConfig;
     ma_engine_config engineConfig;
     ma_context_config contextConfig;
 
@@ -10848,7 +10870,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->periodSizeInFrames       = engineConfig.periodSizeInFrames;
     pEngine->periodSizeInMilliseconds = engineConfig.periodSizeInMilliseconds;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
-
 
     /* We need a context before we'll be able to create the default listener. */
     contextConfig = ma_context_config_init();
@@ -10889,6 +10910,16 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         pEngine->ownsDevice = MA_TRUE;
     }
 
+
+    /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
+    nodeGraphConfig = ma_node_graph_config_init(pEngine->pDevice->playback.channels);
+
+    result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
+    if (result != MA_SUCCESS) {
+        goto on_error_1;
+    }
+
+
     /* With the device initialized we need an intermediary buffer for handling fixed sized updates. Currently using a ring buffer for this, but can probably use something a bit more optimal. */
     result = ma_pcm_rb_init(pEngine->pDevice->playback.format, pEngine->pDevice->playback.channels, pEngine->pDevice->playback.internalPeriodSizeInFrames, NULL, &pEngine->allocationCallbacks, &pEngine->fixedRB);
     if (result != MA_SUCCESS) {
@@ -10903,7 +10934,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
 
     /* We need a default sound group. This must be done after setting the format, channels and sample rate to their proper values. */
-    result = ma_sound_group_init(pEngine, NULL, &pEngine->masterSoundGroup);
+    result = ma_sound_group_init(pEngine, MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT, NULL, &pEngine->masterSoundGroup);
     if (result != MA_SUCCESS) {
         goto on_error_2;  /* Failed to initialize master sound group. */
     }
@@ -11128,8 +11159,41 @@ MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rot
 }
 
 
+MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeOutputBusIndex)
+{
+    /*ma_result result;*/
+
+    if (pEngine == NULL || pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Attach to the endpoint node if nothing is specicied. */
+    if (pNode == NULL) {
+        pNode = ma_node_graph_get_endpoint(&pEngine->nodeGraph);
+        nodeOutputBusIndex = 0;
+    }
+
+    /*
+    Fire and forget sounds never detached from the nodes they're initially attached to, unless
+    they're recycled. When they reach the end they simply return 0 frames which keeps processing
+    clean. What we need to consider, however, is how to go about recycling sounds.
+
+    We store our in-place sounds in a separate list in the engine. Since this is just a helper
+    function and it should never called on the audio thread (don't do it!) I'm just going to use
+    a mutex and move on. If this ever becomes a performance problem I'll consider looking at it,
+    but I think it should be fine.
+    */
+
+    /* TODO: Implement me. */
+
+    return MA_NOT_IMPLEMENTED;
+}
+
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
 {
+    return ma_engine_play_sound_ex(pEngine, pFilePath, pGroup, 0);
+
+#if 0   /* TODO: Delete this whole block later. */
     ma_result result;
     ma_sound* pSound = NULL;
     ma_sound* pNextSound = NULL;
@@ -11227,6 +11291,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
     }
 
     return MA_SUCCESS;
+#endif
 }
 
 
@@ -11327,8 +11392,7 @@ static ma_result ma_sound_attach(ma_sound* pSound, ma_sound_group* pGroup)
 static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
-
-    (void)flags;
+    ma_engine_node_config engineNodeConfig;
 
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
@@ -11340,14 +11404,32 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_
         return MA_INVALID_ARGS;
     }
 
-    pSound->pEngine = pEngine;
+    /* Sounds are engine nodes. */
+    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound);
 
-    /* An effect is used for handling panning, pitching, etc. */
-    result = ma_engine_effect_init(pEngine, &pSound->effect);
+    result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pSound->engineNode);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    /* If no group is specified, attach the sound straight to the endpoint. */
+    if (pGroup == NULL) {
+        /* No group. Attach straight to the endpoint by default, unless the caller has requested that do not. */
+        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
+            result = ma_node_attach_output_bus(pSound, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
+        }
+    } else {
+        /* A group is specified. Attach to it by default. The sound has only a single output bus, and the group has a single input bus which makes attachment trivial. */
+        result = ma_node_attach_output_bus(pSound, 0, pGroup, 0);
+    }
+
+    if (result != MA_SUCCESS) {
+        ma_engine_node_uninit(&pSound->engineNode, &pEngine->allocationCallbacks);
+        return result;
+    }
+
+
+#if 1   /* TODO: Delete this entire block. */
     pSound->pDataSource = NULL; /* This will be set a higher level outside of this function. */
     pSound->volume      = 1;
     pSound->seekTarget  = MA_SEEK_TARGET_NONE;
@@ -11363,9 +11445,9 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_uint32 flags, ma_sound_
     */
     result = ma_sound_attach(pSound, pGroup);
     if (result != MA_SUCCESS) {
-        ma_engine_effect_uninit(pEngine, &pSound->effect);
         return result;  /* Should never happen. Failed to attach the sound to the group. */
     }
+#endif
 
     return MA_SUCCESS;
 }
@@ -11424,6 +11506,14 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
         return;
     }
 
+    /*
+    Always uninitialize the node first. This ensures it's detached from the graph and does not return until it has done
+    so which makes thread safety beyond this point trivial.
+    */
+    ma_node_uninit(pSound, &pSound->engineNode.pEngine->allocationCallbacks);
+
+
+#if 1   /* TODO: Delete this whole section later. */
     /* Make sure the sound is stopped as soon as possible to reduce the chance that it gets locked by the mixer. We also need to stop it before detaching from the group. */
     ma_sound_set_stop_delay(pSound, 0);   /* <-- Ensures the sound stops immediately. */
     result = ma_sound_stop(pSound);
@@ -11445,6 +11535,7 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
     the application may think it's safe to destroy the data source when it actually isn't. It just feels untidy doing it like that.
     */
     ma_sound_mix_wait(pSound);
+#endif
 
 
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
@@ -11480,8 +11571,13 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         c89atomic_exchange_32(&pSound->atEnd, MA_FALSE);
     }
 
+    /* Make sure the sound is started. If there's a start delay, the sound won't actually start until the start time is reached. */
+    ma_node_set_state(pSound, ma_node_state_started);
+
+
+
     /* Once everything is set up we can tell the mixer thread about it. */
-    c89atomic_exchange_32(&pSound->isPlaying, MA_TRUE);
+    c89atomic_exchange_32(&pSound->isPlaying, MA_TRUE); /* <-- TODO: Delete this later. */
 
     return MA_SUCCESS;
 }
@@ -11492,6 +11588,11 @@ MA_API ma_result ma_sound_stop(ma_sound* pSound)
         return MA_INVALID_ARGS;
     }
 
+    /* This will stop the sound immediately. Use ma_sound_set_stop_time() to stop the sound at a specific time. */
+    ma_node_set_state(pSound, ma_node_state_stopped);
+
+
+    /* TODO: Delete the below later. */
     pSound->stopDelayInEngineFramesRemaining = pSound->stopDelayInEngineFrames;
 
     /* Stop immediately if we don't have a delay. */
@@ -11508,17 +11609,16 @@ MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume)
         return MA_INVALID_ARGS;
     }
 
-    pSound->volume = volume;
+    /* The volume is controlled via the output bus. */
+    ma_node_set_output_bus_volume(pSound, 0, volume);
+
+    pSound->volume = volume;    /* TODO: Delete this later. */
 
     return MA_SUCCESS;
 }
 
 MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB)
 {
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
     return ma_sound_set_volume(pSound, ma_gain_db_to_factor(gainDB));
 }
 
@@ -11528,7 +11628,7 @@ MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
         return MA_INVALID_ARGS;
     }
 
-    pSound->effect.pitch = pitch;
+    pSound->engineNode.effect.pitch = pitch;
 
     return MA_SUCCESS;
 }
@@ -11539,7 +11639,7 @@ MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan)
         return MA_INVALID_ARGS;
     }
 
-    return ma_panner_set_pan(&pSound->effect.panner, pan);
+    return ma_panner_set_pan(&pSound->engineNode.effect.panner, pan);
 }
 
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
@@ -11548,7 +11648,7 @@ MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
         return MA_INVALID_ARGS;
     }
 
-    return ma_panner_set_mode(&pSound->effect.panner, pan_mode);
+    return ma_panner_set_mode(&pSound->engineNode.effect.panner, pan_mode);
 }
 
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
@@ -11557,7 +11657,7 @@ MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_set_position(&pSound->effect.spatializer, position);
+    return ma_spatializer_set_position(&pSound->engineNode.effect.spatializer, position);
 }
 
 MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
@@ -11566,7 +11666,7 @@ MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_set_rotation(&pSound->effect.spatializer, rotation);
+    return ma_spatializer_set_rotation(&pSound->engineNode.effect.spatializer, rotation);
 }
 
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
@@ -11608,7 +11708,7 @@ MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, 
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_set_fade(&pSound->effect.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    return ma_fader_set_fade(&pSound->engineNode.effect.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
 }
 
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
@@ -11617,7 +11717,7 @@ MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volum
         return MA_INVALID_ARGS;
     }
 
-    return ma_sound_set_fade_in_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pSound->effect.fader.config.sampleRate) / 1000);
+    return ma_sound_set_fade_in_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pSound->engineNode.effect.fader.config.sampleRate) / 1000);
 }
 
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume)
@@ -11626,7 +11726,7 @@ MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolu
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_get_current_volume(&pSound->effect.fader, pVolume);
+    return ma_fader_get_current_volume(&pSound->engineNode.effect.fader, pVolume);
 }
 
 MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
@@ -11635,13 +11735,12 @@ MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMil
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pSound->pEngine != NULL);
 
     /*
     It's important that the delay be timed based on the engine's sample rate and not the rate of the sound. The reason is that no processing will be happening
     by the sound before playback has actually begun and we won't have accurate frame counters due to resampling.
     */
-    pSound->startDelayInEngineFrames = (pSound->pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pSound->startDelayInEngineFrames = (pSound->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
@@ -11652,9 +11751,7 @@ MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMill
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pSound->pEngine != NULL);
-
-    pSound->stopDelayInEngineFrames = (pSound->pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pSound->stopDelayInEngineFrames = (pSound->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
@@ -11689,7 +11786,7 @@ MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* 
         return MA_INVALID_ARGS;
     }
 
-    *pTimeInFrames = pSound->effect.timeInFrames;
+    *pTimeInFrames = pSound->engineNode.effect.timeInFrames;
 
     return MA_SUCCESS;
 }
@@ -11712,7 +11809,7 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
         }
 
         /* Time dependant effects need to have their timers updated. */
-        return ma_engine_effect_set_time(&pSound->effect, frameIndex);
+        return ma_engine_effect_set_time(&pSound->engineNode.effect, frameIndex);
     }
 #endif
 
@@ -11750,7 +11847,7 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 }
 
 
-
+#if 1 /* TODO: Remove this whole block. */
 static ma_result ma_sound_group_attach(ma_sound_group* pGroup, ma_sound_group* pParentGroup)
 {
     ma_sound_group* pNewFirstChild;
@@ -11760,10 +11857,8 @@ static ma_result ma_sound_group_attach(ma_sound_group* pGroup, ma_sound_group* p
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pGroup->pEngine != NULL);
-
     /* Don't do anything for the master sound group. This should never be attached to anything. */
-    if (pGroup == &pGroup->pEngine->masterSoundGroup) {
+    if (pGroup == &pGroup->engineNode.pEngine->masterSoundGroup) {
         return MA_SUCCESS;
     }
 
@@ -11796,10 +11891,8 @@ static ma_result ma_sound_group_detach(ma_sound_group* pGroup)
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pGroup->pEngine != NULL);
-
     /* Don't do anything for the master sound group. This should never be detached from anything. */
-    if (pGroup == &pGroup->pEngine->masterSoundGroup) {
+    if (pGroup == &pGroup->engineNode.pEngine->masterSoundGroup) {
         return MA_SUCCESS;
     }
 
@@ -11821,10 +11914,13 @@ static ma_result ma_sound_group_detach(ma_sound_group* pGroup)
 
     return MA_SUCCESS;
 }
+#endif
 
-MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
+MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
 {
     ma_result result;
+    ma_engine_node_config engineNodeConfig;
+
     ma_mixer_config mixerConfig;
 
     if (pGroup == NULL) {
@@ -11837,8 +11933,28 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
         return MA_INVALID_ARGS;
     }
 
-    pGroup->pEngine = pEngine;
+    /* A sound group is just an engine node. */
+    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group);
+    
+    result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pGroup->engineNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
+    /* Attach the engine node to the graph if requested. */
+    if (pParentGroup == NULL) {
+        /* No parent group specified. Attach to the endpoint by default. */
+        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
+            ma_node_attach_output_bus(pGroup, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
+        }
+    } else {
+        /* Parent group specified. Attach to it's first endpoint. */
+        ma_node_attach_output_bus(pGroup, 0, pParentGroup, 0);
+    }
+
+
+
+#if 1 /* TODO: Remove this entire block once the integration with the routing system is complete. */
     /* Use the master group if the parent group is NULL, so long as it's not the master group itself. */
     if (pParentGroup == NULL && pGroup != &pEngine->masterSoundGroup) {
         pParentGroup = &pEngine->masterSoundGroup;
@@ -11891,6 +12007,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_sound_group* pParent
 
     /* The group needs to be started by default, but needs to be done after attaching to the internal list. */
     c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
+#endif
 
     return MA_SUCCESS;
 }
@@ -11915,6 +12032,17 @@ MA_API void ma_sound_group_uninit(ma_sound_group* pGroup)
 {
     ma_result result;
 
+    if (pGroup == NULL) {
+        return;
+    }
+
+    /*
+    First thing to do is uninitialize the node. This will wait until the group is completely detached
+    which makes the parts below trivial with respect to thread-safety.
+    */
+    ma_node_uninit(pGroup, &pGroup->engineNode.pEngine->allocationCallbacks);
+
+
     ma_sound_group_set_stop_delay(pGroup, 0); /* <-- Make sure we disable fading out so the sound group is stopped immediately. */
     result = ma_sound_group_stop(pGroup);
     if (result != MA_SUCCESS) {
@@ -11932,7 +12060,7 @@ MA_API void ma_sound_group_uninit(ma_sound_group* pGroup)
     ma_mixer_uninit(&pGroup->mixer);
     ma_mutex_uninit(&pGroup->lock);
 
-    ma_engine_effect_uninit(pGroup->pEngine, &pGroup->effect);
+    ma_engine_effect_uninit(pGroup->engineNode.pEngine, &pGroup->effect);
 }
 
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup)
@@ -11941,19 +12069,25 @@ MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup)
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE);
+    /* This won't actually start the group if a start delay has been applied. */
+    ma_node_set_state(pGroup, ma_node_state_started);
+
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_TRUE); /* TODO: Remove this once integration with the routing system is complete. */
 
     return MA_SUCCESS;
 }
 
+
+#if 1   /* TODO: Remove this block. */
 static MA_INLINE ma_result ma_sound_group_stop_internal(ma_sound_group* pGroup)
 {
     MA_ASSERT(pGroup != NULL);
 
-    c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);
+    c89atomic_exchange_32(&pGroup->isPlaying, MA_FALSE);    /* TODO: Delete this. */
 
     return MA_SUCCESS;
 }
+#endif
 
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
 {
@@ -11961,12 +12095,18 @@ MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
         return MA_INVALID_ARGS;
     }
 
+    /* This will stop the group immediately. Use ma_sound_group_set_stop_time() to delay stopping to a specific time. */
+    ma_node_set_state(pGroup, ma_node_state_stopped);
+
+
+#if 1 /* TODO: Remove this block. */
     pGroup->stopDelayInEngineFramesRemaining = pGroup->stopDelayInEngineFrames;
 
     /* Stop immediately if we're not delaying. */
     if (pGroup->stopDelayInEngineFrames == 0) {
         ma_sound_group_stop_internal(pGroup);
     }
+#endif
 
     return MA_SUCCESS;
 }
@@ -11977,8 +12117,14 @@ MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
         return MA_INVALID_ARGS;
     }
 
+    /* The volume is controlled via the output bus on the node. */
+    ma_node_set_output_bus_volume(pGroup, 0, volume);
+
+
+#if 1   /* TODO: Remove this block. */
     /* The volume is set via the mixer. */
     ma_mixer_set_volume(&pGroup->mixer, volume);
+#endif
 
     return MA_SUCCESS;
 }
@@ -12042,9 +12188,7 @@ MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint6
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pGroup->pEngine != NULL);
-
-    pGroup->startDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pGroup->startDelayInEngineFrames = (pGroup->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
@@ -12055,9 +12199,7 @@ MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64
         return MA_INVALID_ARGS;
     }
 
-    MA_ASSERT(pGroup->pEngine != NULL);
-
-    pGroup->stopDelayInEngineFrames = (pGroup->pEngine->sampleRate * delayInMilliseconds) / 1000;
+    pGroup->stopDelayInEngineFrames = (pGroup->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
 
     return MA_SUCCESS;
 }
