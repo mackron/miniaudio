@@ -1472,7 +1472,6 @@ MA_API ma_panner_config ma_panner_config_init(ma_format format, ma_uint32 channe
 
 typedef struct
 {
-    ma_effect_base effect;
     ma_format format;
     ma_uint32 channels;
     ma_pan_mode mode;
@@ -1500,7 +1499,6 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 typedef struct
 {
-    ma_effect_base effect;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_vec3 position;
@@ -1525,7 +1523,6 @@ MA_API ma_fader_config ma_fader_config_init(ma_format format, ma_uint32 channels
 
 typedef struct
 {
-    ma_effect_base effect;
     ma_fader_config config;
     float volumeBeg;            /* If volumeBeg and volumeEnd is equal to 1, no fading happens (ma_fader_process_pcm_frames() will run as a passthrough). */
     float volumeEnd;
@@ -8254,12 +8251,6 @@ MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPan
         return MA_INVALID_ARGS;
     }
 
-    pPanner->effect.onProcessPCMFrames            = ma_panner_effect__on_process_pcm_frames;
-    pPanner->effect.onGetRequiredInputFrameCount  = NULL;
-    pPanner->effect.onGetExpectedOutputFrameCount = NULL;
-    pPanner->effect.onGetInputDataFormat          = ma_panner_effect__on_get_data_format;   /* Same format for both input and output. */
-    pPanner->effect.onGetOutputDataFormat         = ma_panner_effect__on_get_data_format;
-
     pPanner->format   = pConfig->format;
     pPanner->channels = pConfig->channels;
     pPanner->mode     = pConfig->mode;
@@ -8499,12 +8490,6 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
         return MA_INVALID_ARGS;
     }
 
-    pSpatializer->effect.onProcessPCMFrames            = ma_spatializer_effect__on_process_pcm_frames;
-    pSpatializer->effect.onGetRequiredInputFrameCount  = NULL;
-    pSpatializer->effect.onGetExpectedOutputFrameCount = NULL;
-    pSpatializer->effect.onGetInputDataFormat          = ma_spatializer_effect__on_get_data_format_in;
-    pSpatializer->effect.onGetOutputDataFormat         = ma_spatializer_effect__on_get_data_format_out;
-
     pSpatializer->channelsIn  = pConfig->channelsIn;
     pSpatializer->channelsOut = pConfig->channelsOut;
     pSpatializer->position    = pConfig->position;
@@ -8607,12 +8592,6 @@ MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader)
     if (pConfig->format != ma_format_f32) {
         return MA_INVALID_ARGS;
     }
-
-    pFader->effect.onProcessPCMFrames            = ma_fader_effect__on_process_pcm_frames;
-    pFader->effect.onGetRequiredInputFrameCount  = NULL;
-    pFader->effect.onGetExpectedOutputFrameCount = NULL;
-    pFader->effect.onGetInputDataFormat          = ma_fader_effect__on_get_data_format;
-    pFader->effect.onGetOutputDataFormat         = ma_fader_effect__on_get_data_format;
 
     pFader->config         = *pConfig;
     pFader->volumeBeg      = 1;
