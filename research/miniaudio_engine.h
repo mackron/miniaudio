@@ -1590,11 +1590,8 @@ struct ma_engine
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
-    ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */ /* TODO: Is fixed sized updates required? */
     ma_listener listener;
     ma_uint32 sampleRate;               /* TODO: Get this from the device? Is this needed when supporting non-device engines? */
-    ma_uint32 periodSizeInFrames;       /* TODO: Is this needed? */
-    ma_uint32 periodSizeInMilliseconds; /* TODO: Is this needed? */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
@@ -8652,14 +8649,6 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
 }
 
 
-static void ma_engine_listener__data_callback_fixed(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount)
-{
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEngine->periodSizeInFrames == frameCount);   /* This must always be true. */
-
-    ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
-}
-
 static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     ma_engine_data_callback((ma_engine*)pDevice->pUserData, pFramesOut, pFramesIn, frameCount);
@@ -8679,11 +8668,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         engineConfig = ma_engine_config_init_default();
     }
 
-    pEngine->pResourceManager         = engineConfig.pResourceManager;
-    pEngine->pDevice                  = engineConfig.pDevice;
-    pEngine->sampleRate               = engineConfig.sampleRate;
-    pEngine->periodSizeInFrames       = engineConfig.periodSizeInFrames;
-    pEngine->periodSizeInMilliseconds = engineConfig.periodSizeInMilliseconds;
+    pEngine->pResourceManager = engineConfig.pResourceManager;
+    pEngine->pDevice          = engineConfig.pDevice;
+    pEngine->sampleRate       = engineConfig.sampleRate;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     /* We need a context before we'll be able to create the default listener. */
@@ -8705,8 +8692,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         deviceConfig.sampleRate               = engineConfig.sampleRate;
         deviceConfig.dataCallback             = ma_engine_data_callback_internal;
         deviceConfig.pUserData                = pEngine;
-        deviceConfig.periodSizeInFrames       = pEngine->periodSizeInFrames;
-        deviceConfig.periodSizeInMilliseconds = pEngine->periodSizeInMilliseconds;
+        deviceConfig.periodSizeInFrames       = engineConfig.periodSizeInFrames;
+        deviceConfig.periodSizeInMilliseconds = engineConfig.periodSizeInMilliseconds;
         deviceConfig.noPreZeroedOutputBuffer  = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
         deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine will do clipping itself. */
 
@@ -8734,17 +8721,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         goto on_error_1;
     }
 
-
-    /* With the device initialized we need an intermediary buffer for handling fixed sized updates. Currently using a ring buffer for this, but can probably use something a bit more optimal. */
-    result = ma_pcm_rb_init(pEngine->pDevice->playback.format, pEngine->pDevice->playback.channels, pEngine->pDevice->playback.internalPeriodSizeInFrames, NULL, &pEngine->allocationCallbacks, &pEngine->fixedRB);
-    if (result != MA_SUCCESS) {
-        goto on_error_2;
-    }
-
     /* Now that have the default listener we can ensure we have the format, channels and sample rate set to proper values to ensure future listeners are configured consistently. */
-    pEngine->sampleRate               = pEngine->pDevice->sampleRate;
-    pEngine->periodSizeInFrames       = pEngine->pDevice->playback.internalPeriodSizeInFrames;
-    pEngine->periodSizeInMilliseconds = (pEngine->periodSizeInFrames * 1000) / pEngine->sampleRate;
+    pEngine->sampleRate = pEngine->pDevice->sampleRate;
 
 
     /* We need a resource manager. */
@@ -8755,7 +8733,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         pEngine->pResourceManager = (ma_resource_manager*)ma__malloc_from_callbacks(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
         if (pEngine->pResourceManager == NULL) {
             result = MA_OUT_OF_MEMORY;
-            goto on_error_3;
+            goto on_error_2;
         }
 
         resourceManagerConfig = ma_resource_manager_config_init();
@@ -8767,7 +8745,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {
-            goto on_error_4;
+            goto on_error_3;
         }
 
         pEngine->ownsResourceManager = MA_TRUE;
@@ -8782,24 +8760,22 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (engineConfig.noAutoStart == MA_FALSE) {
         result = ma_engine_start(pEngine);
         if (result != MA_SUCCESS) {
-            goto on_error_5;    /* Failed to start the engine. */
+            goto on_error_4;    /* Failed to start the engine. */
         }
     }
 
     return MA_SUCCESS;
 
-on_error_5:
+on_error_4:
     ma_mutex_uninit(&pEngine->inlinedSoundLock);
 #ifndef MA_NO_RESOURCE_MANAGER
-on_error_4:
+on_error_3:
     if (pEngine->ownsResourceManager) {
         ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
     }
-on_error_3:
-    ma_pcm_rb_uninit(&pEngine->fixedRB);
-#endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_2:
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
+#endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_1:
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
@@ -8862,57 +8838,9 @@ MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut,
 
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
-    ma_uint32 pcmFramesAvailableInRB;
-    ma_uint32 pcmFramesProcessed = 0;
-    ma_uint8* pRunningOutput = (ma_uint8*)pFramesOut;
+    (void)pFramesIn;    /* Unused. */
 
-    if (pEngine == NULL) {
-        return;
-    }
-
-    /* We need to do updates in fixed sizes based on the engine's period size in frames. */
-
-    /*
-    The first thing to do is check if there's enough data available in the ring buffer. If so we can read from it. Otherwise we need to keep filling
-    the ring buffer until there's enough, making sure we only fill the ring buffer in chunks of pEngine->periodSizeInFrames.
-    */
-    while (pcmFramesProcessed < frameCount) {    /* Keep going until we've filled the output buffer. */
-        ma_uint32 framesRemaining = frameCount - pcmFramesProcessed;
-
-        pcmFramesAvailableInRB = ma_pcm_rb_available_read(&pEngine->fixedRB);
-        if (pcmFramesAvailableInRB > 0) {
-            ma_uint32 framesToRead = (framesRemaining < pcmFramesAvailableInRB) ? framesRemaining : pcmFramesAvailableInRB;
-            void* pReadBuffer;
-
-            ma_pcm_rb_acquire_read(&pEngine->fixedRB, &framesToRead, &pReadBuffer);
-            {
-                memcpy(pRunningOutput, pReadBuffer, framesToRead * ma_get_bytes_per_frame(pEngine->pDevice->playback.format, pEngine->pDevice->playback.channels));
-            }
-            ma_pcm_rb_commit_read(&pEngine->fixedRB, framesToRead, pReadBuffer);
-
-            pRunningOutput += framesToRead * ma_get_bytes_per_frame(pEngine->pDevice->playback.format, pEngine->pDevice->playback.channels);
-            pcmFramesProcessed += framesToRead;
-        } else {
-            /*
-            There's nothing in the buffer. Fill it with more data from the callback. We reset the buffer first so that the read and write pointers
-            are reset back to the start so we can fill the ring buffer in chunks of pEngine->periodSizeInFrames which is what we initialized it
-            with. Note that this is not how you would want to do it in a multi-threaded environment. In this case you would want to seek the write
-            pointer forward via the producer thread and the read pointer forward via the consumer thread (this thread).
-            */
-            ma_uint32 framesToWrite = pEngine->periodSizeInFrames;
-            void* pWriteBuffer;
-
-            ma_pcm_rb_reset(&pEngine->fixedRB);
-            ma_pcm_rb_acquire_write(&pEngine->fixedRB, &framesToWrite, &pWriteBuffer);
-            {
-                MA_ASSERT(framesToWrite == pEngine->periodSizeInFrames);   /* <-- This should always work in this example because we just reset the ring buffer. */
-                ma_engine_listener__data_callback_fixed(pEngine, pWriteBuffer, framesToWrite);
-            }
-            ma_pcm_rb_commit_write(&pEngine->fixedRB, framesToWrite, pWriteBuffer);
-        }
-    }
-
-    (void)pFramesIn;   /* Not doing anything with input right now. */
+    ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
 }
 
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
