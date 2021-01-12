@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     //ma_sound_group_set_fade_in_milliseconds(&group, 0, 1, 5000);
 
     
-    //ma_sound_set_fade_in_milliseconds(&sound, 0, 1, 5000);
+    ma_sound_set_fade_in_milliseconds(&sound, 0, 1, 5000);
     /*ma_sound_set_volume(&sound, 0.25f);*/
     /*ma_sound_set_pitch(&sound, 1.2f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/

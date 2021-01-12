@@ -898,8 +898,10 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
-MA_API ma_uint64 ma_node_graph_get_time(ma_node_graph* pNodeGraph);
+MA_API ma_uint32 ma_node_graph_get_channels(const ma_node_graph* pNodeGraph);
+MA_API ma_uint64 ma_node_graph_get_time(const ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 globalTime);
+
 
 
 /* Data source node. 0 input buses, 1 output bus. Used for reading from a data source. */
@@ -1547,22 +1549,6 @@ MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume);
 #define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
 
 
-/* All of the proprties supported by the engine are handled via an effect. */
-typedef struct
-{
-    ma_effect_base baseEffect;
-    ma_engine* pEngine;             /* For accessing global, per-engine data such as the listener position and environmental information. */
-    ma_panner panner;
-    ma_spatializer spatializer;
-    ma_fader fader;
-    float pitch;
-    float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    ma_data_converter converter;    /* For pitch shift. May change this to ma_linear_resampler later. */
-    ma_uint64 timeInFrames;         /* The running time in input frames. */
-    ma_bool32 isSpatial;            /* Set the false by default. When set to false, will not have spatialisation applied. */
-} ma_engine_effect;
-
-
 typedef enum
 {
     ma_engine_node_type_sound,
@@ -1584,13 +1570,18 @@ typedef struct
 {
     ma_node_base baseNode;          /* Must be the first member for compatiblity with the ma_node API. */
     ma_engine* pEngine;             /* A pointer to the engine. Set based on the value from the config. */
-    ma_engine_effect effect;        /* Temporary while the integration with the routing system is ongoing. */
+    ma_fader fader;
+    ma_resampler resampler;         /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_spatializer spatializer;
+    ma_panner panner;
+    float pitch;
+    float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    ma_bool32 isSpatial;            /* Set the false by default. When set to false, will not have spatialisation applied. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode); /* This is used when sounds are recycled from ma_engine_play_sound(). */
-MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 timeInFrames);  /* TODO: Remove this when the engine effect has been refactored. Use ma_node_set/get_time() instead. */
 
 
 struct ma_sound
@@ -1658,7 +1649,6 @@ struct ma_engine
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
     ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */ /* TODO: Is fixed sized updates required? */
     ma_listener listener;
-    ma_uint32 channels;                 /* TODO: Get this from the node graph? */
     ma_uint32 sampleRate;               /* TODO: Get this from the device? Is this needed when supporting non-device engines? */
     ma_uint32 periodSizeInFrames;       /* TODO: Is this needed? */
     ma_uint32 periodSizeInMilliseconds; /* TODO: Is this needed? */
@@ -1672,7 +1662,9 @@ MA_API void ma_engine_uninit(ma_engine* pEngine);
 MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
-MA_API ma_uint64 ma_engine_get_time(ma_engine* pEngine);
+MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
+MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine);
+MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 
 MA_API ma_result ma_engine_start(ma_engine* pEngine);
 MA_API ma_result ma_engine_stop(ma_engine* pEngine);
@@ -2253,7 +2245,16 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
     return result;
 }
 
-MA_API ma_uint64 ma_node_graph_get_time(ma_node_graph* pNodeGraph)
+MA_API ma_uint32 ma_node_graph_get_channels(const ma_node_graph* pNodeGraph)
+{
+    if (pNodeGraph == NULL) {
+        return 0;
+    }
+
+    return ma_node_get_output_channels(&pNodeGraph->endpoint, 0);
+}
+
+MA_API ma_uint64 ma_node_graph_get_time(const ma_node_graph* pNodeGraph)
 {
     if (pNodeGraph == NULL) {
         return 0;
@@ -8735,319 +8736,6 @@ Engine
 **************************************************************************************************************************************************************/
 #define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
 
-static void ma_engine_effect__update_resampler_for_pitching(ma_engine_effect* pEngineEffect)
-{
-    MA_ASSERT(pEngineEffect != NULL);
-
-    if (pEngineEffect->oldPitch != pEngineEffect->pitch) {
-        pEngineEffect->oldPitch  = pEngineEffect->pitch;
-        ma_data_converter_set_rate_ratio(&pEngineEffect->converter, pEngineEffect->pitch);
-    }
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_uint64 frameCount;
-    ma_effect* pSubEffect[32];  /* The list of effects to be executed. Increase the size of this buffer if the number of sub-effects is exceeded. */
-    ma_uint32 subEffectCount = 0;
-
-    /*
-    This will be called if either there is no pre-effect nor pitch shift, or the pre-effect and pitch shift have already been processed. In this case it's allowed for
-    pFramesIn to be equal to pFramesOut as from here on we support in-place processing. Also, the input and output frame counts should always be equal.
-    */
-    frameCount = ma_min(*pFrameCountIn, *pFrameCountOut);
-
-    /*
-    This is a little inefficient, but it simplifies maintenance of this function a lot as we add new sub-effects. We are going to build a list of effects
-    and then just run a loop to execute them. Some sub-effects must always be executed for state-updating reasons, but others can be skipped entirely.
-    */
-
-    /* Panning. This is a no-op when the engine has only 1 channel or the pan is 0. */
-    if (pEngineEffect->pEngine->channels == 1 || pEngineEffect->panner.pan == 0) {
-        /* Fast path. No panning. */
-    } else {
-        /* Slow path. Panning required. */
-        pSubEffect[subEffectCount++] = &pEngineEffect->panner;
-    }
-
-    /* Spatialization. */
-    if (pEngineEffect->isSpatial == MA_FALSE) {
-        /* Fast path. No spatialization, but may still need to use it for channel conversion. */
-        if (pEngineEffect->spatializer.channelsIn != pEngineEffect->spatializer.channelsOut) {
-            pSubEffect[subEffectCount++] = &pEngineEffect->spatializer;
-        }
-    } else {
-        /* Slow path. Spatialization required. */
-        pSubEffect[subEffectCount++] = &pEngineEffect->spatializer;
-    }
-
-    /* Fader. Don't need to bother running this is the fade volumes are both 1. */
-    if (pEngineEffect->fader.volumeBeg == 1 && pEngineEffect->fader.volumeEnd == 1) {
-        /* Fast path. No fading. */
-    } else {
-        /* Slow path. Fading required. */
-        pSubEffect[subEffectCount++] = &pEngineEffect->fader;
-    }
-
-
-    /* We've built our list of effects, now we just need to execute them. */
-    if (subEffectCount == 0) {
-        /* Fast path. No sub-effects. */
-        if (pFramesIn == pFramesOut) {
-            /* Fast path. No-op. */
-        } else {
-            /* Slow path. Copy. */
-            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pEngineEffect->pEngine->channels);
-        }
-    } else {
-        /* Slow path. We have sub-effects to execute. The first effect reads from pFramesIn and then outputs to pFramesOut. The remaining read and write to pFramesOut in-place. */
-        ma_uint32 iSubEffect = 0;
-        for (iSubEffect = 0; iSubEffect < subEffectCount; iSubEffect += 1) {
-            ma_uint64 frameCountIn  = frameCount;
-            ma_uint64 frameCountOut = frameCount;
-
-            ma_effect_process_pcm_frames(pSubEffect[iSubEffect], pFramesIn, &frameCountIn, pFramesOut, &frameCountOut);
-
-            /* The first effect will have written to the output buffer which means we can now operate on the output buffer in-place. */
-            if (iSubEffect == 0) {
-                pFramesIn = pFramesOut;
-            }
-        }
-    }
-
-    
-    /* We're done. */
-    *pFrameCountIn  = frameCount;
-    *pFrameCountOut = frameCount;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect(ma_engine_effect* pEngineEffect, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_bool32 isPitchingRequired = MA_FALSE;
-
-    if (pEngineEffect->converter.hasResampler && pEngineEffect->pitch != 1) {
-        isPitchingRequired = MA_TRUE;
-    }
-
-    /*
-    This will be called if either there is no pre-effect or the pre-effect has already been processed. We can safely assume the input and output data in the engine's format so no
-    data conversion should be necessary here.
-    */
-
-    /* Fast path for when no pitching is required. */
-    if (isPitchingRequired == MA_FALSE) {
-        /* Fast path. No pitch shifting. */
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    } else {
-        /* Slow path. Pitch shifting required. We need to run everything through our data converter first. */
-
-        /*
-        We can output straight into the output buffer. The remaining effects support in-place processing so when we process those we'll just pass in the output buffer
-        as the input buffer as well and the effect will operate on the buffer in-place.
-        */
-        ma_result result;
-        ma_uint64 frameCountIn;
-        ma_uint64 frameCountOut;
-
-        result = ma_data_converter_process_pcm_frames(&pEngineEffect->converter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        /* Here is where we want to apply the remaining effects. These can be processed in-place which means we want to set the input and output buffers to be the same. */
-        frameCountIn  = *pFrameCountOut;  /* Not a mistake. Intentionally set to *pFrameCountOut. */
-        frameCountOut = *pFrameCountOut;
-        return ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch(pEngineEffect, pFramesOut, &frameCountIn, pFramesOut, &frameCountOut);  /* Intentionally setting the input buffer to pFramesOut for in-place processing. */
-    }
-}
-
-static ma_result ma_engine_effect__on_process_pcm_frames(ma_effect* pEffect, ma_uint32 inputStreamCount, const void** ppFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-    ma_result result;
-
-    MA_ASSERT(pEffect != NULL);
-
-    /* Only the first input stream is considered. Extra streams are ignored. */
-    (void)inputStreamCount;
-
-    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
-
-    result = ma_engine_effect__on_process_pcm_frames__no_pre_effect(pEngineEffect, ppFramesIn[0], pFrameCountIn, pFramesOut, pFrameCountOut);
-
-    pEngineEffect->timeInFrames += *pFrameCountIn;
-
-    return result;
-}
-
-static ma_uint64 ma_engine_effect__on_get_required_input_frame_count(ma_effect* pEffect, ma_uint64 outputFrameCount)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-    ma_uint64 inputFrameCount;
-
-    MA_ASSERT(pEffect != NULL);
-
-    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
-
-    inputFrameCount = ma_data_converter_get_required_input_frame_count(&pEngineEffect->converter, outputFrameCount);
-
-    return inputFrameCount;
-}
-
-static ma_uint64 ma_engine_effect__on_get_expected_output_frame_count(ma_effect* pEffect, ma_uint64 inputFrameCount)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-    ma_uint64 outputFrameCount;
-
-    MA_ASSERT(pEffect != NULL);
-
-    /* Make sure we update the resampler to take any pitch changes into account. Not doing this will result in incorrect frame counts being returned. */
-    //ma_engine_effect__update_resampler_for_pitching(pEngineEffect);
-
-    outputFrameCount = ma_data_converter_get_expected_output_frame_count(&pEngineEffect->converter, inputFrameCount);
-
-    return outputFrameCount;
-}
-
-static ma_result ma_engine_effect__on_get_input_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-
-    MA_ASSERT(pEffect != NULL);
-
-    *pFormat     = pEngineEffect->converter.config.formatIn;
-    *pChannels   = pEngineEffect->converter.config.channelsIn;
-    *pSampleRate = pEngineEffect->converter.config.sampleRateIn;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect__on_get_output_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
-{
-    ma_engine_effect* pEngineEffect = (ma_engine_effect*)pEffect;
-
-    MA_ASSERT(pEffect != NULL);
-
-    *pFormat     = pEngineEffect->converter.config.formatOut;
-    *pChannels   = pEngineEffect->converter.config.channelsOut;
-    *pSampleRate = pEngineEffect->converter.config.sampleRateOut;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_uint32 inputChannels, ma_engine_effect* pEffect)
-{
-    ma_result result;
-    ma_panner_config pannerConfig;
-    ma_spatializer_config spatializerConfig;
-    ma_fader_config faderConfig;
-    ma_data_converter_config converterConfig;
-
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    MA_ZERO_OBJECT(pEffect);
-
-    pEffect->baseEffect.onProcessPCMFrames            = ma_engine_effect__on_process_pcm_frames;
-    pEffect->baseEffect.onGetRequiredInputFrameCount  = ma_engine_effect__on_get_required_input_frame_count;
-    pEffect->baseEffect.onGetExpectedOutputFrameCount = ma_engine_effect__on_get_expected_output_frame_count;
-    pEffect->baseEffect.onGetInputDataFormat          = ma_engine_effect__on_get_input_data_format;
-    pEffect->baseEffect.onGetOutputDataFormat         = ma_engine_effect__on_get_output_data_format;
-
-    pEffect->pEngine  = pEngine;
-    pEffect->pitch    = 1;
-    pEffect->oldPitch = 1;
-
-    pannerConfig = ma_panner_config_init(ma_format_f32, inputChannels);
-    result = ma_panner_init(&pannerConfig, &pEffect->panner);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the panner. */
-    }
-
-    spatializerConfig = ma_spatializer_config_init(inputChannels, pEngine->channels);
-    result = ma_spatializer_init(&spatializerConfig, &pEffect->spatializer);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the spatializer. */
-    }
-
-    faderConfig = ma_fader_config_init(ma_format_f32, inputChannels, pEngine->sampleRate);
-    result = ma_fader_init(&faderConfig, &pEffect->fader);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to create the fader. */
-    }
-
-    converterConfig = ma_data_converter_config_init(ma_format_f32, ma_format_f32, inputChannels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
-
-    /*
-    TODO: A few things to figure out with the resampler:
-        - In order to support dynamic pitch shifting we need to set allowDynamicSampleRate which means the resampler will always be initialized and will always
-          have samples run through it. An optimization would be to have a flag that disables pitch shifting. Can alternatively just skip running samples through
-          the data converter when pitch=1, but this may result in glitching when moving away from pitch=1 due to the internal buffer not being update while the
-          pitch=1 case was in place.
-        - We may want to have customization over resampling properties.
-    */
-    converterConfig.resampling.allowDynamicSampleRate = MA_TRUE;    /* This makes sure a resampler is always initialized. TODO: Need a flag that specifies that no pitch shifting is required for this sound so we can avoid the cost of the resampler. Even when the pitch is 1, samples still run through the resampler. */
-    converterConfig.resampling.algorithm              = ma_resample_algorithm_linear;
-    converterConfig.resampling.linear.lpfOrder        = 0;
-
-    result = ma_data_converter_init(&converterConfig, &pEffect->converter);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_engine_effect_uninit(ma_engine* pEngine, ma_engine_effect* pEffect)
-{
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    (void)pEngine;
-    ma_data_converter_uninit(&pEffect->converter);
-}
-
-static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_uint32 channels, ma_engine_effect* pEffect)
-{
-    /* This function assumes the data converter was previously initialized and needs to be uninitialized. */
-    MA_ASSERT(pEngine != NULL);
-    MA_ASSERT(pEffect != NULL);
-
-    ma_engine_effect_uninit(pEngine, pEffect);
-
-    return ma_engine_effect_init(pEngine, channels, pEffect);
-}
-
-/* Not used at the moment, but might re-enable this later. */
-#if 0
-static ma_bool32 ma_engine_effect_is_passthrough(ma_engine_effect* pEffect)
-{
-    MA_ASSERT(pEffect != NULL);
-
-    /* If pitch shifting we'll need to do processing through the resampler. */
-    if (pEffect->pitch != 1) {
-        return MA_FALSE;
-    }
-
-    return MA_TRUE;
-}
-#endif
-
-static ma_result ma_engine_effect_set_time(ma_engine_effect* pEffect, ma_uint64 timeInFrames)
-{
-    MA_ASSERT(pEffect != NULL);
-
-    pEffect->timeInFrames = timeInFrames;
-
-    return MA_SUCCESS;
-}
-
-
-
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type)
 {
@@ -9061,24 +8749,173 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 }
 
 
-void ma_engine_node_process_pcm_frames__effect(ma_engine_node* pEngineNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 {
-    ma_uint64 frameCountIn;
-    ma_uint64 frameCountOut;
+    MA_ASSERT(pEngineNode != NULL);
 
-    frameCountIn  = *pFrameCountIn;
-    frameCountOut = *pFrameCountOut;
+    if (pEngineNode->oldPitch != pEngineNode->pitch) {
+        pEngineNode->oldPitch  = pEngineNode->pitch;
+        ma_resampler_set_rate_ratio(&pEngineNode->resampler, pEngineNode->pitch);
+    }
+}
+
+static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngineNode)
+{
+    MA_ASSERT(pEngineNode != NULL);
+
+    /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
+    return MA_TRUE; /* TODO: Add a MA_SOUND_FLAG_ALLOW_PITCH flag to control this. Default to pitching being disabled to avoid unexpected performance hits. */
+}
+
+static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
+{
+    if (ma_engine_node_is_pitching_enabled(pEngineNode)) {
+        return ma_resampler_get_required_input_frame_count(&pEngineNode->resampler, outputFrameCount);
+    } else {
+        return outputFrameCount;    /* No resampling, so 1:1. */
+    }
+}
+
+static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+{
+    ma_uint32 frameCountIn;
+    ma_uint32 frameCountOut;
+    ma_uint32 totalFramesProcessedIn;
+    ma_uint32 totalFramesProcessedOut;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_bool32 isPitchingEnabled;
+    ma_bool32 isFadingEnabled;
+    ma_bool32 isSpatializationEnabled;
+    ma_bool32 isPanningEnabled;
 
     (void)globalTime;
 
-    ma_effect_process_pcm_frames(&pEngineNode->effect, ppFramesIn[0], &frameCountIn, ppFramesOut[0], &frameCountOut);
+    frameCountIn  = *pFrameCountIn;
+    frameCountOut = *pFrameCountOut;
+    
+    channelsIn  = pEngineNode->spatializer.channelsIn;
+    channelsOut = pEngineNode->spatializer.channelsOut;
 
-    MA_ASSERT(frameCountIn  <= 0xFFFFFFFF);
-    MA_ASSERT(frameCountOut <= 0xFFFFFFFF);
+    totalFramesProcessedIn  = 0;
+    totalFramesProcessedOut = 0;
 
-    /* Safe casts below thanks to the asserts above. This will change once we remove the old ma_effect stuff. */
-    *pFrameCountIn  = (ma_uint32)frameCountIn;
-    *pFrameCountOut = (ma_uint32)frameCountOut;
+    isPitchingEnabled       = ma_engine_node_is_pitching_enabled(pEngineNode);
+    isFadingEnabled         = pEngineNode->fader.volumeBeg != 1 || pEngineNode->fader.volumeEnd != 1;
+    isSpatializationEnabled = pEngineNode->isSpatial;
+    isPanningEnabled        = pEngineNode->panner.pan != 0 && channelsOut != 1;
+
+    /* Keep going while we've still got data available for processing. */
+    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+        /*
+        We need to process in a specific order. We always do resampling first because it's likely
+        we're going to be increasing the channel count after spatialization. Also, I want to do
+        fading based on the output sample rate.
+
+        We'll first read into a buffer from the resampler. Then we'll do all processing that
+        operates on the on the input channel count. We'll then get the spatializer to output to
+        the output buffer and then do all effects from that point directly in the output buffer
+        in-place.
+
+        Note that we're always running the resampler. If we try to be clever and skip resampling
+        when the pitch is 1, we'll get a glitch when we move away from 1, back to 1, and then
+        away from 1 again. We'll want to implement any pitch=1 optimizations in the resampler
+        itself.
+
+        There's a small optimization here that we'll utilize since it might be a fairly common
+        case. When the input and output channel counts are the same, we'll read straight into the
+        output buffer from the resampler and do everything in-place.
+        */
+        const float* pRunningFramesIn;
+        float* pRunningFramesOut;
+        float* pWorkingBuffer;   /* This is the buffer that we'll be processing frames in. This is in input channels. */
+        float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
+        ma_uint32 tempCapInFrames = ma_countof(temp) / pEngineNode->spatializer.channelsIn;
+        ma_uint32 framesAvailableIn;
+        ma_uint32 framesAvailableOut;
+        ma_uint32 framesJustProcessedIn;
+        ma_uint32 framesJustProcessedOut;
+        ma_bool32 isWorkingBufferValid = MA_FALSE;
+
+        framesAvailableIn  = frameCountIn  - totalFramesProcessedIn;
+        framesAvailableOut = frameCountOut - totalFramesProcessedOut;
+
+        pRunningFramesIn  = ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessedIn, channelsIn);
+        pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesProcessedOut, channelsOut);
+
+        if (channelsIn == channelsOut) {
+            /* Fast path. Channel counts are the same. No need for an intermediary input buffer. */
+            pWorkingBuffer = pRunningFramesOut;
+        } else {
+            /* Slow path. Channel counts are different. Need to use an intermediary input buffer. */
+            pWorkingBuffer = temp;
+            if (framesAvailableOut > tempCapInFrames) {
+                framesAvailableOut = tempCapInFrames;
+            }
+        }
+
+        /* First is resampler. */
+        if (isPitchingEnabled) {
+            ma_uint64 resampleFrameCountIn  = framesAvailableIn;
+            ma_uint64 resampleFrameCountOut = framesAvailableOut;
+
+            ma_resampler_process_pcm_frames(&pEngineNode->resampler, pRunningFramesIn, &resampleFrameCountIn, pWorkingBuffer, &resampleFrameCountOut);
+            isWorkingBufferValid = MA_TRUE;
+
+            framesJustProcessedIn  = (ma_uint32)resampleFrameCountIn;
+            framesJustProcessedOut = (ma_uint32)resampleFrameCountOut;
+        } else {
+            framesJustProcessedIn  = framesAvailableIn;
+            framesJustProcessedOut = framesAvailableOut;
+        }
+
+        /* Fading. */
+        if (isFadingEnabled) {
+            if (isWorkingBufferValid) {
+                ma_fader_process_pcm_frames(&pEngineNode->fader, pWorkingBuffer, pWorkingBuffer, framesJustProcessedOut);   /* In-place processing. */
+            } else {
+                ma_fader_process_pcm_frames(&pEngineNode->fader, pWorkingBuffer, pRunningFramesIn, framesJustProcessedOut);
+                isWorkingBufferValid = MA_TRUE;
+            }
+        }
+
+        /*
+        If at this point we still haven't actually done anything with the working buffer we need
+        to just read straight from the input buffer.
+        */
+        if (isWorkingBufferValid == MA_FALSE) {
+            pWorkingBuffer = (float*)pRunningFramesIn;  /* Naughty const cast, but it's safe at this point because we won't ever be writing to it from this point out. */
+        }
+
+        /* Spatialization. */
+        if (isSpatializationEnabled) {
+            ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
+        } else {
+            /* No spatialization, but we still need to do channel conversion. */
+            if (channelsIn == channelsOut) {
+                /* No channel conversion required. Just copy straight to the output buffer. */
+                ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
+            } else {
+                /* Channel conversion required. TODO: Add support for channel maps here. */
+                ma_convert_pcm_frames_channels_f32(pRunningFramesOut, channelsOut, pWorkingBuffer, channelsIn, framesJustProcessedOut);
+            }
+        }
+
+        /* At this point we can guarantee that the output buffer contains valid data. We can process everything in place now. */
+
+        /* Panning. */
+        if (isPanningEnabled) {
+            ma_panner_process_pcm_frames(&pEngineNode->panner, pRunningFramesOut, pRunningFramesOut, framesJustProcessedOut);   /* In-place processing. */
+        }
+
+        /* We're done. */
+        totalFramesProcessedIn  += framesJustProcessedIn;
+        totalFramesProcessedOut += framesJustProcessedOut;
+    }
+
+    /* At this point we're done processing. */
+    *pFrameCountIn  = totalFramesProcessedIn;
+    *pFrameCountOut = totalFramesProcessedOut;
 }
 
 void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
@@ -9109,7 +8946,6 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
         ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
                 
         /* Any time-dependant effects need to have their times updated. */
-        ma_engine_node_set_time(&pSound->engineNode, pSound->seekTarget);   /* TODO: Delete this line. */
         ma_node_set_time(pSound, pSound->seekTarget);
 
         pSound->seekTarget  = MA_SEEK_TARGET_NONE;
@@ -9137,7 +8973,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
             The first thing we need to do is read into the temporary buffer. We can calculate exactly
             how many input frames we'll need after resampling.
             */
-            framesToRead = (ma_uint32)ma_effect_get_required_input_frame_count(&pSound->engineNode.effect, framesRemaining);
+            framesToRead = (ma_uint32)ma_engine_node_get_required_input_frame_count(&pSound->engineNode, framesRemaining);
             if (framesToRead > tempCapInFrames) {
                 framesToRead = tempCapInFrames;
             }
@@ -9149,7 +8985,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
                 c89atomic_exchange_8(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
             }
 
-            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, pSound->engineNode.pEngine->channels);
+            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(pSound->engineNode.pEngine));
 
             frameCountIn = (ma_uint32)framesJustRead;
             frameCountOut = framesRemaining;
@@ -9158,7 +8994,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
             if (dataSourceFormat == ma_format_f32) {
                 /* Fast path. No data conversion necessary. */
                 pRunningFramesIn = (float*)temp;
-                ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
             } else {
                 /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
                 float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
@@ -9166,18 +9002,12 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
 
                 /* Now that we have our samples in f32 format we can process like normal. */
                 pRunningFramesIn = tempf32;
-                ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
             }
 
             /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
             MA_ASSERT(frameCountIn == framesJustRead);
             totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
-
-            /*
-            For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
-            support loop transitions properly. This is temporary until we migrate the engine effect over to the ma_node timing system.
-            */
-            ma_engine_node_set_time(&pSound->engineNode, ma_node_get_time(pSound));
 
             if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
                 break;  /* Might have reached the end. */
@@ -9185,16 +9015,29 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
         }
     }
 
-    /* The effect needs to be updated once per-processing, and must be at the end. */
-    ma_engine_effect__update_resampler_for_pitching(&pSound->engineNode.effect);
-
     *pFrameCountOut = totalFramesRead;
+
+    /*
+    We want to update the pitch once, at the *end* of processing. If we don't force this to only
+    ever be updating once, we could end up in a situation where retrieving the required input frame
+    count ends up being different to what we actually retrieve. What could happen is that the
+    required input frame count is calculated, the pitch is update, and then this processing function
+    is called resulting in a different number of input frames being processed. Do not call this in
+    ma_engine_node_process_pcm_frames__general() or else you'll hit the aforementioned bug.
+    */
+    ma_engine_node_update_pitch_if_required(&pSound->engineNode);
 }
 
 void ma_engine_node_process_pcm_frames__group(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
 {
     /* For groups, the input data has already been read and we just need to apply the effect. */
-    ma_engine_node_process_pcm_frames__effect((ma_engine_node*)pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
+    ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
+
+    /*
+    The pitch can only ever be updated once. We cannot update it in ma_engine_node_process_pcm_frames__general()
+    because otherwise we'll introduce a subtle bug in ma_engine_node_process_pcm_frames__sound().
+    */
+    ma_engine_node_update_pitch_if_required((ma_engine_node*)pNode);
 }
 
 
@@ -9220,6 +9063,10 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 {
     ma_result result;
     ma_node_config baseNodeConfig;
+    ma_resampler_config resamplerConfig;
+    ma_fader_config faderConfig;
+    ma_spatializer_config spatializerConfig;
+    ma_panner_config pannerConfig;
 
     if (pEngineNode == NULL) {
         return MA_INVALID_ARGS;
@@ -9237,29 +9084,75 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, pConfig->pEngine->channels);  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
+        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, ma_engine_get_channels(pConfig->pEngine));  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__group, pConfig->pEngine->channels, pConfig->pEngine->channels);
+        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__group, ma_engine_get_channels(pConfig->pEngine), ma_engine_get_channels(pConfig->pEngine));
         baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
     }
 
     result = ma_node_init(&pConfig->pEngine->nodeGraph, &baseNodeConfig, pAllocationCallbacks, &pEngineNode->baseNode);
     if (result != MA_SUCCESS) {
-        return result;
+        goto error0;
     }
 
-    pEngineNode->pEngine = pConfig->pEngine;
+    pEngineNode->pEngine  = pConfig->pEngine;
+    pEngineNode->pitch    = 1;
+    pEngineNode->oldPitch = 1;
 
-    /* We need to initialize the engine effect. This is what will be applying our pan/pitch/fade/etc. This is temporary until we migrate away from the old ma_engine stuff. */
-    result = ma_engine_effect_init(pEngineNode->pEngine, baseNodeConfig.inputChannels[0], &pEngineNode->effect);
+    /*
+    We can now initialize the effects we need in order to implement the engine node. There's a
+    defined order of operations here, mainly centered around when we convert our channels from the
+    data source's native channel count to the engine's channel count. As a rule, we want to do as
+    much computation as possible before spatialization because there's a chance that will increase
+    the channel count, thereby increasing the amount of work needing to be done to process.
+    */
+
+    /* We'll always do resampling first. */
+    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
+
+    result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
     if (result != MA_SUCCESS) {
-        ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
-        return result;
+        goto error1;
+    }
+
+
+    /* After resampling will come the fader. */
+    faderConfig = ma_fader_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], pEngineNode->pEngine->sampleRate);
+
+    result = ma_fader_init(&faderConfig, &pEngineNode->fader);
+    if (result != MA_SUCCESS) {
+        goto error2;
+    }
+
+
+    /* Spatialization comes next. Everything after this needs to use the engine's channel count. */
+    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], ma_engine_get_channels(pEngineNode->pEngine));
+    
+    result = ma_spatializer_init(&spatializerConfig, &pEngineNode->spatializer);
+    if (result != MA_SUCCESS) {
+        goto error2;
+    }
+
+
+    /*
+    After spatialization comes panning. We need to do this after spatialization because otherwise we wouldn't
+    be able to pan mono sounds. By doing it after spatialization, which converts the number of channels over
+    to the engine's channel count, we can pan mono sounds.
+    */
+    pannerConfig = ma_panner_config_init(ma_format_f32, ma_engine_get_channels(pEngineNode->pEngine));
+
+    result = ma_panner_init(&pannerConfig, &pEngineNode->panner);
+    if (result != MA_SUCCESS) {
+        goto error2;
     }
 
     return MA_SUCCESS;
+
+error2: ma_resampler_uninit(&pEngineNode->resampler);
+error1: ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
+error0: return result;
 }
 
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -9271,7 +9164,8 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 
     /* Now that the node has been uninitialized we can safely uninitialize the rest. */
-    ma_engine_effect_uninit(pEngineNode->pEngine, &pEngineNode->effect);
+    ma_resampler_uninit(&pEngineNode->resampler);
+    ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode)
@@ -9280,22 +9174,10 @@ MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode)
         return MA_INVALID_ARGS;
     }
 
-    /* The effect needs to be reset. This is temporary while we're in the process of migrating away from ma_effect. Later on it'll be a more streamlined reset. */
-    ma_engine_effect_uninit(pEngineNode->pEngine, &pEngineNode->effect);
-    return ma_engine_effect_init(pEngineNode->pEngine, pEngineNode->effect.spatializer.channelsIn, &pEngineNode->effect);
-}
-
-MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 timeInFrames)
-{
-    if (pEngineNode == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    ma_engine_effect_set_time(&pEngineNode->effect, timeInFrames);
+    /* TODO: Implement me. */
 
     return MA_SUCCESS;
 }
-
 
 
 static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound);
@@ -9340,7 +9222,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     pEngine->pResourceManager         = engineConfig.pResourceManager;
     pEngine->pDevice                  = engineConfig.pDevice;
-    pEngine->channels                 = engineConfig.channels;
     pEngine->sampleRate               = engineConfig.sampleRate;
     pEngine->periodSizeInFrames       = engineConfig.periodSizeInFrames;
     pEngine->periodSizeInMilliseconds = engineConfig.periodSizeInMilliseconds;
@@ -9361,8 +9242,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         deviceConfig = ma_device_config_init(ma_device_type_playback);
         deviceConfig.playback.pDeviceID       = engineConfig.pPlaybackDeviceID;
-        deviceConfig.playback.channels        = pEngine->channels;
-        deviceConfig.sampleRate               = pEngine->sampleRate;
+        deviceConfig.playback.channels        = engineConfig.channels;
+        deviceConfig.sampleRate               = engineConfig.sampleRate;
         deviceConfig.dataCallback             = ma_engine_data_callback_internal;
         deviceConfig.pUserData                = pEngine;
         deviceConfig.periodSizeInFrames       = pEngine->periodSizeInFrames;
@@ -9402,7 +9283,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 
     /* Now that have the default listener we can ensure we have the format, channels and sample rate set to proper values to ensure future listeners are configured consistently. */
-    pEngine->channels                 = pEngine->pDevice->playback.channels;
     pEngine->sampleRate               = pEngine->pDevice->sampleRate;
     pEngine->periodSizeInFrames       = pEngine->pDevice->playback.internalPeriodSizeInFrames;
     pEngine->periodSizeInMilliseconds = (pEngine->periodSizeInFrames * 1000) / pEngine->sampleRate;
@@ -9554,9 +9434,19 @@ MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
     return ma_node_graph_get_endpoint(&pEngine->nodeGraph);
 }
 
-MA_API ma_uint64 ma_engine_get_time(ma_engine* pEngine)
+MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
 {
     return ma_node_graph_get_time(&pEngine->nodeGraph);
+}
+
+MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine)
+{
+    return ma_node_graph_get_channels(&pEngine->nodeGraph);
+}
+
+MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine)
+{
+    return pEngine->sampleRate;
 }
 
 
@@ -9984,7 +9874,7 @@ MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
         return MA_INVALID_ARGS;
     }
 
-    pSound->engineNode.effect.pitch = pitch;
+    pSound->engineNode.pitch = pitch;
 
     return MA_SUCCESS;
 }
@@ -9995,7 +9885,7 @@ MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan)
         return MA_INVALID_ARGS;
     }
 
-    return ma_panner_set_pan(&pSound->engineNode.effect.panner, pan);
+    return ma_panner_set_pan(&pSound->engineNode.panner, pan);
 }
 
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
@@ -10004,7 +9894,7 @@ MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
         return MA_INVALID_ARGS;
     }
 
-    return ma_panner_set_mode(&pSound->engineNode.effect.panner, pan_mode);
+    return ma_panner_set_mode(&pSound->engineNode.panner, pan_mode);
 }
 
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
@@ -10013,7 +9903,7 @@ MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_set_position(&pSound->engineNode.effect.spatializer, position);
+    return ma_spatializer_set_position(&pSound->engineNode.spatializer, position);
 }
 
 MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
@@ -10022,7 +9912,7 @@ MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_set_rotation(&pSound->engineNode.effect.spatializer, rotation);
+    return ma_spatializer_set_rotation(&pSound->engineNode.spatializer, rotation);
 }
 
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
@@ -10064,7 +9954,7 @@ MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, 
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_set_fade(&pSound->engineNode.effect.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    return ma_fader_set_fade(&pSound->engineNode.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
 }
 
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
@@ -10073,7 +9963,7 @@ MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volum
         return MA_INVALID_ARGS;
     }
 
-    return ma_sound_set_fade_in_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pSound->engineNode.effect.fader.config.sampleRate) / 1000);
+    return ma_sound_set_fade_in_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pSound->engineNode.fader.config.sampleRate) / 1000);
 }
 
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume)
@@ -10082,7 +9972,7 @@ MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolu
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_get_current_volume(&pSound->engineNode.effect.fader, pVolume);
+    return ma_fader_get_current_volume(&pSound->engineNode.fader, pVolume);
 }
 
 MA_API ma_result ma_sound_set_start_time(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames)
@@ -10156,7 +10046,7 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
         }
 
         /* Time dependant effects need to have their timers updated. */
-        return ma_engine_effect_set_time(&pSound->engineNode.effect, frameIndex);
+        return ma_node_set_time(&pSound->engineNode, frameIndex);
     }
 #endif
 
@@ -10291,7 +10181,7 @@ MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
         return MA_INVALID_ARGS;
     }
 
-    return ma_panner_set_pan(&pGroup->engineNode.effect.panner, pan);
+    return ma_panner_set_pan(&pGroup->engineNode.panner, pan);
 }
 
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
@@ -10300,7 +10190,7 @@ MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
         return MA_INVALID_ARGS;
     }
 
-    pGroup->engineNode.effect.pitch = pitch;
+    pGroup->engineNode.pitch = pitch;
 
     return MA_SUCCESS;
 }
@@ -10312,7 +10202,7 @@ MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_set_fade(&pGroup->engineNode.effect.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    return ma_fader_set_fade(&pGroup->engineNode.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
@@ -10321,7 +10211,7 @@ MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup,
         return MA_INVALID_ARGS;
     }
 
-    return ma_sound_group_set_fade_in_frames(pGroup, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pGroup->engineNode.effect.fader.config.sampleRate) / 1000);
+    return ma_sound_group_set_fade_in_frames(pGroup, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pGroup->engineNode.fader.config.sampleRate) / 1000);
 }
 
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume)
@@ -10330,7 +10220,7 @@ MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, 
         return MA_INVALID_ARGS;
     }
 
-    return ma_fader_get_current_volume(&pGroup->engineNode.effect.fader, pVolume);
+    return ma_fader_get_current_volume(&pGroup->engineNode.fader, pVolume);
 }
 
 MA_API ma_result ma_sound_group_set_start_time(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
@@ -10372,7 +10262,7 @@ MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup,
         return MA_INVALID_ARGS;
     }
 
-    *pTimeInFrames = pGroup->engineNode.effect.timeInFrames;
+    *pTimeInFrames = ma_node_get_time(pGroup);
 
     return MA_SUCCESS;
 }
