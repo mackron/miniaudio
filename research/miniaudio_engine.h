@@ -1536,7 +1536,6 @@ struct ma_sound
     volatile ma_bool8 isLooping;                /* False by default. */
     volatile ma_bool8 atEnd;
     ma_bool8 ownsDataSource;
-    ma_bool8 _isInternal;                       /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
 
     /*
     We're declaring a resource manager data source object here to save us a malloc when loading a
@@ -1552,8 +1551,8 @@ typedef struct ma_sound_inlined ma_sound_inlined;
 struct ma_sound_inlined
 {
     ma_sound sound;
-    volatile ma_sound_inlined* pNext;   /* Can be modified by multiple threads. */
-    volatile ma_sound_inlined* pPrev;   /* Can be modified by multiple threads. */
+    ma_sound_inlined* pNext;
+    ma_sound_inlined* pPrev;
 };
 
 struct ma_sound_group
@@ -1599,6 +1598,9 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
+    ma_mutex inlinedSoundLock;              /* For synchronizing access so the inlined sound list. */
+    ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
+    volatile ma_uint32 inlinedSoundCount;            /* The total number of allocated inlined sound objects. Used for debugging. */
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -8772,6 +8774,10 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 #endif
 
+    /* Setup some stuff for inlined sounds. That is sounds played with ma_engine_play_sound(). */
+    ma_mutex_init(&pEngine->inlinedSoundLock);
+    pEngine->pInlinedSoundHead = NULL;
+
     /* Start the engine if required. This should always be the last step. */
     if (engineConfig.noAutoStart == MA_FALSE) {
         result = ma_engine_start(pEngine);
@@ -8782,7 +8788,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     return MA_SUCCESS;
 
-on_error_5:;
+on_error_5:
+    ma_mutex_uninit(&pEngine->inlinedSoundLock);
 #ifndef MA_NO_RESOURCE_MANAGER
 on_error_4:
     if (pEngine->ownsResourceManager) {
@@ -8813,6 +8820,28 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
         ma_device_uninit(pEngine->pDevice);
         ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
     }
+
+    /*
+    All inlined sounds need to be deleted. I'm going to use a lock here just to future proof in case
+    I want to do some kind of garbage collection later on.
+    */
+    ma_mutex_lock(&pEngine->inlinedSoundLock);
+    {
+        for (;;) {
+            ma_sound_inlined* pSoundToDelete = pEngine->pInlinedSoundHead;
+            if (pSoundToDelete == NULL) {
+                break;  /* Done. */
+            }
+
+            pEngine->pInlinedSoundHead = pSoundToDelete->pNext;
+
+            ma_sound_uninit(&pSoundToDelete->sound);
+            ma_free(pSoundToDelete, &pEngine->allocationCallbacks);
+        }
+    }
+    ma_mutex_unlock(&pEngine->inlinedSoundLock);
+    ma_mutex_uninit(&pEngine->inlinedSoundLock);
+
 
     /* Make sure the node graph is uninitialized after the audio thread has been shutdown to prevent accessing of the node graph after being uninitialized. */
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
@@ -8981,9 +9010,11 @@ MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rot
 }
 
 
-MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeOutputBusIndex)
+MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeInputBusIndex)
 {
-    /*ma_result result;*/
+    ma_result result = MA_SUCCESS;
+    ma_sound_inlined* pSound = NULL;
+    ma_sound_inlined* pNextSound = NULL;
 
     if (pEngine == NULL || pFilePath == NULL) {
         return MA_INVALID_ARGS;
@@ -8992,128 +9023,104 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
     /* Attach to the endpoint node if nothing is specicied. */
     if (pNode == NULL) {
         pNode = ma_node_graph_get_endpoint(&pEngine->nodeGraph);
-        nodeOutputBusIndex = 0;
+        nodeInputBusIndex = 0;
     }
 
     /*
-    Fire and forget sounds never detached from the nodes they're initially attached to, unless
-    they're recycled. When they reach the end they simply return 0 frames which keeps processing
-    clean. What we need to consider, however, is how to go about recycling sounds.
-
-    We store our in-place sounds in a separate list in the engine. Since this is just a helper
-    function and it should never called on the audio thread (don't do it!) I'm just going to use
-    a mutex and move on. If this ever becomes a performance problem I'll consider looking at it,
-    but I think it should be fine.
+    We want to check if we can recycle an already-allocated inlined sound. Since this is just a
+    helper I'm not *too* concerned about performance here and I'm happy to use a lock to keep
+    the implementation simple. Maybe this can be optimized later if there's enough demand, but
+    if this function is being used it probably means the caller doesn't really care too much.
+    
+    What we do is check the atEnd flag. When this is true, we can recycle the sound. Otherwise
+    we just keep iterating. If we reach the end without finding a sound to recycle we just
+    allocate a new one. This doesn't scale well for a massive number of sounds being played
+    simultaneously as we don't ever actually free the sound objects. Some kind of garbage
+    collection routine might be valuable for this which I'll think about.
     */
+    ma_mutex_lock(&pEngine->inlinedSoundLock);
+    {
+        ma_uint32 dataSourceFlags = 0;
 
-    /* TODO: Implement me. */
+        for (pNextSound = pEngine->pInlinedSoundHead; pNextSound != NULL; pNextSound = pNextSound->pNext) {
+            if (c89atomic_load_8(&pNextSound->sound.atEnd)) {
+                /*
+                The sound is at the end which means it's available for recycling. All we need to do
+                is uninitialize it and reinitialize it. All we're doing is recycling memory.
+                */
+                pSound = pNextSound;
+                c89atomic_fetch_sub_32(&pEngine->inlinedSoundCount, 1);
+                break;
+            }
+        }
 
-    return MA_NOT_IMPLEMENTED;
+        if (pSound != NULL) {
+            /*
+            We actually want to detach the sound from the list here. The reason is because we want the sound
+            to be in a consistent state at the non-recycled case to simplify the logic below.
+            */
+            if (pSound->pPrev != NULL) {
+                pSound->pPrev->pNext = pSound->pNext;
+            }
+            if (pSound->pNext != NULL) {
+                pSound->pNext->pPrev = pSound->pPrev;
+            }
+
+            /* Now the previous sound needs to be uninitialized. */
+            ma_sound_uninit(&pNextSound->sound);
+        } else {
+            /* No sound available for recycling. Allocate one now. */
+            pSound = ma_malloc(sizeof(*pSound), &pEngine->allocationCallbacks);
+        }
+
+        if (pSound != NULL) {   /* Safety check for the allocation above. */
+            /*
+            At this point we should have memory allocated for the inlined sound. We just need
+            to initialize it like a normal sound now.
+            */
+            dataSourceFlags |= MA_SOUND_FLAG_ASYNC;                 /* For inlined sounds we don't want to be sitting around waiting for stuff to load so force an async load. */
+            dataSourceFlags |= MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT; /* We want specific control over where the sound is attached in the graph. We'll attach it manually just before playing the sound. */
+
+            result = ma_sound_init_from_file(pEngine, pFilePath, dataSourceFlags, NULL, NULL, &pSound->sound);
+            if (result == MA_SUCCESS) {
+                /* Now attach the sound to the graph. */
+                result = ma_node_attach_output_bus(pSound, 0, pNode, nodeInputBusIndex);
+                if (result == MA_SUCCESS) {
+                    /* At this point the sound should be loaded and we can go ahead and add it to the list. The new item becomes the new head. */
+                    pSound->pNext = pEngine->pInlinedSoundHead;
+                    pSound->pPrev = NULL;
+
+                    pEngine->pInlinedSoundHead = pSound;    /* <-- This is what attaches the sound to the list. */
+                    if (pSound->pNext != NULL) {
+                        pSound->pNext->pPrev = pSound;
+                    }
+                } else {
+                    ma_free(pSound, &pEngine->allocationCallbacks);
+                }
+            } else {
+                ma_free(pSound, &pEngine->allocationCallbacks);
+            }
+        } else {
+            result = MA_OUT_OF_MEMORY;
+        }
+    }
+    ma_mutex_unlock(&pEngine->inlinedSoundLock);
+
+    /* Finally we can start playing the sound. */
+    result = ma_sound_start(&pSound->sound);
+    if (result != MA_SUCCESS) {
+        /* Failed to start the sound. We need to mark it for recycling and return an error. */
+        pSound->sound.atEnd = MA_TRUE;
+        return result;
+    }
+
+    c89atomic_fetch_add_32(&pEngine->inlinedSoundCount, 1);
+    return result;
 }
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup)
 {
     return ma_engine_play_sound_ex(pEngine, pFilePath, pGroup, 0);
-
-#if 0   /* TODO: Delete this whole block later. */
-    ma_result result;
-    ma_sound* pSound = NULL;
-    ma_sound* pNextSound = NULL;
-    ma_uint32 dataSourceFlags = 0;
-
-    if (pEngine == NULL || pFilePath == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pGroup == NULL) {
-        pGroup = &pEngine->masterSoundGroup;
-    }
-
-    dataSourceFlags |= MA_DATA_SOURCE_FLAG_ASYNC;
-
-    /*
-    Fire and forget sounds are never actually removed from the group. In practice there should never be a huge number of sounds playing at the same time so we
-    should be able to get away with recycling sounds. What we need, however, is a way to switch out the old data source with a new one.
-
-    The first thing to do is find an available sound. We will only be doing a forward iteration here so we should be able to do this part without locking. A
-    sound will be available for recycling if it's marked as internal and is at the end.
-    */
-    for (pNextSound = ma_sound_group_first_sound(pGroup); pNextSound != NULL; pNextSound = ma_sound_next_sound_in_group(pNextSound)) {
-        if (pNextSound->_isInternal) {
-            /*
-            We need to check that atEnd flag to determine if this sound is available. The problem is that another thread might be wanting to acquire this
-            sound at the same time. We want to avoid as much locking as possible, so we'll do this as a compare and swap.
-            */
-            if (c89atomic_compare_and_swap_32(&pNextSound->atEnd, MA_TRUE, MA_FALSE) == MA_TRUE) {
-                /* We got it. */
-                pSound = pNextSound;
-                break;
-            } else {
-                /* The sound is not available for recycling. Move on to the next one. */
-            }
-        }
-    }
-
-    if (pSound != NULL) {
-        /*
-        An existing sound is being recycled. There's no need to allocate memory or re-insert into the group (it's already there). All we need to do is replace
-        the data source. The at-end flag has already been unset, and it will marked as playing at the end of this function.
-        */
-
-        /* The at-end flag should have been set to false when we acquired the sound for recycling. */
-        MA_ASSERT(ma_sound_at_end(pSound) == MA_FALSE);
-
-        /* We're just going to reuse the same data source as before so we need to make sure we uninitialize the old one first. */
-        if (pSound->pDataSource != NULL) {  /* <-- Safety. Should never happen. */
-            MA_ASSERT(pSound->ownsDataSource == MA_TRUE);
-            ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
-        }
-
-        /* The old data source has been uninitialized so now we need to initialize the new one. */
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, dataSourceFlags, NULL, &pSound->resourceManagerDataSource);
-        if (result != MA_SUCCESS) {
-            /* We failed to load the resource. We need to return an error. We must also put this sound back up for recycling by setting the at-end flag to true. */
-            c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* <-- Put the sound back up for recycling. */
-            return result;
-        }
-
-        /* Set the data source again. It should always be set to the correct value but just set it again for completeness and consistency with the main init API. */
-        pSound->pDataSource = &pSound->resourceManagerDataSource;
-
-        /* We need to reset the effect. */
-        result = ma_engine_effect_reinit(pEngine, &pSound->effect);
-        if (result != MA_SUCCESS) {
-            /* We failed to reinitialize the effect. The sound is currently in a bad state and we need to delete it and return an error. Should never happen. */
-            ma_sound_uninit(pSound);
-            return result;
-        }
-    } else {
-        /* There's no available sounds for recycling. We need to allocate a sound. This can be done using a stack allocator. */
-        pSound = (ma_sound*)ma__malloc_from_callbacks(sizeof(*pSound), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_SOUND*/); /* TODO: This can certainly be optimized. */
-        if (pSound == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        result = ma_sound_init_from_file(pEngine, pFilePath, dataSourceFlags, NULL, pGroup, pSound);
-        if (result != MA_SUCCESS) {
-            ma__free_from_callbacks(pEngine, &pEngine->allocationCallbacks);
-            return result;
-        }
-
-        /* The sound needs to be marked as internal for our own internal memory management reasons. This is how we know whether or not the sound is available for recycling. */
-        pSound->_isInternal = MA_TRUE;  /* This is the only place _isInternal will be modified. We therefore don't need to worry about synchronizing access to this variable. */
-    }
-
-    /* Finally we can start playing the sound. */
-    result = ma_sound_start(pSound);
-    if (result != MA_SUCCESS) {
-        /* Failed to start the sound. We need to uninitialize it and return an error. */
-        ma_sound_uninit(pSound);
-        return result;
-    }
-
-    return MA_SUCCESS;
-#endif
 }
 
 
