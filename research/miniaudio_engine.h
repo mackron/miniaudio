@@ -1487,22 +1487,20 @@ MA_API ma_result ma_panner_set_pan(ma_panner* pPanner, float pan);
 /* Spatializer. */
 typedef struct
 {
-    ma_engine* pEngine;
-    ma_format format;
-    ma_uint32 channels;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
     ma_vec3 position;
     ma_quat rotation;
 } ma_spatializer_config;
 
-MA_API ma_spatializer_config ma_spatializer_config_init(ma_engine* pEngine, ma_format format, ma_uint32 channels);
+MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
 
 
 typedef struct
 {
     ma_effect_base effect;
-    ma_engine* pEngine;             /* For accessing global, per-engine data such as the listener position and environmental information. */
-    ma_format format;
-    ma_uint32 channels;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
     ma_vec3 position;
     ma_quat rotation;
 } ma_spatializer;
@@ -8428,17 +8426,16 @@ MA_API ma_result ma_panner_set_pan(ma_panner* pPanner, float pan)
 
 
 
-MA_API ma_spatializer_config ma_spatializer_config_init(ma_engine* pEngine, ma_format format, ma_uint32 channels)
+MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut)
 {
     ma_spatializer_config config;
 
     MA_ZERO_OBJECT(&config);
 
-    config.pEngine  = pEngine;
-    config.format   = format;
-    config.channels = channels;
-    config.position = ma_vec3f(0, 0, 0);
-    config.rotation = ma_quatf(0, 0, 0, 1);
+    config.channelsIn  = channelsIn;
+    config.channelsOut = channelsOut;
+    config.position    = ma_vec3f(0, 0, 0);
+    config.rotation    = ma_quatf(0, 0, 0, 1);
 
     return config;
 }
@@ -8464,12 +8461,23 @@ static ma_result ma_spatializer_effect__on_process_pcm_frames(ma_effect* pEffect
     return result;
 }
 
-static ma_result ma_spatializer_effect__on_get_data_format(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_spatializer_effect__on_get_data_format_in(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_spatializer* pSpatializer = (ma_spatializer*)pEffect;
 
-    *pFormat     = pSpatializer->format;
-    *pChannels   = pSpatializer->channels;
+    *pFormat     = ma_format_f32;
+    *pChannels   = pSpatializer->channelsIn;
+    *pSampleRate = 0;   /* There's no notion of sample rate with this effect. */
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_spatializer_effect__on_get_data_format_out(ma_effect* pEffect, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    ma_spatializer* pSpatializer = (ma_spatializer*)pEffect;
+
+    *pFormat     = ma_format_f32;
+    *pChannels   = pSpatializer->channelsOut;
     *pSampleRate = 0;   /* There's no notion of sample rate with this effect. */
 
     return MA_SUCCESS;
@@ -8490,14 +8498,13 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
     pSpatializer->effect.onProcessPCMFrames            = ma_spatializer_effect__on_process_pcm_frames;
     pSpatializer->effect.onGetRequiredInputFrameCount  = NULL;
     pSpatializer->effect.onGetExpectedOutputFrameCount = NULL;
-    pSpatializer->effect.onGetInputDataFormat          = ma_spatializer_effect__on_get_data_format;  /* Same format for both input and output. */
-    pSpatializer->effect.onGetOutputDataFormat         = ma_spatializer_effect__on_get_data_format;
+    pSpatializer->effect.onGetInputDataFormat          = ma_spatializer_effect__on_get_data_format_in;
+    pSpatializer->effect.onGetOutputDataFormat         = ma_spatializer_effect__on_get_data_format_out;
 
-    pSpatializer->pEngine  = pConfig->pEngine;
-    pSpatializer->format   = pConfig->format;
-    pSpatializer->channels = pConfig->channels;
-    pSpatializer->position = pConfig->position;
-    pSpatializer->rotation = pConfig->rotation;
+    pSpatializer->channelsIn  = pConfig->channelsIn;
+    pSpatializer->channelsOut = pConfig->channelsOut;
+    pSpatializer->position    = pConfig->position;
+    pSpatializer->rotation    = pConfig->rotation;
 
     return MA_SUCCESS;
 }
@@ -8508,8 +8515,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         return MA_INVALID_ARGS;
     }
 
-    /* TODO: Implement me. Just copying for now. */
-    ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pSpatializer->format, pSpatializer->channels);
+    /* Spatialization is not yet implemented. However, do do need to do channel conversion here. */
+    if (pSpatializer->channelsIn == pSpatializer->channelsOut) {
+        ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->channelsIn);
+    } else {
+        ma_convert_pcm_frames_channels_f32(pFramesOut, pSpatializer->channelsOut, pFramesIn, pSpatializer->channelsIn, frameCount);
+    }
 
     return MA_SUCCESS;
 }
@@ -8761,7 +8772,10 @@ static ma_result ma_engine_effect__on_process_pcm_frames__no_pre_effect_no_pitch
 
     /* Spatialization. */
     if (pEngineEffect->isSpatial == MA_FALSE) {
-        /* Fast path. No spatialization. */
+        /* Fast path. No spatialization, but may still need to use it for channel conversion. */
+        if (pEngineEffect->spatializer.channelsIn != pEngineEffect->spatializer.channelsOut) {
+            pSubEffect[subEffectCount++] = &pEngineEffect->spatializer;
+        }
     } else {
         /* Slow path. Spatialization required. */
         pSubEffect[subEffectCount++] = &pEngineEffect->spatializer;
@@ -8925,7 +8939,7 @@ static ma_result ma_engine_effect__on_get_output_data_format(ma_effect* pEffect,
     return MA_SUCCESS;
 }
 
-static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEffect)
+static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_uint32 inputChannels, ma_engine_effect* pEffect)
 {
     ma_result result;
     ma_panner_config pannerConfig;
@@ -8948,25 +8962,25 @@ static ma_result ma_engine_effect_init(ma_engine* pEngine, ma_engine_effect* pEf
     pEffect->pitch    = 1;
     pEffect->oldPitch = 1;
 
-    pannerConfig = ma_panner_config_init(ma_format_f32, pEngine->channels);
+    pannerConfig = ma_panner_config_init(ma_format_f32, inputChannels);
     result = ma_panner_init(&pannerConfig, &pEffect->panner);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the panner. */
     }
 
-    spatializerConfig = ma_spatializer_config_init(pEngine, ma_format_f32, pEngine->channels);
+    spatializerConfig = ma_spatializer_config_init(inputChannels, pEngine->channels);
     result = ma_spatializer_init(&spatializerConfig, &pEffect->spatializer);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the spatializer. */
     }
 
-    faderConfig = ma_fader_config_init(ma_format_f32, pEngine->channels, pEngine->sampleRate);
+    faderConfig = ma_fader_config_init(ma_format_f32, inputChannels, pEngine->sampleRate);
     result = ma_fader_init(&faderConfig, &pEffect->fader);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to create the fader. */
     }
 
-    converterConfig = ma_data_converter_config_init(ma_format_f32, ma_format_f32, pEngine->channels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
+    converterConfig = ma_data_converter_config_init(ma_format_f32, ma_format_f32, inputChannels, pEngine->channels, pEngine->sampleRate, pEngine->sampleRate);
 
     /*
     TODO: A few things to figure out with the resampler:
@@ -8997,7 +9011,7 @@ static void ma_engine_effect_uninit(ma_engine* pEngine, ma_engine_effect* pEffec
     ma_data_converter_uninit(&pEffect->converter);
 }
 
-static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* pEffect)
+static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_uint32 channels, ma_engine_effect* pEffect)
 {
     /* This function assumes the data converter was previously initialized and needs to be uninitialized. */
     MA_ASSERT(pEngine != NULL);
@@ -9005,7 +9019,7 @@ static ma_result ma_engine_effect_reinit(ma_engine* pEngine, ma_engine_effect* p
 
     ma_engine_effect_uninit(pEngine, pEffect);
 
-    return ma_engine_effect_init(pEngine, pEffect);
+    return ma_engine_effect_init(pEngine, channels, pEffect);
 }
 
 /* Not used at the moment, but might re-enable this later. */
@@ -9239,7 +9253,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     pEngineNode->pEngine = pConfig->pEngine;
 
     /* We need to initialize the engine effect. This is what will be applying our pan/pitch/fade/etc. This is temporary until we migrate away from the old ma_engine stuff. */
-    result = ma_engine_effect_init(pEngineNode->pEngine, &pEngineNode->effect);
+    result = ma_engine_effect_init(pEngineNode->pEngine, baseNodeConfig.inputChannels[0], &pEngineNode->effect);
     if (result != MA_SUCCESS) {
         ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
         return result;
@@ -9268,7 +9282,7 @@ MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode)
 
     /* The effect needs to be reset. This is temporary while we're in the process of migrating away from ma_effect. Later on it'll be a more streamlined reset. */
     ma_engine_effect_uninit(pEngineNode->pEngine, &pEngineNode->effect);
-    return ma_engine_effect_init(pEngineNode->pEngine, &pEngineNode->effect);
+    return ma_engine_effect_init(pEngineNode->pEngine, pEngineNode->effect.spatializer.channelsIn, &pEngineNode->effect);
 }
 
 MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 timeInFrames)

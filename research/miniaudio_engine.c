@@ -48,7 +48,7 @@ int main(int argc, char** argv)
 
     resourceManagerConfig = ma_resource_manager_config_init();
     resourceManagerConfig.decodedFormat = ma_format_f32;
-    resourceManagerConfig.decodedChannels = 2;
+    //resourceManagerConfig.decodedChannels = 2;
     resourceManagerConfig.decodedSampleRate = 48000;
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
