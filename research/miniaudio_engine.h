@@ -1547,6 +1547,7 @@ MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume);
 #define MA_SOUND_FLAG_ASYNC                 MA_DATA_SOURCE_FLAG_ASYNC       /* 0x00000004 */
 #define MA_SOUND_FLAG_WAIT_INIT             MA_DATA_SOURCE_FLAG_WAIT_INIT   /* 0x00000008 */
 #define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+#define MA_SOUND_FLAG_DISABLE_PITCH         0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
 
 
 typedef enum
@@ -1560,9 +1561,10 @@ typedef struct
     ma_engine* pEngine;
     ma_engine_node_type type;
     ma_uint32 channels;             /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_bool8 isPitchDisabled;       /* Pitching can be explicitly disable with MA_SOUND_FLAG_DISABLE_PITCH to optimize processing. */
 } ma_engine_node_config;
 
-MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type);
+MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags);
 
 
 /* Base node object for both ma_sound and ma_sound_group. */
@@ -1576,7 +1578,8 @@ typedef struct
     ma_panner panner;
     float pitch;
     float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    ma_bool32 isSpatial;            /* Set the false by default. When set to false, will not have spatialisation applied. */
+    ma_bool8 isPitchDisabled;       /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    ma_bool8 isSpatial;             /* Set to false by default. When set to false, will not have spatialisation applied. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
@@ -8737,13 +8740,14 @@ Engine
 #define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
 
 
-MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type)
+MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags)
 {
     ma_engine_node_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.pEngine = pEngine;
-    config.type    = type;
+    config.pEngine         = pEngine;
+    config.type            = type;
+    config.isPitchDisabled = (flags & MA_SOUND_FLAG_DISABLE_PITCH) != 0;
 
     return config;
 }
@@ -8764,7 +8768,7 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
     MA_ASSERT(pEngineNode != NULL);
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
-    return MA_TRUE; /* TODO: Add a MA_SOUND_FLAG_ALLOW_PITCH flag to control this. Default to pitching being disabled to avoid unexpected performance hits. */
+    return !pEngineNode->isPitchDisabled;
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
@@ -9084,7 +9088,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, ma_engine_get_channels(pConfig->pEngine));  /* Input channel count will be ignored here. Will be retrieved dynamically from the data source at processing time. */
+        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, ma_engine_get_channels(pConfig->pEngine));
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
@@ -9097,9 +9101,10 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
         goto error0;
     }
 
-    pEngineNode->pEngine  = pConfig->pEngine;
-    pEngineNode->pitch    = 1;
-    pEngineNode->oldPitch = 1;
+    pEngineNode->pEngine         = pConfig->pEngine;
+    pEngineNode->pitch           = 1;
+    pEngineNode->oldPitch        = 1;
+    pEngineNode->isPitchDisabled = pConfig->isPitchDisabled;
 
     /*
     We can now initialize the effects we need in order to implement the engine node. There's a
@@ -9695,7 +9700,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
     If we can't do this we need to abort. It's up to the caller to ensure they're using a data
     source that provides this information upfront.
     */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound);
+    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound, flags);
 
     result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, NULL);
     if (result != MA_SUCCESS) {
@@ -10100,7 +10105,7 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
     }
 
     /* A sound group is just an engine node. */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group);
+    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group, flags);
     
     result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pGroup->engineNode);
     if (result != MA_SUCCESS) {

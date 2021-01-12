@@ -84,7 +84,6 @@ int main(int argc, char** argv)
         ma_engine_uninit(&engine);
         return -1;
     }
-
 #if 0
     result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound2);
     if (result != MA_SUCCESS) {
@@ -102,7 +101,7 @@ int main(int argc, char** argv)
     //ma_sound_group_set_fade_in_milliseconds(&group, 0, 1, 5000);
 
     
-    ma_sound_set_fade_in_milliseconds(&sound, 0, 1, 5000);
+    //ma_sound_set_fade_in_milliseconds(&sound, 0, 1, 5000);
     /*ma_sound_set_volume(&sound, 0.25f);*/
     /*ma_sound_set_pitch(&sound, 1.2f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
@@ -135,7 +134,7 @@ int main(int argc, char** argv)
     ma_engine_play_sound(&engine, argv[3], NULL);*/
 #endif
 
-#if 0
+#if 1
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
