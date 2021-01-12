@@ -22,8 +22,8 @@
     #endif
 #endif
 
-int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
-int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len);
+int ma_speex_resampler_get_required_input_frame_count(const SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len);
+int ma_speex_resampler_get_expected_output_frame_count(const SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len);
 
 #endif  /* ma_speex_resampler_h */
 
@@ -65,7 +65,7 @@ int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, 
     #undef MA_SPEEX_INLINE_DEFINED
 #endif
 
-EXPORT int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len)
+EXPORT int ma_speex_resampler_get_required_input_frame_count(const SpeexResamplerState* st, spx_uint64_t out_len, spx_uint64_t* in_len)
 {
     spx_uint64_t count;
 
@@ -92,7 +92,7 @@ EXPORT int ma_speex_resampler_get_required_input_frame_count(SpeexResamplerState
     return RESAMPLER_ERR_SUCCESS;
 }
 
-EXPORT int ma_speex_resampler_get_expected_output_frame_count(SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len)
+EXPORT int ma_speex_resampler_get_expected_output_frame_count(const SpeexResamplerState* st, spx_uint64_t in_len, spx_uint64_t* out_len)
 {
     spx_uint64_t count;
     spx_uint64_t last_sample;

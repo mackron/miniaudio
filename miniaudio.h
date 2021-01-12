@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.30 - 2021-01-10
+miniaudio - v0.10.31 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1456,7 +1456,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 30
+#define MA_VERSION_REVISION 31
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2005,7 +2005,7 @@ typedef struct
 MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ);
 MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
 MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ);
+MA_API ma_uint32 ma_biquad_get_latency(const ma_biquad* pBQ);
 
 
 /**************************************************************************************************************************************************************
@@ -2036,7 +2036,7 @@ typedef struct
 MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF);
+MA_API ma_uint32 ma_lpf1_get_latency(const ma_lpf1* pLPF);
 
 typedef struct
 {
@@ -2046,7 +2046,7 @@ typedef struct
 MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
 MA_API ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF);
+MA_API ma_uint32 ma_lpf2_get_latency(const ma_lpf2* pLPF);
 
 
 typedef struct
@@ -2074,7 +2074,7 @@ typedef struct
 MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
 MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF);
+MA_API ma_uint32 ma_lpf_get_latency(const ma_lpf* pLPF);
 
 
 /**************************************************************************************************************************************************************
@@ -2105,7 +2105,7 @@ typedef struct
 MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
 MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
 MA_API ma_result ma_hpf1_process_pcm_frames(ma_hpf1* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_hpf1_get_latency(ma_hpf1* pHPF);
+MA_API ma_uint32 ma_hpf1_get_latency(const ma_hpf1* pHPF);
 
 typedef struct
 {
@@ -2115,7 +2115,7 @@ typedef struct
 MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
 MA_API ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
 MA_API ma_result ma_hpf2_process_pcm_frames(ma_hpf2* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF);
+MA_API ma_uint32 ma_hpf2_get_latency(const ma_hpf2* pHPF);
 
 
 typedef struct
@@ -2143,7 +2143,7 @@ typedef struct
 MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF);
 MA_API ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF);
 MA_API ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF);
+MA_API ma_uint32 ma_hpf_get_latency(const ma_hpf* pHPF);
 
 
 /**************************************************************************************************************************************************************
@@ -2170,7 +2170,7 @@ typedef struct
 MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
 MA_API ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
 MA_API ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF);
+MA_API ma_uint32 ma_bpf2_get_latency(const ma_bpf2* pBPF);
 
 
 typedef struct
@@ -2195,7 +2195,7 @@ typedef struct
 MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
 MA_API ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF);
 MA_API ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF);
+MA_API ma_uint32 ma_bpf_get_latency(const ma_bpf* pBPF);
 
 
 /**************************************************************************************************************************************************************
@@ -2222,7 +2222,7 @@ typedef struct
 MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter);
 MA_API ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter);
 MA_API ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter);
+MA_API ma_uint32 ma_notch2_get_latency(const ma_notch2* pFilter);
 
 
 /**************************************************************************************************************************************************************
@@ -2250,7 +2250,7 @@ typedef struct
 MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter);
 MA_API ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter);
 MA_API ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter);
+MA_API ma_uint32 ma_peak2_get_latency(const ma_peak2* pFilter);
 
 
 /**************************************************************************************************************************************************************
@@ -2278,7 +2278,7 @@ typedef struct
 MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
 MA_API ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
 MA_API ma_result ma_loshelf2_process_pcm_frames(ma_loshelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_loshelf2_get_latency(ma_loshelf2* pFilter);
+MA_API ma_uint32 ma_loshelf2_get_latency(const ma_loshelf2* pFilter);
 
 
 /**************************************************************************************************************************************************************
@@ -2306,7 +2306,7 @@ typedef struct
 MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter);
 MA_API ma_result ma_hishelf2_reinit(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter);
 MA_API ma_result ma_hishelf2_process_pcm_frames(ma_hishelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint32 ma_hishelf2_get_latency(ma_hishelf2* pFilter);
+MA_API ma_uint32 ma_hishelf2_get_latency(const ma_hishelf2* pFilter);
 
 
 
@@ -2363,10 +2363,10 @@ MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler);
 MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
-MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
-MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
-MA_API ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler);
-MA_API ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler);
+MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
+MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
+MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler);
+MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler);
 
 typedef enum
 {
@@ -2462,24 +2462,24 @@ number of output frames.
 The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
 read from the input buffer in order to output the specified number of output frames.
 */
-MA_API ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount);
+MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount);
 
 /*
 Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
 input frames.
 */
-MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount);
+MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount);
 
 
 /*
 Retrieves the latency introduced by the resampler in input frames.
 */
-MA_API ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler);
+MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler);
 
 /*
 Retrieves the latency introduced by the resampler in output frames.
 */
-MA_API ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler);
+MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler);
 
 
 
@@ -2580,10 +2580,10 @@ MA_API void ma_data_converter_uninit(ma_data_converter* pConverter);
 MA_API ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_data_converter_set_rate(ma_data_converter* pConverter, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter, float ratioInOut);
-MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(ma_data_converter* pConverter, ma_uint64 outputFrameCount);
-MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(ma_data_converter* pConverter, ma_uint64 inputFrameCount);
-MA_API ma_uint64 ma_data_converter_get_input_latency(ma_data_converter* pConverter);
-MA_API ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConverter);
+MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount);
+MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount);
+MA_API ma_uint64 ma_data_converter_get_input_latency(const ma_data_converter* pConverter);
+MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* pConverter);
 
 
 /************************************************************************************************************************************************************
@@ -36678,7 +36678,7 @@ MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, 
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_biquad_get_latency(ma_biquad* pBQ)
+MA_API ma_uint32 ma_biquad_get_latency(const ma_biquad* pBQ)
 {
     if (pBQ == NULL) {
         return 0;
@@ -36854,7 +36854,7 @@ MA_API ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, con
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_lpf1_get_latency(ma_lpf1* pLPF)
+MA_API ma_uint32 ma_lpf1_get_latency(const ma_lpf1* pLPF)
 {
     if (pLPF == NULL) {
         return 0;
@@ -36955,7 +36955,7 @@ MA_API ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, con
     return ma_biquad_process_pcm_frames(&pLPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_lpf2_get_latency(ma_lpf2* pLPF)
+MA_API ma_uint32 ma_lpf2_get_latency(const ma_lpf2* pLPF)
 {
     if (pLPF == NULL) {
         return 0;
@@ -37186,7 +37186,7 @@ MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_lpf_get_latency(ma_lpf* pLPF)
+MA_API ma_uint32 ma_lpf_get_latency(const ma_lpf* pLPF)
 {
     if (pLPF == NULL) {
         return 0;
@@ -37361,7 +37361,7 @@ MA_API ma_result ma_hpf1_process_pcm_frames(ma_hpf1* pHPF, void* pFramesOut, con
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_hpf1_get_latency(ma_hpf1* pHPF)
+MA_API ma_uint32 ma_hpf1_get_latency(const ma_hpf1* pHPF)
 {
     if (pHPF == NULL) {
         return 0;
@@ -37462,7 +37462,7 @@ MA_API ma_result ma_hpf2_process_pcm_frames(ma_hpf2* pHPF, void* pFramesOut, con
     return ma_biquad_process_pcm_frames(&pHPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_hpf2_get_latency(ma_hpf2* pHPF)
+MA_API ma_uint32 ma_hpf2_get_latency(const ma_hpf2* pHPF)
 {
     if (pHPF == NULL) {
         return 0;
@@ -37675,7 +37675,7 @@ MA_API ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_hpf_get_latency(ma_hpf* pHPF)
+MA_API ma_uint32 ma_hpf_get_latency(const ma_hpf* pHPF)
 {
     if (pHPF == NULL) {
         return 0;
@@ -37801,7 +37801,7 @@ MA_API ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, con
     return ma_biquad_process_pcm_frames(&pBPF->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_bpf2_get_latency(ma_bpf2* pBPF)
+MA_API ma_uint32 ma_bpf2_get_latency(const ma_bpf2* pBPF)
 {
     if (pBPF == NULL) {
         return 0;
@@ -37977,7 +37977,7 @@ MA_API ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const
     return MA_SUCCESS;
 }
 
-MA_API ma_uint32 ma_bpf_get_latency(ma_bpf* pBPF)
+MA_API ma_uint32 ma_bpf_get_latency(const ma_bpf* pBPF)
 {
     if (pBPF == NULL) {
         return 0;
@@ -38102,7 +38102,7 @@ MA_API ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesO
     return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_notch2_get_latency(ma_notch2* pFilter)
+MA_API ma_uint32 ma_notch2_get_latency(const ma_notch2* pFilter)
 {
     if (pFilter == NULL) {
         return 0;
@@ -38231,7 +38231,7 @@ MA_API ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut
     return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_peak2_get_latency(ma_peak2* pFilter)
+MA_API ma_uint32 ma_peak2_get_latency(const ma_peak2* pFilter)
 {
     if (pFilter == NULL) {
         return 0;
@@ -38357,7 +38357,7 @@ MA_API ma_result ma_loshelf2_process_pcm_frames(ma_loshelf2* pFilter, void* pFra
     return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_loshelf2_get_latency(ma_loshelf2* pFilter)
+MA_API ma_uint32 ma_loshelf2_get_latency(const ma_loshelf2* pFilter)
 {
     if (pFilter == NULL) {
         return 0;
@@ -38483,7 +38483,7 @@ MA_API ma_result ma_hishelf2_process_pcm_frames(ma_hishelf2* pFilter, void* pFra
     return ma_biquad_process_pcm_frames(&pFilter->bq, pFramesOut, pFramesIn, frameCount);
 }
 
-MA_API ma_uint32 ma_hishelf2_get_latency(ma_hishelf2* pFilter)
+MA_API ma_uint32 ma_hishelf2_get_latency(const ma_hishelf2* pFilter)
 {
     if (pFilter == NULL) {
         return 0;
@@ -39041,7 +39041,7 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
 }
 
 
-MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
+MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
 {
     ma_uint64 inputFrameCount;
 
@@ -39064,7 +39064,7 @@ MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(ma_linear_re
     return inputFrameCount;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_resampler* pResampler, ma_uint64 inputFrameCount)
+MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount)
 {
     ma_uint64 outputFrameCount;
     ma_uint64 preliminaryInputFrameCountFromFrac;
@@ -39101,7 +39101,7 @@ MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(ma_linear_r
     return outputFrameCount;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pResampler)
+MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler)
 {
     if (pResampler == NULL) {
         return 0;
@@ -39110,7 +39110,7 @@ MA_API ma_uint64 ma_linear_resampler_get_input_latency(ma_linear_resampler* pRes
     return 1 + ma_lpf_get_latency(&pResampler->lpf);
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_output_latency(ma_linear_resampler* pResampler)
+MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler)
 {
     if (pResampler == NULL) {
         return 0;
@@ -39540,7 +39540,7 @@ MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float rat
     }
 }
 
-MA_API ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResampler, ma_uint64 outputFrameCount)
+MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount)
 {
     if (pResampler == NULL) {
         return 0;
@@ -39580,7 +39580,7 @@ MA_API ma_uint64 ma_resampler_get_required_input_frame_count(ma_resampler* pResa
     return 0;
 }
 
-MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pResampler, ma_uint64 inputFrameCount)
+MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount)
 {
     if (pResampler == NULL) {
         return 0;   /* Invalid args. */
@@ -39620,7 +39620,7 @@ MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(ma_resampler* pRes
     return 0;
 }
 
-MA_API ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler)
+MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler)
 {
     if (pResampler == NULL) {
         return 0;
@@ -39650,7 +39650,7 @@ MA_API ma_uint64 ma_resampler_get_input_latency(ma_resampler* pResampler)
     return 0;
 }
 
-MA_API ma_uint64 ma_resampler_get_output_latency(ma_resampler* pResampler)
+MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler)
 {
     if (pResampler == NULL) {
         return 0;
@@ -41434,7 +41434,7 @@ MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter,
     return ma_resampler_set_rate_ratio(&pConverter->resampler, ratioInOut);
 }
 
-MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(ma_data_converter* pConverter, ma_uint64 outputFrameCount)
+MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount)
 {
     if (pConverter == NULL) {
         return 0;
@@ -41447,7 +41447,7 @@ MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(ma_data_conver
     }
 }
 
-MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(ma_data_converter* pConverter, ma_uint64 inputFrameCount)
+MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount)
 {
     if (pConverter == NULL) {
         return 0;
@@ -41460,7 +41460,7 @@ MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(ma_data_conve
     }
 }
 
-MA_API ma_uint64 ma_data_converter_get_input_latency(ma_data_converter* pConverter)
+MA_API ma_uint64 ma_data_converter_get_input_latency(const ma_data_converter* pConverter)
 {
     if (pConverter == NULL) {
         return 0;
@@ -41473,7 +41473,7 @@ MA_API ma_uint64 ma_data_converter_get_input_latency(ma_data_converter* pConvert
     return 0;   /* No latency without a resampler. */
 }
 
-MA_API ma_uint64 ma_data_converter_get_output_latency(ma_data_converter* pConverter)
+MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* pConverter)
 {
     if (pConverter == NULL) {
         return 0;
@@ -64684,6 +64684,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.31 - TBD
+  - Make some functions const correct.
+
 v0.10.30 - 2021-01-10
   - Fix a crash in ma_audio_buffer_read_pcm_frames().
   - Update spinlock APIs to take a volatile parameter as input.
