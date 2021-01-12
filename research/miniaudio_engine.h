@@ -891,7 +891,7 @@ struct ma_node_graph
 
     /* Read and written by multiple threads. */
     volatile ma_uint32 readCounter; /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
-    volatile ma_uint8 isReading;
+    volatile ma_bool8 isReading;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -1409,10 +1409,10 @@ Within the world there is the concept of a "listener". Each `ma_engine` instance
 if you need more than one listener. In this case you will want to share a resource manager which you can do by initializing one manually and passing it into
 `ma_engine_config`. Using this method will require your application to manage groups and sounds on a per `ma_engine` basis.
 */
-typedef struct ma_engine      ma_engine;
-typedef struct ma_sound       ma_sound;
-typedef struct ma_sound_group ma_sound_group;
-typedef struct ma_listener    ma_listener;
+typedef struct ma_engine        ma_engine;
+typedef struct ma_sound         ma_sound;
+typedef struct ma_sound_group   ma_sound_group;
+typedef struct ma_listener      ma_listener;
 
 typedef struct
 {
@@ -1575,7 +1575,7 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
-    ma_uint32 channels;
+    ma_uint32 channels;             /* Only used when the type is set to ma_engine_node_type_sound. */
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type);
@@ -1592,7 +1592,7 @@ typedef struct
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode); /* This is used when sounds are recycled from ma_engine_play_sound(). */
-MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 timeInFrames);
+MA_API ma_result ma_engine_node_set_time(ma_engine_node* pEngineNode, ma_uint64 timeInFrames);  /* TODO: Remove this when the engine effect has been refactored. Use ma_node_set/get_time() instead. */
 
 
 struct ma_sound
@@ -1600,24 +1600,32 @@ struct ma_sound
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     ma_uint64 seekTarget;                       /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    ma_uint64 runningTimeInEngineFrames;        /* The amount of time the sound has been running in engine frames, including start delays. */
-    ma_uint64 startDelayInEngineFrames;         /* In the engine's sample rate. */
-    ma_uint64 stopDelayInEngineFrames;          /* In the engine's sample rate. */
-    ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
-    volatile ma_bool32 isLooping;               /* False by default. */
-    volatile ma_bool32 atEnd;
-    ma_bool32 ownsDataSource;
-    ma_bool32 _isInternal;                      /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
+    volatile ma_bool8 isLooping;                /* False by default. */
+    volatile ma_bool8 atEnd;
+    ma_bool8 ownsDataSource;
+    ma_bool8 _isInternal;                       /* A marker to indicate the sound is managed entirely by the engine. This will be set to true when the sound is created internally by ma_engine_play_sound(). */
+
+    /*
+    We're declaring a resource manager data source object here to save us a malloc when loading a
+    sound via the resource manager, which I *think* will be the most common scenario.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
     ma_resource_manager_data_source resourceManagerDataSource;
+#endif
+};
+
+/* Structure specifically for sounds played with ma_engine_play_sound(). Making this a separate structure to reduce overhead. */
+typedef struct ma_sound_inlined ma_sound_inlined;
+struct ma_sound_inlined
+{
+    ma_sound sound;
+    volatile ma_sound_inlined* pNext;   /* Can be modified by multiple threads. */
+    volatile ma_sound_inlined* pPrev;   /* Can be modified by multiple threads. */
 };
 
 struct ma_sound_group
 {
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
-    ma_uint64 runningTimeInEngineFrames;        /* The amount of time the sound has been running in engine frames, including start delays. */
-    ma_uint64 startDelayInEngineFrames;
-    ma_uint64 stopDelayInEngineFrames;          /* In the engine's sample rate. */
-    ma_uint64 stopDelayInEngineFramesRemaining; /* The number of frames relative to the engine's clock before the sound is stopped. */
 };
 
 struct ma_listener
@@ -1650,12 +1658,12 @@ struct ma_engine
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
-    ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */
+    ma_pcm_rb fixedRB;                      /* The intermediary ring buffer for helping with fixed sized updates. */ /* TODO: Is fixed sized updates required? */
     ma_listener listener;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    ma_uint32 periodSizeInFrames;
-    ma_uint32 periodSizeInMilliseconds;
+    ma_uint32 channels;                 /* TODO: Get this from the node graph? */
+    ma_uint32 sampleRate;               /* TODO: Get this from the device? Is this needed when supporting non-device engines? */
+    ma_uint32 periodSizeInFrames;       /* TODO: Is this needed? */
+    ma_uint32 periodSizeInMilliseconds; /* TODO: Is this needed? */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
@@ -1663,14 +1671,15 @@ struct ma_engine
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
 MA_API void ma_engine_uninit(ma_engine* pEngine);
+MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
+MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
+MA_API ma_uint64 ma_engine_get_time(ma_engine* pEngine);
 
 MA_API ma_result ma_engine_start(ma_engine* pEngine);
 MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
-
-MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
 MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
@@ -1692,13 +1701,13 @@ MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
 MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume);
-MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
-MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
+MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
@@ -1718,8 +1727,8 @@ MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume);
-MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
-MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds);
+MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames);
+MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_get_time_in_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames);
 
@@ -9086,111 +9095,79 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
         ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
                 
         /* Any time-dependant effects need to have their times updated. */
-        ma_engine_node_set_time(&pSound->engineNode, pSound->seekTarget);
+        ma_engine_node_set_time(&pSound->engineNode, pSound->seekTarget);   /* TODO: Delete this line. */
+        ma_node_set_time(pSound, pSound->seekTarget);
 
         pSound->seekTarget  = MA_SEEK_TARGET_NONE;
     }
 
-    /* If the sound is being delayed we don't want to mix anything, nor do we want to advance time forward from the perspective of the data source. */
-    if ((pSound->runningTimeInEngineFrames + frameCount) > pSound->startDelayInEngineFrames) {
-        /* We're not delayed so we can mix or seek. In order to get frame-exact playback timing we need to start mixing from an offset. */
-        ma_uint64 currentTimeInFrames;
-        ma_uint64 offsetInFrames;
+    /*
+    For the convenience of the caller, we're doing to allow data sources to use non-floating-point formats and channel counts that differ
+    from the main engine.
+    */
+    result = ma_data_source_get_data_format(pSound->pDataSource, &dataSourceFormat, &dataSourceChannels, NULL);
+    if (result == MA_SUCCESS) {
+        tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
 
-        offsetInFrames = 0;
-        if (pSound->startDelayInEngineFrames > pSound->runningTimeInEngineFrames) {
-            offsetInFrames = pSound->startDelayInEngineFrames - pSound->runningTimeInEngineFrames;
-        }
+        /* Keep reading until we've read as much as was requested or we reach the end of the data source. */
+        while (totalFramesRead < frameCount) {
+            ma_uint32 framesRemaining = frameCount - totalFramesRead;
+            ma_uint32 framesToRead;
+            ma_uint64 framesJustRead;
+            ma_uint32 frameCountIn;
+            ma_uint32 frameCountOut;
+            float* pRunningFramesIn;
+            float* pRunningFramesOut;
 
-        MA_ASSERT(offsetInFrames < frameCount);
-
-        /*
-        For the convenience of the caller, we're doing to allow data sources to use non-floating-point formats and channel counts that differ
-        from the main engine.
-        */
-        result = ma_data_source_get_data_format(pSound->pDataSource, &dataSourceFormat, &dataSourceChannels, NULL);
-        if (result == MA_SUCCESS) {
-            tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
-
-            /* Keep reading until we've read as much as was requested or we reach the end of the data source. */
-            while (totalFramesRead < frameCount) {
-                ma_uint32 framesRemaining = frameCount - totalFramesRead;
-                ma_uint32 framesToRead;
-                ma_uint64 framesJustRead;
-                ma_uint32 frameCountIn;
-                ma_uint32 frameCountOut;
-                float* pRunningFramesIn;
-                float* pRunningFramesOut;
-
-                /*
-                The first thing we need to do is read into the temporary buffer. We can calculate exactly
-                how many input frames we'll need after resampling.
-                */
-                framesToRead = (ma_uint32)ma_effect_get_required_input_frame_count(&pSound->engineNode.effect, framesRemaining);
-                if (framesToRead > tempCapInFrames) {
-                    framesToRead = tempCapInFrames;
-                }
-
-                result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, pSound->isLooping);
-
-                /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
-                if (result == MA_AT_END) {
-                    c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
-                }
-
-                pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, pSound->engineNode.pEngine->channels);
-
-                frameCountIn = (ma_uint32)framesJustRead;
-                frameCountOut = framesRemaining;
-
-                /* Convert if necessary. */
-                if (dataSourceFormat == ma_format_f32) {
-                    /* Fast path. No data conversion necessary. */
-                    pRunningFramesIn = (float*)temp;
-                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
-                } else {
-                    /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
-                    float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
-                    ma_convert_pcm_frames_format(tempf32, ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
-
-                    /* Now that we have our samples in f32 format we can process like normal. */
-                    pRunningFramesIn = tempf32;
-                    ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
-                }
-
-                /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
-                //MA_ASSERT(frameCountIn == framesJustRead);
-                totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
-
-                /*
-                For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
-                support loop transitions properly.
-                */
-                result = ma_sound_get_cursor_in_pcm_frames(pSound, &currentTimeInFrames);
-                if (result == MA_SUCCESS) {
-                    ma_engine_node_set_time(&pSound->engineNode, currentTimeInFrames);
-                }
-
-                pSound->runningTimeInEngineFrames += offsetInFrames + totalFramesRead;
-
-                if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
-                    break;  /* Might have reached the end. */
-                }
+            /*
+            The first thing we need to do is read into the temporary buffer. We can calculate exactly
+            how many input frames we'll need after resampling.
+            */
+            framesToRead = (ma_uint32)ma_effect_get_required_input_frame_count(&pSound->engineNode.effect, framesRemaining);
+            if (framesToRead > tempCapInFrames) {
+                framesToRead = tempCapInFrames;
             }
-        }
-    }
 
-    /* If we're stopping after a delay we need to check if the delay has expired and if so, stop for real. */
-    if (pSound->stopDelayInEngineFramesRemaining > 0) {
-        if (pSound->stopDelayInEngineFramesRemaining >= totalFramesRead) {
-            pSound->stopDelayInEngineFramesRemaining -= totalFramesRead;
-        } else {
-            pSound->stopDelayInEngineFramesRemaining = 0;
-        }
+            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, pSound->isLooping);
 
-        /* Stop the sound if the delay has been reached. */
-        if (pSound->stopDelayInEngineFramesRemaining == 0) {
-            ma_sound_stop(pSound);
+            /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
+            if (result == MA_AT_END) {
+                c89atomic_exchange_8(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+            }
+
+            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, pSound->engineNode.pEngine->channels);
+
+            frameCountIn = (ma_uint32)framesJustRead;
+            frameCountOut = framesRemaining;
+
+            /* Convert if necessary. */
+            if (dataSourceFormat == ma_format_f32) {
+                /* Fast path. No data conversion necessary. */
+                pRunningFramesIn = (float*)temp;
+                ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+            } else {
+                /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
+                float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
+                ma_convert_pcm_frames_format(tempf32, ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
+
+                /* Now that we have our samples in f32 format we can process like normal. */
+                pRunningFramesIn = tempf32;
+                ma_engine_node_process_pcm_frames__effect(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+            }
+
+            /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
+            MA_ASSERT(frameCountIn == framesJustRead);
+            totalFramesRead += (ma_uint32)frameCountOut;   /* Safe cast. */
+
+            /*
+            For the benefit of the main effect we need to ensure the local time is updated explicitly. This is required for allowing time-based effects to
+            support loop transitions properly. This is temporary until we migrate the engine effect over to the ma_node timing system.
+            */
+            ma_engine_node_set_time(&pSound->engineNode, ma_node_get_time(pSound));
+
+            if (result != MA_SUCCESS || ma_sound_at_end(pSound)) {
+                break;  /* Might have reached the end. */
+            }
         }
     }
 
@@ -9325,7 +9302,7 @@ static void ma_engine_listener__data_callback_fixed(ma_engine* pEngine, void* pF
     MA_ASSERT(pEngine != NULL);
     MA_ASSERT(pEngine->periodSizeInFrames == frameCount);   /* This must always be true. */
 
-    ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, NULL);
+    ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
 }
 
 static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
@@ -9498,6 +9475,11 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
 #endif
 }
 
+MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    return ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, pFramesRead);
+}
+
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     ma_uint32 pcmFramesAvailableInRB;
@@ -9553,6 +9535,16 @@ MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const 
     (void)pFramesIn;   /* Not doing anything with input right now. */
 }
 
+MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
+{
+    return ma_node_graph_get_endpoint(&pEngine->nodeGraph);
+}
+
+MA_API ma_uint64 ma_engine_get_time(ma_engine* pEngine)
+{
+    return ma_node_graph_get_time(&pEngine->nodeGraph);
+}
+
 
 MA_API ma_result ma_engine_start(ma_engine* pEngine)
 {
@@ -9602,12 +9594,6 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
     }
 
     return ma_device_set_master_gain_db(pEngine->pDevice, gainDB);
-}
-
-
-MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
-{
-    return ma_node_graph_get_endpoint(&pEngine->nodeGraph);
 }
 
 
@@ -9940,7 +9926,7 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         }
 
         /* Make sure we clear the end indicator. */
-        c89atomic_exchange_32(&pSound->atEnd, MA_FALSE);
+        c89atomic_exchange_8(&pSound->atEnd, MA_FALSE);
     }
 
     /* Make sure the sound is started. If there's a start delay, the sound won't actually start until the start time is reached. */
@@ -10025,13 +10011,13 @@ MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
     return ma_spatializer_set_rotation(&pSound->engineNode.effect.spatializer, rotation);
 }
 
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_exchange_32(&pSound->isLooping, isLooping);
+    c89atomic_exchange_8(&pSound->isLooping, isLooping);
 
     /*
     This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
@@ -10085,31 +10071,22 @@ MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolu
     return ma_fader_get_current_volume(&pSound->engineNode.effect.fader, pVolume);
 }
 
-MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_set_start_delay(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
-
-    /*
-    It's important that the delay be timed based on the engine's sample rate and not the rate of the sound. The reason is that no processing will be happening
-    by the sound before playback has actually begun and we won't have accurate frame counters due to resampling.
-    */
-    pSound->startDelayInEngineFrames = (pSound->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
+    return ma_node_set_state_time(pSound, ma_node_state_started, absoluteGlobalTimeInFrames);
 }
 
-MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_set_stop_delay(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pSound->stopDelayInEngineFrames = (pSound->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
+    return ma_node_set_state_time(pSound, ma_node_state_stopped, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
@@ -10127,7 +10104,7 @@ MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_32((ma_bool32*)&pSound->atEnd);
+    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
 }
 
 MA_API ma_result ma_sound_get_time_in_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames)
@@ -10342,26 +10319,22 @@ MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, 
     return ma_fader_get_current_volume(&pGroup->engineNode.effect.fader, pVolume);
 }
 
-MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_group_set_start_delay(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
     if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pGroup->startDelayInEngineFrames = (pGroup->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
+    return ma_node_set_state_time(pGroup, ma_node_state_started, absoluteGlobalTimeInFrames);
 }
 
-MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 delayInMilliseconds)
+MA_API ma_result ma_sound_group_set_stop_delay(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
     if (pGroup == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pGroup->stopDelayInEngineFrames = (pGroup->engineNode.pEngine->sampleRate * delayInMilliseconds) / 1000;
-
-    return MA_SUCCESS;
+    return ma_node_set_state_time(pGroup, ma_node_state_stopped, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup)
