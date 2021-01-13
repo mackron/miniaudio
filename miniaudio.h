@@ -43130,6 +43130,12 @@ MA_API ma_uint32 ma_get_bytes_per_sample(ma_format format)
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
 {
     ma_data_source_callbacks* pCallbacks = (ma_data_source_callbacks*)pDataSource;
+
+    /* Safety. */
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
     if (pCallbacks == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -64686,6 +64692,7 @@ REVISION HISTORY
 ================
 v0.10.31 - TBD
   - Make some functions const correct.
+  - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
 
 v0.10.30 - 2021-01-10
   - Fix a crash in ma_audio_buffer_read_pcm_frames().

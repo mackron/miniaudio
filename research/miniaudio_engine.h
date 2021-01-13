@@ -5976,6 +5976,11 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     ma_bool32 isLooping;
     ma_bool32 skipBusyCheck = MA_FALSE;
 
+    /* Safety. */
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
     /*
     We cannot be using the data buffer after it's been uninitialized. If you trigger this assert it means you're trying to read from the data buffer after
     it's been uninitialized or is in the process of uninitializing.
@@ -6617,6 +6622,11 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
     ma_format format;
     ma_uint32 channels;
 
+    /* Safety. */
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
@@ -7031,6 +7041,11 @@ MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data
 
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    /* Safety. */
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
