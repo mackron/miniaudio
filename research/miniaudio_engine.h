@@ -799,6 +799,7 @@ struct ma_node_output_bus
 {
     /* Immutable. */
     ma_node* pNode;                             /* The node that owns this output bus. The input node. Will be null for dummy head and tail nodes. */
+    ma_uint32 readCounter;                      /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     ma_uint8 outputBusIndex;                    /* The index of the output bus on pNode that this output bus represents. */
     ma_uint8 channels;                          /* The number of channels in the audio stream for this bus. */
 
@@ -2296,6 +2297,22 @@ static float ma_node_output_bus_get_volume(const ma_node_output_bus* pOutputBus)
     return c89atomic_load_f32((float*)&pOutputBus->volume);
 }
 
+static ma_uint32 ma_node_output_bus_set_read_counter(ma_node_output_bus* pOutputBus, ma_uint32 newReadCounter)
+{
+    ma_uint32 oldReadCounter;
+
+    MA_ASSERT(pOutputBus != NULL);
+
+    /*
+    This function will only ever be called in a controlled environment (only on the audio thread,
+    and never concurrently).
+    */
+    oldReadCounter = pOutputBus->readCounter;
+    pOutputBus->readCounter = newReadCounter;
+
+    return oldReadCounter;
+}
+
 
 
 static ma_result ma_node_input_bus_init(ma_uint32 channels, ma_node_input_bus* pInputBus)
@@ -2537,23 +2554,6 @@ static ma_node_output_bus* ma_node_input_bus_first(ma_node_input_bus* pInputBus)
 }
 
 
-static ma_uint32 ma_node_set_read_counter(ma_node* pNode, ma_uint32 newReadCounter)
-{
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_uint32 oldReadCounter;
-
-    MA_ASSERT(pNodeBase != NULL);
-
-    /*
-    This function will only ever be called in a controlled environment (only on the audio thread,
-    and never concurrently).
-    */
-    oldReadCounter = pNodeBase->readCounter;
-    pNodeBase->readCounter = newReadCounter;
-
-    return oldReadCounter;
-}
-
 
 static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_input_bus* pInputBus, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime)
 {
@@ -2610,7 +2610,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
         which would cause all iterations after the first to return 0 frames because of the loop
         detection logic getting triggered.
         */
-        readCounter = ma_node_set_read_counter(pOutputBus->pNode, ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode)) + 1);
+        readCounter = ma_node_output_bus_set_read_counter(pOutputBus, ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode)) + 1);
 
         /*
         If the node's read counter is larger than that of the graph it means we've hit a loop and
