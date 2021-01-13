@@ -89,11 +89,11 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    ma_node_set_state_time(&g_dataSourceNode, ma_node_state_started, 48000*1);
-    ma_node_set_state_time(&g_dataSourceNode, ma_node_state_stopped, 48000*5);
+    /*ma_node_set_state_time(&g_dataSourceNode, ma_node_state_started, 48000*1);
+    ma_node_set_state_time(&g_dataSourceNode, ma_node_state_stopped, 48000*5);*/
 
 
-
+#if 0
     /*
     Splitter node. Note that we've already attached the data source node to another, so this section
     will test that changing of attachments works as expected.
@@ -141,12 +141,12 @@ int main(int argc, char** argv)
     ma_node_attach_output_bus(&g_splitterNode, 1, &g_loopNode, 1);
 
     /* Now loop back to the splitter node to form a loop. */
-    ma_node_attach_output_bus(&g_loopNode, 1, &g_splitterNode, 0);
+    /*ma_node_attach_output_bus(&g_loopNode, 1, &g_splitterNode, 0);*/
 #endif
 
     /* The data source needs to have it's connection changed from the endpoint to the splitter. */
     ma_node_attach_output_bus(&g_dataSourceNode, 0, &g_splitterNode, 0);
-
+#endif
 
     
 

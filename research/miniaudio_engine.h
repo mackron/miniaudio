@@ -1704,6 +1704,17 @@ MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 ch
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
 
+static void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    ma_waveform_config waveformConfig;
+    ma_waveform waveform;
+
+    waveformConfig = ma_waveform_config_init(format, channels, sampleRate, ma_waveform_type_sine, 1.0, 400);
+    ma_waveform_init(&waveformConfig, &waveform);
+    ma_waveform_read_pcm_frames(&waveform, pFramesOut, frameCount);
+}
+
+
 
 static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
 {
@@ -2595,6 +2606,9 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     after calling ma_node_input_bus_next(), which we won't be.
     */
     pFirst = ma_node_input_bus_first(pInputBus);
+    if (pFirst == NULL) {
+        return MA_SUCCESS;  /* No attachments. Read nothing. */
+    }
 
     for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
         ma_uint32 framesProcessed = 0;
@@ -2775,7 +2789,7 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     pNodeBase->stateTimes[ma_node_state_started] = 0;
     pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
 
-    /* We need to run an initialization step for each input bus. This just sets up the dummy head and tail nodes. */ 
+    /* We need to run an initialization step for each input bus. */ 
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNodeBase); iInputBus += 1) {
         if (pConfig->inputChannels[iInputBus] < MA_MIN_CHANNELS || pConfig->inputChannels[iInputBus] > MA_MAX_CHANNELS) {
             return MA_INVALID_ARGS; /* Invalid channel count. */
@@ -2834,6 +2848,24 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
         if (pNodeBase->pCachedData == NULL) {
             return MA_OUT_OF_MEMORY;
         }
+
+    #if 1   /* Toggle this between 0 and 1 to turn debugging on or off. 1 = fill with a sine wave for debugging; 0 = fill with silence. */
+        /* For safety we'll go ahead and default the buffer to silence. */
+        for (iBus = 0; iBus < ma_node_get_input_bus_count(pNodeBase); iBus += 1) {
+            ma_silence_pcm_frames(ma_node_get_cached_input_ptr(pNode, iBus), pNodeBase->cachedDataCapInFramesPerBus, ma_format_f32, ma_node_input_bus_get_channels(&pNodeBase->inputBuses[iBus]));
+        }
+        for (iBus = 0; iBus < ma_node_get_output_bus_count(pNodeBase); iBus += 1) {
+            ma_silence_pcm_frames(ma_node_get_cached_output_ptr(pNode, iBus), pNodeBase->cachedDataCapInFramesPerBus, ma_format_f32, ma_node_output_bus_get_channels(&pNodeBase->outputBuses[iBus]));
+        }
+    #else
+        /* For debugging. Default to a sine wave. */
+        for (iBus = 0; iBus < ma_node_get_input_bus_count(pNodeBase); iBus += 1) {
+            ma_debug_fill_pcm_frames_with_sine_wave(ma_node_get_cached_input_ptr(pNode, iBus), pNodeBase->cachedDataCapInFramesPerBus, ma_format_f32, ma_node_input_bus_get_channels(&pNodeBase->inputBuses[iBus]), 48000);
+        }
+        for (iBus = 0; iBus < ma_node_get_output_bus_count(pNodeBase); iBus += 1) {
+            ma_debug_fill_pcm_frames_with_sine_wave(ma_node_get_cached_output_ptr(pNode, iBus), pNodeBase->cachedDataCapInFramesPerBus, ma_format_f32, ma_node_output_bus_get_channels(&pNodeBase->outputBuses[iBus]), 48000);
+        }
+    #endif
     }
     
 
