@@ -2655,10 +2655,21 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
                 if (pOutputBus == pFirst) {
                     /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
+                    if (result == MA_SUCCESS || result == MA_AT_END) {
+                        /* Apply volume, if necessary. */
+                        if (volume != 1) {
+                            ma_apply_volume_factor_f32(pRunningFramesOut, framesJustRead * inputChannels, volume);
+                        }
+                    }
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
                     if (result == MA_SUCCESS || result == MA_AT_END) {
+                        /* Apply volume, if necessary. */
+                        if (volume != 1) {
+                            ma_apply_volume_factor_f32(temp, framesJustRead * inputChannels, volume);
+                        }
+
                         ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
                     }
                 }
