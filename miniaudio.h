@@ -1649,6 +1649,12 @@ MA_LOG_LEVEL_ERROR
 #define MA_LOG_LEVEL           MA_LOG_LEVEL_ERROR
 #endif
 
+/*
+An annotation for variables which must be used atomically. This doesn't actually do anything - it's
+just used as a way for humans to identify variables that should be used atomically.
+*/
+#define MA_ATOMIC
+
 typedef struct ma_context ma_context;
 typedef struct ma_device ma_device;
 
@@ -2728,10 +2734,10 @@ typedef struct
     ma_uint32 subbufferSizeInBytes;
     ma_uint32 subbufferCount;
     ma_uint32 subbufferStrideInBytes;
-    volatile ma_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    volatile ma_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. */
-    ma_bool8 ownsBuffer;                   /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
-    ma_bool8 clearOnWriteAcquire;          /* When set, clears the acquired write buffer before returning from ma_rb_acquire_write(). */
+    MA_ATOMIC ma_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
+    MA_ATOMIC ma_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
+    ma_bool8 ownsBuffer;                    /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
+    ma_bool8 clearOnWriteAcquire;           /* When set, clears the acquired write buffer before returning from ma_rb_acquire_write(). */
     ma_allocation_callbacks allocationCallbacks;
 } ma_rb;
 
@@ -3917,7 +3923,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    volatile ma_uint32 state;               /* The state of the device is variable and can change at any time on any thread, so tell the compiler as such with `volatile`. */
+    MA_ATOMIC ma_uint32 state;              /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_callback_proc onData;         /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
@@ -3933,7 +3939,7 @@ struct ma_device
     ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreZeroedOutputBuffer;
     ma_bool8 noClip;
-    volatile float masterVolumeFactor;      /* Volatile so we can use some thread safety when applying volume to periods. */
+    MA_ATOMIC float masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
@@ -3997,24 +4003,24 @@ struct ma_device
             /*IAudioClient**/ ma_ptr pAudioClientCapture;
             /*IAudioRenderClient**/ ma_ptr pRenderClient;
             /*IAudioCaptureClient**/ ma_ptr pCaptureClient;
-            /*IMMDeviceEnumerator**/ ma_ptr pDeviceEnumerator;  /* Used for IMMNotificationClient notifications. Required for detecting default device changes. */
+            /*IMMDeviceEnumerator**/ ma_ptr pDeviceEnumerator;      /* Used for IMMNotificationClient notifications. Required for detecting default device changes. */
             ma_IMMNotificationClient notificationClient;
-            /*HANDLE*/ ma_handle hEventPlayback;                /* Auto reset. Initialized to signaled. */
-            /*HANDLE*/ ma_handle hEventCapture;                 /* Auto reset. Initialized to unsignaled. */
-            ma_uint32 actualPeriodSizeInFramesPlayback;         /* Value from GetBufferSize(). internalPeriodSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
+            /*HANDLE*/ ma_handle hEventPlayback;                    /* Auto reset. Initialized to signaled. */
+            /*HANDLE*/ ma_handle hEventCapture;                     /* Auto reset. Initialized to unsignaled. */
+            ma_uint32 actualPeriodSizeInFramesPlayback;             /* Value from GetBufferSize(). internalPeriodSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
             ma_uint32 actualPeriodSizeInFramesCapture;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
             ma_performance_profile originalPerformanceProfile;
-            volatile ma_bool32 hasDefaultPlaybackDeviceChanged; /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            volatile ma_bool32 hasDefaultCaptureDeviceChanged;  /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            volatile ma_bool32 isStartedCapture;                /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            volatile ma_bool32 isStartedPlayback;               /* <-- Make sure this is always a whole 32-bits because we use atomic assignments. */
-            ma_bool8 noAutoConvertSRC;                          /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
-            ma_bool8 noDefaultQualitySRC;                       /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
+            MA_ATOMIC ma_bool8 hasDefaultPlaybackDeviceChanged;    /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            MA_ATOMIC ma_bool8 hasDefaultCaptureDeviceChanged;     /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            MA_ATOMIC ma_bool8 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            MA_ATOMIC ma_bool8 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
+            ma_bool8 noDefaultQualitySRC;                           /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
             ma_bool8 noHardwareOffloading;
             ma_bool8 allowCaptureAutoStreamRouting;
             ma_bool8 allowPlaybackAutoStreamRouting;
@@ -4163,14 +4169,14 @@ struct ma_device
             ma_event operationCompletionEvent;
             ma_semaphore operationSemaphore;
             ma_uint32 operation;
-            volatile ma_result operationResult;
+            ma_result operationResult;
             ma_timer timer;
             double priorRunTime;
             ma_uint32 currentPeriodFramesRemainingPlayback;
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            volatile ma_bool32 isStarted;
+            MA_ATOMIC ma_bool8 isStarted;   /* Read and written by multiple threads. Must be used atomically. */
         } null_device;
 #endif
     };
@@ -11903,7 +11909,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         ma_event_wait(&pDevice->null_device.operationEvent);
 
         /* At this point an event should have been triggered. */
-        operation = c89atomic_load_32(&pDevice->null_device.operation);
+        operation = pDevice->null_device.operation;
 
         /* Starting the device needs to put the thread into a loop. */
         if (operation == MA_DEVICE_OP_START__NULL) {
@@ -11911,7 +11917,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             ma_timer_init(&pDevice->null_device.timer);
 
             /* Getting here means a suspend or kill operation has been requested. */
-            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
+            pDevice->null_device.operationResult = MA_SUCCESS;
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
@@ -11924,7 +11930,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
             ma_timer_init(&pDevice->null_device.timer);
 
             /* We're done. */
-            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
+            pDevice->null_device.operationResult = MA_SUCCESS;
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;
@@ -11932,7 +11938,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
 
         /* Killing the device means we need to get out of this loop so that this thread can terminate. */
         if (operation == MA_DEVICE_OP_KILL__NULL) {
-            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, MA_SUCCESS);
+            pDevice->null_device.operationResult = MA_SUCCESS;
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             break;
@@ -11941,7 +11947,7 @@ static ma_thread_result MA_THREADCALL ma_device_thread__null(void* pData)
         /* Getting a signal on a "none" operation probably means an error. Return invalid operation. */
         if (operation == MA_DEVICE_OP_NONE__NULL) {
             MA_ASSERT(MA_FALSE);  /* <-- Trigger this in debug mode to ensure developers are aware they're doing something wrong (or there's a bug in a miniaudio). */
-            c89atomic_exchange_32((c89atomic_uint32*)&pDevice->null_device.operationResult, (c89atomic_uint32)MA_INVALID_OPERATION);
+            pDevice->null_device.operationResult = MA_INVALID_OPERATION;
             ma_event_signal(&pDevice->null_device.operationCompletionEvent);
             ma_semaphore_release(&pDevice->null_device.operationSemaphore);
             continue;   /* Continue the loop. Don't terminate. */
@@ -11956,6 +11962,12 @@ static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 oper
     ma_result result;
 
     /*
+    TODO: Need to review this and consider just using mutual exclusion. I think the original motivation
+    for this was to just post the event to a queue and return immediately, but that has since changed
+    and now this function is synchronous. I think this can be simplified to just use a mutex.
+    */
+
+    /*
     The first thing to do is wait for an operation slot to become available. We only have a single slot for this, but we could extend this later
     to support queing of operations.
     */
@@ -11968,7 +11980,7 @@ static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 oper
     When we get here it means the background thread is not referencing the operation code and it can be changed. After changing this we need to
     signal an event to the worker thread to let it know that it can start work.
     */
-    c89atomic_exchange_32(&pDevice->null_device.operation, operation);
+    pDevice->null_device.operation = operation;
 
     /* Once the operation code has been set, the worker thread can start work. */
     if (ma_event_signal(&pDevice->null_device.operationEvent) != MA_SUCCESS) {
@@ -11980,7 +11992,7 @@ static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 oper
         return MA_ERROR;
     }
 
-    return c89atomic_load_i32(&pDevice->null_device.operationResult);
+    return pDevice->null_device.operationResult;
 }
 
 static ma_uint64 ma_device_get_total_run_time_in_frames__null(ma_device* pDevice)
@@ -12155,7 +12167,7 @@ static ma_result ma_device_start__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_START__NULL);
 
-    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_TRUE);
+    c89atomic_exchange_8(&pDevice->null_device.isStarted, MA_TRUE);
     return MA_SUCCESS;
 }
 
@@ -12165,7 +12177,7 @@ static ma_result ma_device_stop__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_SUSPEND__NULL);
 
-    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_FALSE);
+    c89atomic_exchange_8(&pDevice->null_device.isStarted, MA_FALSE);
     return MA_SUCCESS;
 }
 
@@ -12179,7 +12191,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         *pFramesWritten = 0;
     }
 
-    wasStartedOnEntry = c89atomic_load_32(&pDevice->null_device.isStarted);
+    wasStartedOnEntry = c89atomic_load_8(&pDevice->null_device.isStarted);
 
     /* Keep going until everything has been read. */
     totalPCMFramesProcessed = 0;
@@ -12205,7 +12217,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         if (pDevice->null_device.currentPeriodFramesRemainingPlayback == 0) {
             pDevice->null_device.currentPeriodFramesRemainingPlayback = 0;
 
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
+            if (!c89atomic_load_8(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
                 result = ma_device_start__null(pDevice);
                 if (result != MA_SUCCESS) {
                     break;
@@ -12225,7 +12237,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
+            if (!c89atomic_load_8(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -12296,7 +12308,7 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
+            if (!c89atomic_load_8(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -13157,7 +13169,7 @@ typedef struct
 struct ma_completion_handler_uwp
 {
     ma_completion_handler_uwp_vtbl* lpVtbl;
-    volatile ma_uint32 counter;
+    MA_ATOMIC ma_uint32 counter;
     HANDLE hEvent;
 };
 
@@ -13368,10 +13380,10 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     that properly.
     */
     if (dataFlow == ma_eRender  && pThis->pDevice->type != ma_device_type_loopback) {
-        c89atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_TRUE);
+        c89atomic_exchange_8(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_TRUE);
     }
     if (dataFlow == ma_eCapture || pThis->pDevice->type == ma_device_type_loopback) {
-        c89atomic_exchange_32(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged, MA_TRUE);
+        c89atomic_exchange_8(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged, MA_TRUE);
     }
 
     (void)pDefaultDeviceID;
@@ -14556,7 +14568,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualPeriodSizeInFramesCapture);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (c89atomic_load_32(&pDevice->wasapi.isStartedCapture)) {
+        if (c89atomic_load_8(&pDevice->wasapi.isStartedCapture)) {
             HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
             if (FAILED(hr)) {
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device after reinitialization.", ma_result_from_HRESULT(hr));
@@ -14592,7 +14604,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
         /* The device may be in a started state. If so we need to immediately restart it. */
-        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
+        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
             HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
             if (FAILED(hr)) {
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device after reinitialization.", ma_result_from_HRESULT(hr));
@@ -14809,8 +14821,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     }
 #endif
 
-    c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
-    c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+    c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
+    c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
 
     return MA_SUCCESS;
 }
@@ -14855,11 +14867,11 @@ static ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_de
     MA_ASSERT(pDevice != NULL);
 
     if (deviceType == ma_device_type_playback) {
-        return c89atomic_load_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged);
+        return c89atomic_load_8(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged);
     }
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        return c89atomic_load_32(&pDevice->wasapi.hasDefaultCaptureDeviceChanged);
+        return c89atomic_load_8(&pDevice->wasapi.hasDefaultCaptureDeviceChanged);
     }
 
     return MA_FALSE;
@@ -14874,10 +14886,10 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     }
 
     if (deviceType == ma_device_type_playback) {
-        c89atomic_exchange_32(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_FALSE);
+        c89atomic_exchange_8(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_FALSE);
     }
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        c89atomic_exchange_32(&pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_FALSE);
+        c89atomic_exchange_8(&pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_FALSE);
     }
 
 
@@ -14952,7 +14964,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
         if (FAILED(hr)) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", ma_result_from_HRESULT(hr));
         }
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_TRUE);
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_TRUE);
     }
 
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
@@ -15264,7 +15276,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     mappedDeviceBufferSizeInFramesPlayback    = 0;
                 }
 
-                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
+                if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
                     ma_uint32 startThreshold = pDevice->playback.internalPeriodSizeInFrames * 1;
 
                     /* Prevent a deadlock. If we don't clamp against the actual buffer size we'll never end up starting the playback device which will result in a deadlock. */
@@ -15279,7 +15291,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                             ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
                             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
                         }
-                        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                     }
                 }
             } break;
@@ -15430,7 +15442,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                 }
 
                 framesWrittenToPlaybackDevice += framesAvailablePlayback;
-                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
+                if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
                     if (pDevice->playback.shareMode == ma_share_mode_exclusive || framesWrittenToPlaybackDevice >= pDevice->playback.internalPeriodSizeInFrames*1) {
                         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                         if (FAILED(hr)) {
@@ -15438,7 +15450,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                             exitLoop = MA_TRUE;
                             break;
                         }
-                        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                     }
                 }
             } break;
@@ -15465,7 +15477,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", ma_result_from_HRESULT(hr));
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_FALSE);
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -15478,7 +15490,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
-        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
+        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
             DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
 
@@ -15523,7 +15535,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", ma_result_from_HRESULT(hr));
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
     }
 
     return MA_SUCCESS;

@@ -803,16 +803,16 @@ struct ma_node_output_bus
     ma_uint8 outputBusIndex;                    /* The index of the output bus on pNode that this output bus represents. */
     ma_uint8 channels;                          /* The number of channels in the audio stream for this bus. */
 
-    /* Mutable via multiple threads. The weird ordering here is for packing reasons. */
-    volatile ma_uint8 inputNodeInputBusIndex;   /* The index of the input bus on the input. Required for detaching. */
-    volatile ma_uint8 flags;                    /* Some state flags for tracking the read state of the output buffer. */
-    volatile ma_uint16 refCount;                /* Reference count for some thread-safety when detaching. */
-    volatile ma_bool8 isAttached;               /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
-    volatile ma_spinlock lock;                  /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
-    volatile float volume;                      /* Linear 0..1 */
-    volatile ma_node_output_bus* pNext;         /* If null, it's the tail node or detached. */
-    volatile ma_node_output_bus* pPrev;         /* If null, it's the head node or detached. */
-    volatile ma_node* pInputNode;               /* The node that this output bus is attached to. Required for detaching. */    
+    /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
+    MA_ATOMIC ma_uint8 inputNodeInputBusIndex;  /* The index of the input bus on the input. Required for detaching. */
+    MA_ATOMIC ma_uint8 flags;                   /* Some state flags for tracking the read state of the output buffer. */
+    MA_ATOMIC ma_uint16 refCount;               /* Reference count for some thread-safety when detaching. */
+    MA_ATOMIC ma_bool8 isAttached;              /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
+    MA_ATOMIC ma_spinlock lock;                 /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    MA_ATOMIC float volume;                     /* Linear 0..1 */
+    MA_ATOMIC ma_node_output_bus* pNext;        /* If null, it's the tail node or detached. */
+    MA_ATOMIC ma_node_output_bus* pPrev;        /* If null, it's the head node or detached. */
+    MA_ATOMIC ma_node* pInputNode;              /* The node that this output bus is attached to. Required for detaching. */    
 };
 
 /*
@@ -823,12 +823,12 @@ typedef struct ma_node_input_bus ma_node_input_bus;
 struct ma_node_input_bus
 {
     /* Mutable via multiple threads. */
-    ma_node_output_bus head;        /* Dummy head node for simplifying some lock-free thread-safety stuff. */
-    volatile ma_spinlock lock;      /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
-    volatile ma_uint16 nextCounter; /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
+    ma_node_output_bus head;            /* Dummy head node for simplifying some lock-free thread-safety stuff. */
+    MA_ATOMIC ma_spinlock lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    MA_ATOMIC ma_uint16 nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
 
     /* Set once at startup. */
-    ma_uint8 channels;                      /* The number of channels in the audio stream for this bus. */
+    ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
 };
 
 
@@ -848,9 +848,9 @@ struct ma_node_base
     ma_uint32 readCounter;                  /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     
     /* These variables are read and written between different threads. */
-    volatile ma_node_state state;           /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
-    volatile ma_uint64 stateTimes[2];       /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
-    volatile ma_uint64 localTime;           /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
+    MA_ATOMIC ma_node_state state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
+    MA_ATOMIC ma_uint64 stateTimes[2];      /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    MA_ATOMIC ma_uint64 localTime;          /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
     ma_node_input_bus inputBuses[MA_MAX_NODE_BUS_COUNT];
     ma_node_output_bus outputBuses[MA_MAX_NODE_BUS_COUNT];
 };
@@ -888,11 +888,11 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
 struct ma_node_graph
 {
     /* Immutable. */
-    ma_node_base endpoint;          /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
+    ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
 
     /* Read and written by multiple threads. */
-    volatile ma_uint32 readCounter; /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
-    volatile ma_bool8 isReading;
+    MA_ATOMIC ma_uint32 readCounter;    /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
+    MA_ATOMIC ma_bool8 isReading;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -920,7 +920,7 @@ typedef struct
 {
     ma_node_base base;
     ma_data_source* pDataSource;
-    volatile ma_bool32 looping;  /* This can be modified and read across different threads so marking as volatile to make it clear that we need to use atomics to read and modify this. */
+    MA_ATOMIC ma_bool32 looping;  /* This can be modified and read across different threads. Must be used atomically. */
 } ma_data_source_node;
 
 MA_API ma_result ma_data_source_node_init(ma_node_graph* pNodeGraph, const ma_data_source_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source_node* pDataSourceNode);
@@ -1016,7 +1016,7 @@ typedef struct
 {
     struct
     {
-        volatile ma_uint32 bitfield;                            /* Marking as volatile because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
+        MA_ATOMIC ma_uint32 bitfield;                           /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
     } groups[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY/32];
     ma_uint32 slots[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY];    /* 32 bits for reference counting for ABA mitigation. */
     ma_uint32 count;    /* Allocation count. */
@@ -1192,7 +1192,7 @@ struct ma_resource_manager_data_buffer_node
 {
     ma_uint32 hashedName32;                         /* The hashed name. This is the key. */
     ma_uint32 refCount;
-    volatile ma_result result;                      /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    MA_ATOMIC ma_result result;                     /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
     ma_uint32 executionCounter;                     /* For allocating execution orders for jobs. */
     ma_uint32 executionPointer;                     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_bool32 isDataOwnedByResourceManager;         /* Set to true when the underlying data buffer was allocated the resource manager. Set to false if it is owned by the application (via ma_resource_manager_register_*()). */
@@ -1211,7 +1211,7 @@ struct ma_resource_manager_data_buffer
     ma_uint64 cursorInPCMFrames;                    /* Only updated by the public API. Never written nor read from the job thread. */
     ma_uint64 lengthInPCMFrames;                    /* The total length of the sound in PCM frames. This is set at load time. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
-    volatile ma_bool32 isLooping;
+    MA_ATOMIC ma_bool32 isLooping;                  /* Can be read and written by different threads at the same time. Must be used atomically. */
     ma_resource_manager_data_buffer_connector connectorType;
     union
     {
@@ -1235,17 +1235,17 @@ struct ma_resource_manager_data_stream
     ma_uint32 executionPointer;             /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 
     /* Written by the public API, read by the job thread. */
-    volatile ma_bool32 isLooping;           /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
+    MA_ATOMIC ma_bool32 isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
 
     /* Written by the job thread, read by the public API. */
     void* pPageData;                        /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
-    volatile ma_uint32 pageFrameCount[2];   /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
+    MA_ATOMIC ma_uint32 pageFrameCount[2];  /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
 
-    /* Written and read by both the public API and the job thread. */
-    volatile ma_result result;              /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
-    volatile ma_bool32 isDecoderAtEnd;      /* Whether or not the decoder has reached the end. */
-    volatile ma_bool32 isPageValid[2];      /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
-    volatile ma_bool32 seekCounter;         /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
+    /* Written and read by both the public API and the job thread. These must be atomic. */
+    MA_ATOMIC ma_result result;             /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
+    MA_ATOMIC ma_bool32 isDecoderAtEnd;     /* Whether or not the decoder has reached the end. */
+    MA_ATOMIC ma_bool32 isPageValid[2];     /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
+    MA_ATOMIC ma_bool32 seekCounter;        /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
 };
 
 struct ma_resource_manager_data_source
@@ -1534,8 +1534,8 @@ struct ma_sound
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     ma_uint64 seekTarget;                       /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    volatile ma_bool8 isLooping;                /* False by default. */
-    volatile ma_bool8 atEnd;
+    MA_ATOMIC ma_bool8 isLooping;                /* False by default. */
+    MA_ATOMIC ma_bool8 atEnd;
     ma_bool8 ownsDataSource;
 
     /*
@@ -1598,7 +1598,7 @@ struct ma_engine
     ma_bool8 ownsDevice;
     ma_mutex inlinedSoundLock;              /* For synchronizing access so the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
-    volatile ma_uint32 inlinedSoundCount;            /* The total number of allocated inlined sound objects. Used for debugging. */
+    MA_ATOMIC ma_uint32 inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -4415,7 +4415,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
                 ma_uint32 newBitfield;
                 ma_uint32 bitOffset;
 
-                oldBitfield = pAllocator->groups[iGroup].bitfield;  /* <-- This copy must happen. The compiler must not optimize this away. pAllocator->groups[iGroup].bitfield is marked as volatile. */
+                oldBitfield = c89atomic_load_32(&pAllocator->groups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
 
                 /* Fast check to see if anything is available. */
                 if (oldBitfield == 0xFFFFFFFF) {
@@ -4482,7 +4482,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
         ma_uint32 oldBitfield;
         ma_uint32 newBitfield;
 
-        oldBitfield = pAllocator->groups[iGroup].bitfield;  /* <-- This copy must happen. The compiler must not optimize this away. pAllocator->groups[iGroup].bitfield is marked as volatile. */
+        oldBitfield = c89atomic_load_32(&pAllocator->groups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
         newBitfield = oldBitfield & ~(1 << iBit);
 
         if (c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
@@ -6965,9 +6965,9 @@ MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_m
 
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
 {
-    volatile ma_uint32 pageIndex0;
-    volatile ma_uint32 pageIndex1;
-    volatile ma_uint32 relativeCursor;
+    ma_uint32 pageIndex0;
+    ma_uint32 pageIndex1;
+    ma_uint32 relativeCursor;
     ma_uint64 availableFrames;
 
     if (pAvailableFrames == NULL) {
