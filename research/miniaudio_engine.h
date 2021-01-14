@@ -2691,11 +2691,6 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
             if (pOutputBus == pFirst && framesProcessed < frameCount) {
                 ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesProcessed, ma_format_f32, inputChannels), (frameCount - framesProcessed), ma_format_f32, inputChannels);
             }
-
-            /* Apply volume, if necessary. */
-            if (volume != 1) {
-                ma_apply_volume_factor_f32(pFramesOut, framesProcessed * inputChannels, volume);
-            }
         } else {
             /* Seek. */
             ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed, globalTime);
