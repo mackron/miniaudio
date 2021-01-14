@@ -64705,6 +64705,7 @@ REVISION HISTORY
 v0.10.31 - TBD
   - Make some functions const correct.
   - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
+  - Add the MA_ATOMIC annotation for use with variables that should be used atomically and remove unnecessary volatile qualifiers.
 
 v0.10.30 - 2021-01-10
   - Fix a crash in ma_audio_buffer_read_pcm_frames().
