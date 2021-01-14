@@ -64690,6 +64690,9 @@ v0.10.31 - TBD
   - Make some functions const correct.
   - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
   - Add the MA_ATOMIC annotation for use with variables that should be used atomically and remove unnecessary volatile qualifiers.
+  - Add support for enabling only specific backends at compile time. This is the reverse of the pre-existing system. With the new
+    system, all backends are first disabled with `MA_ENABLE_ONLY_SPECIFIC_BACKENDS`, which is then followed with `MA_ENABLE_*`. The
+    old system where you disable backends with `MA_NO_*` still exists and is still the default.
 
 v0.10.30 - 2021-01-10
   - Fix a crash in ma_audio_buffer_read_pcm_frames().
