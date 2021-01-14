@@ -311,49 +311,49 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_NULL                       | Disables the null backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_ONLY_EXPLICIT_BACKENDS | Disables all backends by default and requires `MA_ENABLE_*` to     |
+    | MA_ENABLE_ONLY_SPECIFIC_BACKENDS | Disables all backends by default and requires `MA_ENABLE_*` to     |
     |                                  | enable specific backends.                                          |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_WASAPI                 | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_WASAPI                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the WASAPI backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_DSOUND                 | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_DSOUND                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the DirectSound backend.                                    |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_WINMM                  | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_WINMM                  | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the WinMM backend.                                          |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_ALSA                   | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_ALSA                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the ALSA backend.                                           |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_PULSEAUDIO             | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_PULSEAUDIO             | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the PulseAudio backend.                                     |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_JACK                   | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_JACK                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the JACK backend.                                           |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_COREAUDIO              | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_COREAUDIO              | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the Core Audio backend.                                     |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_SNDIO                  | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_SNDIO                  | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the sndio backend.                                          |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_AUDIO4                 | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_AUDIO4                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the audio(4) backend.                                       |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_OSS                    | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_OSS                    | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the OSS backend.                                            |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_AAUDIO                 | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_AAUDIO                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the AAudio backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_OPENSL                 | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_OPENSL                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the OpenSL|ES backend.                                      |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_WEBAUDIO               | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_WEBAUDIO               | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the Web Audio backend.                                      |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_ENABLE_NULL                   | Used in conjunction with MA_ENABLE_ONLY_EXPLICIT_BACKENDS to       |
+    | MA_ENABLE_NULL                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the null backend.                                           |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_DECODING                   | Disables decoding APIs.                                            |
