@@ -2493,7 +2493,7 @@ static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_outpu
         */
         ma_node_input_bus_lock(pInputBus);
         {
-            ma_node_output_bus* pNewPrev = NULL;
+            ma_node_output_bus* pNewPrev = &pInputBus->head;
             ma_node_output_bus* pNewNext = (ma_node_output_bus*)c89atomic_load_ptr(&pInputBus->head.pNext);
 
             /* Update the local output bus. */
@@ -8713,6 +8713,10 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_node_graph_config nodeGraphConfig;
     ma_engine_config engineConfig;
     ma_context_config contextConfig;
+
+    if (pEngine != NULL) {
+        MA_ZERO_OBJECT(pEngine);
+    }
 
     /* The config is allowed to be NULL in which case we use defaults for everything. */
     if (pConfig != NULL) {

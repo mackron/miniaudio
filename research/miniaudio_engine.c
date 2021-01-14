@@ -78,7 +78,7 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], /*MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC |*/ MA_DATA_SOURCE_FLAG_STREAM, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -93,6 +93,8 @@ int main(int argc, char** argv)
     }
 #endif
 
+    
+
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
     //ma_sound_group_set_pan(ma_engine_get_master_sound_group(&engine), -1);
@@ -105,7 +107,7 @@ int main(int argc, char** argv)
     /*ma_sound_set_volume(&sound, 0.25f);*/
     /*ma_sound_set_pitch(&sound, 1.2f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
-    //ma_sound_set_looping(&sound, MA_TRUE);
+    ma_sound_set_looping(&sound, MA_TRUE);
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_time(&sound, 1110);
     //ma_sound_set_volume(&sound, 0.5f);
@@ -116,6 +118,7 @@ int main(int argc, char** argv)
     //ma_sound_set_volume(&sound, 1);
     //ma_sound_set_start_time(&sound, 48000);
     ma_sound_start(&sound);
+    /*ma_sound_uninit(&sound);*/
 
     //ma_sleep(1000);
     //ma_sound_set_looping(&sound2, MA_TRUE);
@@ -134,7 +137,7 @@ int main(int argc, char** argv)
     ma_engine_play_sound(&engine, argv[3], NULL);*/
 #endif
 
-#if 1
+#if 0
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
