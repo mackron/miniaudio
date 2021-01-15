@@ -3446,6 +3446,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                             framesRead = 0; /* Just for safety, but I don't think it's really needed. */
                         }
 
+                        /* TODO: Minor optimization opportunity here. If no frames were read and the buffer is already filled with silence, no need to re-silence it. */
                         /* Any leftover frames need to silenced for safety. */
                         if (framesRead < framesToRead) {
                             ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
