@@ -431,25 +431,29 @@ one of the stock node types, only this time you need to specify a pointer to a v
 pointer to the processing function and the number of input and output buses. Example:
 
     ```c
-    static void my_custom_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+    static void my_custom_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
     {
         // Do some processing of ppFramesIn (one stream of audio data per input bus)
         const float* pFramesIn_0 = ppFramesIn[0]; // Input bus @ index 0.
         const float* pFramesIn_1 = ppFramesIn[1]; // Input bus @ index 1.
         float* pFramesOut_0 = ppFramesOut[0];     // Output bus @ index 0.
-        ma_uint32 frameCount = *pFrameCount;
 
-        // Do some processing. Process as many frames as you can. On input, `pFrameCount` will be
-        // the number of frames miniaudio wants you to process, and is the capacity of each buffer
-        // in `ppFramesOut` and the number of frames in each buffer in `ppFramesIn`. If you're
-        // implementing a data source node and you run out of source data, set `pFrameCount` to the
-        // number of frames that were actually read.
+        // Do some processing. Process as many frames as you can. On input, `pFrameCountIn` will be
+        // the number of input frames in each buffer in `ppFramesIn` and `pFrameCountOut` will be
+        // the capacity of each of the buffers in `ppFramesOut`. On output, `pFrameCountIn` should
+        // be set to the number of input frames your node consumed and `pFrameCountOut` should be
+        // set the number of output frames that were produced.
+        //
+        // You should process as many frames as you can. If your effect consumes input frames at the
+        // same rate as output frames (always the case, unless you're doing resampling), you need
+        // only look at `ppFramesOut` and process that exact number of frames. If you're doing
+        // resampling, you'll need to be sure to set both `pFrameCountIn` and `pFrameCountOut`
+        // properly.
     }
 
     static ma_node_vtable my_custom_node_vtable = 
     {
-        my_custom_node_process_pcm_frames,
-        NULL,   // No extended processing function. Set to null when the callback above is non-null.
+        my_custom_node_process_pcm_frames, // The function that will be called process your custom node. This is where you'd implement your effect processing.
         2,      // 2 input buses.
         1,      // 1 output bus.
         0       // Default flags.
@@ -491,16 +495,6 @@ with `ma_node_init()` In addition, all attachments to each of the input buses wi
 pre-mixed by miniaudio. The config allows you to specify different channel counts for each
 individual input and output bus. It's up to the effect to handle it appropriate, and if it can't,
 return an error in it's initialization routine.
-
-The example above uses the simple version of the callback. There's an extended version of the
-callback that is more complicated, but necessary for effects that do resampling. This version takes
-the capacity of the output buffer as input, and on output expects you to set it to the number of
-output frames that were actually processed. Likewise, it takes a pointer to the number of input
-frames available in the input buffer, and on output you're expected to set it to the number of
-input frames that were actually processed. Note that when you do any kind of resampling that you
-need to be aware of how each branch in the graph refer back to the underlying data source. If two
-different branches in the graph each pull data at different rates, you'll ended up causing major
-glitching.
 
 If you need to make a copy of an audio stream for effect processing you can use a splitter node
 called `ma_splitter_node`. This takes has 1 input bus and splits the stream into 2 output buses.
@@ -579,13 +573,6 @@ Getting and setting the local time is similar. Use `ma_node_get_time()` to retri
 and `ma_node_set_time()` to set the local time. The global and local times will be advanced by the
 audio thread, so care should be taken to avoid data races. Ideally you should avoid calling these
 outside of the node processing callbacks which are always run on the audio thread.
-
-The node processing callback includes a parameter called `globalTime`. This is what you should use
-when you need to inspect the global time from your node's processing callback. This might be useful
-for any kind of time-based operation, such as fading. You should not use `ma_node_graph_get_time()`
-from inside the processing callback because miniaudio will sometimes need to break down processing
-into multiple calls before the advancing the internal timer. It is OK to use `ma_node_get_time()`
-inside the processing callback.
 
 There is basic support for scheduling the starting and stopping of nodes. You can only schedule one
 start and one stop at a time. This is mainly intended for putting nodes into a started or stopped
@@ -727,18 +714,6 @@ typedef enum
 typedef struct
 {
     /*
-    Simplified processing callback. Use this callback if you have a simple effect where no
-    resampling is involved and the output rate is the same as the input rate. This will be the case
-    for the vast majority of effects.
-
-    On input, `pFrameCount` is the number of PCM frames in each of the streams in `ppFramesOut` and
-    `ppFramesIn`. On output, the callback must set the number the number of PCM frames that were
-    processed. You must process the same number of PCM frames for each bus. The number of buses
-    in `ppFramesOut` and `ppFramesIn` are specified by the bus counts below.
-    */
-    void (* onProcess)(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount);
-
-    /*
     Extended processing callback. This callback is used for effects that process input and output
     at different rates (i.e. they perform resampling). This is similar to the simple version, only
     they take two sepate frame counts: one for input, and one for output.
@@ -748,15 +723,8 @@ typedef struct
 
     On output, set `pFrameCountOut` to the number of PCM frames that were actually output and set
     `pFrameCountIn` to the number of input frames that were consumed.
-
-    `globalTime` specifies the global time of the first PCM frame that will be processed by this
-    callback. This allows you to do timing based operations based on the global clock. If you need
-    to do some timing based operations based on the node's local clock, you can retrieve the local
-    time with `ma_node_get_time()`. Times are in PCM frames and it's assumed your node will have
-    knowledge of the sample rate (the node graph has no knowledge of sample rates - it just
-    processes frames as requested by `ma_node_graph_process_pcm_frames()`).
     */
-    void (* onProcessEx)(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime);
+    void (* onProcess)(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut);
 
     /*
     The number of input buses. This is how many sub-buffers will be contained in the `ppFramesIn`
@@ -2088,7 +2056,7 @@ static ma_uint32 ma_node_graph_get_read_counter(ma_node_graph* pNodeGraph)
 }
 
 
-static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
 
@@ -2099,14 +2067,15 @@ static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, float** pp
     /* Input channel count needs to be the same as the output channel count. */
     MA_ASSERT(ma_node_get_input_channels(pNodeBase, 0) == ma_node_get_output_channels(pNodeBase, 0));
 
+    (void)pFrameCountIn;
+
     /* The data has already been mixed. We just need to move it to the output buffer. */
-    ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCount, ma_format_f32, ma_node_get_output_channels(pNodeBase, 0));
+    ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNodeBase, 0));
 }
 
 static ma_node_vtable g_node_graph_endpoint_vtable =
 {
     ma_node_graph_endpoint_process_pcm_frames,
-    NULL,
     1,  /* 1 input bus. */
     1,  /* 1 output bus. */
     0   /* Default flags. */
@@ -2781,7 +2750,7 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
 
     MA_ZERO_OBJECT(pNodeBase);
 
-    if (pConfig == NULL || pConfig->vtable == NULL || (pConfig->vtable->onProcess == NULL && pConfig->vtable->onProcessEx == NULL)) {
+    if (pConfig == NULL || pConfig->vtable == NULL || pConfig->vtable->onProcess == NULL) {
         return MA_INVALID_ARGS; /* Config is invalid. */
     }
 
@@ -3210,35 +3179,15 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime)
 }
 
 
-static void ma_node_process_pcm_frames_ex_simple(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
-{
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_uint32 frameCount;
 
-    MA_ASSERT(pNodeBase != NULL);
-    MA_ASSERT(pNodeBase->vtable->onProcess != NULL);
-    MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFrameCountIn  != NULL);
-
-    (void)globalTime;   /* Not used with the simple callback. */
-
-    frameCount = *pFrameCountOut;
-    pNodeBase->vtable->onProcess(pNode, ppFramesOut, ppFramesIn, &frameCount);
-
-    *pFrameCountOut = frameCount;
-    *pFrameCountIn  = frameCount;
-}
-
-static void ma_node_process_pcm_frames_ex(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+static void ma_node_process_pcm_frames_internal(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
 
     MA_ASSERT(pNode != NULL);
 
-    if (pNodeBase->vtable->onProcessEx) {
-        pNodeBase->vtable->onProcessEx(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
-    } else {
-        ma_node_process_pcm_frames_ex_simple(pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
+    if (pNodeBase->vtable->onProcess) {
+        pNodeBase->vtable->onProcess(pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
     }
 }
 
@@ -3332,7 +3281,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
         /* Don't do anything if our read counter is ahead of the node graph. That means we're */
         ppFramesOut[0] = pFramesOut;
-        ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &outputFrameCount, NULL, &inputFrameCount, globalTime + timeOffsetBeg);
+        ma_node_process_pcm_frames_internal(pNode, NULL, &inputFrameCount, ppFramesOut, &outputFrameCount);
         totalFramesRead = outputFrameCount;
     } else {
         /* Slow path. Need to do caching. */
@@ -3423,7 +3372,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
             frameCountIn  = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much input data as we've got. */
             frameCountOut = framesToRead;                   /* Give the processing function the entire capacity of the output buffer. */
-            ma_node_process_pcm_frames_ex(pNode, ppFramesOut, &frameCountOut, (const float**)ppFramesIn, &frameCountIn, globalTime + timeOffsetBeg);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+            ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
 
             /*
             Thanks to our sneaky optimization above we don't need to do any data copying directly into
@@ -3474,7 +3423,7 @@ MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source
 }
 
 
-static void ma_data_source_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+static void ma_data_source_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_data_source_node* pDataSourceNode = (ma_data_source_node*)pNode;
     ma_format format;
@@ -3489,8 +3438,9 @@ static void ma_data_source_node_process_pcm_frames(ma_node* pNode, float** ppFra
 
     /* We don't want to read from ppFramesIn at all. Instead we read from the data source. */
     (void)ppFramesIn;
+    (void)pFrameCountIn;
 
-    frameCount = *pFrameCount;
+    frameCount = *pFrameCountOut;
 
     if (ma_data_source_get_data_format(pDataSourceNode->pDataSource, &format, &channels, NULL) == MA_SUCCESS) { /* <-- Don't care about sample rate here. */
         /* The node graph system requires samples be in floating point format. This is checked in ma_data_source_node_init(). */
@@ -3500,13 +3450,12 @@ static void ma_data_source_node_process_pcm_frames(ma_node* pNode, float** ppFra
         ma_data_source_read_pcm_frames(pDataSourceNode->pDataSource, ppFramesOut[0], frameCount, &framesRead, c89atomic_load_32(&pDataSourceNode->looping));
     }
 
-    *pFrameCount = (ma_uint32)framesRead;
+    *pFrameCountOut = (ma_uint32)framesRead;
 }
 
 static ma_node_vtable g_ma_data_source_node_vtable =
 {
     ma_data_source_node_process_pcm_frames,
-    NULL,
     0,  /* 0 input buses. */
     1,  /* 1 output bus. */
     0
@@ -3606,7 +3555,7 @@ MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels)
 }
 
 
-static void ma_splitter_node_process_pcm_frames(ma_node* pNode, float** ppFramesOut, const float** ppFramesIn, ma_uint32* pFrameCount)
+static void ma_splitter_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
     ma_uint32 iOutputBus;
@@ -3616,19 +3565,21 @@ static void ma_splitter_node_process_pcm_frames(ma_node* pNode, float** ppFrames
     MA_ASSERT(ma_node_get_input_bus_count(pNodeBase)  == 1);
     MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) >= 2);
 
+    /* We don't need to consider the input frame count - it'll be the same as the output frame count and we process everything. */
+    (void)pFrameCountIn;
+
     /* NOTE: This assumes the same number of channels for all inputs and outputs. This was checked in ma_splitter_node_init(). */
     channels = ma_node_get_input_channels(pNodeBase, 0);
 
     /* Splitting is just copying the first input bus and copying it over to each output bus. */
     for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNodeBase); iOutputBus += 1) {
-        ma_copy_pcm_frames(ppFramesOut[iOutputBus], ppFramesIn[0], *pFrameCount, ma_format_f32, channels);
+        ma_copy_pcm_frames(ppFramesOut[iOutputBus], ppFramesIn[0], *pFrameCountOut, ma_format_f32, channels);
     }
 }
 
 static ma_node_vtable g_ma_splitter_node_vtable =
 {
     ma_splitter_node_process_pcm_frames,
-    NULL,
     1,  /* 1 input bus. */
     2,  /* 2 output buses. */
     0
@@ -8284,7 +8235,7 @@ static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_n
     }
 }
 
-static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_uint32 frameCountIn;
     ma_uint32 frameCountOut;
@@ -8296,8 +8247,6 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     ma_bool32 isFadingEnabled;
     ma_bool32 isSpatializationEnabled;
     ma_bool32 isPanningEnabled;
-
-    (void)globalTime;
 
     frameCountIn  = *pFrameCountIn;
     frameCountOut = *pFrameCountOut;
@@ -8426,7 +8375,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     *pFrameCountOut = totalFramesProcessedOut;
 }
 
-void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     /* For sounds, we need to first read from the data source. Then we need to apply the engine effects (pan, pitch, fades, etc.). */
     ma_result result = MA_SUCCESS;
@@ -8502,7 +8451,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
             if (dataSourceFormat == ma_format_f32) {
                 /* Fast path. No data conversion necessary. */
                 pRunningFramesIn = (float*)temp;
-                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesIn, &frameCountIn, &pRunningFramesOut, &frameCountOut);
             } else {
                 /* Slow path. Need to do sample format conversion to f32. If we give the f32 buffer the same count as the first temp buffer, we're guaranteed it'll be large enough. */
                 float tempf32[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* Do not do `MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)` here like we've done in other places. */
@@ -8510,7 +8459,7 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
 
                 /* Now that we have our samples in f32 format we can process like normal. */
                 pRunningFramesIn = tempf32;
-                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesOut, &frameCountOut, &pRunningFramesIn, &frameCountIn, globalTime + totalFramesRead);
+                ma_engine_node_process_pcm_frames__general(&pSound->engineNode, &pRunningFramesIn, &frameCountIn, &pRunningFramesOut, &frameCountOut);
             }
 
             /* We should have processed all of our input frames since we calculated the required number of input frames at the top. */
@@ -8536,10 +8485,10 @@ void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, float** ppFramesOu
     ma_engine_node_update_pitch_if_required(&pSound->engineNode);
 }
 
-void ma_engine_node_process_pcm_frames__group(ma_node* pNode, float** ppFramesOut, ma_uint32* pFrameCountOut, const float** ppFramesIn, ma_uint32* pFrameCountIn, ma_uint64 globalTime)
+void ma_engine_node_process_pcm_frames__group(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     /* For groups, the input data has already been read and we just need to apply the effect. */
-    ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesOut, pFrameCountOut, ppFramesIn, pFrameCountIn, globalTime);
+    ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 
     /*
     The pitch can only ever be updated once. We cannot update it in ma_engine_node_process_pcm_frames__general()
@@ -8551,7 +8500,6 @@ void ma_engine_node_process_pcm_frames__group(ma_node* pNode, float** ppFramesOu
 
 static ma_node_vtable g_ma_engine_node_vtable__sound =
 {
-    NULL,
     ma_engine_node_process_pcm_frames__sound,
     0,      /* Sounds are data source nodes which means they have zero inputs (their input is drawn from the data source itself). */
     1,      /* Sounds have one output bus. */
@@ -8560,7 +8508,6 @@ static ma_node_vtable g_ma_engine_node_vtable__sound =
 
 static ma_node_vtable g_ma_engine_node_vtable__group =
 {
-    NULL,
     ma_engine_node_process_pcm_frames__group,
     1,      /* Groups have one input bus. */
     1,      /* Groups have one output bus. */
