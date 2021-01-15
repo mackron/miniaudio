@@ -107,7 +107,7 @@ int main(int argc, char** argv)
     /*ma_sound_set_volume(&sound, 0.25f);*/
     /*ma_sound_set_pitch(&sound, 1.2f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
-    ma_sound_set_looping(&sound, MA_TRUE);
+    /*ma_sound_set_looping(&sound, MA_TRUE);*/
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_time(&sound, 1110);
     //ma_sound_set_volume(&sound, 0.5f);
