@@ -504,7 +504,7 @@ and include the following:
     +-----------------------------------------+---------------------------------------------------+
     | MA_NODE_FLAG_PASSTHROUGH                | Useful for nodes that do not do any kind of audio |
     |                                         | processing, but are instead used for tracking     |
-    |                                         | time handling events, etc. Also used by the       |
+    |                                         | time, handling events, etc. Also used by the      |
     |                                         | internal endpoint node. It reads directly from    |
     |                                         | the input bus to the output bus. Nodes with this  |
     |                                         | flag must have exactly 1 input bus and 1 output   |
