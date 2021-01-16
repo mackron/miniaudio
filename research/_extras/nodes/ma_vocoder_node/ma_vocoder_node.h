@@ -8,6 +8,16 @@
 extern "C" {
 #endif
 
+
+/*
+The vocoder node has two inputs and one output. Inputs:
+
+    Input Bus 0: The source/carrier stream.
+    Input Bus 1: The excite/modulator stream.
+
+The source (input bus 0) and output must have the same channel count, and is restricted to 1 or 2.
+The excite (input bus 1) is restricted to 1 channel.
+*/
 typedef struct
 {
     ma_node_config nodeConfig;
