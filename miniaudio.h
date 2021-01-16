@@ -5825,7 +5825,7 @@ typedef struct
 } ma_audio_buffer_ref;
 
 MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_audio_buffer_ref* pAudioBufferRef);
-MA_API ma_result ma_audio_buffer_ref_reset(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
+MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
 MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
@@ -43417,7 +43417,7 @@ MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_audio_buffer_ref_reset(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames)
+MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames)
 {
     if (pAudioBufferRef == NULL) {
         return MA_INVALID_ARGS;
@@ -43631,10 +43631,10 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
             ma_silence_pcm_frames(pData, pConfig->sizeInFrames, pConfig->format, pConfig->channels);
         }
 
-        ma_audio_buffer_ref_reset(&pAudioBuffer->ref, pData, pConfig->sizeInFrames);
+        ma_audio_buffer_ref_set_data(&pAudioBuffer->ref, pData, pConfig->sizeInFrames);
         pAudioBuffer->ownsData = MA_TRUE;
     } else {
-        ma_audio_buffer_ref_reset(&pAudioBuffer->ref, pConfig->pData, pConfig->sizeInFrames);
+        ma_audio_buffer_ref_set_data(&pAudioBuffer->ref, pConfig->pData, pConfig->sizeInFrames);
         pAudioBuffer->ownsData = MA_FALSE;
     }
 
