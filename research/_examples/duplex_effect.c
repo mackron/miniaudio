@@ -88,7 +88,7 @@ int main(int argc, char** argv)
     ma_node_attach_output_bus(&g_vocoderNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
 
     /* Amplify the volume of the vocoder output because in my testing it is a bit quiet. */
-    ma_node_set_output_bus_volume(&g_vocoderNode, 0, 2);
+    ma_node_set_output_bus_volume(&g_vocoderNode, 0, 4);
 
 
     /* Excite/modulator. Attached to input bus 0 of the vocoder node. */
