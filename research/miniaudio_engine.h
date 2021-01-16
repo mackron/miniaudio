@@ -1728,7 +1728,7 @@ MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 ch
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
 
-static void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_waveform_config waveformConfig;
     ma_waveform waveform;
@@ -1839,6 +1839,8 @@ static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 chan
 }
 
 
+/* Not used right now, but leaving here for reference. */
+#if 0
 static ma_result ma_mix_pcm_frames_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
@@ -1955,6 +1957,7 @@ static ma_result ma_mix_pcm_frames_s32(ma_int64* pDst, const ma_int32* pSrc, ma_
 
     return MA_SUCCESS;
 }
+#endif
 
 static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
@@ -1984,6 +1987,7 @@ static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64
     return MA_SUCCESS;
 }
 
+#if 0
 static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume)
 {
     ma_result result;
@@ -2000,7 +2004,11 @@ static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frame
 
     return result;
 }
+#endif
 
+
+/* Not used right now, but leaving here for reference. */
+#if 0
 static ma_result ma_mix_pcm_frames_ex(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
 {
     if (pDst == NULL || pSrc == NULL) {
@@ -2039,7 +2047,6 @@ static ma_result ma_mix_pcm_frames_ex(void* pDst, ma_format formatOut, ma_uint32
     return MA_SUCCESS;
 }
 
-
 static void ma_convert_pcm_frames_channels_and_mix_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
 {
     if (pFramesOut == NULL || pFramesIn == NULL) {
@@ -2073,7 +2080,7 @@ static void ma_convert_pcm_frames_channels_and_mix_f32(float* pFramesOut, ma_uin
         }
     }
 }
-
+#endif
 
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
@@ -2093,11 +2100,13 @@ static void ma_node_graph_set_is_reading(ma_node_graph* pNodeGraph, ma_bool8 isR
     c89atomic_exchange_8(&pNodeGraph->isReading, isReading);
 }
 
+#if 0
 static ma_bool8 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 {
     MA_ASSERT(pNodeGraph != NULL);
     return c89atomic_load_8(&pNodeGraph->isReading);
 }
+#endif
 
 static void ma_node_graph_increment_read_counter(ma_node_graph* pNodeGraph)
 {
@@ -4168,6 +4177,8 @@ static void ma_clipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_ui
 #endif
 
 
+/* Not used right now, but leaving here for reference. */
+#if 0
 static void ma_unclipped_accumulate_u8(ma_int16* pDst, const ma_uint8* pSrc, ma_uint64 sampleCount)
 {
     ma_uint64 iSample;
@@ -4250,8 +4261,10 @@ static void ma_unclipped_accumulate_pcm_frames(void* pDst, const void* pSrc, ma_
             break;
     }
 }
+#endif
 
 
+/* Not used right now, but leaving here for reference. */
 #if 0
 static void ma_volume_and_accumulate_and_clip_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume)
 {
@@ -4377,7 +4390,8 @@ static ma_result ma_volume_and_accumulate_and_clip_pcm_frames(void* pDst, const 
 #endif
 
 
-
+/* Not used right now, but leaving here for reference. */
+#if 0
 static void ma_mix_accumulation_buffers_u8(ma_int16* pDst, const ma_int16* pSrc, ma_uint64 sampleCount, float volume)
 {
     ma_uint64 iSample;
@@ -4501,7 +4515,7 @@ static void ma_mix_accumulation_buffers_ex(void* pDst, ma_format formatOut, ma_u
         }
     }
 }
-
+#endif
 
 
 
@@ -8596,7 +8610,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
             ma_uint64 framesJustRead;
             ma_uint32 frameCountIn;
             ma_uint32 frameCountOut;
-            float* pRunningFramesIn;
+            const float* pRunningFramesIn;
             float* pRunningFramesOut;
 
             /*
@@ -8827,8 +8841,6 @@ MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode)
 }
 
 
-static MA_INLINE ma_result ma_sound_stop_internal(ma_sound* pSound);
-static MA_INLINE ma_result ma_sound_group_stop_internal(ma_sound_group* pGroup);
 
 MA_API ma_engine_config ma_engine_config_init_default(void)
 {
