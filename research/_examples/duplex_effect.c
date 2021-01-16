@@ -28,7 +28,12 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
     MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
 
-    /* Make sure the audio buffer has it's data buffer updated. */
+    /*
+    The node graph system is a pulling style of API. At the lowest level of the chain will be a 
+    node acting as a data source for the purpose of delivering the initial audio data. In our case,
+    the data source is our `pInput` buffer. We need to update the underlying data source so that it
+    read data from `pInput`.
+    */
     ma_audio_buffer_ref_set_data(&g_sourceData, pInput, frameCount);
 
     /* With the source buffer configured we can now read directly from the node graph. */
