@@ -3398,7 +3398,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             }
         } else {
             /* Slow path. Need to do caching. */
-            ma_uint32 framesToRead;
+            ma_uint32 framesToProcessIn;
+            ma_uint32 framesToProcessOut;
             ma_bool32 consumeNullInput = MA_FALSE;
 
             /*
@@ -3419,12 +3420,22 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             for each output. When the flag is set, it means data has been read previously and that we're
             ready to advance time forward for our input nodes by reading fresh data.
             */
-            framesToRead = frameCount;
-            if (framesToRead > pNodeBase->cachedDataCapInFramesPerBus) {
-                framesToRead = pNodeBase->cachedDataCapInFramesPerBus;
+            framesToProcessOut = frameCount;
+            if (framesToProcessOut > pNodeBase->cachedDataCapInFramesPerBus) {
+                framesToProcessOut = pNodeBase->cachedDataCapInFramesPerBus;
             }
 
-            MA_ASSERT(framesToRead <= 0xFFFF);
+            framesToProcessIn  = frameCount;
+            if (pNodeBase->vtable->onGetRequiredInputFrameCount) {
+                framesToProcessIn = pNodeBase->vtable->onGetRequiredInputFrameCount(pNode, framesToProcessOut);
+            }
+            if (framesToProcessIn > pNodeBase->cachedDataCapInFramesPerBus) {
+                framesToProcessIn = pNodeBase->cachedDataCapInFramesPerBus;
+            }
+            
+
+            MA_ASSERT(framesToProcessIn  <= 0xFFFF);
+            MA_ASSERT(framesToProcessOut <= 0xFFFF);
 
             if (ma_node_output_bus_has_read(&pNodeBase->outputBuses[outputBusIndex])) {
                 /* Getting here means we need to do another round of processing. */
@@ -3452,7 +3463,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
 
                         /* Once we've determined our destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToRead, &framesRead, globalTime);
+                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->inputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime);
                         if (result != MA_SUCCESS) {
                             /* It doesn't really matter if we fail because we'll just fill with silence. */
                             framesRead = 0; /* Just for safety, but I don't think it's really needed. */
@@ -3460,8 +3471,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
                         /* TODO: Minor optimization opportunity here. If no frames were read and the buffer is already filled with silence, no need to re-silence it. */
                         /* Any leftover frames need to silenced for safety. */
-                        if (framesRead < framesToRead) {
-                            ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToRead - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                        if (framesRead < framesToProcessIn) {
+                            ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToProcessIn - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
                         }
 
                         maxFramesReadIn = ma_max(maxFramesReadIn, framesRead);
@@ -3497,7 +3508,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
 
                 /* Give the processing function the entire capacity of the output buffer. */
-                frameCountOut = framesToRead;
+                frameCountOut = framesToProcessOut;
 
                 /*
                 We need to treat nodes with continuous processing a little differently. For these ones,
@@ -3507,7 +3518,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                 */
                 if ((pNodeBase->vtable->flags & MA_NODE_FLAG_CONTINUOUS_PROCESSING) != 0) {
                     /* We're using continuous processing. Make sure we specify the whole frame count at all times. */
-                    frameCountIn = framesToRead;    /* Give the processing function as much input data as we've got in the buffer. */
+                    frameCountIn = framesToProcessIn;    /* Give the processing function as much input data as we've got in the buffer. */
 
                     if ((pNodeBase->vtable->flags & MA_NODE_FLAG_ALLOW_NULL_INPUT) != 0 && pNodeBase->consumedFrameCountIn == 0 && pNodeBase->cachedFrameCountIn == 0) {
                         consumeNullInput = MA_TRUE;
