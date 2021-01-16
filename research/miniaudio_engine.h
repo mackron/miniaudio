@@ -461,7 +461,11 @@ pointer to the processing function and the number of input and output buses. Exa
 
     ...
     
-    ma_node_config nodeConfig = ma_node_config_init(&my_custom_node_vtable, channelsIn, channelsOut);
+    ma_node_config nodeConfig = ma_node_config_init();
+    nodeConfig.vtable            = &my_custom_node_vtable;
+    nodeConfig.inputChannels[0]  = channelsIn;
+    nodeConfig.inputChannels[1]  = channelsIn;
+    nodeConfig.outputChannels[0] = channelsOut;
 
     ma_node_base node;
     result = ma_node_init(&nodeGraph, &nodeConfig, NULL, &node);
@@ -806,7 +810,7 @@ typedef struct
     ma_node_state initialState;     /* Defaults to ma_node_state_started. */
 } ma_node_config;
 
-MA_API ma_node_config ma_node_config_init(ma_node_vtable* vtable, ma_uint32 inputChannels, ma_uint32 outputChannels);
+MA_API ma_node_config ma_node_config_init(void);
 
 
 /*
@@ -2154,7 +2158,10 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     MA_ZERO_OBJECT(pNodeGraph);
 
-    endpointConfig = ma_node_config_init(&g_node_graph_endpoint_vtable, pConfig->channels, pConfig->channels);
+    endpointConfig = ma_node_config_init();
+    endpointConfig.vtable            = &g_node_graph_endpoint_vtable;
+    endpointConfig.inputChannels[0]  = pConfig->channels;
+    endpointConfig.outputChannels[0] = pConfig->channels;
 
     result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
     if (result != MA_SUCCESS) {
@@ -2735,23 +2742,12 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 }
 
 
-MA_API ma_node_config ma_node_config_init(ma_node_vtable* vtable, ma_uint32 inputChannels, ma_uint32 outputChannels)
+MA_API ma_node_config ma_node_config_init(void)
 {
     ma_node_config config;
-    ma_uint32 iInputBus;
-    ma_uint32 iOutputBus;
 
     MA_ZERO_OBJECT(&config);
-    config.vtable = vtable;
     config.initialState = ma_node_state_started;    /* Nodes are started by default. */
-
-    for (iInputBus = 0; iInputBus < MA_MAX_NODE_BUS_COUNT; iInputBus += 1) {
-        config.inputChannels[iInputBus] = inputChannels;
-    }
-
-    for (iOutputBus = 0; iOutputBus < MA_MAX_NODE_BUS_COUNT; iOutputBus += 1) {
-        config.outputChannels[iOutputBus] = outputChannels;
-    }
 
     return config;
 }
@@ -3586,7 +3582,7 @@ MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source
     ma_data_source_node_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.nodeConfig  = ma_node_config_init(NULL, 0, 0);
+    config.nodeConfig  = ma_node_config_init();
     config.pDataSource = pDataSource;
     config.looping     = looping;
 
@@ -3720,8 +3716,12 @@ MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels)
 {
     ma_splitter_node_config config;
 
+    /* Same channel count between inputs and outputs are required for splitters. */
     MA_ZERO_OBJECT(&config);
-    config.nodeConfig = ma_node_config_init(NULL, channels, channels);  /* Same channel count between inputs and outputs are required for splitters. */
+    config.nodeConfig = ma_node_config_init();
+    config.nodeConfig.inputChannels[0]  = channels;
+    config.nodeConfig.outputChannels[0] = channels;
+    config.nodeConfig.outputChannels[1] = channels;
 
     return config;
 }
@@ -8724,11 +8724,17 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__sound, pConfig->channels, ma_engine_get_channels(pConfig->pEngine));
+        baseNodeConfig = ma_node_config_init();
+        baseNodeConfig.vtable            = &g_ma_engine_node_vtable__sound;
+        baseNodeConfig.inputChannels[0]  = pConfig->channels;   /* Set this even though there's no input channels for this node. It's used later on. */
+        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
-        baseNodeConfig = ma_node_config_init(&g_ma_engine_node_vtable__group, ma_engine_get_channels(pConfig->pEngine), ma_engine_get_channels(pConfig->pEngine));
+        baseNodeConfig = ma_node_config_init();
+        baseNodeConfig.vtable            = &g_ma_engine_node_vtable__group;
+        baseNodeConfig.inputChannels[0]  = ma_engine_get_channels(pConfig->pEngine);
+        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
         baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
     }
 
