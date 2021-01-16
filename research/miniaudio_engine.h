@@ -747,63 +747,12 @@ typedef void ma_node;
 #define MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES 0x00000008
 
 
-/*
-Metadata codes.
-
-You can retrieve metadata about a node as a whole, or individual input and output buses. The codes
-used to retrieve that data is encoded. To retrieve the name of a node, do this:
-
-    ma_node_get_metadata(&myNode, MA_NODE_METADATA_NAME, &metadata);
-
-To retrieve the name of the first input bus, do this:
-
-    ma_node_get_metadata(&myNode, MA_NODE_METADATA_NAME | MA_NODE_METADATA_INPUT_BUS, &metadata);
-
-The same applies for the output bus, only used use MA_NODE_METADATA_OUTPUT_BUS instead. To retrieve
-the name of the second input bus, encode the index as well:
-
-    ma_node_get_metadata(&myNode, MA_NODE_METADATA_NAME | MA_NODE_METADATA_INPUT_BUS | 1, &metadata);
-
-You can mix an match. To do the same, but for the second output bus:
-
-    ma_node_get_metadata(&myNode, MA_NODE_METADATA_NAME | MA_NODE_METADATA_OUTPUT_BUS | 1, &metadata);
-
-If some type of metadata does not make sense or is not supported, MA_NO_DATA_AVAILABLE is returned.
-*/
-#define MA_NODE_METADATA_NAME                   0x00001000
-#define MA_NODE_METADATA_INPUT_BUS              0x00000100
-#define MA_NODE_METADATA_OUTPUT_BUS             0x00000200
-
-/* Masks for selecting sections of the metadata code. */
-#define MA_NODE_METADATA_PROPERTY_MASK          0xFFFFF000
-#define MA_NODE_METADATA_BUS_TYPE_MASK          0x00000F00
-#define MA_NODE_METADATA_BUS_INDEX_MASK         0x000000FF
-
-
-
 /* The playback state of a node. Either started or stopped. */
 typedef enum
 {
     ma_node_state_started = 0,
     ma_node_state_stopped = 1
 } ma_node_state;
-
-
-typedef enum
-{
-    ma_node_metadata_type_integer,
-    ma_node_metadata_type_string
-} ma_node_metadata_type;
-
-typedef struct
-{
-    ma_node_metadata_type type;
-    union
-    {
-        int i;
-        const char* str;  /* Some constant string. */
-    } value;
-} ma_node_metadata;
 
 
 typedef struct
@@ -829,12 +778,6 @@ typedef struct
     to read at a time instead of having to estimate.
     */
     ma_uint32 (* onGetRequiredInputFrameCount)(ma_node* pNode, ma_uint32 outputFrameCount);
-
-    /*
-    Retrieves some metadata about a node. Returns MA_NO_DATA_AVAILABLE if the metadata code is
-    invalid. This is optional.
-    */
-    ma_result (* onGetMetadata)(ma_node* pNode, ma_uint32 metadataCode, ma_node_metadata* pMetadata);
 
     /*
     The number of input buses. This is how many sub-buffers will be contained in the `ppFramesIn`
@@ -952,10 +895,6 @@ MA_API ma_uint64 ma_node_get_state_time(const ma_node* pNode, ma_node_state stat
 MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_uint64 globalTimeBeg, ma_uint64 globalTimeEnd);
 MA_API ma_uint64 ma_node_get_time(const ma_node* pNode);
 MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
-MA_API ma_result ma_node_get_metadata(ma_node* pNode, ma_uint32 metadataCode, ma_node_metadata* pMetadata);
-MA_API const char* ma_node_get_name(ma_node* pNode);
-MA_API const char* ma_node_get_input_bus_name(ma_node* pNode, ma_uint32 inputBusIndex);
-MA_API const char* ma_node_get_output_bus_name(ma_node* pNode, ma_uint32 outputBusIndex);
 
 
 typedef struct
@@ -2199,7 +2138,6 @@ static ma_node_vtable g_node_graph_endpoint_vtable =
 {
     ma_node_graph_endpoint_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
-    NULL,   /* onGetMetadata */
     1,      /* 1 input bus. */
     1,      /* 1 output bus. */
     MA_NODE_FLAG_PASSTHROUGH    /* Flags. The endpoint is a passthrough. */
@@ -3313,103 +3251,6 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_node_get_metadata(ma_node* pNode, ma_uint32 metadataCode, ma_node_metadata* pMetadata)
-{
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_uint32 propertyCode;
-    ma_uint32 busType;
-    ma_uint32 busIndex;
-
-    if (pMetadata == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pMetadata);
-
-    if (pNode == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    propertyCode = (metadataCode & MA_NODE_METADATA_PROPERTY_MASK);
-    busType      = (metadataCode & MA_NODE_METADATA_BUS_TYPE_MASK);
-    busIndex     = (metadataCode & MA_NODE_METADATA_BUS_INDEX_MASK);
-
-    if (busType == MA_NODE_METADATA_INPUT_BUS && busIndex >= ma_node_get_input_bus_count(pNode)) {
-        return MA_INVALID_ARGS; /* Invalid input bus index. */
-    }
-
-    if (busType == MA_NODE_METADATA_OUTPUT_BUS && busIndex >= ma_node_get_output_bus_count(pNode)) {
-        return MA_INVALID_ARGS; /* Invalid output bus index. */
-    }
-
-    if (pNodeBase->vtable->onGetMetadata) {
-        return pNodeBase->vtable->onGetMetadata(pNode, metadataCode, pMetadata);
-    }
-
-    /* Getting here means we need to fall back to defaults. */
-    if (propertyCode == MA_NODE_METADATA_NAME) {
-        pMetadata->type = ma_node_metadata_type_string;
-
-        if (busType == MA_NODE_METADATA_INPUT_BUS) {
-            switch (busIndex) {
-                case 0: pMetadata->value.str = "Input Bus 0"; break;
-                case 1: pMetadata->value.str = "Input Bus 1"; break;
-            }
-        } else if (busType == MA_NODE_METADATA_OUTPUT_BUS) {
-            switch (busIndex) {
-                case 0: pMetadata->value.str = "Output Bus 0"; break;
-                case 1: pMetadata->value.str = "Output Bus 1"; break;
-            }
-        } else {
-            pMetadata->value.str = "Node";
-        }
-
-        return MA_SUCCESS;
-    }
-
-    /* Getting here means we don't know how to handle defaults. */
-    return MA_NO_DATA_AVAILABLE;
-}
-
-MA_API const char* ma_node_get_name(ma_node* pNode)
-{
-    ma_result result;
-    ma_node_metadata metadata;
-    
-    result = ma_node_get_metadata(pNode, MA_NODE_METADATA_NAME, &metadata);
-    if (result != MA_SUCCESS) {
-        return "Node";
-    }
-
-    return metadata.value.str;
-}
-
-MA_API const char* ma_node_get_input_bus_name(ma_node* pNode, ma_uint32 inputBusIndex)
-{
-    ma_result result;
-    ma_node_metadata metadata;
-    
-    result = ma_node_get_metadata(pNode, MA_NODE_METADATA_NAME | MA_NODE_METADATA_INPUT_BUS | inputBusIndex, &metadata);
-    if (result != MA_SUCCESS) {
-        return "Input Bus";
-    }
-
-    return metadata.value.str;
-}
-
-MA_API const char* ma_node_get_output_bus_name(ma_node* pNode, ma_uint32 outputBusIndex)
-{
-    ma_result result;
-    ma_node_metadata metadata;
-    
-    result = ma_node_get_metadata(pNode, MA_NODE_METADATA_NAME | MA_NODE_METADATA_OUTPUT_BUS | outputBusIndex, &metadata);
-    if (result != MA_SUCCESS) {
-        return "Output Bus";
-    }
-
-    return metadata.value.str;
-}
-
 
 
 static void ma_node_process_pcm_frames_internal(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
@@ -3787,7 +3628,6 @@ static ma_node_vtable g_ma_data_source_node_vtable =
 {
     ma_data_source_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
-    NULL,   /* onGetMetadata */
     0,      /* 0 input buses. */
     1,      /* 1 output bus. */
     0
@@ -3913,7 +3753,6 @@ static ma_node_vtable g_ma_splitter_node_vtable =
 {
     ma_splitter_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
-    NULL,   /* onGetMetadata */
     1,      /* 1 input bus. */
     2,      /* 2 output buses. */
     0
@@ -8846,7 +8685,6 @@ static ma_node_vtable g_ma_engine_node_vtable__sound =
 {
     ma_engine_node_process_pcm_frames__sound,
     NULL,   /* onGetRequiredInputFrameCount */
-    NULL,   /* onGetMetadata */
     0,      /* Sounds are data source nodes which means they have zero inputs (their input is drawn from the data source itself). */
     1,      /* Sounds have one output bus. */
     0       /* Default flags. */
@@ -8856,7 +8694,6 @@ static ma_node_vtable g_ma_engine_node_vtable__group =
 {
     ma_engine_node_process_pcm_frames__group,
     ma_engine_node_get_required_input_frame_count__group,
-    NULL,   /* onGetMetadata */
     1,      /* Groups have one input bus. */
     1,      /* Groups have one output bus. */
     MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES /* The engine node does resampling so should let miniaudio know about it. */
