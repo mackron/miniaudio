@@ -14,7 +14,7 @@ effect.
 #include <stdio.h>
 
 #define DEVICE_FORMAT      ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
-#define DEVICE_CHANNELS    2                /* The vocoder only supports 1 or 2 channels. */
+#define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
 static ma_audio_buffer_ref g_sourceData;    /* The underlying data source of the source node. */
 static ma_waveform         g_exciteData;    /* The underlying data source of the excite node. */
@@ -91,26 +91,8 @@ int main(int argc, char** argv)
     ma_node_set_output_bus_volume(&g_vocoderNode, 0, 2);
 
 
-    /* Source/carrier. Attached to input bus 0 of the vocoder node. */
-    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, NULL, 0, &g_sourceData);
-    if (result != MA_SUCCESS) {
-        printf("Failed to initialize audio buffer for source.");
-        goto done2;
-    }
-
-    sourceNodeConfig = ma_data_source_node_config_init(&g_sourceData, MA_FALSE);
-
-    result = ma_data_source_node_init(&g_nodeGraph, &sourceNodeConfig, NULL, &g_sourceNode);
-    if (result != MA_SUCCESS) {
-        printf("Failed to initialize source node.");
-        goto done2;
-    }
-
-    ma_node_attach_output_bus(&g_sourceNode, 0, &g_vocoderNode, 0);
-
-
-    /* Excite/modulator. Attached to input bus 1 of the vocoder node. */
-    waveformConfig = ma_waveform_config_init(device.capture.format, 1, device.sampleRate, ma_waveform_type_sawtooth, 1.0, 500); /* Must be one channel. */
+    /* Excite/modulator. Attached to input bus 0 of the vocoder node. */
+    waveformConfig = ma_waveform_config_init(device.capture.format, device.capture.channels, device.sampleRate, ma_waveform_type_sawtooth, 1.0, 50);
 
     result = ma_waveform_init(&waveformConfig, &g_exciteData);
     if (result != MA_SUCCESS) {
@@ -126,7 +108,25 @@ int main(int argc, char** argv)
         goto done3;
     }
 
-    ma_node_attach_output_bus(&g_exciteNode, 0, &g_vocoderNode, 1);
+    ma_node_attach_output_bus(&g_exciteNode, 0, &g_vocoderNode, 0);
+
+
+    /* Source/carrier. Attached to input bus 1 of the vocoder node. */
+    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, NULL, 0, &g_sourceData);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize audio buffer for source.");
+        goto done2;
+    }
+
+    sourceNodeConfig = ma_data_source_node_config_init(&g_sourceData, MA_FALSE);
+
+    result = ma_data_source_node_init(&g_nodeGraph, &sourceNodeConfig, NULL, &g_sourceNode);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize source node.");
+        goto done2;
+    }
+
+    ma_node_attach_output_bus(&g_sourceNode, 0, &g_vocoderNode, 1);
 
 
     ma_device_start(&device);
