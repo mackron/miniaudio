@@ -5531,7 +5531,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels, pDataBuffer->pNode->data.decoded.frameCount, pDataBuffer->pNode->data.encoded.pData, NULL);
         result = ma_audio_buffer_init(&config, &pDataBuffer->connector.buffer);
 
-        pDataBuffer->lengthInPCMFrames = pDataBuffer->connector.buffer.sizeInFrames;
+        pDataBuffer->lengthInPCMFrames = pDataBuffer->connector.buffer.ref.sizeInFrames;
     } else {
         ma_decoder_config configOut;
         configOut = ma_decoder_config_init(pDataBuffer->pResourceManager->config.decodedFormat, pDataBuffer->pResourceManager->config.decodedChannels, pDataBuffer->pResourceManager->config.decodedSampleRate);
