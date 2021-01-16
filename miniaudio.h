@@ -5824,7 +5824,7 @@ typedef struct
     const void* pData;
 } ma_audio_buffer_ref;
 
-MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
 MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
 MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
@@ -43393,7 +43393,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_get_length(ma_data_source* 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_audio_buffer_ref* pAudioBufferRef)
+MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef)
 {
     if (pAudioBufferRef == NULL) {
         return MA_INVALID_ARGS;
@@ -43411,8 +43411,8 @@ MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, 
     pAudioBufferRef->format             = format;
     pAudioBufferRef->channels           = channels;
     pAudioBufferRef->cursor             = 0;
-    pAudioBufferRef->sizeInFrames       = 0;
-    pAudioBufferRef->pData              = NULL;
+    pAudioBufferRef->sizeInFrames       = sizeInFrames;
+    pAudioBufferRef->pData              = pData;
 
     return MA_SUCCESS;
 }
@@ -43604,7 +43604,7 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
         return MA_INVALID_ARGS; /* Not allowing buffer sizes of 0 frames. */
     }
 
-    result = ma_audio_buffer_ref_init(pConfig->format, pConfig->channels, &pAudioBuffer->ref);
+    result = ma_audio_buffer_ref_init(pConfig->format, pConfig->channels, NULL, 0, &pAudioBuffer->ref);
     if (result != MA_SUCCESS) {
         return result;
     }
