@@ -65,20 +65,18 @@ int main(int argc, char** argv)
         return -1;
     }
 
-#if 0
     result = ma_sound_group_init(&engine, 0, NULL, &group);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize sound group.");
         return -1;
     }
-#endif
 
 
 #if 1
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, NULL, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -98,14 +96,14 @@ int main(int argc, char** argv)
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
     //ma_sound_group_set_pan(ma_engine_get_master_sound_group(&engine), -1);
-    //ma_sound_group_set_pitch(ma_engine_get_master_sound_group(&engine), 1.0f);
+    ma_sound_group_set_pitch(&group, 1.1f);
     //ma_sound_group_set_start_time(ma_engine_get_master_sound_group(&engine), 2000);
     //ma_sound_group_set_fade_in_milliseconds(&group, 0, 1, 5000);
-
+    //ma_sound_group_stop(&group);
     
     //ma_sound_set_fade_in_milliseconds(&sound, 0, 1, 5000);
     /*ma_sound_set_volume(&sound, 0.25f);*/
-    /*ma_sound_set_pitch(&sound, 1.2f);*/
+    /*ma_sound_set_pitch(&sound, 1.1f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
     /*ma_sound_set_looping(&sound, MA_TRUE);*/
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);

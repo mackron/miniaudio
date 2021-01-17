@@ -824,7 +824,6 @@ struct ma_node_output_bus
 {
     /* Immutable. */
     ma_node* pNode;                             /* The node that owns this output bus. The input node. Will be null for dummy head and tail nodes. */
-    ma_uint32 readCounter;                      /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     ma_uint8 outputBusIndex;                    /* The index of the output bus on pNode that this output bus represents. */
     ma_uint8 channels;                          /* The number of channels in the audio stream for this bus. */
 
@@ -849,8 +848,8 @@ struct ma_node_input_bus
 {
     /* Mutable via multiple threads. */
     ma_node_output_bus head;            /* Dummy head node for simplifying some lock-free thread-safety stuff. */
-    MA_ATOMIC ma_spinlock lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
     MA_ATOMIC ma_uint16 nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
+    MA_ATOMIC ma_spinlock lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
 
     /* Set once at startup. */
     ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
@@ -870,7 +869,6 @@ struct ma_node_base
     ma_uint16 cachedFrameCountOut;
     ma_uint16 cachedFrameCountIn;
     ma_uint16 consumedFrameCountIn;
-    ma_uint32 readCounter;                  /* For loop prevention. Compared with the current read count of the node graph. If larger, means a loop was encountered and reading is aborted and no samples read. */
     
     /* These variables are read and written between different threads. */
     MA_ATOMIC ma_node_state state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
@@ -915,7 +913,6 @@ struct ma_node_graph
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
 
     /* Read and written by multiple threads. */
-    MA_ATOMIC ma_uint32 readCounter;    /* Nodes spin on this while they wait for reading for finish before returning from ma_node_uninit(). */
     MA_ATOMIC ma_bool8 isReading;
 };
 
@@ -2108,18 +2105,6 @@ static ma_bool8 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 }
 #endif
 
-static void ma_node_graph_increment_read_counter(ma_node_graph* pNodeGraph)
-{
-    MA_ASSERT(pNodeGraph != NULL);
-    c89atomic_fetch_add_32(&pNodeGraph->readCounter, 1);
-}
-
-static ma_uint32 ma_node_graph_get_read_counter(ma_node_graph* pNodeGraph)
-{
-    MA_ASSERT(pNodeGraph != NULL);
-    return c89atomic_load_32(&pNodeGraph->readCounter);
-}
-
 
 static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
@@ -2226,7 +2211,6 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
             result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
         }
         ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
-        ma_node_graph_increment_read_counter(pNodeGraph);
 
         totalFramesRead += framesJustRead;
 
@@ -2354,23 +2338,6 @@ static float ma_node_output_bus_get_volume(const ma_node_output_bus* pOutputBus)
 {
     return c89atomic_load_f32((float*)&pOutputBus->volume);
 }
-
-static ma_uint32 ma_node_output_bus_set_read_counter(ma_node_output_bus* pOutputBus, ma_uint32 newReadCounter)
-{
-    ma_uint32 oldReadCounter;
-
-    MA_ASSERT(pOutputBus != NULL);
-
-    /*
-    This function will only ever be called in a controlled environment (only on the audio thread,
-    and never concurrently).
-    */
-    oldReadCounter = pOutputBus->readCounter;
-    pOutputBus->readCounter = newReadCounter;
-
-    return oldReadCounter;
-}
-
 
 
 static ma_result ma_node_input_bus_init(ma_uint32 channels, ma_node_input_bus* pInputBus)
@@ -2659,27 +2626,8 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
     for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
         ma_uint32 framesProcessed = 0;
-        ma_uint32 readCounter;
 
         MA_ASSERT(pOutputBus->pNode != NULL);
-
-        /*
-        We need to grab the read counter at the start so we can set a new read counter first up. We
-        need to do this first so that recursive reads can have access to the new counter. Note that
-        we need to do this here and *not* in ma_node_read_pcm_frames() which would be the more
-        intuitive option because we need to loop here in order to fill up as many frames as we can
-        which would cause all iterations after the first to return 0 frames because of the loop
-        detection logic getting triggered.
-        */
-        readCounter = ma_node_output_bus_set_read_counter(pOutputBus, ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode)) + 1);
-
-        /*
-        If the node's read counter is larger than that of the graph it means we've hit a loop and
-        we need to skip this attachment.
-        */
-        if (readCounter > ma_node_graph_get_read_counter(ma_node_get_node_graph(pOutputBus->pNode))) {
-            continue;   /* This output bus has already been processed by the current iteration. */
-        }
 
         if (pFramesOut != NULL) {
             /* Read. */
@@ -3407,9 +3355,10 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             requested, however we still need to clamp it to whatever can fit in the cache.
 
             This will also be used as the basis for determining how many input frames to read. This is
-            not ideal because it can result in too many input frames being read which introduces latency,
-            however the alternative requires us to implement another callback in the node's vtable for
-            calculating the required input frame count which I'm not willing to do.
+            not ideal because it can result in too many input frames being read which introduces latency.
+            To solve this, nodes can implement an optional callback called onGetRequiredInputFrameCount
+            which is used as hint to miniaudio as to how many input frames it needs to read at a time. This
+            callback is completely optional, and if it's not set, miniaudio will assume `frameCount`.
 
             This function will be called multiple times for each period of time, once for each output node.
             We cannot read from each input node each time this function is called. Instead we need to check
