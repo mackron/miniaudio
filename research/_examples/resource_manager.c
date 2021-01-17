@@ -28,6 +28,22 @@ set, each sound will have their own formats and you'll need to do the necessary 
 #include "../../miniaudio.h"
 #include "../miniaudio_engine.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+void main_loop__em(void* pUserData)
+{
+    ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
+    MA_ASSERT(pResourceManager != NULL);
+
+    /*
+    The Emscripten build does not support threading which means we need to process jobs manually. If
+    there are no jobs needing to be processed this will return immediately with MA_NO_DATA_AVAILABLE.
+    */
+    ma_resource_manager_process_next_job(pResourceManager);
+}
+#endif
+
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     ma_data_source_read_pcm_frames((ma_data_source*)pDevice->pUserData, pOutput, frameCount, NULL, MA_TRUE);
@@ -71,6 +87,15 @@ int main(int argc, char** argv)
     resourceManagerConfig.decodedChannels   = device.playback.channels;
     resourceManagerConfig.decodedSampleRate = device.sampleRate;
 
+    /*
+    We're not supporting threading with Emscripten so go ahead and disable threading. It's important
+    that we set the appropriate flag and also the job thread count to 0.
+    */
+#ifdef __EMSCRIPTEN__
+    resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+    resourceManagerConfig.jobThreadCount = 0;
+#endif
+
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
         ma_device_uninit(&device);
@@ -82,10 +107,9 @@ int main(int argc, char** argv)
     result = ma_resource_manager_data_source_init(
         &resourceManager,
         argv[1],
-        MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/,
+        MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM,
         NULL,   /* Async notification. */
         &dataSource);
-
     if (result != MA_SUCCESS) {
         printf("Failed to load sound \"%s\".", argv[1]);
         return -1;
@@ -100,9 +124,12 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    printf("Press Enter to quit...");
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(main_loop__em, &resourceManager, 0, 1);
+#else
+    printf("Press Enter to quit...\n");
     getchar();
-
+#endif
 
     /* Teardown. */
 
