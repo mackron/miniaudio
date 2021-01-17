@@ -5529,8 +5529,8 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
     /* Job queue. */
     jobQueueFlags = 0;
-    if ((pConfig->flags & MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING) != 0) {
-        if (pConfig->jobThreadCount > 0) {
+    if ((pResourceManager->config.flags & MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING) != 0) {
+        if (pResourceManager->config.jobThreadCount > 0) {
             return MA_INVALID_ARGS; /* Non-blocking mode is only valid for self-managed job threads. */
         }
 
@@ -5552,7 +5552,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         }
 
         /* Create the job threads last to ensure the threads has access to valid data. */
-        for (iJobThread = 0; iJobThread < pConfig->jobThreadCount; iJobThread += 1) {
+        for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
             result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager);
             if (result != MA_SUCCESS) {
                 ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
