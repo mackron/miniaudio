@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.31 - TBD
+miniaudio - v0.10.31 - 2020-01-17
 
 David Reid - mackron@gmail.com
 
@@ -64828,7 +64828,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.31 - TBD
+v0.10.31 - 2020-01-17
   - Make some functions const correct.
   - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
   - Add the MA_ATOMIC annotation for use with variables that should be used atomically and remove unnecessary volatile qualifiers.
