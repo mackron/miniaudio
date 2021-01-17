@@ -7074,6 +7074,35 @@ MA_API int ma_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
     return 34;
 }
 
+MA_API int ma_wcscpy_s(wchar_t* dst, size_t dstSizeInBytes, const wchar_t* src)
+{
+    size_t i;
+
+    if (dst == 0) {
+        return 22;
+    }
+    if (dstSizeInBytes == 0) {
+        return 34;
+    }
+    if (src == 0) {
+        dst[0] = '\0';
+        return 22;
+    }
+
+    for (i = 0; i < dstSizeInBytes && src[i] != '\0'; ++i) {
+        dst[i] = src[i];
+    }
+
+    if (i < dstSizeInBytes) {
+        dst[i] = '\0';
+        return 0;
+    }
+
+    dst[0] = '\0';
+    return 34;
+}
+
+
 MA_API int ma_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count)
 {
     size_t maxcount;
@@ -7314,6 +7343,19 @@ MA_API char* ma_copy_string(const char* src, const ma_allocation_callbacks* pAll
     }
 
     ma_strcpy_s(dst, sz, src);
+
+    return dst;
+}
+
+MA_API wchar_t* ma_copy_string_w(const wchar_t* src, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    size_t sz = wcslen(src)+1;
+    wchar_t* dst = (wchar_t*)ma_malloc(sz * sizeof(*dst), pAllocationCallbacks);
+    if (dst == NULL) {
+        return NULL;
+    }
+
+    ma_wcscpy_s(dst, sz, src);
 
     return dst;
 }
