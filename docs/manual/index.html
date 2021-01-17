@@ -681,6 +681,11 @@ starts with Android 8 which means older versions will fall back to OpenSL|ES whi
 </p>
 <p>
 
+There have been reports that the OpenSL|ES backend fails to initialize on some Android based devices due to <span style="font-family:monospace;">dlopen()</span> failing to open &quot;libOpenSLES.so&quot;. If
+this happens on your platform you&#39;ll need to disable run-time linking with <span style="font-family:monospace;">MA_NO_RUNTIME_LINKING</span> and link with -lOpenSLES.
+</p>
+<p>
+
 </p>
 <h2 id="Emscripten" class="man">2.6. Emscripten</h2>
 <p>
@@ -821,6 +826,156 @@ Disables the null backend.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
+MA_ENABLE_ONLY_SPECIFIC_BACKENDS
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables all backends by default and requires <span style="font-family:monospace;">MA_ENABLE_*</span> to
+enable specific backends.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_WASAPI
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the WASAPI backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_DSOUND
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the DirectSound backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_WINMM
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the WinMM backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_ALSA
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the ALSA backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_PULSEAUDIO
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the PulseAudio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_JACK
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the JACK backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_COREAUDIO
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the Core Audio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_SNDIO
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the sndio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_AUDIO4
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the audio(4) backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_OSS
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the OSS backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_AAUDIO
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the AAudio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_OPENSL
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the OpenSL</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_WEBAUDIO
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the Web Audio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_NULL
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable the null backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
 MA_NO_DECODING</p>
 </td>
 <td class="doc" valign="top"><p>
@@ -862,11 +1017,13 @@ Disables the built-in MP3 decoder.</p>
 <tr>
 <td class="doc" valign="top"><p>
 MA_NO_DEVICE_IO
+
 </p>
 </td>
 <td class="doc" valign="top"><p>
-Disables playback and recording. This will disable ma_context and ma_device APIs. This is useful if you only want to use
-miniaudio&#39;s data conversion and/or decoding APIs.</p>
+Disables playback and recording. This will disable ma_context and
+ma_device APIs. This is useful if you only want to use miniaudio&#39;s
+data conversion and/or decoding APIs.</p>
 </td>
 </tr>
 <tr>
@@ -882,11 +1039,17 @@ MA_NO_THREADING
 
 
 </p>
+<p>
+
+
+</p>
 </td>
 <td class="doc" valign="top"><p>
-Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs. This option is useful if you only need to use miniaudio for
-data conversion, decoding and/or encoding. Some families of APIs require threading which means the following options must also
-be set:
+Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs.
+This option is useful if you only need to use miniaudio for data
+conversion, decoding and/or encoding. Some families of APIs
+require threading which means the following options must also be
+set:
 
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
@@ -938,11 +1101,27 @@ Disables NEON optimizations.</p>
 MA_NO_RUNTIME_LINKING
 
 </p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+</p>
 </td>
 <td class="doc" valign="top"><p>
-Disables runtime linking. This is useful for passing Apple&#39;s notarization process. When enabling this, you may need to avoid
-using <span style="font-family:monospace;">-std=c89</span> or <span style="font-family:monospace;">-std=c99</span> on Linux builds or else you may end up with compilation errors due to conflicts with <span style="font-family:monospace;">timespec</span>
-and <span style="font-family:monospace;">timeval</span> data types.</p>
+Disables runtime linking. This is useful for passing Apple&#39;s
+notarization process. When enabling this, you may need to avoid
+using <span style="font-family:monospace;">-std=c89</span> or <span style="font-family:monospace;">-std=c99</span> on Linux builds or else you may end
+up with compilation errors due to conflicts with <span style="font-family:monospace;">timespec</span> and
+<span style="font-family:monospace;">timeval</span> data types.
+
+You may need to enable this if your target platform does not allow
+runtime linking via <span style="font-family:monospace;">dlopen()</span>.</p>
 </td>
 </tr>
 <tr>
@@ -983,10 +1162,12 @@ Enable <span style="font-family:monospace;">printf()</span> debug output.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
-MA_COINIT_VALUE</p>
+MA_COINIT_VALUE
+</p>
 </td>
 <td class="doc" valign="top"><p>
-Windows only. The value to pass to internal calls to <span style="font-family:monospace;">CoInitializeEx()</span>. Defaults to <span style="font-family:monospace;">COINIT_MULTITHREADED</span>.</p>
+Windows only. The value to pass to internal calls to
+<span style="font-family:monospace;">CoInitializeEx()</span>. Defaults to <span style="font-family:monospace;">COINIT_MULTITHREADED</span>.</p>
 </td>
 </tr>
 <tr>
@@ -994,7 +1175,7 @@ Windows only. The value to pass to internal calls to <span style="font-family:mo
 MA_API</p>
 </td>
 <td class="doc" valign="top"><p>
-Controls how public APIs should be decorated. Defaults to <span style="font-family:monospace;">extern</span>.</p>
+Controls how public APIs should be decorated. Default is <span style="font-family:monospace;">extern</span>.</p>
 </td>
 </tr>
 <tr>
@@ -1002,11 +1183,17 @@ Controls how public APIs should be decorated. Defaults to <span style="font-fami
 MA_DLL
 
 </p>
+<p>
+
+
+</p>
 </td>
 <td class="doc" valign="top"><p>
-If set, configures MA_API to either import or export APIs depending on whether or not the implementation is being defined. If
-defining the implementation, MA_API will be configured to export. Otherwise it will be configured to import. This has no effect
-if MA_API is defined externally.</p>
+If set, configures MA_API to either import or export APIs
+depending on whether or not the implementation is being defined.
+If defining the implementation, MA_API will be configured to
+export. Otherwise it will be configured to import. This has no
+effect if MA_API is defined externally.</p>
 </td>
 </tr>
 </table></div><p>
@@ -3183,7 +3370,7 @@ When compiling with VC6 and earlier, decoding is restricted to files less than 2
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2020 David Reid<br/>
+        Copyright &copy; 2021 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>
