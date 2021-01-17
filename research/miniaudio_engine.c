@@ -50,6 +50,8 @@ int main(int argc, char** argv)
     resourceManagerConfig.decodedFormat = ma_format_f32;
     //resourceManagerConfig.decodedChannels = 2;
     resourceManagerConfig.decodedSampleRate = 48000;
+    //resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+    resourceManagerConfig.jobThreadCount = 1;
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize resource manager.\n");
@@ -76,7 +78,7 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -96,7 +98,7 @@ int main(int argc, char** argv)
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
     //ma_sound_group_set_pan(ma_engine_get_master_sound_group(&engine), -1);
-    ma_sound_group_set_pitch(&group, 1.1f);
+    ma_sound_group_set_pitch(&group, 1.25f);
     //ma_sound_group_set_start_time(ma_engine_get_master_sound_group(&engine), 2000);
     //ma_sound_group_set_fade_in_milliseconds(&group, 0, 1, 5000);
     //ma_sound_group_stop(&group);
@@ -124,7 +126,7 @@ int main(int argc, char** argv)
     //ma_sound_start(&sound2);
 
     //ma_sleep(2000);
-    printf("Stopping...\n");
+    //printf("Stopping...\n");
     //ma_sound_stop(&sound);
     //ma_sound_group_stop(ma_engine_get_master_sound_group(&engine));
 #endif
@@ -133,6 +135,13 @@ int main(int argc, char** argv)
     /*ma_engine_play_sound(&engine, argv[1], NULL);*/
     /*ma_engine_play_sound(&engine, argv[2], NULL);
     ma_engine_play_sound(&engine, argv[3], NULL);*/
+#endif
+
+#if 0
+    for (;;) {
+        ma_resource_manager_process_next_job(&resourceManager);
+        ma_sleep(5);
+    }
 #endif
 
 #if 0

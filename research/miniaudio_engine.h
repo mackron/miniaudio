@@ -1067,6 +1067,21 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
 
 
 /*
+Simple polling notification.
+
+This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_bool32 signalled;
+} ma_async_notification_poll;
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
+
+
+/*
 Event Notification
 
 This notification signals an event internally on the MA_NOTIFICATION_COMPLETE and MA_NOTIFICATION_FAILED codes. All other codes are ignored.
@@ -1158,14 +1173,20 @@ typedef struct
 MA_API ma_job ma_job_init(ma_uint16 code);
 
 
-#define MA_JOB_QUEUE_FLAG_NON_BLOCKING  0x00000001  /* When set, ma_job_queue_next() will not wait and no semaphore will be signaled in ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available. */
+/*
+When set, ma_job_queue_next() will not wait and no semaphore will be signaled in
+ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
+
+This flag should always be used for platforms that do not support multithreading.
+*/
+#define MA_JOB_QUEUE_FLAG_NON_BLOCKING  0x00000001
 
 typedef struct
 {
     ma_uint32 flags;    /* Flags passed in at initialization time. */
     ma_uint64 head;     /* The first item in the list. Required for removing from the top of the list. */
     ma_uint64 tail;     /* The last item in the list. Required for appending to the end of the list. */
-    ma_semaphore sem;   /* Only used when MA_JOB_QUEUE_ASYNC is unset. */
+    ma_semaphore sem;   /* Only used when MA_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
     ma_slot_allocator allocator;
     ma_job jobs[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY];
 } ma_job_queue;
@@ -1181,7 +1202,12 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Retur
 #define MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT    64
 #endif
 
-#define MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING       0x00000001  /* Indicates ma_resource_manager_next_job() should not block. Only valid with MA_RESOURCE_MANAGER_NO_JOB_THREAD. */   
+/* Indicates ma_resource_manager_next_job() should not block. Only valid when the job thread count is 0. */
+#define MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING   0x00000001
+
+/* Disables any kind of multithreading. Implicitly enables MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING. */
+#define MA_RESOURCE_MANAGER_FLAG_NO_THREADING   0x00000002
+
 
 typedef struct
 {
@@ -1299,8 +1325,8 @@ struct ma_resource_manager
 {
     ma_resource_manager_config config;
     ma_resource_manager_data_buffer_node* pRootDataBufferNode;      /* The root buffer in the binary tree. */
-    ma_mutex dataBufferLock;                                        /* For synchronizing access to the data buffer binary tree. */
-    ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The thread for executing jobs. Will probably turn this into an array. */
+    ma_mutex dataBufferBSTLock;                                     /* For synchronizing access to the data buffer binary tree. */
+    ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The threads for executing jobs. */
     ma_job_queue jobQueue;                                          /* Lock-free multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
     ma_default_vfs defaultVFS;                                      /* Only used if a custom VFS is not specified. */
 };
@@ -4612,6 +4638,34 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
 }
 
 
+static void ma_async_notification_poll__on_signal(ma_async_notification* pNotification, int code)
+{
+    (void)code;
+    ((ma_async_notification_poll*)pNotification)->signalled = MA_TRUE;
+}
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll)
+{
+    if (pNotificationPoll == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNotificationPoll->cb.onSignal = ma_async_notification_poll__on_signal;
+    pNotificationPoll->signalled = MA_FALSE;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll)
+{
+    if (pNotificationPoll == NULL) {
+        return MA_FALSE;
+    }
+
+    return pNotificationPoll->signalled;
+}
+
+
 static void ma_async_notification_event__on_signal(ma_async_notification* pNotification, int code)
 {
     (void)code;
@@ -4951,6 +5005,7 @@ static ma_uint32 ma_hash_string_32(const char* str)
 {
     return ma_hash_32(str, (int)strlen(str), MA_DEFAULT_HASH_SEED);
 }
+
 
 
 
@@ -5308,6 +5363,88 @@ static ma_result ma_resource_manager_data_buffer_node_result(const ma_resource_m
 }
 
 
+static ma_bool32 ma_resource_manager_is_threading_enabled(const ma_resource_manager* pResourceManager)
+{
+    MA_ASSERT(pResourceManager != NULL);
+
+    return (pResourceManager->config.flags & MA_RESOURCE_MANAGER_FLAG_NO_THREADING) == 0;
+}
+
+
+typedef struct
+{
+    union
+    {
+        ma_async_notification_event e;
+        ma_async_notification_poll p;
+    };  /* Must be the first member. */
+    ma_resource_manager* pResourceManager;
+} ma_resource_manager_inline_notification;
+
+static ma_result ma_resource_manager_inline_notification_init(ma_resource_manager* pResourceManager, ma_resource_manager_inline_notification* pNotification)
+{
+    MA_ASSERT(pResourceManager != NULL);
+    MA_ASSERT(pNotification    != NULL);
+
+    pNotification->pResourceManager = pResourceManager;
+
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        return ma_async_notification_event_init(&pNotification->e);
+    } else {
+        return ma_async_notification_poll_init(&pNotification->p);
+    }
+}
+
+static void ma_resource_manager_inline_notification_uninit(ma_resource_manager_inline_notification* pNotification)
+{
+    MA_ASSERT(pNotification != NULL);
+
+    if (ma_resource_manager_is_threading_enabled(pNotification->pResourceManager)) {
+        ma_async_notification_event_uninit(&pNotification->e);
+    } else {
+        /* No need to uninitialize a polling notification. */
+    }
+}
+
+static void ma_resource_manager_inline_notification_wait(ma_resource_manager_inline_notification* pNotification)
+{
+    MA_ASSERT(pNotification != NULL);
+
+    if (ma_resource_manager_is_threading_enabled(pNotification->pResourceManager)) {
+        ma_async_notification_event_wait(&pNotification->e);
+    } else {
+        while (ma_async_notification_poll_is_signalled(&pNotification->p) == MA_FALSE) {
+            ma_result result = ma_resource_manager_process_next_job(pNotification->pResourceManager);
+            if (result == MA_NO_DATA_AVAILABLE || result == MA_JOB_QUIT) {
+                break;
+            }
+        }
+    }
+}
+
+
+static void ma_resource_manager_data_buffer_bst_lock(ma_resource_manager* pResourceManager)
+{
+    MA_ASSERT(pResourceManager != NULL);
+
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        ma_mutex_lock(&pResourceManager->dataBufferBSTLock);
+    } else {
+        /* Threading not enabled. Do nothing. */
+    }
+}
+
+static void ma_resource_manager_data_buffer_bst_unlock(ma_resource_manager* pResourceManager)
+{
+    MA_ASSERT(pResourceManager != NULL);
+
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        ma_mutex_unlock(&pResourceManager->dataBufferBSTLock);
+    } else {
+        /* Threading not enabled. Do nothing. */
+    }
+}
+
 static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUserData)
 {
     ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
@@ -5380,6 +5517,16 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
     }
 
+    /* We need to force MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING if MA_RESOURCE_MANAGER_FLAG_NO_THREADING is set. */
+    if ((pResourceManager->config.flags & MA_RESOURCE_MANAGER_FLAG_NO_THREADING) != 0) {
+        pResourceManager->config.flags |= MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING;
+
+        /* We cannot allow job threads when MA_RESOURCE_MANAGER_FLAG_NO_THREADING has been set. This is an invalid use case. */
+        if (pResourceManager->config.jobThreadCount > 0) {
+            return MA_INVALID_ARGS;
+        }
+    }
+
     /* Job queue. */
     jobQueueFlags = 0;
     if ((pConfig->flags & MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING) != 0) {
@@ -5392,25 +5539,26 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
     result = ma_job_queue_init(jobQueueFlags, &pResourceManager->jobQueue);
     if (result != MA_SUCCESS) {
-        ma_mutex_uninit(&pResourceManager->dataBufferLock);
         return result;
     }
 
 
-    /* Data buffer lock. */
-    result = ma_mutex_init(&pResourceManager->dataBufferLock);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-
-    /* Create the job threads last to ensure the threads has access to valid data. */
-    for (iJobThread = 0; iJobThread < pConfig->jobThreadCount; iJobThread += 1) {
-        result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager);
+    /* Here is where we initialize our threading stuff. We don't do this if we don't support threading. */
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        /* Data buffer lock. */
+        result = ma_mutex_init(&pResourceManager->dataBufferBSTLock);
         if (result != MA_SUCCESS) {
-            ma_mutex_uninit(&pResourceManager->dataBufferLock);
-            ma_job_queue_uninit(&pResourceManager->jobQueue);
             return result;
+        }
+
+        /* Create the job threads last to ensure the threads has access to valid data. */
+        for (iJobThread = 0; iJobThread < pConfig->jobThreadCount; iJobThread += 1) {
+            result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager);
+            if (result != MA_SUCCESS) {
+                ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
+                ma_job_queue_uninit(&pResourceManager->jobQueue);
+                return result;
+            }
         }
     }
 
@@ -5447,8 +5595,10 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     ma_resource_manager_post_job_quit(pResourceManager);
 
     /* Wait for every job to finish before continuing to ensure nothing is sill trying to access any of our objects below. */
-    for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
-        ma_thread_wait(&pResourceManager->jobThreads[iJobThread]);
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
+            ma_thread_wait(&pResourceManager->jobThreads[iJobThread]);
+        }
     }
 
     /* At this point the thread should have returned and no other thread should be accessing our data. We can now delete all data buffers. */
@@ -5458,7 +5608,9 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     ma_job_queue_uninit(&pResourceManager->jobQueue);
 
     /* We're no longer doing anything with data buffers so the lock can now be uninitialized. */
-    ma_mutex_uninit(&pResourceManager->dataBufferLock);
+    if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+        ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
+    }
 }
 
 
@@ -5700,9 +5852,19 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         }
 
         /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
-        /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
-        while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-            ma_yield();
+        if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+            /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
+            while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                ma_yield();
+            }
+        } else {
+            /* Threading is not enabled. We need to spin and call ma_resource_manager_process_next_job(). */
+            while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                result = ma_resource_manager_process_next_job(pResourceManager);
+                if (result == MA_NO_DATA_AVAILABLE || result == MA_JOB_QUIT) {
+                    break;
+                }
+            }
         }
 
         result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pNotification);
@@ -5745,7 +5907,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             /* Asynchronous. Post to the job thread. */
             ma_job job;
             ma_bool32 waitInit = MA_FALSE;
-            ma_async_notification_event initNotification;
+            ma_resource_manager_inline_notification initNotification;
 
             /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
             pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
@@ -5761,7 +5923,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
             if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                 waitInit = MA_TRUE;
-                ma_async_notification_event_init(&initNotification);
+                ma_resource_manager_inline_notification_init(pResourceManager, &initNotification);
             }
 
             /* We now have everything we need to post the job to the job thread. */
@@ -5779,7 +5941,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 }
 
                 if (waitInit == MA_TRUE) {
-                    ma_async_notification_event_uninit(&initNotification);
+                    ma_resource_manager_inline_notification_uninit(&initNotification);
                 }
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
@@ -5790,8 +5952,8 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
             /* If we're waiting for initialization of the connector, do so here before returning. */
             if (waitInit == MA_TRUE) {
-                ma_async_notification_event_wait(&initNotification);
-                ma_async_notification_event_uninit(&initNotification);
+                ma_resource_manager_inline_notification_wait(&initNotification);
+                ma_resource_manager_inline_notification_uninit(&initNotification);
             }
         } else {
             /* Synchronous. Do everything here. */
@@ -5955,11 +6117,11 @@ MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pReso
     hashedName32 = ma_hash_string_32(pFilePath);
 
     /* At this point we can now enter the critical section. */
-    ma_mutex_lock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
         result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, pNotification, pDataBuffer);
     }
-    ma_mutex_unlock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
     return result;
 }
@@ -6018,27 +6180,27 @@ static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manag
             be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
             to get processed before returning.
             */
-            ma_async_notification_event waitEvent;
+            ma_resource_manager_inline_notification notification;
             ma_job job;
 
-            result = ma_async_notification_event_init(&waitEvent);
+            result = ma_resource_manager_inline_notification_init(pDataBuffer->pResourceManager, &notification);
             if (result != MA_SUCCESS) {
-                return result;  /* Failed to create the wait event. This should rarely if ever happen. */
+                return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
             }
 
             job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
             job.freeDataBuffer.pDataBuffer   = pDataBuffer;
-            job.freeDataBuffer.pNotification = &waitEvent;
+            job.freeDataBuffer.pNotification = &notification;
 
             result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
             if (result != MA_SUCCESS) {
-                ma_async_notification_event_uninit(&waitEvent);
+                ma_resource_manager_inline_notification_uninit(&notification);
                 return result;
             }
 
-            ma_async_notification_event_wait(&waitEvent);
-            ma_async_notification_event_uninit(&waitEvent);
+            ma_resource_manager_inline_notification_wait(&notification);
+            ma_resource_manager_inline_notification_uninit(&notification);
         }
     }
 
@@ -6053,11 +6215,11 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         return MA_INVALID_ARGS;
     }
 
-    ma_mutex_lock(&pDataBuffer->pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_lock(pDataBuffer->pResourceManager);
     {
         result = ma_resource_manager_data_buffer_uninit_nolock(pDataBuffer);
     }
-    ma_mutex_unlock(&pDataBuffer->pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
 
     return result;
 }
@@ -6368,11 +6530,11 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
 
     hashedName32 = ma_hash_string_32(pName);
 
-    ma_mutex_lock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
         result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, type, pExistingData);
     }
-    ma_mutex_unlock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
     return result;
 }
@@ -6446,11 +6608,11 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
     It's assumed that the data specified by pName was registered with a prior call to ma_resource_manager_register_encoded/decoded_data(). To unregister it, all
     we need to do is delete the data buffer by it's name.
     */
-    ma_mutex_lock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
         result = ma_resource_manager_unregister_data_nolock(pResourceManager, hashedName32);
     }
-    ma_mutex_unlock(&pResourceManager->dataBufferLock);
+    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
     return result;
 }
@@ -6516,7 +6678,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     char* pFilePathCopy;
     ma_job job;
     ma_bool32 waitBeforeReturning = MA_FALSE;
-    ma_async_notification_event waitNotification;
+    ma_resource_manager_inline_notification waitNotification;
 
     if (pDataStream == NULL) {
         if (pNotification != NULL) {
@@ -6565,7 +6727,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     */
     if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0 || (flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
         waitBeforeReturning = MA_TRUE;
-        ma_async_notification_event_init(&waitNotification);
+        ma_resource_manager_inline_notification_init(pResourceManager, &waitNotification);
     }
 
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
@@ -6581,7 +6743,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
         }
 
         if (waitBeforeReturning) {
-            ma_async_notification_event_uninit(&waitNotification);
+            ma_resource_manager_inline_notification_uninit(&waitNotification);
         }
 
         ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
@@ -6590,8 +6752,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
     /* Wait if needed. */
     if (waitBeforeReturning) {
-        ma_async_notification_event_wait(&waitNotification);
-        ma_async_notification_event_uninit(&waitNotification);
+        ma_resource_manager_inline_notification_wait(&waitNotification);
+        ma_resource_manager_inline_notification_uninit(&waitNotification);
 
         if (pNotification != NULL) {
             ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
@@ -6603,7 +6765,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
 
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream)
 {
-    ma_async_notification_event freeEvent;
+    ma_resource_manager_inline_notification freeEvent;
     ma_job job;
 
     if (pDataStream == NULL) {
@@ -6617,7 +6779,7 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     We need to post a job to ensure we're not in the middle or decoding or anything. Because the object is owned by the caller, we'll need
     to wait for it to complete before returning which means we need an event.
     */
-    ma_async_notification_event_init(&freeEvent);
+    ma_resource_manager_inline_notification_init(pDataStream->pResourceManager, &freeEvent);
 
     job = ma_job_init(MA_JOB_FREE_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
@@ -6626,8 +6788,8 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
 
     /* We need to wait for the job to finish processing before we return. */
-    ma_async_notification_event_wait(&freeEvent);
-    ma_async_notification_event_uninit(&freeEvent);
+    ma_resource_manager_inline_notification_wait(&freeEvent);
+    ma_resource_manager_inline_notification_uninit(&freeEvent);
 
     return MA_SUCCESS;
 }
