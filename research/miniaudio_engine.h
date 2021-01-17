@@ -1120,6 +1120,7 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             char* pFilePath;
+            wchar_t* pFilePathW;
             ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
             ma_async_notification* pCompletedNotification;  /* Signalled when the data buffer has been fully decoded. */
         } loadDataBuffer;
@@ -1143,6 +1144,7 @@ typedef struct
         {
             ma_resource_manager_data_stream* pDataStream;
             char* pFilePath;                        /* Allocated when the job is posted, freed by the job thread after loading. */
+            wchar_t* pFilePathW;                    /* ^ As above ^. Only used if pFilePath is NULL. */
             ma_async_notification* pNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
         } loadDataStream;
         struct
@@ -1337,11 +1339,15 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
 /* Registration. */
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_register_decoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
+MA_API ma_result ma_resource_manager_register_encoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, size_t sizeInBytes);
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
+MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName);
 
 /* Data Buffers. */
 MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
@@ -1357,6 +1363,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
 
 /* Data Streams. */
 MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
@@ -1372,6 +1379,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
@@ -5006,6 +5014,11 @@ static ma_uint32 ma_hash_string_32(const char* str)
     return ma_hash_32(str, (int)strlen(str), MA_DEFAULT_HASH_SEED);
 }
 
+static ma_uint32 ma_hash_string_w_32(const wchar_t* str)
+{
+    return ma_hash_32(str, (int)wcslen(str) * sizeof(*str), MA_DEFAULT_HASH_SEED);
+}
+
 
 
 
@@ -5614,18 +5627,22 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 }
 
 
-static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourceManager, const char* pFilePath, ma_decoder* pDecoder)
+static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pFilePath        != NULL);
+    MA_ASSERT(pFilePath        != NULL || pFilePathW != NULL);
     MA_ASSERT(pDecoder         != NULL);
 
     config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
     config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
-    return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
+    if (pFilePath != NULL) {
+        return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
+    } else {
+        return ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pFilePathW, &config, pDecoder);
+    }
 }
 
 static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pNotification)
@@ -5800,16 +5817,17 @@ static ma_result ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_buffer_get_length_in_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pLength);
 }
 
-static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 hashedName32, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
     ma_resource_manager_data_buffer_node* pInsertPoint;
-    char* pFilePathCopy;    /* Allocated here, freed in the job thread. */
+    char* pFilePathCopy = NULL;    /* Allocated here, freed in the job thread. */
+    wchar_t* pFilePathWCopy = NULL;
     ma_resource_manager_data_buffer_encoding dataBufferType;
     ma_bool32 async;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pFilePath        != NULL);
+    MA_ASSERT(pFilePath        != NULL || pFilePathW != NULL);
     MA_ASSERT(pDataBuffer      != NULL);
 
     MA_ZERO_OBJECT(pDataBuffer);
@@ -5910,8 +5928,13 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             ma_resource_manager_inline_notification initNotification;
 
             /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
-            pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-            if (pFilePathCopy == NULL) {
+            if (pFilePath != NULL) {
+                pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+            } else {
+                pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+            }
+
+            if (pFilePathCopy == NULL || pFilePathWCopy == NULL) {
                 if (pNotification != NULL) {
                     ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
                 }
@@ -5931,6 +5954,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
             job.loadDataBuffer.pDataBuffer            = pDataBuffer;
             job.loadDataBuffer.pFilePath              = pFilePathCopy;
+            job.loadDataBuffer.pFilePathW             = pFilePathWCopy;
             job.loadDataBuffer.pInitNotification      = (waitInit == MA_TRUE) ? &initNotification : NULL;
             job.loadDataBuffer.pCompletedNotification = pNotification;
             result = ma_resource_manager_post_job(pResourceManager, &job);
@@ -5947,6 +5971,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBuffer->pNode);
                 ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
                 ma__free_from_callbacks(pFilePathCopy,      &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+                ma__free_from_callbacks(pFilePathWCopy,     &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
                 return result;
             }
 
@@ -5961,7 +5986,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 /* No decoding. Just store the file contents in memory. */
                 void* pData;
                 size_t sizeInBytes;
-                result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+                result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, pFilePathW, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
                 if (result == MA_SUCCESS) {
                     pDataBuffer->pNode->data.encoded.pData       = pData;
                     pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
@@ -5970,7 +5995,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 /* Decoding. */
                 ma_decoder decoder;
 
-                result = ma_resource_manager__init_decoder(pResourceManager, pFilePath, &decoder);
+                result = ma_resource_manager__init_decoder(pResourceManager, pFilePath, pFilePathW, &decoder);
                 if (result == MA_SUCCESS) {
                     ma_uint64 totalFrameCount;
                     ma_uint64 dataSizeInBytes;
@@ -6100,7 +6125,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
     ma_uint32 hashedName32;
@@ -6109,21 +6134,35 @@ MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pReso
         return MA_INVALID_ARGS;
     }
 
-    if (pResourceManager == NULL || pFilePath == NULL) {
+    if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL)) {
         return MA_INVALID_ARGS;
     }
 
     /* Do as much set up before entering into the critical section to reduce our lock time as much as possible. */
-    hashedName32 = ma_hash_string_32(pFilePath);
+    if (pFilePath != NULL) {
+        hashedName32 = ma_hash_string_32(pFilePath);
+    } else {
+        hashedName32 = ma_hash_string_w_32(pFilePathW);
+    }
 
     /* At this point we can now enter the critical section. */
     ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
-        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, hashedName32, flags, pNotification, pDataBuffer);
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, pFilePath, pFilePathW, hashedName32, flags, pNotification, pDataBuffer);
     }
     ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
     return result;
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
+{
+    return ma_resource_manager_data_buffer_init_internal(pResourceManager, pFilePath, NULL, flags, pNotification, pDataBuffer);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
+{
+    return ma_resource_manager_data_buffer_init_internal(pResourceManager, NULL, pFilePath, flags, pNotification, pDataBuffer);
 }
 
 static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_manager_data_buffer* pDataBuffer)
@@ -6519,16 +6558,20 @@ static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* p
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData)
+static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW, ma_resource_manager_data_buffer_encoding type, ma_resource_manager_memory_buffer* pExistingData)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 hashedName32;
 
-    if (pResourceManager == NULL || pName == NULL) {
+    if (pResourceManager == NULL || (pName == NULL && pNameW == NULL)) {
         return MA_INVALID_ARGS;
     }
 
-    hashedName32 = ma_hash_string_32(pName);
+    if (pName != NULL) {
+        hashedName32 = ma_hash_string_32(pName);
+    } else {
+        hashedName32 = ma_hash_string_w_32(pNameW);
+    }
 
     ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
@@ -6539,7 +6582,7 @@ static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourc
     return result;
 }
 
-MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+static ma_result ma_resource_manager_register_decoded_data_internal(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_resource_manager_memory_buffer data;
     data.type               = ma_resource_manager_data_buffer_encoding_decoded;
@@ -6549,18 +6592,40 @@ MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* 
     data.decoded.channels   = channels;
     data.decoded.sampleRate = sampleRate;
 
-    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data);
+    return ma_resource_manager_register_data(pResourceManager, pName, pNameW, data.type, &data);
 }
 
-MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
+MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    return ma_resource_manager_register_decoded_data_internal(pResourceManager, pName, NULL, pData, frameCount, format, channels, sampleRate);
+}
+
+MA_API ma_result ma_resource_manager_register_decoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+{
+    return ma_resource_manager_register_decoded_data_internal(pResourceManager, NULL, pName, pData, frameCount, format, channels, sampleRate);
+}
+
+
+static ma_result ma_resource_manager_register_encoded_data_internal(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW, const void* pData, size_t sizeInBytes)
 {
     ma_resource_manager_memory_buffer data;
     data.type                = ma_resource_manager_data_buffer_encoding_encoded;
     data.encoded.pData       = pData;
     data.encoded.sizeInBytes = sizeInBytes;
 
-    return ma_resource_manager_register_data(pResourceManager, pName, data.type, &data);
+    return ma_resource_manager_register_data(pResourceManager, pName, pNameW, data.type, &data);
 }
+
+MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes)
+{
+    return ma_resource_manager_register_encoded_data_internal(pResourceManager, pName, NULL, pData, sizeInBytes);
+}
+
+MA_API ma_result ma_resource_manager_register_encoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, size_t sizeInBytes)
+{
+    return ma_resource_manager_register_encoded_data_internal(pResourceManager, NULL, pName, pData, sizeInBytes);
+}
+
 
 
 static ma_result ma_resource_manager_unregister_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
@@ -6593,16 +6658,21 @@ static ma_result ma_resource_manager_unregister_data_nolock(ma_resource_manager*
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
+static ma_result ma_resource_manager_unregister_data_internal(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW)
 {
     ma_result result;
     ma_uint32 hashedName32;
 
-    if (pResourceManager == NULL || pName == NULL) {
+    if (pResourceManager == NULL || (pName == NULL && pNameW == NULL)) {
         return MA_INVALID_ARGS;
     }
 
-    hashedName32 = ma_hash_string_32(pName);
+    if (pName != NULL) {
+        hashedName32 = ma_hash_string_32(pName);
+    } else {
+        hashedName32 = ma_hash_string_w_32(pNameW);
+    }
+    
 
     /*
     It's assumed that the data specified by pName was registered with a prior call to ma_resource_manager_register_encoded/decoded_data(). To unregister it, all
@@ -6615,6 +6685,16 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
     ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
     return result;
+}
+
+MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
+{
+    return ma_resource_manager_unregister_data_internal(pResourceManager, pName, NULL);
+}
+
+MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName)
+{
+    return ma_resource_manager_unregister_data_internal(pResourceManager, NULL, pName);
 }
 
 
@@ -6672,10 +6752,11 @@ static ma_result ma_resource_manager_data_stream_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_stream_get_length_in_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pLength);
 }
 
-MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
+static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
-    char* pFilePathCopy;
+    char* pFilePathCopy = NULL;
+    wchar_t* pFilePathWCopy = NULL;
     ma_job job;
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
@@ -6701,7 +6782,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     pDataStream->flags              = flags;
     pDataStream->result             = MA_BUSY;
 
-    if (pResourceManager == NULL || pFilePath == NULL) {
+    if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL)) {
         if (pNotification != NULL) {
             ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
@@ -6712,8 +6793,13 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     /* We want all access to the VFS and the internal decoder to happen on the job thread just to keep things easier to manage for the VFS.  */
 
     /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
-    pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-    if (pFilePathCopy == NULL) {
+    if (pFilePath != NULL) {
+        pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    } else {
+        pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    }
+
+    if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
         if (pNotification != NULL) {
             ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
         }
@@ -6735,6 +6821,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.loadDataStream.pDataStream   = pDataStream;
     job.loadDataStream.pFilePath     = pFilePathCopy;
+    job.loadDataStream.pFilePathW    = pFilePathWCopy;
     job.loadDataStream.pNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : pNotification;
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
@@ -6746,7 +6833,8 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
             ma_resource_manager_inline_notification_uninit(&waitNotification);
         }
 
-        ma__free_from_callbacks(pFilePathCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        ma__free_from_callbacks(pFilePathCopy,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        ma__free_from_callbacks(pFilePathWCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
         return result;
     }
 
@@ -6761,6 +6849,16 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     }
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
+{
+    return ma_resource_manager_data_stream_init_internal(pResourceManager, pFilePath, NULL, flags, pNotification, pDataStream);
+}
+
+MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
+{
+    return ma_resource_manager_data_stream_init_internal(pResourceManager, NULL, pFilePath, flags, pNotification, pDataStream);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream)
@@ -7254,8 +7352,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 }
 
 
-
-MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource)
+static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pResourceManager, ma_uint32 flags, ma_resource_manager_data_source* pDataSource)
 {
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
@@ -7263,17 +7360,46 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
 
     MA_ZERO_OBJECT(pDataSource);
 
-    if (pResourceManager == NULL || pName == NULL) {
+    if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
     }
 
     pDataSource->flags = flags;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+
+    result = ma_resource_manager_data_source_preinit(pResourceManager, flags, pDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     /* The data source itself is just a data stream or a data buffer. */
     if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
         return ma_resource_manager_data_stream_init(pResourceManager, pName, flags, pNotification, &pDataSource->stream);
     } else {
         return ma_resource_manager_data_buffer_init(pResourceManager, pName, flags, pNotification, &pDataSource->buffer);
+    }
+}
+
+MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+
+    result = ma_resource_manager_data_source_preinit(pResourceManager, flags, pDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* The data source itself is just a data stream or a data buffer. */
+    if ((flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return ma_resource_manager_data_stream_init_w(pResourceManager, pName, flags, pNotification, &pDataSource->stream);
+    } else {
+        return ma_resource_manager_data_buffer_init_w(pResourceManager, pName, flags, pNotification, &pDataSource->buffer);
     }
 }
 
@@ -7505,7 +7631,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
         /* No decoding. Just store the file contents in memory. */
         size_t sizeInBytes;
 
-        result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pJob->loadDataBuffer.pFilePath, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+        result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pJob->loadDataBuffer.pFilePath, pJob->loadDataBuffer.pFilePathW, &pData, &sizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
         if (result == MA_SUCCESS) {
             pDataBuffer->pNode->data.encoded.pData       = pData;
             pDataBuffer->pNode->data.encoded.sizeInBytes = sizeInBytes;
@@ -7527,7 +7653,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             goto done;
         }
 
-        result = ma_resource_manager__init_decoder(pResourceManager, pJob->loadDataBuffer.pFilePath, pDecoder);
+        result = ma_resource_manager__init_decoder(pResourceManager, pJob->loadDataBuffer.pFilePath, pJob->loadDataBuffer.pFilePathW, pDecoder);
 
         /* Make sure we never set the result code to MA_BUSY or else we'll get everything confused. */
         if (result == MA_BUSY) {
@@ -7615,7 +7741,8 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     }
 
 done:
-    ma__free_from_callbacks(pJob->loadDataBuffer.pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma__free_from_callbacks(pJob->loadDataBuffer.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma__free_from_callbacks(pJob->loadDataBuffer.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
 
     /*
     We need to set the result to at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
@@ -7882,7 +8009,11 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
     decoderConfig.allocationCallbacks = pResourceManager->config.allocationCallbacks;
 
-    result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
+    if (pJob->loadDataStream.pFilePath != NULL) {
+        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
+    } else {
+        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pJob->loadDataStream.pFilePathW, &decoderConfig, &pDataStream->decoder);
+    }
     if (result != MA_SUCCESS) {
         goto done;
     }
@@ -7913,7 +8044,8 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     result = MA_SUCCESS;
 
 done:
-    ma__free_from_callbacks(pJob->loadDataStream.pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma__free_from_callbacks(pJob->loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma__free_from_callbacks(pJob->loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);

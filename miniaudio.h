@@ -43995,7 +43995,7 @@ MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo
 }
 
 
-static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 allocationType)
+static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, const wchar_t* pFilePathW, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 allocationType)
 {
     ma_result result;
     ma_vfs_file file;
@@ -44016,7 +44016,11 @@ static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePat
         return MA_INVALID_ARGS;
     }
 
-    result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    if (pFilePath != NULL) {
+        result = ma_vfs_open(pVFS, pFilePath, MA_OPEN_MODE_READ, &file);
+    } else {
+        result = ma_vfs_open_w(pVFS, pFilePathW, MA_OPEN_MODE_READ, &file);
+    }
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -44056,9 +44060,14 @@ static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePat
     return MA_SUCCESS;
 }
 
-ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
+    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, NULL, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
+}
+
+MA_API ma_result ma_vfs_open_and_read_file_w(ma_vfs* pVFS, const wchar_t* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_vfs_open_and_read_file_ex(pVFS, NULL, pFilePath, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
 }
 
 
