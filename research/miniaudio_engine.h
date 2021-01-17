@@ -6859,14 +6859,8 @@ static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_
 
     MA_ASSERT(pDataStream != NULL);
 
-    /* For each page... */
     for (iPage = 0; iPage < 2; iPage += 1) {
         ma_resource_manager_data_stream_fill_page(pDataStream, iPage);
-
-        /* If we reached the end make sure we get out of the loop to prevent us from trying to load the second page. */
-        if (ma_resource_manager_data_stream_is_decoder_at_end(pDataStream)) {
-            break;
-        }
     }
 }
 
@@ -7083,6 +7077,9 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     pDataStream->currentPageIndex = 0;
     c89atomic_exchange_32(&pDataStream->isPageValid[0], MA_FALSE);
     c89atomic_exchange_32(&pDataStream->isPageValid[1], MA_FALSE);
+
+    /* Make sure the data stream is not marked as at the end or else if we seek in response to hitting the end, we won't be able to read any more data. */
+    c89atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_FALSE);
 
     /*
     The public API is not allowed to touch the internal decoder so we need to use a job to perform the seek. When seeking, the job thread will assume both pages
