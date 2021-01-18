@@ -14,16 +14,17 @@ list of data sources. The `ma_resource_manager` is responsible for the actual lo
 something that I'm really liking right now and will likely stay in place for the final version.
 
 You create "sounds" from the engine which represent a sound/voice in the world. You first need to create a sound, and then you need to start it. Sounds do not
-start by default. You can use `ma_engine_play_sound()` to "fire and forget" sounds. Sounds can have an effect (`ma_effect`) applied to it which can be set with
-`ma_sound_set_effect()`.
+start by default. You can use `ma_engine_play_sound()` to "fire and forget" sounds.
 
-Sounds can be allocated to groups called `ma_sound_group`. The creation and deletion of groups is not thread safe and should usually happen at initialization
-time. Groups are how you handle submixing. In many games you will see settings to control the master volume in addition to groups, usually called SFX, Music
-and Voices. The `ma_sound_group` object is how you would achieve this via the `ma_engine` API. When a sound is created you need to specify the group it should
-be associated with. The sound's group cannot be changed after it has been created.
+Sounds can be allocated to groups called `ma_sound_group`. This is how you can support submixing and is one way you could achieve the kinds of groupings you see
+in games for things like SFX, Music and Voices. Unlike sounds, groups are started by default. When you stop a group, all sounds within that group will be
+stopped atomically. When the group is started again, all sounds attached to the group will also be started, so long as the sound is also marked as started.
 
-The creation and deletion of sounds should, hopefully, be thread safe. I have not yet done thorough testing on this, so there's a good chance there may be some
-subtle bugs there.
+The creation and deletion of sounds and groups should be thread safe.
+
+The engine runs on top of a node graph, and sounds and groups are just nodes within that graph. The output of a sound can be attached to the input of any node
+on the graph. To apply an effect to a sound or group, attach it's output to the input of an effect node. See the Routing Infrastructure section below for
+details on this.
 
 The best resource to use when understanding the API is the function declarations for `ma_engine`. I expect you should be able to figure it out! :)
 */
@@ -5935,7 +5936,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                 pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
             }
 
-            if (pFilePathCopy == NULL || pFilePathWCopy == NULL) {
+            if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
                 if (pNotification != NULL) {
                     ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
                 }
