@@ -3142,7 +3142,7 @@ MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state)
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_exchange_i16(&pNodeBase->state, state);
+    c89atomic_exchange_i32(&pNodeBase->state, state);
 
     return MA_SUCCESS;
 }
@@ -3155,7 +3155,7 @@ MA_API ma_node_state ma_node_get_state(const ma_node* pNode)
         return ma_node_state_stopped;
     }
 
-    return c89atomic_load_i16(&pNodeBase->state);
+    return (ma_node_state)c89atomic_load_i32(&pNodeBase->state);
 }
 
 MA_API ma_result ma_node_set_state_time(ma_node* pNode, ma_node_state state, ma_uint64 globalTime)
@@ -8445,11 +8445,13 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         return MA_INVALID_ARGS;
     }
 
+    /* Floating point is the only supported format. */
+
     /* Spatialization is not yet implemented. However, do do need to do channel conversion here. */
     if (pSpatializer->channelsIn == pSpatializer->channelsOut) {
         ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->channelsIn);
     } else {
-        ma_convert_pcm_frames_channels_f32(pFramesOut, pSpatializer->channelsOut, pFramesIn, pSpatializer->channelsIn, frameCount);
+        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->channelsOut, (const float*)pFramesIn, pSpatializer->channelsIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
     }
 
     return MA_SUCCESS;
@@ -8939,7 +8941,7 @@ static void ma_engine_node_process_pcm_frames__group(ma_node* pNode, const float
 
 static ma_uint32 ma_engine_node_get_required_input_frame_count__group(ma_node* pNode, ma_uint32 outputFrameCount)
 {
-    ma_uint64 result = ma_engine_node_get_required_input_frame_count(pNode, outputFrameCount);
+    ma_uint64 result = ma_engine_node_get_required_input_frame_count((ma_engine_node*)pNode, outputFrameCount);
     if (result > 0xFFFFFFFF) {
         result = 0xFFFFFFFF;    /* Will never happen because miniaudio will only ever process in relatively small chunks. */
     }
@@ -9458,7 +9460,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
             ma_sound_uninit(&pNextSound->sound);
         } else {
             /* No sound available for recycling. Allocate one now. */
-            pSound = ma_malloc(sizeof(*pSound), &pEngine->allocationCallbacks);
+            pSound = (ma_sound_inlined*)ma_malloc(sizeof(*pSound), &pEngine->allocationCallbacks);
         }
 
         if (pSound != NULL) {   /* Safety check for the allocation above. */
