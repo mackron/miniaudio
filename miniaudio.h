@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.31 - 2020-01-17
+miniaudio - v0.10.32 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -9535,26 +9535,26 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 #define c89atomic_fetch_and_16(dst, src)                                c89atomic_fetch_and_explicit_16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_32(dst, src)                                c89atomic_fetch_and_explicit_32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_64(dst, src)                                c89atomic_fetch_and_explicit_64(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_test_and_set_explicit_i8( ptr, order)                 c89atomic_test_and_set_explicit_8( (c89atomic_uint8* )ptr, order)
-#define c89atomic_test_and_set_explicit_i16(ptr, order)                 c89atomic_test_and_set_explicit_16((c89atomic_uint16*)ptr, order)
-#define c89atomic_test_and_set_explicit_i32(ptr, order)                 c89atomic_test_and_set_explicit_32((c89atomic_uint32*)ptr, order)
-#define c89atomic_test_and_set_explicit_i64(ptr, order)                 c89atomic_test_and_set_explicit_64((c89atomic_uint64*)ptr, order)
+#define c89atomic_test_and_set_explicit_i8( ptr, order)                 (c89atomic_int8 )c89atomic_test_and_set_explicit_8( (c89atomic_uint8* )ptr, order)
+#define c89atomic_test_and_set_explicit_i16(ptr, order)                 (c89atomic_int16)c89atomic_test_and_set_explicit_16((c89atomic_uint16*)ptr, order)
+#define c89atomic_test_and_set_explicit_i32(ptr, order)                 (c89atomic_int32)c89atomic_test_and_set_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_test_and_set_explicit_i64(ptr, order)                 (c89atomic_int64)c89atomic_test_and_set_explicit_64((c89atomic_uint64*)ptr, order)
 #define c89atomic_clear_explicit_i8( ptr, order)                        c89atomic_clear_explicit_8( (c89atomic_uint8* )ptr, order)
 #define c89atomic_clear_explicit_i16(ptr, order)                        c89atomic_clear_explicit_16((c89atomic_uint16*)ptr, order)
 #define c89atomic_clear_explicit_i32(ptr, order)                        c89atomic_clear_explicit_32((c89atomic_uint32*)ptr, order)
 #define c89atomic_clear_explicit_i64(ptr, order)                        c89atomic_clear_explicit_64((c89atomic_uint64*)ptr, order)
-#define c89atomic_store_explicit_i8( dst, src, order)                   c89atomic_store_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_store_explicit_i16(dst, src, order)                   c89atomic_store_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_store_explicit_i32(dst, src, order)                   c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_store_explicit_i64(dst, src, order)                   c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
-#define c89atomic_load_explicit_i8( ptr, order)                         c89atomic_load_explicit_8( (c89atomic_uint8* )ptr, order)
-#define c89atomic_load_explicit_i16(ptr, order)                         c89atomic_load_explicit_16((c89atomic_uint16*)ptr, order)
-#define c89atomic_load_explicit_i32(ptr, order)                         c89atomic_load_explicit_32((c89atomic_uint32*)ptr, order)
-#define c89atomic_load_explicit_i64(ptr, order)                         c89atomic_load_explicit_64((c89atomic_uint64*)ptr, order)
-#define c89atomic_exchange_explicit_i8( dst, src, order)                c89atomic_exchange_explicit_8 ((c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_exchange_explicit_i16(dst, src, order)                c89atomic_exchange_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_exchange_explicit_i32(dst, src, order)                c89atomic_exchange_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_exchange_explicit_i64(dst, src, order)                c89atomic_exchange_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_store_explicit_i8( dst, src, order)                   (c89atomic_int8 )c89atomic_store_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_store_explicit_i16(dst, src, order)                   (c89atomic_int16)c89atomic_store_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_store_explicit_i32(dst, src, order)                   (c89atomic_int32)c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_store_explicit_i64(dst, src, order)                   (c89atomic_int64)c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_load_explicit_i8( ptr, order)                         (c89atomic_int8 )c89atomic_load_explicit_8( (c89atomic_uint8* )ptr, order)
+#define c89atomic_load_explicit_i16(ptr, order)                         (c89atomic_int16)c89atomic_load_explicit_16((c89atomic_uint16*)ptr, order)
+#define c89atomic_load_explicit_i32(ptr, order)                         (c89atomic_int32)c89atomic_load_explicit_32((c89atomic_uint32*)ptr, order)
+#define c89atomic_load_explicit_i64(ptr, order)                         (c89atomic_int64)c89atomic_load_explicit_64((c89atomic_uint64*)ptr, order)
+#define c89atomic_exchange_explicit_i8( dst, src, order)                (c89atomic_int8 )c89atomic_exchange_explicit_8 ((c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_exchange_explicit_i16(dst, src, order)                (c89atomic_int16)c89atomic_exchange_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_exchange_explicit_i32(dst, src, order)                (c89atomic_int32)c89atomic_exchange_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_exchange_explicit_i64(dst, src, order)                (c89atomic_int64)c89atomic_exchange_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
 #define c89atomic_compare_exchange_strong_explicit_i8( dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8* )expected, (c89atomic_uint8 )desired, successOrder, failureOrder)
 #define c89atomic_compare_exchange_strong_explicit_i16(dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16*)expected, (c89atomic_uint16)desired, successOrder, failureOrder)
 #define c89atomic_compare_exchange_strong_explicit_i32(dst, expected, desired, successOrder, failureOrder)  c89atomic_compare_exchange_strong_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32*)expected, (c89atomic_uint32)desired, successOrder, failureOrder)
@@ -9563,26 +9563,26 @@ c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_
 #define c89atomic_compare_exchange_weak_explicit_i16(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16*)expected, (c89atomic_uint16)desired, successOrder, failureOrder)
 #define c89atomic_compare_exchange_weak_explicit_i32(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32*)expected, (c89atomic_uint32)desired, successOrder, failureOrder)
 #define c89atomic_compare_exchange_weak_explicit_i64(dst, expected, desired, successOrder, failureOrder)    c89atomic_compare_exchange_weak_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64*)expected, (c89atomic_uint64)desired, successOrder, failureOrder)
-#define c89atomic_fetch_add_explicit_i8( dst, src, order)               c89atomic_fetch_add_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_fetch_add_explicit_i16(dst, src, order)               c89atomic_fetch_add_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_fetch_add_explicit_i32(dst, src, order)               c89atomic_fetch_add_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_fetch_add_explicit_i64(dst, src, order)               c89atomic_fetch_add_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
-#define c89atomic_fetch_sub_explicit_i8( dst, src, order)               c89atomic_fetch_sub_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_fetch_sub_explicit_i16(dst, src, order)               c89atomic_fetch_sub_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_fetch_sub_explicit_i32(dst, src, order)               c89atomic_fetch_sub_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_fetch_sub_explicit_i64(dst, src, order)               c89atomic_fetch_sub_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
-#define c89atomic_fetch_or_explicit_i8( dst, src, order)                c89atomic_fetch_or_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_fetch_or_explicit_i16(dst, src, order)                c89atomic_fetch_or_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_fetch_or_explicit_i32(dst, src, order)                c89atomic_fetch_or_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_fetch_or_explicit_i64(dst, src, order)                c89atomic_fetch_or_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
-#define c89atomic_fetch_xor_explicit_i8( dst, src, order)               c89atomic_fetch_xor_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_fetch_xor_explicit_i16(dst, src, order)               c89atomic_fetch_xor_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_fetch_xor_explicit_i32(dst, src, order)               c89atomic_fetch_xor_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_fetch_xor_explicit_i64(dst, src, order)               c89atomic_fetch_xor_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
-#define c89atomic_fetch_and_explicit_i8( dst, src, order)               c89atomic_fetch_and_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_fetch_and_explicit_i16(dst, src, order)               c89atomic_fetch_and_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_fetch_and_explicit_i32(dst, src, order)               c89atomic_fetch_and_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_fetch_and_explicit_i64(dst, src, order)               c89atomic_fetch_and_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_add_explicit_i8( dst, src, order)               (c89atomic_int8 )c89atomic_fetch_add_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_add_explicit_i16(dst, src, order)               (c89atomic_int16)c89atomic_fetch_add_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_add_explicit_i32(dst, src, order)               (c89atomic_int32)c89atomic_fetch_add_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_add_explicit_i64(dst, src, order)               (c89atomic_int64)c89atomic_fetch_add_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_sub_explicit_i8( dst, src, order)               (c89atomic_int8 )c89atomic_fetch_sub_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_sub_explicit_i16(dst, src, order)               (c89atomic_int16)c89atomic_fetch_sub_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_sub_explicit_i32(dst, src, order)               (c89atomic_int32)c89atomic_fetch_sub_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_sub_explicit_i64(dst, src, order)               (c89atomic_int64)c89atomic_fetch_sub_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_or_explicit_i8( dst, src, order)                (c89atomic_int8 )c89atomic_fetch_or_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_or_explicit_i16(dst, src, order)                (c89atomic_int16)c89atomic_fetch_or_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_or_explicit_i32(dst, src, order)                (c89atomic_int32)c89atomic_fetch_or_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_or_explicit_i64(dst, src, order)                (c89atomic_int64)c89atomic_fetch_or_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_xor_explicit_i8( dst, src, order)               (c89atomic_int8 )c89atomic_fetch_xor_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_xor_explicit_i16(dst, src, order)               (c89atomic_int16)c89atomic_fetch_xor_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_xor_explicit_i32(dst, src, order)               (c89atomic_int32)c89atomic_fetch_xor_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_xor_explicit_i64(dst, src, order)               (c89atomic_int64)c89atomic_fetch_xor_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_fetch_and_explicit_i8( dst, src, order)               (c89atomic_int8 )c89atomic_fetch_and_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_fetch_and_explicit_i16(dst, src, order)               (c89atomic_int16)c89atomic_fetch_and_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_fetch_and_explicit_i32(dst, src, order)               (c89atomic_int32)c89atomic_fetch_and_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_fetch_and_explicit_i64(dst, src, order)               (c89atomic_int64)c89atomic_fetch_and_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
 #define c89atomic_test_and_set_i8( ptr)                                 c89atomic_test_and_set_explicit_i8( ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_test_and_set_i16(ptr)                                 c89atomic_test_and_set_explicit_i16(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_test_and_set_i32(ptr)                                 c89atomic_test_and_set_explicit_i32(ptr, c89atomic_memory_order_seq_cst)
@@ -9683,14 +9683,14 @@ static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* 
     r.i = c89atomic_exchange_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
     return r.f;
 }
-#define c89atomic_clear_f32(ptr)                                        c89atomic_clear_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_clear_f64(ptr)                                        c89atomic_clear_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_f32(ptr)                                        (float )c89atomic_clear_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_clear_f64(ptr)                                        (double)c89atomic_clear_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_store_f32(dst, src)                                   c89atomic_store_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_store_f64(dst, src)                                   c89atomic_store_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_f32(ptr)                                         c89atomic_load_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_load_f64(ptr)                                         c89atomic_load_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_f32(dst, src)                                c89atomic_exchange_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
-#define c89atomic_exchange_f64(dst, src)                                c89atomic_exchange_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_f32(ptr)                                         (float )c89atomic_load_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_load_f64(ptr)                                         (double)c89atomic_load_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_f32(dst, src)                                (float )c89atomic_exchange_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_exchange_f64(dst, src)                                (double)c89atomic_exchange_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
 typedef c89atomic_flag c89atomic_spinlock;
 static C89ATOMIC_INLINE void c89atomic_spinlock_lock(volatile c89atomic_spinlock* pSpinlock)
 {
@@ -64828,6 +64828,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.32 - TBD
+  - Update to latest version of c89atomic.
+
 v0.10.31 - 2020-01-17
   - Make some functions const correct.
   - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
