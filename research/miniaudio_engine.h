@@ -2253,6 +2253,11 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
         if (result != MA_SUCCESS) {
             break;
         }
+
+        /* Abort if we weren't able to read any frames or else we risk getting stuck in a loop. */
+        if (framesJustRead == 0) {
+            break;
+        }
     }
 
     /* Let's go ahead and silence any leftover frames just for some added safety to ensure the caller doesn't try emitting garbage out of the speakers. */
@@ -5647,7 +5652,7 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     }
 }
 
-static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pNotification)
+static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pInitNotification)
 {
     ma_result result;
 
@@ -5722,8 +5727,8 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     the format/channels/rate of the data source.
     */
     if (result == MA_SUCCESS) {
-        if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+        if (pInitNotification != NULL) {
+            ma_async_notification_signal(pInitNotification, MA_NOTIFICATION_COMPLETE);
         }
     }
     
@@ -5887,7 +5892,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             }
         }
 
-        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pNotification);
+        result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
         if (result != MA_SUCCESS) {
             ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
             return result;
@@ -6099,7 +6104,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
             /* When loading synchronously we need to initialize the connector straight away. */
             if (result == MA_SUCCESS) {
-                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pNotification);
+                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
             }
 
             pDataBuffer->pNode->result = result;
@@ -7969,7 +7974,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
         /* If it was an unknown length, we can finally initialize the connector. For sounds of a known length, the connector was initialized when the first page was decoded in MA_JOB_LOAD_DATA_BUFFER. */
         if (jobCopy.pageDataBuffer.isUnknownLength) {
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->pageDataBuffer.pCompletedNotification);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
@@ -9257,6 +9262,8 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
         ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+    } else {
+        ma_device_stop(pEngine->pDevice);
     }
 
     /*
