@@ -139,6 +139,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
     MA_ASSERT(pDevice->playback.format == ma_format_f32);
 
+    (void)pInput;   /* Unused. */
+
     /*
     If the device was configured with noPreSilencedOutputBuffer then you would need to silence the
     buffer here, or make sure the first data source to be mixed is copied rather than mixed.
@@ -149,8 +151,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
         ma_data_source_read_pcm_frames_and_mix_f32(&g_dataSources[iDataSource], (float*)pOutput, frameCount, NULL, MA_TRUE, /* volume = */1);
     }
-
-    (void)pInput;
 }
 
 static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
@@ -184,7 +184,7 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
 
         /*
         Terminate if we got a quit message. You don't need to terminate like this, but's a bit more robust. You can
-        just use a global variable or something similar if it's easier for you particular situation. The quit job
+        just use a global variable or something similar if it's easier for your particular situation. The quit job
         remains in the queue and will continue to be returned by future calls to ma_resource_manager_next_job(). The
         reason for this is to give every job thread visibility to the quit job so they have a chance to exit.
 
