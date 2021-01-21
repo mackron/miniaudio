@@ -5,8 +5,7 @@ The resource manager can be used to create a data source whose resources are man
 sources can then be read just like any other data source such as decoders and audio buffers.
 
 In this example we use the resource manager independently of the `ma_engine` API so that we can demonstrate how it can
-be used by itself without getting it confused with `ma_engine`. Audio data is mixed using the `ma_mixer` API, but you
-can also use data sources with `ma_data_source_read_pcm_frames()` in the same way we do in the simple_looping example.
+be used by itself without getting it confused with `ma_engine`.
 
 The main feature of the resource manager is the ability to decode and stream audio data asynchronously. Asynchronicity
 is achieved with a job system. The resource manager will issue jobs which are processed by a configurable number of job
@@ -20,29 +19,135 @@ threads to manage internally and how to implement your own custom job thread.
 #include "../../miniaudio.h"
 #include "../miniaudio_engine.h"
 
-static ma_mixer                        g_mixer;
 static ma_resource_manager_data_source g_dataSources[16];
 static ma_uint32                       g_dataSourceCount;
 
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
-{
-    /* In this example we're just going to play our data sources layered on top of each other. */
-    ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-    ma_uint32 framesProcessed = 0;
-    while (framesProcessed < frameCount) {
-        ma_uint64 frameCountIn;
-        ma_uint64 frameCountOut = (frameCount - framesProcessed);
 
-        ma_mixer_begin(&g_mixer, NULL, &frameCountOut, &frameCountIn);
-        {
-            size_t iDataSource;
-            for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
-                ma_mixer_mix_data_source(&g_mixer, &g_dataSources[iDataSource], 0, frameCountIn, NULL, 1, NULL, MA_TRUE);
+/*
+TODO: Consider putting these public functions in miniaudio.h. Will depend on ma_mix_pcm_frames_f32()
+being merged into miniaudio.h (it's currently in miniaudio_engine.h).
+*/
+static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop, ma_format dataSourceFormat, ma_uint32 dataSourceChannels)
+{
+    /*
+    This function is intended to be used when the format and channel count of the data source is
+    known beforehand. The idea is to avoid overhead due to redundant calls to ma_data_source_get_data_format().
+    */
+    MA_ASSERT(pDataSource != NULL);
+
+    if (dataSourceFormat == ma_format_f32) {
+        /* Fast path. No conversion necessary. */
+        return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead, loop);
+    } else {
+        /* Slow path. Conversion necessary. */
+        ma_result result;
+        ma_uint64 totalFramesRead;
+        ma_uint8 temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        ma_uint64 tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
+        
+        totalFramesRead = 0;
+        while (totalFramesRead < frameCount) {
+            ma_uint64 framesJustRead;
+            ma_uint64 framesToRead = frameCount - totalFramesRead;
+            if (framesToRead > tempCapInFrames) {
+                framesToRead = tempCapInFrames;
+            }
+
+            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &framesJustRead, loop);
+
+            ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
+            totalFramesRead += framesJustRead;
+
+            if (result != MA_SUCCESS) {
+                break;
             }
         }
-        ma_mixer_end(&g_mixer, NULL, ma_offset_ptr(pOutput, framesProcessed * bpf), 0);
 
-        framesProcessed += (ma_uint32)frameCountOut;    /* Safe cast. */
+        return MA_SUCCESS;
+    }
+}
+
+MA_API ma_result ma_data_source_read_pcm_frames_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
+{
+    ma_result result;
+    ma_format format;
+    ma_uint32 channels;
+
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the data format of the data source. */
+    }
+
+    return ma_data_source_read_pcm_frames_f32_ex(pDataSource, pFramesOut, frameCount, pFramesRead, loop, format, channels);
+}
+
+MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop, float volume)
+{
+    ma_result result;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint64 totalFramesRead;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the data format of the data source. */
+    }
+
+    totalFramesRead = 0;
+    while (totalFramesRead < frameCount) {
+        float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE/sizeof(float)];
+        ma_uint64 tempCapInFrames = ma_countof(temp) / channels;
+        ma_uint64 framesJustRead;
+        ma_uint64 framesToRead = frameCount - totalFramesRead;
+        if (framesToRead > tempCapInFrames) {
+            framesToRead = tempCapInFrames;
+        }
+        
+        result = ma_data_source_read_pcm_frames_f32_ex(pDataSource, temp, framesToRead, &framesJustRead, loop, format, channels);
+
+        ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), temp, framesJustRead, channels, volume);
+        totalFramesRead += framesJustRead;
+
+        if (result != MA_SUCCESS) {
+            break;
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+    /*
+    In this example we're just going to play our data sources layered on top of each other. This
+    assumes the device's format is f32 and that the buffer is not pre-silenced.
+    */
+    ma_uint32 iDataSource;
+
+    MA_ASSERT(pDevice->playback.format == ma_format_f32);
+
+    /*
+    If the device was configured with noPreSilencedOutputBuffer then you would need to silence the
+    buffer here, or make sure the first data source to be mixed is copied rather than mixed.
+    */
+    /*ma_silence_pcm_frames(pOutput, frameCount, ma_format_f32, pDevice->playback.channels);*/
+
+    /* For each sound, mix as much data as we can. */
+    for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
+        ma_data_source_read_pcm_frames_and_mix_f32(&g_dataSources[iDataSource], (float*)pOutput, frameCount, NULL, MA_TRUE, /* volume = */1);
     }
 
     (void)pInput;
@@ -108,13 +213,13 @@ int main(int argc, char** argv)
     ma_device device;
     ma_resource_manager_config resourceManagerConfig;
     ma_resource_manager resourceManager;
-    ma_mixer_config mixerConfig;
     ma_thread jobThread;
     int iFile;
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.dataCallback = data_callback;
-    deviceConfig.pUserData    = NULL;
+    deviceConfig.playback.format = ma_format_f32;
+    deviceConfig.dataCallback    = data_callback;
+    deviceConfig.pUserData       = NULL;
 
     result = ma_device_init(NULL, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
@@ -122,18 +227,6 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    /*
-    Before starting the device we'll need to initialize the mixer. If we don't do this first, the data callback will be
-    fired and will try to use the mixer without it being initialized.
-    */
-    mixerConfig = ma_mixer_config_init(device.playback.format, device.playback.channels, 1024, NULL, NULL);
-
-    result = ma_mixer_init(&mixerConfig, &g_mixer);
-    if (result != MA_SUCCESS) {
-        ma_device_uninit(&device);
-        printf("Failed to initialize mixer.");
-        return -1;
-    }
 
     /* We can start the device before loading any sounds. We'll just end up outputting silence. */
     result = ma_device_start(&device);
@@ -219,11 +312,5 @@ int main(int argc, char** argv)
     /* Uninitialize the resource manager after each data source. */
     ma_resource_manager_uninit(&resourceManager);
 
-    /*
-    We're uninitializing the mixer last, but it doesn't matter when it's done, so long as it's after the device has
-    been stopped/uninitialized.
-    */
-    ma_mixer_uninit(&g_mixer);
-    
     return 0;
 }
