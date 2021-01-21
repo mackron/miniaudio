@@ -291,24 +291,35 @@ int main(int argc, char** argv)
 
     /* Teardown. */
 
-    /* Uninitialize the device first to ensure the data callback is stopped and doesn't try to access any data. */
+    /*
+    Uninitialize the device first to ensure the data callback is stopped and doesn't try to access
+    any data.
+    */
     ma_device_uninit(&device);
 
     /*
-    Before uninitializing the resource manager we need to make sure a quit event has been posted to ensure we can get
-    out of our custom thread. The call to ma_resource_manager_uninit() will also do this, but we need to call it
-    explicitly so that our thread can exit naturally. You only need to post a quit job if you're using that as the exit
-    indicator. You can instead use whatever variable you want to terminate your job thread, but since this example is
-    using a quit job we need to post one.
+    Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do
+    it for us. This needs to be done before posting the quit event and uninitializing the resource
+    manager or else we'll get stuck in a deadlock because ma_resource_manager_data_source_uninit()
+    will be waiting for the job thread(s) to finish work, which will never happen because they were
+    just terminated.
     */
-    ma_resource_manager_post_job_quit(&resourceManager);
-    ma_thread_wait(&jobThread); /* Wait for the custom job thread to finish so it doesn't try to access any data. */
-    
-    /* Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do it for us. */
     for (iFile = 0; (size_t)iFile < g_dataSourceCount; iFile += 1) {
         ma_resource_manager_data_source_uninit(&g_dataSources[iFile]);
     }
 
+    /*
+    Before uninitializing the resource manager we need to make sure a quit event has been posted to
+    ensure we can get out of our custom thread. The call to ma_resource_manager_uninit() will also
+    do this, but we need to call it explicitly so that our self-managed thread can exit naturally.
+    You only need to post a quit job if you're using that as the exit indicator. You can instead
+    use whatever variable you want to terminate your job thread, but since this example is using a
+    quit job we need to post one. Note that you don't need to do this if you're not managing your
+    own threads - ma_resource_manager_uninit() alone will suffice in that case.
+    */
+    ma_resource_manager_post_job_quit(&resourceManager);
+    ma_thread_wait(&jobThread); /* Wait for the custom job thread to finish so it doesn't try to access any data. */
+    
     /* Uninitialize the resource manager after each data source. */
     ma_resource_manager_uninit(&resourceManager);
 
