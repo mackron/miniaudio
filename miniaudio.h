@@ -10122,6 +10122,7 @@ static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority 
 static void ma_thread_wait__win32(ma_thread* pThread)
 {
     WaitForSingleObject((HANDLE)*pThread, INFINITE);
+    CloseHandle((HANDLE)*pThread);
 }
 
 
@@ -10315,6 +10316,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
     pthread_join(*pThread, NULL);
+    pthread_detach(*pThread);
 }
 
 
@@ -64975,6 +64977,7 @@ REVISION HISTORY
 ================
 v0.10.32 - TBD
   - Update to latest version of c89atomic.
+  - Fix a bug where thread handles are not being freed.
 
 v0.10.31 - 2020-01-17
   - Make some functions const correct.
