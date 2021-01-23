@@ -1424,34 +1424,6 @@ typedef struct
     float z;
 } ma_vec3;
 
-static MA_INLINE ma_vec3 ma_vec3f(float x, float y, float z)
-{
-    ma_vec3 v;
-    v.x = x;
-    v.y = y;
-    v.z = z;
-    return v;
-}
-
-
-typedef struct
-{
-    float x;
-    float y;
-    float z;
-    float w;
-} ma_quat;
-
-static MA_INLINE ma_quat ma_quatf(float x, float y, float z, float w)
-{
-    ma_quat q;
-    q.x = x;
-    q.y = y;
-    q.z = z;
-    q.w = w;
-    return q;
-}
-
 
 /* Stereo panner. */
 typedef enum
@@ -1491,8 +1463,6 @@ typedef struct
 {
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
-    ma_vec3 position;
-    ma_quat rotation;
 } ma_spatializer_config;
 
 MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
@@ -1503,13 +1473,11 @@ typedef struct
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_vec3 position;
-    ma_quat rotation;
 } ma_spatializer;
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_result ma_spatializer_set_position(ma_spatializer* pSpatializer, ma_vec3 position);
-MA_API ma_result ma_spatializer_set_rotation(ma_spatializer* pSpatializer, ma_quat rotation);
 
 
 /* Fader. */
@@ -1620,7 +1588,6 @@ struct ma_sound_group
 struct ma_listener
 {
     ma_vec3 position;
-    ma_quat rotation;
 };
 
 
@@ -1672,7 +1639,6 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
-MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -1691,7 +1657,6 @@ MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
-MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation);
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
@@ -1763,12 +1728,29 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
 MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
-    ma_waveform_config waveformConfig;
-    ma_waveform waveform;
+    #ifndef MA_NO_GENERATION
+    {
+        ma_waveform_config waveformConfig;
+        ma_waveform waveform;
 
-    waveformConfig = ma_waveform_config_init(format, channels, sampleRate, ma_waveform_type_sine, 1.0, 400);
-    ma_waveform_init(&waveformConfig, &waveform);
-    ma_waveform_read_pcm_frames(&waveform, pFramesOut, frameCount);
+        waveformConfig = ma_waveform_config_init(format, channels, sampleRate, ma_waveform_type_sine, 1.0, 400);
+        ma_waveform_init(&waveformConfig, &waveform);
+        ma_waveform_read_pcm_frames(&waveform, pFramesOut, frameCount);
+    }
+    #else
+    {
+        (void)pFramesOut;
+        (void)frameCount;
+        (void)format;
+        (void)channels;
+        (void)sampleRate;
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            #warning ma_debug_fill_pcm_frames_with_sine_wave() will do nothing because MA_NO_GENERATION is enabled.
+        }
+        #endif
+    }
+    #endif
 }
 
 
@@ -8417,8 +8399,6 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
     config.channelsIn  = channelsIn;
     config.channelsOut = channelsOut;
-    config.position    = ma_vec3f(0, 0, 0);
-    config.rotation    = ma_quatf(0, 0, 0, 1);
 
     return config;
 }
@@ -8438,8 +8418,6 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
 
     pSpatializer->channelsIn  = pConfig->channelsIn;
     pSpatializer->channelsOut = pConfig->channelsOut;
-    pSpatializer->position    = pConfig->position;
-    pSpatializer->rotation    = pConfig->rotation;
 
     return MA_SUCCESS;
 }
@@ -8473,16 +8451,6 @@ MA_API ma_result ma_spatializer_set_position(ma_spatializer* pSpatializer, ma_ve
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_spatializer_set_rotation(ma_spatializer* pSpatializer, ma_quat rotation)
-{
-    if (pSpatializer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSpatializer->rotation = rotation;
-
-    return MA_SUCCESS;
-}
 
 
 
@@ -9395,17 +9363,6 @@ MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 pos
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_engine_listener_set_rotation(ma_engine* pEngine, ma_quat rotation)
-{
-    if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pEngine->listener.rotation = rotation;
-
-    return MA_SUCCESS;
-}
-
 
 MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeInputBusIndex)
 {
@@ -9782,15 +9739,6 @@ MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
     }
 
     return ma_spatializer_set_position(&pSound->engineNode.spatializer, position);
-}
-
-MA_API ma_result ma_sound_set_rotation(ma_sound* pSound, ma_quat rotation)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_spatializer_set_rotation(&pSound->engineNode.spatializer, rotation);
 }
 
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
