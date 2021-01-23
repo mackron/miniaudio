@@ -16,8 +16,8 @@ effect.
 #define DEVICE_FORMAT      ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
-static ma_audio_buffer_ref g_sourceData;    /* The underlying data source of the source node. */
-static ma_waveform         g_exciteData;    /* The underlying data source of the excite node. */
+static ma_waveform         g_sourceData;    /* The underlying data source of the excite node. */
+static ma_audio_buffer_ref g_exciteData;    /* The underlying data source of the source node. */
 static ma_data_source_node g_sourceNode;    /* A data source node containing the source data we'll be sending through to the vocoder. This will be routed into the first bus of the vocoder node. */
 static ma_data_source_node g_exciteNode;    /* A data source node containing the excite data we'll be sending through to the vocoder. This will be routed into the second bus of the vocoder node. */
 static ma_vocoder_node     g_vocoderNode;   /* The vocoder node. */
@@ -34,7 +34,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     the data source is our `pInput` buffer. We need to update the underlying data source so that it
     read data from `pInput`.
     */
-    ma_audio_buffer_ref_set_data(&g_sourceData, pInput, frameCount);
+    ma_audio_buffer_ref_set_data(&g_exciteData, pInput, frameCount);
 
     /* With the source buffer configured we can now read directly from the node graph. */
     ma_node_graph_read_pcm_frames(&g_nodeGraph, pOutput, frameCount, NULL);
@@ -91,42 +91,42 @@ int main(int argc, char** argv)
     ma_node_set_output_bus_volume(&g_vocoderNode, 0, 4);
 
 
-    /* Excite/modulator. Attached to input bus 0 of the vocoder node. */
+    /* Source/carrier. Attached to input bus 0 of the vocoder node. */
     waveformConfig = ma_waveform_config_init(device.capture.format, device.capture.channels, device.sampleRate, ma_waveform_type_sawtooth, 1.0, 50);
 
-    result = ma_waveform_init(&waveformConfig, &g_exciteData);
+    result = ma_waveform_init(&waveformConfig, &g_sourceData);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize waveform for excite node.");
         goto done3;
-    }
-
-    exciteNodeConfig = ma_data_source_node_config_init(&g_exciteData, MA_FALSE);
-
-    result = ma_data_source_node_init(&g_nodeGraph, &exciteNodeConfig, NULL, &g_exciteNode);
-    if (result != MA_SUCCESS) {
-        printf("Failed to initialize excite node.");
-        goto done3;
-    }
-
-    ma_node_attach_output_bus(&g_exciteNode, 0, &g_vocoderNode, 0);
-
-
-    /* Source/carrier. Attached to input bus 1 of the vocoder node. */
-    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, NULL, 0, &g_sourceData);
-    if (result != MA_SUCCESS) {
-        printf("Failed to initialize audio buffer for source.");
-        goto done2;
     }
 
     sourceNodeConfig = ma_data_source_node_config_init(&g_sourceData, MA_FALSE);
 
     result = ma_data_source_node_init(&g_nodeGraph, &sourceNodeConfig, NULL, &g_sourceNode);
     if (result != MA_SUCCESS) {
+        printf("Failed to initialize excite node.");
+        goto done3;
+    }
+
+    ma_node_attach_output_bus(&g_sourceNode, 0, &g_vocoderNode, 0);
+
+
+    /* Excite/modulator. Attached to input bus 1 of the vocoder node. */
+    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, NULL, 0, &g_exciteData);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize audio buffer for source.");
+        goto done2;
+    }
+
+    exciteNodeConfig = ma_data_source_node_config_init(&g_exciteData, MA_FALSE);
+
+    result = ma_data_source_node_init(&g_nodeGraph, &exciteNodeConfig, NULL, &g_exciteNode);
+    if (result != MA_SUCCESS) {
         printf("Failed to initialize source node.");
         goto done2;
     }
 
-    ma_node_attach_output_bus(&g_sourceNode, 0, &g_vocoderNode, 1);
+    ma_node_attach_output_bus(&g_exciteNode, 0, &g_vocoderNode, 1);
 
 
     ma_device_start(&device);
