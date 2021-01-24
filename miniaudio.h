@@ -64988,7 +64988,7 @@ v0.10.32 - TBD
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
 
-v0.10.31 - 2020-01-17
+v0.10.31 - 2021-01-17
   - Make some functions const correct.
   - Update ma_data_source_read_pcm_frames() to initialize pFramesRead to 0 for safety.
   - Add the MA_ATOMIC annotation for use with variables that should be used atomically and remove unnecessary volatile qualifiers.
