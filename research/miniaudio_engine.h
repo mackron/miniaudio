@@ -1788,7 +1788,7 @@ static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 
 
 
-static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_dither_mode ditherMode)
+static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint64 frameCount, ma_dither_mode ditherMode)
 {
     MA_ASSERT(pDst != NULL);
     MA_ASSERT(pSrc != NULL);
@@ -1807,12 +1807,14 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
             ma_convert_pcm_frames_format(pDst, formatOut, pSrc, formatIn, frameCount, channelsOut, ditherMode);
         }
     } else {
+        /* TODO: This needs to be optimized. Too inefficient to be initializing a channel converter. */
+
         /* Getting here means we require a channel converter. We do channel conversion in the input format, and then format convert as a post process step if required. */
         ma_result result;
         ma_channel_converter_config channelConverterConfig;
         ma_channel_converter channelConverter;
 
-        channelConverterConfig = ma_channel_converter_config_init(formatIn, channelsIn, NULL, channelsOut, NULL, ma_channel_mix_mode_default);
+        channelConverterConfig = ma_channel_converter_config_init(formatIn, channelsIn, pChannelMapIn, channelsOut, pChannelMapOut, ma_channel_mix_mode_default);
         result = ma_channel_converter_init(&channelConverterConfig, &channelConverter);
         if (result != MA_SUCCESS) {
             return; /* Failed to initialize channel converter for some reason. Should never fail. */
@@ -1848,9 +1850,9 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
     }
 }
 
-static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount)
+static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, const float* pFramesIn, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint64 frameCount)
 {
-    ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pFramesIn, ma_format_f32, channelsIn, frameCount, ma_dither_mode_none);
+    ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pChannelMapOut, pFramesIn, ma_format_f32, channelsIn, pChannelMapIn, frameCount, ma_dither_mode_none);
 }
 
 
@@ -8434,7 +8436,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
     if (pSpatializer->channelsIn == pSpatializer->channelsOut) {
         ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->channelsIn);
     } else {
-        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->channelsOut, (const float*)pFramesIn, pSpatializer->channelsIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
+        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->channelsOut, NULL, (const float*)pFramesIn, pSpatializer->channelsIn, NULL, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
     }
 
     return MA_SUCCESS;
@@ -8769,7 +8771,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
                 ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
-                ma_convert_pcm_frames_channels_f32(pRunningFramesOut, channelsOut, pWorkingBuffer, channelsIn, framesJustProcessedOut);
+                ma_convert_pcm_frames_channels_f32(pRunningFramesOut, channelsOut, NULL, pWorkingBuffer, channelsIn, NULL, framesJustProcessedOut);
             }
         }
 
