@@ -42312,7 +42312,8 @@ MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelM
             ma_get_standard_channel_map_sndio(channels, pChannelMap);
         } break;
 
-        case ma_standard_channel_map_microsoft:
+        case ma_standard_channel_map_microsoft: /* Also default. */
+        /*case ma_standard_channel_map_default;*/
         default:
         {
             ma_get_standard_channel_map_microsoft(channels, pChannelMap);
