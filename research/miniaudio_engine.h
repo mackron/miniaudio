@@ -1417,13 +1417,6 @@ typedef struct ma_sound         ma_sound;
 typedef struct ma_sound_group   ma_sound_group;
 typedef struct ma_listener      ma_listener;
 
-typedef struct
-{
-    float x;
-    float y;
-    float z;
-} ma_vec3;
-
 
 /* Stereo panner. */
 typedef enum
@@ -1458,28 +1451,6 @@ MA_API ma_result ma_panner_set_pan(ma_panner* pPanner, float pan);
 
 
 
-/* Spatializer. */
-typedef struct
-{
-    ma_uint32 channelsIn;
-    ma_uint32 channelsOut;
-} ma_spatializer_config;
-
-MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
-
-
-typedef struct
-{
-    ma_uint32 channelsIn;
-    ma_uint32 channelsOut;
-    ma_vec3 position;
-} ma_spatializer;
-
-MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
-MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_result ma_spatializer_set_position(ma_spatializer* pSpatializer, ma_vec3 position);
-
-
 /* Fader. */
 typedef struct
 {
@@ -1507,13 +1478,135 @@ MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume);
 
 
 
+/* Spatializer. */
+typedef struct
+{
+    float x;
+    float y;
+    float z;
+} ma_vec3f;
+
+typedef enum
+{
+    ma_attenuation_model_none,          /* No distance attenuation and no spatialization. */
+    ma_attenuation_model_inverse,       /* Equivalent to OpenAL's AL_INVERSE_DISTANCE_CLAMPED. */
+    ma_attenuation_model_linear,        /* Linear attenuation. Equivalent to OpenAL's AL_LINEAR_DISTANCE_CLAMPED. */
+    ma_attenuation_model_exponential    /* Exponential attenuation. Equivalent to OpenAL's AL_EXPONENT_DISTANCE_CLAMPED. */
+} ma_attenuation_model;
+
+typedef enum
+{
+    ma_positioning_absolute,
+    ma_positioning_relative
+} ma_positioning;
+
+typedef enum
+{
+    ma_handedness_right,
+    ma_handedness_left
+} ma_handedness;
+
+
+typedef struct
+{
+    ma_uint32 channelsOut;
+    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_handedness handedness;   /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    float coneInnerAngleInRadians;
+    float coneOuterAngleInRadians;
+    float coneOuterGain;
+    float speedOfSound;
+    ma_vec3f worldUp;
+} ma_spatializer_listener_config;
+
+MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uint32 channelsOut);
+
+
+typedef struct
+{
+    ma_spatializer_listener_config config;
+    ma_vec3f position;  /* The absolute position of the listener. */
+    ma_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
+    ma_vec3f velocity;
+} ma_spatializer_listener;
+
+MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_set_cone(ma_spatializer_listener* pListener, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
+MA_API void ma_spatializer_listener_get_cone(const ma_spatializer_listener* pListener, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_spatializer_listener_set_position(ma_spatializer_listener* pListener, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_listener_get_position(const ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_set_direction(ma_spatializer_listener* pListener, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_listener_get_direction(const ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_set_velocity(ma_spatializer_listener* pListener, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_listener_get_velocity(const ma_spatializer_listener* pListener);
+
+
+typedef struct
+{
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_attenuation_model attenuationModel;
+    ma_positioning positioning;
+    ma_handedness handedness;   /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    float minGain;
+    float maxGain;
+    float minDistance;
+    float maxDistance;
+    float rolloff;
+    float coneInnerAngleInRadians;
+    float coneOuterAngleInRadians;
+    float coneOuterGain;
+} ma_spatializer_config;
+
+MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
+
+
+typedef struct
+{
+    ma_spatializer_config config;
+    ma_vec3f position;
+    ma_vec3f direction;
+    ma_vec3f velocity;              /* For doppler effect. */
+} ma_spatializer;
+
+MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer);
+MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
+MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
+MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning);
+MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain);
+MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxGain);
+MA_API float ma_spatializer_get_max_gain(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_min_distance(ma_spatializer* pSpatializer, float minDistance);
+MA_API float ma_spatializer_get_min_distance(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float maxDistance);
+MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
+MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, float y, float z);
+MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer);
+
+
+
 /* Sound flags. */
 #define MA_SOUND_FLAG_STREAM                MA_DATA_SOURCE_FLAG_STREAM      /* 0x00000001 */
 #define MA_SOUND_FLAG_DECODE                MA_DATA_SOURCE_FLAG_DECODE      /* 0x00000002 */
 #define MA_SOUND_FLAG_ASYNC                 MA_DATA_SOURCE_FLAG_ASYNC       /* 0x00000004 */
 #define MA_SOUND_FLAG_WAIT_INIT             MA_DATA_SOURCE_FLAG_WAIT_INIT   /* 0x00000008 */
 #define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
-#define MA_SOUND_FLAG_DISABLE_PITCH         0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
+#define MA_SOUND_FLAG_NO_PITCH              0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
+#define MA_SOUND_FLAG_NO_SPATIALIZATION     0x00000040  /* Disable spatialization. */
 
 
 typedef enum
@@ -1526,8 +1619,9 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
-    ma_uint32 channels;             /* Only used when the type is set to ma_engine_node_type_sound. */
-    ma_bool8 isPitchDisabled;       /* Pitching can be explicitly disable with MA_SOUND_FLAG_DISABLE_PITCH to optimize processing. */
+    ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
+    ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags);
@@ -1536,16 +1630,16 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;          /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;             /* A pointer to the engine. Set based on the value from the config. */
+    ma_node_base baseNode;              /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                 /* A pointer to the engine. Set based on the value from the config. */
     ma_fader fader;
-    ma_resampler resampler;         /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_resampler resampler;             /* For pitch shift. May change this to ma_linear_resampler later. */
     ma_spatializer spatializer;
     ma_panner panner;
     float pitch;
-    float oldPitch;                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    ma_bool8 isPitchDisabled;       /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    ma_bool8 isSpatial;             /* Set to false by default. When set to false, will not have spatialisation applied. */
+    float oldPitch;                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
@@ -1585,11 +1679,6 @@ struct ma_sound_group
     ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
 };
 
-struct ma_listener
-{
-    ma_vec3 position;
-};
-
 
 typedef struct
 {
@@ -1614,8 +1703,7 @@ struct ma_engine
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
-    ma_listener listener;
-    ma_uint32 sampleRate;               /* TODO: Get this from the device? Is this needed when supporting non-device engines? */
+    ma_spatializer_listener listener;       /* TODO: Add support for multiple listeners. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
@@ -1626,7 +1714,6 @@ struct ma_engine
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
 MA_API void ma_engine_uninit(ma_engine* pEngine);
-MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
@@ -1638,7 +1725,12 @@ MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position);
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine);
+MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine);
+MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -1656,7 +1748,27 @@ MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
 MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
-MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position);
+MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
+MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
+MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
+MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z);
+MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel);
+MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
+MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_min_gain(ma_sound* pSound, float minGain);
+MA_API float ma_sound_get_min_gain(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_max_gain(ma_sound* pSound, float maxGain);
+MA_API float ma_sound_get_max_gain(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_min_distance(ma_sound* pSound, float minDistance);
+MA_API float ma_sound_get_min_distance(const ma_sound* pSound);
+MA_API ma_result ma_sound_set_max_distance(ma_sound* pSound, float maxDistance);
+MA_API float ma_sound_get_max_distance(const ma_sound* pSound);
+MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
+MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
@@ -1680,6 +1792,27 @@ MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB);
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
+MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
+MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
+MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
+MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z);
+MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel);
+MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
+MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain);
+MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain);
+MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance);
+MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance);
+MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
+MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume);
@@ -1853,6 +1986,22 @@ static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format form
 static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, const float* pFramesIn, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint64 frameCount)
 {
     ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pChannelMapOut, pFramesIn, ma_format_f32, channelsIn, pChannelMapIn, frameCount, ma_dither_mode_none);
+}
+
+MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+{
+    ma_uint64 iFrame;
+
+    if (channels == 2) {
+        /* TODO: Do an optimized implementation for stereo and mono. Can do a SIMD optimized implementation as well. */
+    }
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        ma_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            pFramesOut[iFrame * channels + iChannel] *= pChannelGains[iChannel];
+        }
+    }
 }
 
 
@@ -8393,69 +8542,6 @@ MA_API ma_result ma_panner_set_pan(ma_panner* pPanner, float pan)
 
 
 
-MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut)
-{
-    ma_spatializer_config config;
-
-    MA_ZERO_OBJECT(&config);
-
-    config.channelsIn  = channelsIn;
-    config.channelsOut = channelsOut;
-
-    return config;
-}
-
-
-MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
-{
-    if (pSpatializer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pSpatializer);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSpatializer->channelsIn  = pConfig->channelsIn;
-    pSpatializer->channelsOut = pConfig->channelsOut;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
-{
-    if (pSpatializer == NULL || pFramesOut == NULL || pFramesIn == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* Floating point is the only supported format. */
-
-    /* Spatialization is not yet implemented. However, do do need to do channel conversion here. */
-    if (pSpatializer->channelsIn == pSpatializer->channelsOut) {
-        ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->channelsIn);
-    } else {
-        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->channelsOut, NULL, (const float*)pFramesIn, pSpatializer->channelsIn, NULL, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_spatializer_set_position(ma_spatializer* pSpatializer, ma_vec3 position)
-{
-    if (pSpatializer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pSpatializer->position = position;
-
-    return MA_SUCCESS;
-}
-
-
-
-
 MA_API ma_fader_config ma_fader_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_fader_config config;
@@ -8604,6 +8690,886 @@ MA_API ma_result ma_fader_get_current_volume(ma_fader* pFader, float* pVolume)
 }
 
 
+
+
+
+MA_API ma_vec3f ma_vec3f_init_3f(float x, float y, float z)
+{
+    ma_vec3f v;
+
+    v.x = x;
+    v.y = y;
+    v.z = z;
+
+    return v;
+}
+
+MA_API ma_vec3f ma_vec3f_sub(ma_vec3f a, ma_vec3f b)
+{
+    return ma_vec3f_init_3f(
+        a.x - b.x,
+        a.y - b.y,
+        a.z - b.z
+    );
+}
+
+MA_API ma_vec3f ma_vec3f_neg(ma_vec3f a)
+{
+    return ma_vec3f_init_3f(
+        -a.x,
+        -a.y,
+        -a.z
+    );
+}
+
+MA_API float ma_vec3f_dot(ma_vec3f a, ma_vec3f b)
+{
+    return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+
+MA_API float ma_vec3f_len(ma_vec3f v)
+{
+    return (float)ma_sqrt(ma_vec3f_dot(v, v));
+}
+
+MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
+{
+    return ma_vec3f_len(ma_vec3f_sub(a, b));
+}
+
+MA_API ma_vec3f ma_vec3f_normalize(ma_vec3f v)
+{
+    float f = 1 / ma_vec3f_len(v);
+    
+    v.x *= f;
+    v.y *= f;
+    v.z *= f;
+
+    return v;
+}
+
+MA_API ma_vec3f ma_vec3f_cross(ma_vec3f a, ma_vec3f b)
+{
+    return ma_vec3f_init_3f(
+        a.y*b.z - a.z*b.y,
+        a.z*b.x - a.x*b.z,
+        a.x*b.y - a.y*b.x
+    );
+}
+
+
+
+
+
+
+/*
+These vectors represent the direction that speakers are facing from the center point. They're used
+for panning in the spatializer. Must be normalized.
+*/
+static ma_vec3f g_maChannelDirections[MA_CHANNEL_POSITION_COUNT] = {
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_NONE */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_MONO */
+    {-0.7071f,  0.0f,    -0.7071f },  /* MA_CHANNEL_FRONT_LEFT */
+    {+0.7071f,  0.0f,    -0.7071f },  /* MA_CHANNEL_FRONT_RIGHT */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_FRONT_CENTER */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_LFE */
+    {-0.7071f,  0.0f,    +0.7071f },  /* MA_CHANNEL_BACK_LEFT */
+    {+0.7071f,  0.0f,    +0.7071f },  /* MA_CHANNEL_BACK_RIGHT */
+    {-0.3162f,  0.0f,    -0.9487f },  /* MA_CHANNEL_FRONT_LEFT_CENTER */
+    {+0.3162f,  0.0f,    -0.9487f },  /* MA_CHANNEL_FRONT_RIGHT_CENTER */
+    { 0.0f,     0.0f,    +1.0f    },  /* MA_CHANNEL_BACK_CENTER */
+    {-1.0f,     0.0f,     0.0f    },  /* MA_CHANNEL_SIDE_LEFT */
+    {+1.0f,     0.0f,     0.0f    },  /* MA_CHANNEL_SIDE_RIGHT */
+    { 0.0f,    +1.0f,     0.0f    },  /* MA_CHANNEL_TOP_CENTER */
+    {-0.5774f, +0.5774f, -0.5774f },  /* MA_CHANNEL_TOP_FRONT_LEFT */
+    { 0.0f,    +0.7071f, -0.7071f },  /* MA_CHANNEL_TOP_FRONT_CENTER */
+    {+0.5774f, +0.5774f, -0.5774f },  /* MA_CHANNEL_TOP_FRONT_RIGHT */
+    {-0.5774f, +0.5774f, +0.5774f },  /* MA_CHANNEL_TOP_BACK_LEFT */
+    { 0.0f,    +0.7071f, +0.7071f },  /* MA_CHANNEL_TOP_BACK_CENTER */
+    {+0.5774f, +0.5774f, +0.5774f },  /* MA_CHANNEL_TOP_BACK_RIGHT */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_0 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_1 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_2 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_3 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_4 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_5 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_6 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_7 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_8 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_9 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_10 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_11 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_12 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_13 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_14 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_15 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_16 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_17 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_18 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_19 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_20 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_21 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_22 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_23 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_24 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_25 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_26 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_27 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_28 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_29 */
+    { 0.0f,     0.0f,    -1.0f    },  /* MA_CHANNEL_AUX_30 */
+    { 0.0f,     0.0f,    -1.0f    }   /* MA_CHANNEL_AUX_31 */
+};
+
+
+
+static float ma_attenuation_inverse(float distance, float minDistance, float maxDistance, float rolloff)
+{
+    if (minDistance >= maxDistance) {
+        return 1;   /* To avoid division by zero. Do not attenuate. */
+    }
+
+    return minDistance / (minDistance + rolloff * (ma_clamp(distance, minDistance, maxDistance) - minDistance));
+}
+
+static float ma_attenuation_linear(float distance, float minDistance, float maxDistance, float rolloff)
+{
+    if (minDistance >= maxDistance) {
+        return 1;   /* To avoid division by zero. Do not attenuate. */
+    }
+
+    return 1 - rolloff * (ma_clamp(distance, minDistance, maxDistance) - minDistance) / (maxDistance - minDistance);
+}
+
+static float ma_attenuation_exponential(float distance, float minDistance, float maxDistance, float rolloff)
+{
+    if (minDistance >= maxDistance) {
+        return 1;   /* To avoid division by zero. Do not attenuate. */
+    }
+
+    return (float)ma_pow(ma_clamp(distance, minDistance, maxDistance) / minDistance, -rolloff);
+}
+
+
+
+static void ma_get_default_channel_map_for_spatializer(ma_uint32 channelCount, ma_channel* pChannelMap)
+{
+    /*
+    Special case for stereo. Want to default the left and right speakers to side left and side
+    right so that they're facing directly down the X axis rather than slightly forward. Not
+    doing this will result in sounds being quieter when behind the listener. This might
+    actually be good for some scenerios, but I don't think it's an appropriate default because
+    it can be a bit unexpected.
+    */
+    if (channelCount == 2) {
+        pChannelMap[0] = MA_CHANNEL_SIDE_LEFT;
+        pChannelMap[1] = MA_CHANNEL_SIDE_RIGHT;
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, channelCount, pChannelMap);
+    }
+}
+
+
+MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uint32 channelsOut)
+{
+    ma_spatializer_listener_config config;
+
+    config.channelsOut             = ma_clamp(channelsOut, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+    config.handedness              = ma_handedness_right;
+    config.worldUp                 = ma_vec3f_init_3f(0, 1,  0);
+    config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
+    config.coneOuterAngleInRadians = 6.283185f; /* 360 degrees. */
+    config.coneOuterGain           = 0;
+    config.speedOfSound            = 343.3f;    /* Same as OpenAL. Used for doppler effect. */
+
+    ma_get_default_channel_map_for_spatializer(config.channelsOut, config.channelMapOut);
+
+    return config;
+}
+
+
+MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pListener);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channelsOut < MA_MIN_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    pListener->config    = *pConfig;
+    pListener->position  = ma_vec3f_init_3f(0, 0,  0);
+    pListener->direction = ma_vec3f_init_3f(0, 0, -1);
+    pListener->velocity  = ma_vec3f_init_3f(0, 0,  0);
+
+    /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
+    if (pListener->config.handedness == ma_handedness_left) {
+        pListener->direction = ma_vec3f_neg(pListener->direction);
+    }
+
+    /* We need to make sure we have a valid chanel map. */
+    ma_channel_map_copy_or_default(pListener->config.channelMapOut, pConfig->channelMapOut, pListener->config.channelsOut);
+    if (ma_channel_map_blank(pListener->config.channelsOut, pListener->config.channelMapOut)) {
+        ma_get_default_channel_map_for_spatializer(pListener->config.channelsOut, pListener->config.channelMapOut);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    /* Placeholder. */
+}
+
+MA_API void ma_spatializer_listener_set_cone(ma_spatializer_listener* pListener, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    pListener->config.coneInnerAngleInRadians = innerAngleInRadians;
+    pListener->config.coneOuterAngleInRadians = outerAngleInRadians;
+    pListener->config.coneOuterGain           = outerGain;
+}
+
+MA_API void ma_spatializer_listener_get_cone(const ma_spatializer_listener* pListener, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    if (pInnerAngleInRadians != NULL) {
+        *pInnerAngleInRadians = pListener->config.coneInnerAngleInRadians;
+    }
+
+    if (pOuterAngleInRadians != NULL) {
+        *pOuterAngleInRadians = pListener->config.coneOuterAngleInRadians;
+    }
+
+    if (pOuterGain != NULL) {
+        *pOuterGain = pListener->config.coneOuterGain;
+    }
+}
+
+MA_API void ma_spatializer_listener_set_position(ma_spatializer_listener* pListener, float x, float y, float z)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    pListener->position = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_listener_get_position(const ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return pListener->position;
+}
+
+MA_API void ma_spatializer_listener_set_direction(ma_spatializer_listener* pListener, float x, float y, float z)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    pListener->direction = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_listener_get_direction(const ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    return pListener->direction;
+}
+
+MA_API void ma_spatializer_listener_set_velocity(ma_spatializer_listener* pListener, float x, float y, float z)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    pListener->velocity = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_listener_get_velocity(const ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return pListener->velocity;
+}
+
+
+
+
+MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut)
+{
+    ma_spatializer_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.channelsIn              = channelsIn;
+    config.channelsOut             = channelsOut;
+    config.attenuationModel        = ma_attenuation_model_inverse;
+    config.positioning             = ma_positioning_absolute;
+    config.handedness              = ma_handedness_right;
+    config.minGain                 = 0;
+    config.maxGain                 = 1;
+    config.minDistance             = 1;
+    config.maxDistance             = MA_FLT_MAX;
+    config.rolloff                 = 1;
+    config.coneInnerAngleInRadians = 6.283185f;  /* 360 degrees. */
+    config.coneOuterAngleInRadians = 6.283185f;  /* 360 degress. */
+    config.coneOuterGain           = 0.0f;
+
+    if (config.channelsIn >= MA_MIN_CHANNELS && config.channelsOut <= MA_MAX_CHANNELS) {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelsIn, config.channelMapIn);
+    }
+
+    return config;
+}
+
+
+MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pSpatializer);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channelsIn  < MA_MIN_CHANNELS || pConfig->channelsIn  > MA_MAX_CHANNELS ||
+        pConfig->channelsOut < MA_MIN_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSpatializer->config    = *pConfig;
+    pSpatializer->position  = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->direction = ma_vec3f_init_3f(0, 0, -1);
+    pSpatializer->velocity  = ma_vec3f_init_3f(0, 0,  0);
+
+    /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
+    if (pSpatializer->config.handedness == ma_handedness_left) {
+        pSpatializer->direction = ma_vec3f_neg(pSpatializer->direction);
+    }
+
+    /* We need to make sure we have a valid channel map. */
+    ma_channel_map_copy_or_default(pSpatializer->config.channelMapIn, pConfig->channelMapIn, pSpatializer->config.channelsIn);
+    if (ma_channel_map_blank(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn)) {
+        ma_get_default_channel_map_for_spatializer(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    /* Placeholder. */
+}
+
+MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_channel defaultChannelMap[MA_MAX_CHANNELS];
+    ma_channel* pChannelMapIn  = pSpatializer->config.channelMapIn;
+    ma_channel* pChannelMapOut = NULL;
+
+    if (pSpatializer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Make sure we have a valid output channel map. */
+    if (pListener != NULL) {
+        pChannelMapOut = pListener->config.channelMapOut;
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pSpatializer->config.channelsOut, defaultChannelMap);
+        pChannelMapOut = defaultChannelMap;
+    }
+
+    /* If we're not spatializing we need to run an optimized path. */
+    if (pSpatializer->config.attenuationModel == ma_attenuation_model_none) {
+        /* No attenuation is required, but we'll need to do some channel conversion. */
+        if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
+            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
+        } else {
+            ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, (const float*)pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
+        }
+    } else {
+        /*
+        Let's first determine which listener the sound is closest to. Need to keep in mind that we
+        might not have a world or any listeners, in which case we just spatializer based on the
+        listener being positioned at the origin (0, 0, 0).
+        */
+        ma_vec3f relativePos;   /* The position relative to the listener. */
+        ma_vec3f relativeDir;   /* The direction of the sound, relative to the listener. */
+        float distance = 0;
+        float gain = 1;
+
+        if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
+            /* There's no listener or we're using relative positioning. */
+            relativePos = pSpatializer->position;
+            relativeDir = pSpatializer->direction;
+        } else {
+            /*
+            We've found a listener and we're using absolute positioning. We need to transform the
+            sound's position and direction so that it's relative to listener. Later on we'll use
+            this for determining the factors to apply to each channel to apply the panning effect.
+            */
+            ma_vec3f v;
+            ma_vec3f axisX;
+            ma_vec3f axisY;
+            ma_vec3f axisZ;
+            float m[4][4];
+
+            /*
+            We need to calcualte the right vector from our forward and up vectors. This is done with
+            a cross product.
+            */
+            axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
+            axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
+            axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
+
+            /*
+            We need to swap the X axis if we're left handed because otherwise the cross product above
+            will have resulted in it pointing in the wrong direction (right handed was assumed in the
+            cross products above).
+            */
+            if (pListener->config.handedness == ma_handedness_left) {
+                axisX = ma_vec3f_neg(axisX);
+            }
+
+            #if 1
+            {
+                m[0][0] = axisX.x; m[0][1] = axisY.x; m[0][2] = -axisZ.x; m[0][3] = -ma_vec3f_dot(axisX, pListener->position);
+                m[1][0] = axisX.y; m[1][1] = axisY.y; m[1][2] = -axisZ.y; m[1][3] = -ma_vec3f_dot(axisY, pListener->position);
+                m[2][0] = axisX.z; m[2][1] = axisY.z; m[2][2] = -axisZ.z; m[2][3] = -ma_vec3f_dot(axisZ, pListener->position);
+                m[3][0] = 0;       m[3][1] = 0;       m[3][2] = 0;        m[3][3] = 1;
+            }
+            #else
+            {
+                m[0][0] = axisX.x; m[1][0] = axisY.x; m[2][0] = -axisZ.x; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
+                m[0][1] = axisX.y; m[1][1] = axisY.y; m[2][1] = -axisZ.y; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
+                m[0][2] = axisX.z; m[1][2] = axisY.z; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
+                m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;        m[3][3] = 1;
+            }
+            #endif
+
+            /*
+            Multiply the lookat matrix by the spatializer position to transform it to listener
+            space. This allows calculations to work based on the sound being relative to the
+            origin which makes things simpler.
+            */
+            v = pSpatializer->position;
+            #if 1
+            {
+                relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
+                relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
+                relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
+            }
+            #else
+            {
+                relativePos.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3] * 1;
+                relativePos.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3] * 1;
+                relativePos.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z + m[2][3] * 1;
+            }
+            #endif
+
+            /*
+            The direction of the sound needs to also be transformed so that it's relative to the
+            rotation of the listener.
+            */
+            v = pSpatializer->direction;
+            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+
+            #if defined(MA_DEBUG_OUTPUT)
+            {
+                printf("dir.x = {%f, %f, %f}\n", relativeDir.x, relativeDir.y, relativeDir.z);
+            }
+            #endif
+        }
+
+        distance = ma_vec3f_len(relativePos);
+
+        /* We've gathered the data, so now we can apply some spatialization. */
+        switch (pSpatializer->config.attenuationModel) {
+            case ma_attenuation_model_inverse:
+            {
+                gain = ma_attenuation_inverse(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+            } break;
+            case ma_attenuation_model_linear:
+            {
+                gain = ma_attenuation_linear(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+            } break;
+            case ma_attenuation_model_exponential:
+            {
+                gain = ma_attenuation_exponential(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+            } break;
+            case ma_attenuation_model_none:
+            default:
+            {
+                gain = 1;
+            } break;
+        }
+
+        /* TODO: Angular attenuation. */
+
+        /* Clamp the gain. */
+        gain = ma_clamp(gain, pSpatializer->config.minGain, pSpatializer->config.maxGain);
+
+        /*
+        Panning. This is where we'll apply the gain and convert to the output channel count. We have an optimized path for
+        when we're converting to a mono stream. In that case we don't really need to do any panning - we just apply the
+        gain to the final output.
+        */
+        /*printf("distance=%f; gain=%f\n", distance, gain);*/
+
+        /* We must have a valid channel map here to ensure we spatialize properly. */
+        MA_ASSERT(pChannelMapOut != NULL);
+
+        /*
+        We're not converting to mono so we'll want to apply some panning. This where the feeling of something being to
+        the left, right, infront or behind the listener is calculated. I'm just using a basic model here. Note that
+        the code below is not based on any specific algorithm. I'm just implementing this off the top of my head and
+        seeing how it goes. There might be better ways to do this.
+
+        To determine the direction of the sound relative to a speaker I'm using dot products. Each speaker is given a
+        direction. For example, the left channel in a stereo system will be -1 on the X axis and the right channel will
+        be +1 on the X axis. A dot product is performed against the direction vector of the channel and the normalized
+        position of the sound.
+        */
+        ma_uint32 iChannel;
+        float channelGainsOut[MA_MAX_CHANNELS];
+
+        for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+            channelGainsOut[iChannel] = gain;
+        }
+
+        /* Convert to our output channel count. */
+        ma_convert_pcm_frames_channels_f32(pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);
+
+        /*
+        Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
+        relation to the direction of the channel.
+        */
+        if (distance > 0.001f) {
+            ma_vec3f unitPos = relativePos;
+            float distanceInv = 1/distance;
+            unitPos.x *= distanceInv;
+            unitPos.y *= distanceInv;
+            unitPos.z *= distanceInv;
+
+            for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+                float d = ma_vec3f_dot(unitPos, g_maChannelDirections[pChannelMapOut[iChannel]]);
+
+                /*
+                In my testing, if the panning effect is too aggressive it makes spatialization feel uncomfortable.
+                The "dMin" variable below is used to control the aggressiveness of the panning effect. When set to
+                0, panning will be most extreme and any sounds that are positioned on the opposite side of the
+                speaker will be completely silent from that speaker. Not only does this feel uncomfortable, it
+                doesn't even remotely represent the real world at all because sounds that come from your right side
+                are still clearly audible from your left side. Setting "dMin" to 1 will  result in no panning at
+                all, which is also not ideal. By setting it to something greater than 0, the spatialization effect
+                becomes much less dramatic and a lot more bearable.
+
+                Summary: 0 = more extreme panning; 1 = no panning.
+                */
+                float dMin = 0.2f;  /* TODO: Consider making this configurable. */
+
+                /*
+                At this point, "d" will be positive if the sound is on the same side as the channel and negative if
+                it's on the opposite side. It will be in the range of -1..1. There's two ways I can think of to
+                calculate a panning value. The first is to simply convert it to 0..1, however this has a problem
+                which I'm not entirely happy with. Considering a stereo system, when a sound is positioned right
+                in front of the listener it'll result in each speaker getting a gain of 0.5. I don't know if I like
+                the idea of having a scaling factor of 0.5 being applied to a sound when it's sitting right in front
+                of the listener. I would intuitively expect that to be played at full volume, or close to it.
+
+                The second idea I think of is to only apply a reduction in gain when the sound is on the opposite
+                side of the speaker. That is, reduce the gain only when the dot product is negative. The problem
+                with this is that there will not be any attenuation as the sound sweeps around the 180 degrees
+                where the dot product is positive. The idea with this option is that you leave the gain at 1 when
+                the sound is being played on the same side as the speaker and then you just reduce the volume when
+                the sound is on the other side.
+
+                The summarize, I think the first option should give a better sense of spatialization, but the second
+                option is better for preserving the sound's power.
+
+                UPDATE: In my testing, I find the first option to sound better. You can feel the sense of space a
+                bit better, but you can also hear the reduction in volume when it's right in front.
+                */
+                #if 1
+                {
+                    /*
+                    Scale the dot product from -1..1 to 0..1. Will result in a sound directly in front losing power
+                    by being played at 0.5 gain.
+                    */
+                    d = (d + 1) * 0.5f;  /* -1..1 to 0..1 */
+                    d = ma_max(d, dMin);
+                    channelGainsOut[iChannel] *= d;
+                }
+                #else
+                {
+                    /*
+                    Only reduce the volume of the sound if it's on the opposite side. This path keeps the volume more
+                    consistent, but comes at the expense of a worse sense of space and positioning.
+                    */
+                    if (d < 0) {
+                        d += 1; /* Move into the positive range. */
+                        d = ma_max(d, dMin);
+                        channelGainsOut[iChannel] *= d;
+                    }
+                }
+                #endif
+            }
+        } else {
+            /* Assume the sound is right on top of us. Don't do any panning. */
+        }
+
+        /* Now we need to apply the volume to each channel. */
+        ma_apply_volume_factor_per_channel_f32(pFramesOut, frameCount, pSpatializer->config.channelsOut, channelGainsOut);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.channelsIn;
+}
+
+MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.channelsOut;
+}
+
+MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.attenuationModel = attenuationModel;
+}
+
+MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return ma_attenuation_model_none;
+    }
+
+    return pSpatializer->config.attenuationModel;
+}
+
+MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.positioning = positioning;
+}
+
+MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return ma_positioning_absolute;
+    }
+
+    return pSpatializer->config.positioning;
+}
+
+MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.minGain = minGain;
+}
+
+MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.minGain;
+}
+
+MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxGain)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.maxGain = maxGain;
+}
+
+MA_API float ma_spatializer_get_max_gain(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.maxGain;
+}
+
+MA_API void ma_spatializer_set_min_distance(ma_spatializer* pSpatializer, float minDistance)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.minDistance = minDistance;
+}
+
+MA_API float ma_spatializer_get_min_distance(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.minDistance;
+}
+
+MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float maxDistance)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.minDistance = maxDistance;
+}
+
+MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.maxDistance;
+}
+
+MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.coneInnerAngleInRadians = innerAngleInRadians;
+    pSpatializer->config.coneOuterAngleInRadians = outerAngleInRadians;
+    pSpatializer->config.coneOuterGain           = outerGain;
+}
+
+MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    if (pInnerAngleInRadians != NULL) {
+        *pInnerAngleInRadians = pSpatializer->config.coneInnerAngleInRadians;
+    }
+
+    if (pOuterAngleInRadians != NULL) {
+        *pOuterAngleInRadians = pSpatializer->config.coneOuterAngleInRadians;
+    }
+
+    if (pOuterGain != NULL) {
+        *pOuterGain = pSpatializer->config.coneOuterGain;
+    }
+}
+
+MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->position = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return pSpatializer->position;
+}
+
+MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, float y, float z)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->direction = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    return pSpatializer->direction;
+}
+
+MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, float y, float z)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->velocity = ma_vec3f_init_3f(x, y, z);
+}
+
+MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return pSpatializer->velocity;
+}
+
+
+
+
 /**************************************************************************************************************************************************************
 
 Engine
@@ -8617,9 +9583,10 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
     ma_engine_node_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.pEngine         = pEngine;
-    config.type            = type;
-    config.isPitchDisabled = (flags & MA_SOUND_FLAG_DISABLE_PITCH) != 0;
+    config.pEngine                  = pEngine;
+    config.type                     = type;
+    config.isPitchDisabled          = (flags & MA_SOUND_FLAG_NO_PITCH) != 0;
+    config.isSpatializationDisabled = (flags & MA_SOUND_FLAG_NO_SPATIALIZATION) != 0;
 
     return config;
 }
@@ -8641,6 +9608,13 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
     return !pEngineNode->isPitchDisabled;
+}
+
+static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* pEngineNode)
+{
+    MA_ASSERT(pEngineNode != NULL);
+
+    return !pEngineNode->isSpatializationDisabled;
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
@@ -8667,16 +9641,16 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
     frameCountIn  = *pFrameCountIn;
     frameCountOut = *pFrameCountOut;
-    
-    channelsIn  = pEngineNode->spatializer.channelsIn;
-    channelsOut = pEngineNode->spatializer.channelsOut;
+
+    channelsIn  = ma_spatializer_get_input_channels(&pEngineNode->spatializer);
+    channelsOut = ma_spatializer_get_output_channels(&pEngineNode->spatializer);
 
     totalFramesProcessedIn  = 0;
     totalFramesProcessedOut = 0;
 
     isPitchingEnabled       = ma_engine_node_is_pitching_enabled(pEngineNode);
     isFadingEnabled         = pEngineNode->fader.volumeBeg != 1 || pEngineNode->fader.volumeEnd != 1;
-    isSpatializationEnabled = pEngineNode->isSpatial;
+    isSpatializationEnabled = ma_engine_node_is_spatialization_enabled(pEngineNode);
     isPanningEnabled        = pEngineNode->panner.pan != 0 && channelsOut != 1;
 
     /* Keep going while we've still got data available for processing. */
@@ -8704,7 +9678,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
         float* pRunningFramesOut;
         float* pWorkingBuffer;   /* This is the buffer that we'll be processing frames in. This is in input channels. */
         float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
-        ma_uint32 tempCapInFrames = ma_countof(temp) / pEngineNode->spatializer.channelsIn;
+        ma_uint32 tempCapInFrames = ma_countof(temp) / channelsIn;
         ma_uint32 framesAvailableIn;
         ma_uint32 framesAvailableOut;
         ma_uint32 framesJustProcessedIn;
@@ -8763,7 +9737,12 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
         /* Spatialization. */
         if (isSpatializationEnabled) {
-            ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
+            ma_spatializer_listener* pListener = NULL;
+
+            /* TODO: Find closest listener. ma_engine_find_closest_listener(pEngine, absolutePosition); */
+            pListener = &pEngineNode->pEngine->listener;
+
+            ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listener, pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
         } else {
             /* No spatialization, but we still need to do channel conversion. */
             if (channelsIn == channelsOut) {
@@ -8987,10 +9966,11 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
         goto error0;
     }
 
-    pEngineNode->pEngine         = pConfig->pEngine;
-    pEngineNode->pitch           = 1;
-    pEngineNode->oldPitch        = 1;
-    pEngineNode->isPitchDisabled = pConfig->isPitchDisabled;
+    pEngineNode->pEngine                  = pConfig->pEngine;
+    pEngineNode->pitch                    = 1;
+    pEngineNode->oldPitch                 = 1;
+    pEngineNode->isPitchDisabled          = pConfig->isPitchDisabled;
+    pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
 
     /*
     We can now initialize the effects we need in order to implement the engine node. There's a
@@ -9010,7 +9990,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
 
     /* After resampling will come the fader. */
-    faderConfig = ma_fader_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], pEngineNode->pEngine->sampleRate);
+    faderConfig = ma_fader_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], ma_engine_get_sample_rate(pEngineNode->pEngine));
 
     result = ma_fader_init(&faderConfig, &pEngineNode->fader);
     if (result != MA_SUCCESS) {
@@ -9093,6 +10073,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_node_graph_config nodeGraphConfig;
     ma_engine_config engineConfig;
     ma_context_config contextConfig;
+    ma_spatializer_listener_config listenerConfig;
 
     if (pEngine != NULL) {
         MA_ZERO_OBJECT(pEngine);
@@ -9107,7 +10088,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     pEngine->pResourceManager = engineConfig.pResourceManager;
     pEngine->pDevice          = engineConfig.pDevice;
-    pEngine->sampleRate       = engineConfig.sampleRate;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     /* We need a context before we'll be able to create the default listener. */
@@ -9158,8 +10138,14 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         goto on_error_1;
     }
 
-    /* Now that have the default listener we can ensure we have the format, channels and sample rate set to proper values to ensure future listeners are configured consistently. */
-    pEngine->sampleRate = pEngine->pDevice->sampleRate;
+
+    /* We need at least one listener. */
+    listenerConfig = ma_spatializer_listener_config_init(pEngine->pDevice->playback.channels);
+
+    result = ma_spatializer_listener_init(&listenerConfig, &pEngine->listener);
+    if (result != MA_SUCCESS) {
+        goto on_error_2;
+    }
 
 
     /* We need a resource manager. */
@@ -9170,19 +10156,19 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         pEngine->pResourceManager = (ma_resource_manager*)ma__malloc_from_callbacks(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
         if (pEngine->pResourceManager == NULL) {
             result = MA_OUT_OF_MEMORY;
-            goto on_error_2;
+            goto on_error_3;
         }
 
         resourceManagerConfig = ma_resource_manager_config_init();
         resourceManagerConfig.decodedFormat     = ma_format_f32;
         resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
-        resourceManagerConfig.decodedSampleRate = pEngine->sampleRate;
+        resourceManagerConfig.decodedSampleRate = ma_engine_get_sample_rate(pEngine);
         ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
         resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
 
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {
-            goto on_error_3;
+            goto on_error_4;
         }
 
         pEngine->ownsResourceManager = MA_TRUE;
@@ -9197,22 +10183,24 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (engineConfig.noAutoStart == MA_FALSE) {
         result = ma_engine_start(pEngine);
         if (result != MA_SUCCESS) {
-            goto on_error_4;    /* Failed to start the engine. */
+            goto on_error_5;    /* Failed to start the engine. */
         }
     }
 
     return MA_SUCCESS;
 
-on_error_4:
+on_error_5:
     ma_mutex_uninit(&pEngine->inlinedSoundLock);
 #ifndef MA_NO_RESOURCE_MANAGER
-on_error_3:
+on_error_4:
     if (pEngine->ownsResourceManager) {
         ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
     }
+on_error_3:
+    ma_spatializer_listener_uninit(&pEngine->listener);
+#endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_2:
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
-#endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_1:
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
@@ -9270,16 +10258,11 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
 #endif
 }
 
-MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
-{
-    return ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, pFramesRead);
-}
-
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     (void)pFramesIn;    /* Unused. */
 
-    ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
+    ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, NULL);
 }
 
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
@@ -9299,7 +10282,15 @@ MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine)
 
 MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine)
 {
-    return pEngine->sampleRate;
+    if (pEngine == NULL) {
+        return 0;
+    }
+
+    if (pEngine->pDevice != NULL) {
+        return pEngine->pDevice->sampleRate;
+    } else {
+        return 0;   /* No device. */
+    }
 }
 
 
@@ -9354,15 +10345,64 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 }
 
 
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_vec3 position)
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, float x, float y, float z)
 {
     if (pEngine == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pEngine->listener.position = position;
+    ma_spatializer_listener_set_position(&pEngine->listener, x, y, z);
 
     return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_listener_get_position(&pEngine->listener);
+}
+
+MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, float x, float y, float z)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_listener_set_direction(&pEngine->listener, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    return ma_spatializer_listener_get_direction(&pEngine->listener);
+}
+
+MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, float x, float y, float z)
+{
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_listener_set_velocity(&pEngine->listener, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_listener_get_velocity(&pEngine->listener);
 }
 
 
@@ -9734,13 +10774,221 @@ MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
     return ma_panner_set_mode(&pSound->engineNode.panner, pan_mode);
 }
 
-MA_API ma_result ma_sound_set_position(ma_sound* pSound, ma_vec3 position)
+MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_set_position(&pSound->engineNode.spatializer, position);
+    pSound->engineNode.isSpatializationDisabled = !enabled;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_position(&pSound->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_position(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_direction(ma_sound* pSound, float x, float y, float z)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_direction(&pSound->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_direction(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_velocity(&pSound->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_velocity(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, attenuationModel);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_attenuation_model_none;
+    }
+
+    return ma_spatializer_get_attenuation_model(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, positioning);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_positioning_absolute;
+    }
+
+    return ma_spatializer_get_positioning(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_min_gain(ma_sound* pSound, float minGain)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_min_gain(&pSound->engineNode.spatializer, minGain);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_get_min_gain(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_min_gain(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_max_gain(ma_sound* pSound, float maxGain)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_max_gain(&pSound->engineNode.spatializer, maxGain);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_get_max_gain(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_max_gain(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_min_distance(ma_sound* pSound, float minDistance)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_min_distance(&pSound->engineNode.spatializer, minDistance);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_get_min_distance(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_min_distance(&pSound->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_set_max_distance(ma_sound* pSound, float maxDistance)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_max_distance(&pSound->engineNode.spatializer, maxDistance);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_get_max_distance(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_max_distance(&pSound->engineNode.spatializer);
+}
+
+MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_cone(&pSound->engineNode.spatializer, innerAngleInRadians, outerAngleInRadians, outerGain);
+}
+
+MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
+{
+    if (pInnerAngleInRadians != NULL) {
+        *pInnerAngleInRadians = 0;
+    }
+
+    if (pOuterAngleInRadians != NULL) {
+        *pOuterAngleInRadians = 0;
+    }
+
+    if (pOuterGain != NULL) {
+        *pOuterGain = 0;
+    }
+
+    ma_spatializer_get_cone(&pSound->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
@@ -9927,6 +11175,14 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
         return MA_INVALID_ARGS;
     }
 
+    /*
+    Groups need to have spatialization disabled by default because I think it'll be pretty rare
+    that programs will want to spatialize groups (but not unheard of). Certainly it feels like
+    disabling this by default feels like the right option. Spatialization can be enabled with a
+    call to ma_sound_group_set_spatialization_enabled().
+    */
+    flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
+
     /* A sound group is just an engine node. */
     engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group, flags);
     
@@ -10023,6 +11279,222 @@ MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pGroup->engineNode.isSpatializationDisabled = !enabled;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_position(&pGroup->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_position(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_direction(&pGroup->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_direction(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_velocity(&pGroup->engineNode.spatializer, x, y, z);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    return ma_spatializer_get_velocity(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, attenuationModel);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return ma_attenuation_model_none;
+    }
+
+    return ma_spatializer_get_attenuation_model(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, positioning);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return ma_positioning_absolute;
+    }
+
+    return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_min_gain(&pGroup->engineNode.spatializer, minGain);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_min_gain(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_max_gain(&pGroup->engineNode.spatializer, maxGain);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_max_gain(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_min_distance(&pGroup->engineNode.spatializer, minDistance);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_min_distance(&pGroup->engineNode.spatializer);
+}
+
+MA_API ma_result ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance)
+{
+    if (pGroup == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_spatializer_set_max_distance(&pGroup->engineNode.spatializer, maxDistance);
+
+    return MA_SUCCESS;
+}
+
+MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_max_distance(&pGroup->engineNode.spatializer);
+}
+
+MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
+{
+    if (pGroup == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_cone(&pGroup->engineNode.spatializer, innerAngleInRadians, outerAngleInRadians, outerGain);
+}
+
+MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
+{
+    if (pInnerAngleInRadians != NULL) {
+        *pInnerAngleInRadians = 0;
+    }
+
+    if (pOuterAngleInRadians != NULL) {
+        *pOuterAngleInRadians = 0;
+    }
+
+    if (pOuterGain != NULL) {
+        *pOuterGain = 0;
+    }
+
+    ma_spatializer_get_cone(&pGroup->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
+}
 
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
