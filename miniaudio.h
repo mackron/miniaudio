@@ -6804,6 +6804,14 @@ static MA_INLINE void ma_yield()
 #endif
 
 
+#ifndef MA_FLT_MAX
+    #ifdef FLT_MAX
+        #define MA_FLT_MAX FLT_MAX
+    #else
+        #define MA_FLT_MAX 3.402823466e+38F
+    #endif
+#endif
+
 
 #ifndef MA_PI
 #define MA_PI      3.14159265358979323846264f
