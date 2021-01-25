@@ -1615,6 +1615,9 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer);
 #define MA_SOUND_FLAG_NO_PITCH              0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
 #define MA_SOUND_FLAG_NO_SPATIALIZATION     0x00000040  /* Disable spatialization. */
 
+#ifndef MA_ENGINE_MAX_LISTENERS
+#define MA_ENGINE_MAX_LISTENERS 4
+#endif
 
 typedef enum
 {
@@ -1629,6 +1632,7 @@ typedef struct
     ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
+    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags);
@@ -1648,11 +1652,11 @@ typedef struct
     float oldDopplerPitch;              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
     ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
     ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
+    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode); /* This is used when sounds are recycled from ma_engine_play_sound(). */
 
 
 struct ma_sound
@@ -1693,6 +1697,7 @@ typedef struct
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
+    ma_uint32 listenerCount;                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
     ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
@@ -1711,7 +1716,8 @@ struct ma_engine
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
-    ma_spatializer_listener listener;       /* TODO: Add support for multiple listeners. */
+    ma_uint32 listenerCount;
+    ma_spatializer_listener listeners[MA_ENGINE_MAX_LISTENERS];
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
@@ -1733,12 +1739,14 @@ MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, float x, float y, float z);
-MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine);
-MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, float x, float y, float z);
-MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine);
-MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, float x, float y, float z);
-MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine);
+MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine);
+MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex);
+MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_uint32 listenerIndex);
+MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -1757,6 +1765,8 @@ MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
+MA_API ma_result ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex);
+MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
@@ -1803,6 +1813,8 @@ MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
 MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
+MA_API ma_result ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex);
+MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
@@ -8739,9 +8751,14 @@ MA_API float ma_vec3f_dot(ma_vec3f a, ma_vec3f b)
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
+MA_API float ma_vec3f_len2(ma_vec3f v)
+{
+    return ma_vec3f_dot(v, v);
+}
+
 MA_API float ma_vec3f_len(ma_vec3f v)
 {
-    return (float)ma_sqrt(ma_vec3f_dot(v, v));
+    return (float)ma_sqrt(ma_vec3f_len2(v));
 }
 
 MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
@@ -9884,12 +9901,19 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
         /* Spatialization. */
         if (isSpatializationEnabled) {
-            ma_spatializer_listener* pListener = NULL;
+            ma_uint8 iListener;
 
-            /* TODO: Find closest listener. ma_engine_find_closest_listener(pEngine, absolutePosition); */
-            pListener = &pEngineNode->pEngine->listener;
+            /*
+            When determining the listener to use, we first check to see if the sound is pinned to a
+            specific listener. If so, we use that. Otherwise we just use the closest listener.
+            */
+            if (pEngineNode->pinnedListenerIndex != (ma_uint8)-1 && pEngineNode->pinnedListenerIndex < ma_engine_get_listener_count(pEngineNode->pEngine)) {
+                iListener = pEngineNode->pinnedListenerIndex;
+            } else {
+                iListener = ma_engine_find_closest_listener(pEngineNode->pEngine, pEngineNode->spatializer.position.x, pEngineNode->spatializer.position.y, pEngineNode->spatializer.position.z);
+            }
 
-            ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listener, pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
+            ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listeners[iListener], pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
         } else {
             /* No spatialization, but we still need to do channel conversion. */
             if (channelsIn == channelsOut) {
@@ -10092,6 +10116,10 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
         return MA_INVALID_ARGS; /* An engine must be specified. */
     }
 
+    if (pConfig->pinnedListenerIndex != (ma_uint8)-1 && pConfig->pinnedListenerIndex >= ma_engine_get_listener_count(pConfig->pEngine)) {
+        return MA_INVALID_ARGS; /* Invalid listener. */
+    }
+
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
         baseNodeConfig = ma_node_config_init();
@@ -10118,6 +10146,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     pEngineNode->oldPitch                 = 1;
     pEngineNode->isPitchDisabled          = pConfig->isPitchDisabled;
     pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
+    pEngineNode->pinnedListenerIndex      = pConfig->pinnedListenerIndex;
 
     /*
     We can now initialize the effects we need in order to implement the engine node. There's a
@@ -10186,17 +10215,6 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 }
 
-MA_API ma_result ma_engine_node_reset(ma_engine_node* pEngineNode)
-{
-    if (pEngineNode == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* TODO: Implement me. */
-
-    return MA_SUCCESS;
-}
-
 
 
 MA_API ma_engine_config ma_engine_config_init_default(void)
@@ -10204,6 +10222,7 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
     ma_engine_config config;
 
     MA_ZERO_OBJECT(&config);
+    config.listenerCount = 1;   /* Always want at least one listener. */
 
     return config;
 }
@@ -10221,6 +10240,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_engine_config engineConfig;
     ma_context_config contextConfig;
     ma_spatializer_listener_config listenerConfig;
+    ma_uint32 iListener;
 
     if (pEngine != NULL) {
         MA_ZERO_OBJECT(pEngine);
@@ -10287,11 +10307,24 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
 
     /* We need at least one listener. */
-    listenerConfig = ma_spatializer_listener_config_init(pEngine->pDevice->playback.channels);
+    if (engineConfig.listenerCount == 0) {
+        engineConfig.listenerCount = 1;
+    }
 
-    result = ma_spatializer_listener_init(&listenerConfig, &pEngine->listener);
-    if (result != MA_SUCCESS) {
-        goto on_error_2;
+    if (engineConfig.listenerCount > MA_ENGINE_MAX_LISTENERS) {
+        result = MA_INVALID_ARGS;   /* Too many listeners. */
+        goto on_error_1;
+    }
+
+    for (iListener = 0; iListener < engineConfig.listenerCount; iListener += 1) {
+        listenerConfig = ma_spatializer_listener_config_init(pEngine->pDevice->playback.channels);
+
+        result = ma_spatializer_listener_init(&listenerConfig, &pEngine->listeners[iListener]);
+        if (result != MA_SUCCESS) {
+            goto on_error_2;
+        }
+
+        pEngine->listenerCount += 1;
     }
 
 
@@ -10303,7 +10336,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         pEngine->pResourceManager = (ma_resource_manager*)ma__malloc_from_callbacks(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
         if (pEngine->pResourceManager == NULL) {
             result = MA_OUT_OF_MEMORY;
-            goto on_error_3;
+            goto on_error_2;
         }
 
         resourceManagerConfig = ma_resource_manager_config_init();
@@ -10315,7 +10348,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
         if (result != MA_SUCCESS) {
-            goto on_error_4;
+            goto on_error_3;
         }
 
         pEngine->ownsResourceManager = MA_TRUE;
@@ -10330,23 +10363,25 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (engineConfig.noAutoStart == MA_FALSE) {
         result = ma_engine_start(pEngine);
         if (result != MA_SUCCESS) {
-            goto on_error_5;    /* Failed to start the engine. */
+            goto on_error_4;    /* Failed to start the engine. */
         }
     }
 
     return MA_SUCCESS;
 
-on_error_5:
+on_error_4:
     ma_mutex_uninit(&pEngine->inlinedSoundLock);
 #ifndef MA_NO_RESOURCE_MANAGER
-on_error_4:
+on_error_3:
     if (pEngine->ownsResourceManager) {
         ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
     }
-on_error_3:
-    ma_spatializer_listener_uninit(&pEngine->listener);
 #endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_2:
+    for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
+        ma_spatializer_listener_uninit(&pEngine->listeners[iListener]);
+    }
+
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
 on_error_1:
     if (pEngine->ownsDevice) {
@@ -10492,64 +10527,96 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 }
 
 
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, float x, float y, float z)
+MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine)
 {
     if (pEngine == NULL) {
+        return 0;
+    }
+
+    return pEngine->listenerCount;
+}
+
+MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ)
+{
+    ma_uint32 iListener;
+    ma_uint32 iListenerClosest;
+    float closestLen2 = MA_FLT_MAX;
+
+    if (pEngine == NULL || pEngine->listenerCount == 1) {
+        return 0;
+    }
+
+    iListenerClosest = 0;
+    for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
+        float len2 = ma_vec3f_len2(ma_vec3f_sub(pEngine->listeners[iListener].position, ma_vec3f_init_3f(absolutePosX, absolutePosY, absolutePosZ)));
+        if (closestLen2 > len2) {
+            closestLen2 = len2;
+            iListenerClosest = iListener;
+        }
+    }
+
+    MA_ASSERT(iListenerClosest < 255);
+    return (ma_uint8)iListenerClosest;  /* Safe cast. */
+}
+
+MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return MA_INVALID_ARGS;
     }
 
-    ma_spatializer_listener_set_position(&pEngine->listener, x, y, z);
+    ma_spatializer_listener_set_position(&pEngine->listeners[listenerIndex], x, y, z);
 
     return MA_SUCCESS;
 }
 
-MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine)
+MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex)
 {
-    if (pEngine == NULL) {
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return ma_spatializer_listener_get_position(&pEngine->listener);
+    return ma_spatializer_listener_get_position(&pEngine->listeners[listenerIndex]);
 }
 
-MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, float x, float y, float z)
+MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
-    if (pEngine == NULL) {
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return MA_INVALID_ARGS;
     }
 
-    ma_spatializer_listener_set_direction(&pEngine->listener, x, y, z);
+    ma_spatializer_listener_set_direction(&pEngine->listeners[listenerIndex], x, y, z);
 
     return MA_SUCCESS;
 }
 
-MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine)
+MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_uint32 listenerIndex)
 {
-    if (pEngine == NULL) {
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return ma_vec3f_init_3f(0, 0, -1);
     }
 
-    return ma_spatializer_listener_get_direction(&pEngine->listener);
+    return ma_spatializer_listener_get_direction(&pEngine->listeners[listenerIndex]);
 }
 
-MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, float x, float y, float z)
+MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
-    if (pEngine == NULL) {
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return MA_INVALID_ARGS;
     }
 
-    ma_spatializer_listener_set_velocity(&pEngine->listener, x, y, z);
+    ma_spatializer_listener_set_velocity(&pEngine->listeners[listenerIndex], x, y, z);
 
     return MA_SUCCESS;
 }
 
-MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine)
+MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex)
 {
-    if (pEngine == NULL) {
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return ma_spatializer_listener_get_velocity(&pEngine->listener);
+    return ma_spatializer_listener_get_velocity(&pEngine->listeners[listenerIndex]);
 }
 
 
@@ -10930,6 +10997,26 @@ MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32
     pSound->engineNode.isSpatializationDisabled = !enabled;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
+{
+    if (pSound == NULL || listenerIndex >= ma_engine_get_listener_count(pSound->engineNode.pEngine)) {
+        return MA_INVALID_ARGS;
+    }
+
+    pSound->engineNode.pinnedListenerIndex = listenerIndex;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return (ma_uint8)-1;
+    }
+
+    return pSound->engineNode.pinnedListenerIndex;
 }
 
 MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
@@ -11453,6 +11540,26 @@ MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGrou
     pGroup->engineNode.isSpatializationDisabled = !enabled;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
+{
+    if (pGroup == NULL || listenerIndex >= ma_engine_get_listener_count(pGroup->engineNode.pEngine)) {
+        return MA_INVALID_ARGS;
+    }
+
+    pGroup->engineNode.pinnedListenerIndex = listenerIndex;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return (ma_uint8)-1;
+    }
+
+    return pGroup->engineNode.pinnedListenerIndex;
 }
 
 MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
