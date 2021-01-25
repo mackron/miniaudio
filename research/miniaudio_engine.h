@@ -1741,12 +1741,14 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine);
 MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API void ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex);
-MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API void ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_uint32 listenerIndex);
-MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API void ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex);
+MA_API void ma_engine_listener_set_cone(ma_engine* pEngine, ma_uint32 listenerIndex, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
+MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 listenerIndex, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -1764,26 +1766,26 @@ MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
 MA_API ma_result ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode);
 MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch);
-MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
-MA_API ma_result ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex);
+MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
+MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex);
 MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
+MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
+MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z);
+MA_API void ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel);
+MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel);
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
+MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_min_gain(ma_sound* pSound, float minGain);
+MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain);
 MA_API float ma_sound_get_min_gain(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_max_gain(ma_sound* pSound, float maxGain);
+MA_API void ma_sound_set_max_gain(ma_sound* pSound, float maxGain);
 MA_API float ma_sound_get_max_gain(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_min_distance(ma_sound* pSound, float minDistance);
+MA_API void ma_sound_set_min_distance(ma_sound* pSound, float minDistance);
 MA_API float ma_sound_get_min_distance(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_max_distance(ma_sound* pSound, float maxDistance);
+MA_API void ma_sound_set_max_distance(ma_sound* pSound, float maxDistance);
 MA_API float ma_sound_get_max_distance(const ma_sound* pSound);
 MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
@@ -1812,26 +1814,26 @@ MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB);
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
-MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
-MA_API ma_result ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex);
+MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
+MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex);
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
+MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
+MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z);
+MA_API void ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel);
+MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel);
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
+MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain);
+MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain);
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain);
+MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain);
 MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance);
+MA_API void ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance);
 MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup);
-MA_API ma_result ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance);
+MA_API void ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance);
 MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
@@ -10657,15 +10659,13 @@ MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float 
     return (ma_uint8)iListenerClosest;  /* Safe cast. */
 }
 
-MA_API ma_result ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+MA_API void ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
     if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_listener_set_position(&pEngine->listeners[listenerIndex], x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex)
@@ -10677,15 +10677,13 @@ MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uin
     return ma_spatializer_listener_get_position(&pEngine->listeners[listenerIndex]);
 }
 
-MA_API ma_result ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+MA_API void ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
     if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_listener_set_direction(&pEngine->listeners[listenerIndex], x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_uint32 listenerIndex)
@@ -10697,15 +10695,13 @@ MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_ui
     return ma_spatializer_listener_get_direction(&pEngine->listeners[listenerIndex]);
 }
 
-MA_API ma_result ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+MA_API void ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
     if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_listener_set_velocity(&pEngine->listeners[listenerIndex], x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex)
@@ -10715,6 +10711,32 @@ MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uin
     }
 
     return ma_spatializer_listener_get_velocity(&pEngine->listeners[listenerIndex]);
+}
+
+MA_API void ma_engine_listener_set_cone(ma_engine* pEngine, ma_uint32 listenerIndex, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return;
+    }
+
+    ma_spatializer_listener_set_cone(&pEngine->listeners[listenerIndex], innerAngleInRadians, outerAngleInRadians, outerGain);
+}
+
+MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 listenerIndex, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
+{
+    if (pInnerAngleInRadians != NULL) {
+        *pInnerAngleInRadians = 0;
+    }
+
+    if (pOuterAngleInRadians != NULL) {
+        *pOuterAngleInRadians = 0;
+    }
+
+    if (pOuterGain != NULL) {
+        *pOuterGain = 0;
+    }
+
+    ma_spatializer_listener_get_cone(&pEngine->listeners[listenerIndex], pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
 
@@ -11086,26 +11108,22 @@ MA_API ma_result ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode pan_mode)
     return ma_panner_set_mode(&pSound->engineNode.panner, pan_mode);
 }
 
-MA_API ma_result ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled)
+MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     pSound->engineNode.isSpatializationDisabled = !enabled;
-
-    return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
+MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
 {
     if (pSound == NULL || listenerIndex >= ma_engine_get_listener_count(pSound->engineNode.pEngine)) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     pSound->engineNode.pinnedListenerIndex = listenerIndex;
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
@@ -11117,15 +11135,13 @@ MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
     return pSound->engineNode.pinnedListenerIndex;
 }
 
-MA_API ma_result ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
+MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_position(&pSound->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound)
@@ -11137,15 +11153,13 @@ MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound)
     return ma_spatializer_get_position(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_direction(ma_sound* pSound, float x, float y, float z)
+MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_direction(&pSound->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound)
@@ -11157,15 +11171,13 @@ MA_API ma_vec3f ma_sound_get_direction(const ma_sound* pSound)
     return ma_spatializer_get_direction(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z)
+MA_API void ma_sound_set_velocity(ma_sound* pSound, float x, float y, float z)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_velocity(&pSound->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound)
@@ -11177,15 +11189,13 @@ MA_API ma_vec3f ma_sound_get_velocity(const ma_sound* pSound)
     return ma_spatializer_get_velocity(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel)
+MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_model attenuationModel)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, attenuationModel);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound)
@@ -11197,15 +11207,13 @@ MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSoun
     return ma_spatializer_get_attenuation_model(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning)
+MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, positioning);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
@@ -11217,15 +11225,13 @@ MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
     return ma_spatializer_get_positioning(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_min_gain(ma_sound* pSound, float minGain)
+MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_min_gain(&pSound->engineNode.spatializer, minGain);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_get_min_gain(const ma_sound* pSound)
@@ -11237,15 +11243,13 @@ MA_API float ma_sound_get_min_gain(const ma_sound* pSound)
     return ma_spatializer_get_min_gain(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_max_gain(ma_sound* pSound, float maxGain)
+MA_API void ma_sound_set_max_gain(ma_sound* pSound, float maxGain)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_max_gain(&pSound->engineNode.spatializer, maxGain);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_get_max_gain(const ma_sound* pSound)
@@ -11257,15 +11261,13 @@ MA_API float ma_sound_get_max_gain(const ma_sound* pSound)
     return ma_spatializer_get_max_gain(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_min_distance(ma_sound* pSound, float minDistance)
+MA_API void ma_sound_set_min_distance(ma_sound* pSound, float minDistance)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_min_distance(&pSound->engineNode.spatializer, minDistance);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_get_min_distance(const ma_sound* pSound)
@@ -11277,15 +11279,13 @@ MA_API float ma_sound_get_min_distance(const ma_sound* pSound)
     return ma_spatializer_get_min_distance(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_max_distance(ma_sound* pSound, float maxDistance)
+MA_API void ma_sound_set_max_distance(ma_sound* pSound, float maxDistance)
 {
     if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_max_distance(&pSound->engineNode.spatializer, maxDistance);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_get_max_distance(const ma_sound* pSound)
@@ -11629,26 +11629,22 @@ MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
+MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     pGroup->engineNode.isSpatializationDisabled = !enabled;
-
-    return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
+MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
 {
     if (pGroup == NULL || listenerIndex >= ma_engine_get_listener_count(pGroup->engineNode.pEngine)) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     pGroup->engineNode.pinnedListenerIndex = listenerIndex;
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
@@ -11660,15 +11656,13 @@ MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* p
     return pGroup->engineNode.pinnedListenerIndex;
 }
 
-MA_API ma_result ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
+MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_position(&pGroup->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup)
@@ -11680,15 +11674,13 @@ MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup)
     return ma_spatializer_get_position(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z)
+MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_direction(&pGroup->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup)
@@ -11700,15 +11692,13 @@ MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup)
     return ma_spatializer_get_direction(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z)
+MA_API void ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_velocity(&pGroup->engineNode.spatializer, x, y, z);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
@@ -11720,15 +11710,13 @@ MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
     return ma_spatializer_get_velocity(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
+MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, attenuationModel);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup)
@@ -11740,15 +11728,13 @@ MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_
     return ma_spatializer_get_attenuation_model(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning)
+MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, positioning);
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup)
@@ -11760,15 +11746,13 @@ MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGrou
     return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
+MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_min_gain(&pGroup->engineNode.spatializer, minGain);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup)
@@ -11780,15 +11764,13 @@ MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup)
     return ma_spatializer_get_min_gain(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain)
+MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_max_gain(&pGroup->engineNode.spatializer, maxGain);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup)
@@ -11800,15 +11782,13 @@ MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup)
     return ma_spatializer_get_max_gain(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance)
+MA_API void ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_min_distance(&pGroup->engineNode.spatializer, minDistance);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup)
@@ -11820,15 +11800,13 @@ MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup)
     return ma_spatializer_get_min_distance(&pGroup->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance)
+MA_API void ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance)
 {
     if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
+        return;
     }
 
     ma_spatializer_set_max_distance(&pGroup->engineNode.spatializer, maxDistance);
-
-    return MA_SUCCESS;
 }
 
 MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup)
