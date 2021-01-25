@@ -47,7 +47,7 @@ int main(int argc, char** argv)
     }
 
     resourceManagerConfig = ma_resource_manager_config_init();
-    resourceManagerConfig.decodedFormat = ma_format_f32;
+    //resourceManagerConfig.decodedFormat = ma_format_f32;
     //resourceManagerConfig.decodedChannels = 2;
     resourceManagerConfig.decodedSampleRate = 48000;
     //resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
@@ -78,7 +78,7 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &loadNotification, &group, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
     /*ma_sound_set_volume(&sound, 0.25f);*/
     /*ma_sound_set_pitch(&sound, 1.1f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
-    /*ma_sound_set_looping(&sound, MA_TRUE);*/
+    ma_sound_set_looping(&sound, MA_TRUE);
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_time(&sound, 1110);
     //ma_sound_set_volume(&sound, 0.5f);
@@ -117,6 +117,8 @@ int main(int argc, char** argv)
     //ma_sound_set_stop_time(&sound, 1000);
     //ma_sound_set_volume(&sound, 1);
     //ma_sound_set_start_time(&sound, 48000);
+    ma_sound_set_position(&sound, 0, 0, -1);
+    //ma_sound_set_spatialization_enabled(&sound, MA_FALSE);
     ma_sound_start(&sound);
     /*ma_sound_uninit(&sound);*/
 
@@ -144,7 +146,15 @@ int main(int argc, char** argv)
     }
 #endif
 
-#if 0
+#if 1
+    float maxX = +10;
+    float minX = -10;
+    float posX = 0;
+    float posZ = -1.0f;
+    float step = 0.1f;
+    float stepAngle = 0.02f;
+    float angle = 0;
+
     float pitch     = 1;
     float pitchStep = 0.01f;
     float pitchMin  = 0.125f;
@@ -161,8 +171,28 @@ int main(int argc, char** argv)
         }
 
         //ma_sound_group_set_pitch(ma_engine_get_master_sound_group(&engine), pitch);
-        ma_sound_set_pitch(&sound, pitch);
-        printf("Pitch: %f\n", pitch);
+        //ma_sound_set_pitch(&sound, pitch);
+        //ma_sound_set_volume(&sound, pitch);
+        //ma_sound_set_pan(&sound, pitch);
+
+        //printf("Pitch: %f\n", pitch);
+
+
+        posX += step;
+        if (posX > maxX) {
+            posX = maxX;
+            step = -step;
+        } else if (posX < minX) {
+            posX = minX;
+            step = -step;
+        }
+
+        //ma_spatializer_set_position(&g_spatializer, ma_vec3f_init_3f(posX, 0, posZ));
+        ma_sound_set_position(&sound, posX, 0, posZ);
+        ma_sound_set_velocity(&sound, step*1000, 0, 0);
+
+        //ma_engine_listener_set_direciton(&engine, (float)ma_cos(angle), 0, (float)ma_sin(angle));
+        angle += stepAngle;
 
         ma_sleep(1);
     }
