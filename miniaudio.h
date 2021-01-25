@@ -15668,33 +15668,31 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     break;
                 }
 
-                if (framesAvailablePlayback < pDevice->wasapi.periodSizeInFramesPlayback) {
-                    continue;   /* No space available. */
+                if (framesAvailablePlayback >= pDevice->wasapi.periodSizeInFramesPlayback) {
+                    /* Map a the data buffer in preparation for the callback. */
+                    hr = ma_IAudioRenderClient_GetBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, &pMappedDeviceBufferPlayback);
+                    if (FAILED(hr)) {
+                        ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    /* We should have a buffer at this point. */
+                    ma_device__read_frames_from_client(pDevice, framesAvailablePlayback, pMappedDeviceBufferPlayback);
+
+                    /* At this point we're done writing to the device and we just need to release the buffer. */
+                    hr = ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, 0);
+                    pMappedDeviceBufferPlayback = NULL;    /* <-- Important. Not doing this can result in an error once we leave this loop because it will use this to know whether or not a final ReleaseBuffer() needs to be called. */
+                    mappedDeviceBufferSizeInFramesPlayback = 0;
+
+                    if (FAILED(hr)) {
+                        ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device after writing to the device.", ma_result_from_HRESULT(hr));
+                        exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    framesWrittenToPlaybackDevice += framesAvailablePlayback;
                 }
-
-                /* Map a the data buffer in preparation for the callback. */
-                hr = ma_IAudioRenderClient_GetBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, &pMappedDeviceBufferPlayback);
-                if (FAILED(hr)) {
-                    ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
-                    exitLoop = MA_TRUE;
-                    break;
-                }
-
-                /* We should have a buffer at this point. */
-                ma_device__read_frames_from_client(pDevice, framesAvailablePlayback, pMappedDeviceBufferPlayback);
-
-                /* At this point we're done writing to the device and we just need to release the buffer. */
-                hr = ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, 0);
-                pMappedDeviceBufferPlayback = NULL;    /* <-- Important. Not doing this can result in an error once we leave this loop because it will use this to know whether or not a final ReleaseBuffer() needs to be called. */
-                mappedDeviceBufferSizeInFramesPlayback = 0;
-
-                if (FAILED(hr)) {
-                    ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from playback device after writing to the device.", ma_result_from_HRESULT(hr));
-                    exitLoop = MA_TRUE;
-                    break;
-                }
-
-                framesWrittenToPlaybackDevice += framesAvailablePlayback;
 
                 if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
                     hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
