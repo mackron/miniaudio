@@ -26038,7 +26038,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
     if (reason == AVAudioSessionRouteChangeReasonNewDeviceAvailable || reason == AVAudioSessionRouteChangeReasonCategoryChange || reason == AVAudioSessionRouteChangeReasonOverride) {
     #if defined(MA_DEBUG_OUTPUT)
-        printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", pSession.inputNumberOfChannels, pSession.outputNumberOfChannels);
+        printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
     #endif
 
         m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
