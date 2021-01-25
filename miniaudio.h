@@ -7046,6 +7046,27 @@ static MA_INLINE float ma_log10f(float x)
 }
 
 
+static MA_INLINE double ma_degrees_to_radians(double degrees)
+{
+    return degrees * 0.01745329252;
+}
+
+static MA_INLINE double ma_radians_to_degrees(double radians)
+{
+    return radians * 57.295779512896;
+}
+
+static MA_INLINE float ma_degrees_to_radians_f(float degrees)
+{
+    return degrees * 0.01745329252f;
+}
+
+static MA_INLINE float ma_radians_to_degrees_f(float radians)
+{
+    return radians * 57.295779512896f;
+}
+
+
 /*
 Return Values:
   0:  Success
