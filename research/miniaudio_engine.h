@@ -1572,15 +1572,13 @@ typedef struct
     ma_spatializer_config config;
     ma_vec3f position;
     ma_vec3f direction;
-    ma_vec3f velocity;              /* For doppler effect. */
-    ma_linear_resampler resampler;  /* For doppler effect. */
+    ma_vec3f velocity;  /* For doppler effect. */
+    float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
 } ma_spatializer;
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_uint64 ma_spatializer_get_required_input_frame_count(ma_spatializer* pSpatializer, ma_uint64 outputFrameCount);
-MA_API void ma_spatializer_apply_doppler_pitch(ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
@@ -1647,6 +1645,7 @@ typedef struct
     ma_panner panner;
     float pitch;
     float oldPitch;                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
     ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
     ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
 } ma_engine_node;
@@ -1778,6 +1777,8 @@ MA_API ma_result ma_sound_set_max_distance(ma_sound* pSound, float maxDistance);
 MA_API float ma_sound_get_max_distance(const ma_sound* pSound);
 MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor);
+MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
@@ -1822,6 +1823,8 @@ MA_API ma_result ma_sound_group_set_max_distance(ma_sound_group* pGroup, float m
 MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor);
+MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume);
@@ -9131,9 +9134,6 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
 {
-    ma_result result;
-    ma_linear_resampler_config resamplerConfig;
-
     if (pSpatializer == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -9163,18 +9163,6 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
     ma_channel_map_copy_or_default(pSpatializer->config.channelMapIn, pConfig->channelMapIn, pSpatializer->config.channelsIn);
     if (ma_channel_map_blank(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn)) {
         ma_get_default_channel_map_for_spatializer(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn);
-    }
-
-    /*
-    We need a resampler for doppler effect. We don't run anything through the resampler when the
-    doppler factor is 0, but we still want to initialize it in case the caller changes the factor
-    dynamically later on.
-    */
-    resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, pConfig->channelsIn, 1, 1);  /* We don't care about rates. We'll dynamically adjust it based on a ratio. */
-
-    result = ma_linear_resampler_init(&resamplerConfig, &pSpatializer->resampler);
-    if (result != MA_SUCCESS) {
-        return result;
     }
 
     return MA_SUCCESS;
@@ -9215,6 +9203,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         } else {
             ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, (const float*)pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
         }
+
+        /*
+        We're not doing attenuation so don't bother with doppler for now. I'm not sure if this is
+        the correct thinking so might need to review this later.
+        */
+        pSpatializer->dopplerPitch = 1;
     } else {
         /*
         Let's first determine which listener the sound is closest to. Need to keep in mind that we
@@ -9223,8 +9217,22 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         */
         ma_vec3f relativePos;   /* The position relative to the listener. */
         ma_vec3f relativeDir;   /* The direction of the sound, relative to the listener. */
+        ma_vec3f listenerVel;   /* The volocity of the listener. For doppler pitch calculation. */
+        float speedOfSound;
         float distance = 0;
         float gain = 1;
+
+        /*
+        We'll need the listener velocity for doppler pitch calculations. The speed of sound is
+        defined by the listener, so we'll grab that here too.
+        */
+        if (pListener != NULL) {
+            listenerVel  = pListener->velocity;
+            speedOfSound = pListener->config.speedOfSound;
+        } else {
+            listenerVel  = ma_vec3f_init_3f(0, 0, 0);
+            speedOfSound = MA_DEFAULT_SPEED_OF_SOUND;
+        }
 
         if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
             /* There's no listener or we're using relative positioning. */
@@ -9450,59 +9458,21 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
         /* Now we need to apply the volume to each channel. */
         ma_apply_volume_factor_per_channel_f32(pFramesOut, frameCount, pSpatializer->config.channelsOut, channelGainsOut);
+
+        /*
+        Before leaving we'll want to update our doppler pitch so that the caller can apply some
+        pitch shifting if they desire. Note that we need to negate the relative position here
+        because the doppler calculation needs to be source-to-listener, but ours is listener-to-
+        source.
+        */
+        if (pSpatializer->config.dopplerFactor > 0) {
+            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_neg(relativePos), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
+        } else {
+            pSpatializer->dopplerPitch = 1;
+        }
     }
 
     return MA_SUCCESS;
-}
-
-MA_API ma_uint64 ma_spatializer_get_required_input_frame_count(ma_spatializer* pSpatializer, ma_uint64 outputFrameCount)
-{
-    if (pSpatializer->config.dopplerFactor == 0) {
-        return outputFrameCount;
-    }
-
-    return ma_linear_resampler_get_required_input_frame_count(&pSpatializer->resampler, outputFrameCount);
-}
-
-MA_API float ma_spatializer_calculate_doppler_pitch(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener)
-{
-    ma_vec3f relativePosition;
-    ma_vec3f listenerVelocity;
-    float speedOfSound;
-
-    if (pSpatializer == NULL || pSpatializer->config.dopplerFactor == 0) {
-        return 1;
-    }
-
-    if (pListener != NULL) {
-        speedOfSound = pListener->config.speedOfSound;
-        listenerVelocity = pListener->velocity;
-        if (pSpatializer->config.positioning == ma_positioning_absolute) {
-            relativePosition = ma_vec3f_sub(pSpatializer->position, pListener->position);
-        } else {
-            relativePosition = pSpatializer->position;
-        }
-    } else {
-        speedOfSound = MA_DEFAULT_SPEED_OF_SOUND;
-        listenerVelocity = ma_vec3f_init_3f(0, 0, 0);
-        relativePosition = pSpatializer->position;
-    }
-
-    return ma_doppler_pitch(relativePosition, pListener->velocity, listenerVelocity, speedOfSound, pSpatializer->config.dopplerFactor);
-}
-
-MA_API void ma_spatializer_apply_doppler_pitch(ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener)
-{
-    if (pSpatializer == NULL) {
-        return;
-    }
-
-    /* Don't waste time if we our doppler factor is 0. In this case we'll skipping over the resampler at processing time anyway. */
-    if (pSpatializer->config.dopplerFactor == 0) {
-        return;
-    }
-
-    ma_linear_resampler_set_rate_ratio(&pSpatializer->resampler, ma_spatializer_calculate_doppler_pitch(pSpatializer, pListener));
 }
 
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer)
@@ -9760,11 +9730,22 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 
 static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 {
+    ma_bool32 isUpdateRequired = MA_FALSE;
+
     MA_ASSERT(pEngineNode != NULL);
 
     if (pEngineNode->oldPitch != pEngineNode->pitch) {
         pEngineNode->oldPitch  = pEngineNode->pitch;
-        ma_resampler_set_rate_ratio(&pEngineNode->resampler, pEngineNode->pitch);
+        isUpdateRequired = MA_TRUE;
+    }
+
+    if (pEngineNode->oldDopplerPitch != pEngineNode->spatializer.dopplerPitch) {
+        pEngineNode->oldDopplerPitch  = pEngineNode->spatializer.dopplerPitch;
+        isUpdateRequired = MA_TRUE;
+    }
+
+    if (isUpdateRequired) {
+        ma_resampler_set_rate_ratio(&pEngineNode->resampler, pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
     }
 }
 
@@ -11157,6 +11138,24 @@ MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadian
     ma_spatializer_get_cone(&pSound->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
+MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_doppler_factor(&pSound->engineNode.spatializer, dopplerFactor);
+}
+
+MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_doppler_factor(&pSound->engineNode.spatializer);
+}
+
 MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
 {
     if (pSound == NULL) {
@@ -11660,6 +11659,24 @@ MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerA
     }
 
     ma_spatializer_get_cone(&pGroup->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
+}
+
+MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor)
+{
+    if (pGroup == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_doppler_factor(&pGroup->engineNode.spatializer, dopplerFactor);
+}
+
+MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_doppler_factor(&pGroup->engineNode.spatializer);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
