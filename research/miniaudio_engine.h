@@ -10077,6 +10077,17 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     }
 
     /*
+    We want to update the pitch once. For sounds, this can be either at the start or at the end. If
+    we don't force this to only ever be updating once, we could end up in a situation where
+    retrieving the required input frame count ends up being different to what we actually retrieve.
+    What could happen is that the required input frame count is calculated, the pitch is update,
+    and then this processing function is called resulting in a different number of input frames
+    being processed. Do not call this in ma_engine_node_process_pcm_frames__general() or else
+    you'll hit the aforementioned bug.
+    */
+    ma_engine_node_update_pitch_if_required(&pSound->engineNode);
+
+    /*
     For the convenience of the caller, we're doing to allow data sources to use non-floating-point formats and channel counts that differ
     from the main engine.
     */
@@ -10141,33 +10152,31 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     }
 
     *pFrameCountOut = totalFramesRead;
-
-    /*
-    We want to update the pitch once, at the *end* of processing. If we don't force this to only
-    ever be updating once, we could end up in a situation where retrieving the required input frame
-    count ends up being different to what we actually retrieve. What could happen is that the
-    required input frame count is calculated, the pitch is update, and then this processing function
-    is called resulting in a different number of input frames being processed. Do not call this in
-    ma_engine_node_process_pcm_frames__general() or else you'll hit the aforementioned bug.
-    */
-    ma_engine_node_update_pitch_if_required(&pSound->engineNode);
 }
 
 static void ma_engine_node_process_pcm_frames__group(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
-    /* For groups, the input data has already been read and we just need to apply the effect. */
-    ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
-
     /*
-    The pitch can only ever be updated once. We cannot update it in ma_engine_node_process_pcm_frames__general()
-    because otherwise we'll introduce a subtle bug in ma_engine_node_process_pcm_frames__sound().
+    Make sure the pitch is updated before trying to read anything. It's important that this is done
+    only once and not in ma_engine_node_process_pcm_frames__general(). The reason for this is that
+    ma_engine_node_process_pcm_frames__general() will call ma_engine_node_get_required_input_frame_count(), 
+    and if another thread modifies the pitch just after that call it can result in a glitch due to
+    the input rate changing.
     */
     ma_engine_node_update_pitch_if_required((ma_engine_node*)pNode);
+
+    /* For groups, the input data has already been read and we just need to apply the effect. */
+    ma_engine_node_process_pcm_frames__general((ma_engine_node*)pNode, ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 }
 
 static ma_uint32 ma_engine_node_get_required_input_frame_count__group(ma_node* pNode, ma_uint32 outputFrameCount)
 {
-    ma_uint64 result = ma_engine_node_get_required_input_frame_count((ma_engine_node*)pNode, outputFrameCount);
+    ma_uint64 result;
+
+    /* Our pitch will affect this calculation. We need to update it. */
+    ma_engine_node_update_pitch_if_required((ma_engine_node*)pNode);
+
+    result = ma_engine_node_get_required_input_frame_count((ma_engine_node*)pNode, outputFrameCount);
     if (result > 0xFFFFFFFF) {
         result = 0xFFFFFFFF;    /* Will never happen because miniaudio will only ever process in relatively small chunks. */
     }
