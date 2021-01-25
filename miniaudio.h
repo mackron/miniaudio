@@ -25995,19 +25995,8 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
         case AVAudioSessionRouteChangeReasonNewDeviceAvailable:
         {
         #if defined(MA_DEBUG_OUTPUT)
-            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonNewDeviceAvailable. inputNumberChannels=%d; outputNumberOfChannels=%d.\n", pSession.inputNumberOfChannels, pSession.outputNumberOfChannels);
+            printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonNewDeviceAvailable\n");
         #endif
-
-            m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
-
-            if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-                m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
-                ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
-            }
-            if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-                m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
-                ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
-            }
         } break;
 
         case AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory:
@@ -26045,6 +26034,23 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
             printf("[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
         #endif
         } break;
+    }
+
+    if (reason == AVAudioSessionRouteChangeReasonNewDeviceAvailable || reason == AVAudioSessionRouteChangeReasonCategoryChange || reason == AVAudioSessionRouteChangeReasonOverride) {
+    #if defined(MA_DEBUG_OUTPUT)
+        printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", pSession.inputNumberOfChannels, pSession.outputNumberOfChannels);
+    #endif
+
+        m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
+
+        if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
+            m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
+            ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
+        }
+        if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
+            m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
+            ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
+        }
     }
 }
 @end
