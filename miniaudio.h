@@ -33713,9 +33713,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "[%s]", ma_get_backend_name(pDevice->pContext->backend));
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "  %s (%s)", pDevice->capture.name, "Capture");
-        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Format:      %s -> %s", ma_get_format_name(pDevice->capture.format), ma_get_format_name(pDevice->capture.internalFormat));
-        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d", pDevice->capture.channels, pDevice->capture.internalChannels);
-        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d", pDevice->sampleRate, pDevice->capture.internalSampleRate);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Format:      %s -> %s", ma_get_format_name(pDevice->capture.internalFormat), ma_get_format_name(pDevice->capture.format));
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d", pDevice->capture.internalChannels, pDevice->capture.channels);
+        ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d", pDevice->capture.internalSampleRate, pDevice->sampleRate);
         ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)", pDevice->capture.internalPeriodSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods));
         ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "    Conversion:");
         ma_post_log_messagef(pContext, pDevice, MA_LOG_LEVEL_INFO, "      Pre Format Conversion:    %s", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
