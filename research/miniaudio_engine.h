@@ -9168,10 +9168,11 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
         return MA_INVALID_ARGS;
     }
 
-    pSpatializer->config    = *pConfig;
-    pSpatializer->position  = ma_vec3f_init_3f(0, 0,  0);
-    pSpatializer->direction = ma_vec3f_init_3f(0, 0, -1);
-    pSpatializer->velocity  = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->config       = *pConfig;
+    pSpatializer->position     = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->direction    = ma_vec3f_init_3f(0, 0, -1);
+    pSpatializer->velocity     = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->dopplerPitch = 1;
 
     /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
     if (pSpatializer->config.handedness == ma_handedness_left) {
@@ -9378,7 +9379,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
             #if defined(MA_DEBUG_OUTPUT)
             {
-                printf("dir.x = {%f, %f, %f}\n", relativeDir.x, relativeDir.y, relativeDir.z);
+                /*printf("dir.x = {%f, %f, %f}\n", relativeDir.x, relativeDir.y, relativeDir.z);*/
             }
             #endif
         }
@@ -10244,6 +10245,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     pEngineNode->pEngine                  = pConfig->pEngine;
     pEngineNode->pitch                    = 1;
     pEngineNode->oldPitch                 = 1;
+    pEngineNode->oldDopplerPitch          = 1;
     pEngineNode->isPitchDisabled          = pConfig->isPitchDisabled;
     pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
     pEngineNode->pinnedListenerIndex      = pConfig->pinnedListenerIndex;
