@@ -15165,6 +15165,10 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 }
 
 
+#ifndef MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS
+#define MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS 5000
+#endif
+
 static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
 {
     ma_result result;
@@ -15231,7 +15235,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                 if (pMappedDeviceBufferPlayback == NULL) {
                     /* WASAPI is weird with exclusive mode. You need to wait on the event _before_ querying the available frames. */
                     if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
+                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                             return MA_ERROR;   /* Wait failed. */
                         }
                     }
@@ -15255,7 +15259,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     if (framesAvailablePlayback == 0) {
                         /* In exclusive mode we waited at the top. */
                         if (pDevice->playback.shareMode != ma_share_mode_exclusive) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -15280,7 +15284,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     /* Try grabbing some captured data if we haven't already got a mapped buffer. */
                     if (pMappedDeviceBufferCapture == NULL) {
                         if (pDevice->capture.shareMode == ma_share_mode_shared) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
+                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                                 return MA_ERROR;   /* Wait failed. */
                             }
                         }
@@ -15297,7 +15301,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                         if (framesAvailableCapture == 0) {
                             /* In exclusive mode we waited at the top. */
                             if (pDevice->capture.shareMode != ma_share_mode_shared) {
-                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
+                                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                                     return MA_ERROR;   /* Wait failed. */
                                 }
                             }
@@ -15540,7 +15544,7 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                 DWORD flagsCapture;    /* Passed to IAudioCaptureClient_GetBuffer(). */
 
                 /* Wait for data to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, INFINITE) != WAIT_OBJECT_0) {
+                if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                     exitLoop = MA_TRUE;
                     break;   /* Wait failed. */
                 }
@@ -15637,12 +15641,6 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
             {
                 ma_uint32 framesAvailablePlayback;
 
-                /* Wait for space to become available first. */
-                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
-                    exitLoop = MA_TRUE;
-                    break;   /* Wait failed. */
-                }
-
                 /* Check how much space is available. If this returns 0 we just keep waiting. */
                 result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
                 if (result != MA_SUCCESS) {
@@ -15677,16 +15675,21 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                 }
 
                 framesWrittenToPlaybackDevice += framesAvailablePlayback;
+
                 if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
-                    if (pDevice->playback.shareMode == ma_share_mode_exclusive || framesWrittenToPlaybackDevice >= pDevice->playback.internalPeriodSizeInFrames*1) {
-                        hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-                        if (FAILED(hr)) {
-                            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
-                        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                    hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+                    if (FAILED(hr)) {
+                        ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
+                        exitLoop = MA_TRUE;
+                        break;
                     }
+                    c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                }
+
+                /* Make sure we don't wait on the event before we've started the device or we may end up deadlocking. */
+                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                    exitLoop = MA_TRUE;
+                    break;   /* Wait failed. Probably timed out. */
                 }
             } break;
 
