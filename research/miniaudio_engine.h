@@ -1806,8 +1806,8 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
-MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);  /* Parent must be set at initialization time and cannot be changed. Not thread-safe. */
-MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);   /* Not thread-safe. */
+MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
+MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume);
