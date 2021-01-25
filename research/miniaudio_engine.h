@@ -9194,6 +9194,50 @@ MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer)
     /* Placeholder. */
 }
 
+static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneInnerAngleInRadians, float coneOuterAngleInRadians, float coneOuterGain)
+{
+    /*
+    Angular attenuation.
+
+    Unlike distance gain, the math for this is not specified by the OpenAL spec so we'll just go ahead and figure
+    this out for ourselves at the expense of possibly being inconsistent with other implementations.
+
+    To do cone attenuation, I'm just using the same math that we'd use to implement a basic spotlight in OpenGL. We
+    just need to get the direction from the source to the listener and then do a dot product against that and the
+    direction of the spotlight. Then we just compare that dot product against the cosine of the inner and outer
+    angles. If the dot product is greater than the the outer angle, we just use coneOuterGain. If it's less than
+    the inner angle, we just use a gain of 1. Otherwise we linearly interpolate between 1 and coneOuterGain.
+    */
+    if (coneInnerAngleInRadians < 6.283185f) {
+        float angularGain = 1;
+        float cutoffInner = (float)ma_cos(coneInnerAngleInRadians*0.5f);
+        float cutoffOuter = (float)ma_cos(coneOuterAngleInRadians*0.5f);
+        float d;
+
+        d = ma_vec3f_dot(dirA, dirB);
+
+        if (d > cutoffInner) {
+            /* It's inside the inner angle. */
+            angularGain = 1;
+        } else {
+            /* It's outside the inner angle. */
+            if (d > cutoffOuter) {
+                /* It's between the inner and outer angle. We need to linearly interpolate between 1 and coneOuterGain. */
+                angularGain = ma_mix_f32(coneOuterGain, 1, (d - cutoffOuter) / (cutoffInner - cutoffOuter));
+            } else {
+                /* It's outside the outer angle. */
+                angularGain = coneOuterGain;
+            }
+        }
+
+        printf("d = %f; cutoffInner = %f; cutoffOuter = %f; angularGain = %f\n", d, cutoffInner, cutoffOuter, angularGain);
+        return angularGain;
+    } else {
+        /* Inner angle is 360 degrees so no need to do any attenuation. */
+        return 1;
+    }
+}
+
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
     ma_channel defaultChannelMap[MA_MAX_CHANNELS];
@@ -9232,6 +9276,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         might not have a world or any listeners, in which case we just spatializer based on the
         listener being positioned at the origin (0, 0, 0).
         */
+        ma_vec3f relativePosNormalized;
         ma_vec3f relativePos;   /* The position relative to the listener. */
         ma_vec3f relativeDir;   /* The direction of the sound, relative to the listener. */
         ma_vec3f listenerVel;   /* The volocity of the listener. For doppler pitch calculation. */
@@ -9359,7 +9404,60 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             } break;
         }
 
-        /* TODO: Angular attenuation. */
+        /* Normalize the position. */
+        if (distance > 0.001f) {
+            float distanceInv = 1/distance;
+            relativePosNormalized    = relativePos;
+            relativePosNormalized.x *= distanceInv;
+            relativePosNormalized.y *= distanceInv;
+            relativePosNormalized.z *= distanceInv;
+        } else {
+            distance = 0;
+            relativePosNormalized = ma_vec3f_init_3f(0, 0, 0);
+        }
+
+        /*
+        Angular attenuation.
+
+        Unlike distance gain, the math for this is not specified by the OpenAL spec so we'll just go ahead and figure
+        this out for ourselves at the expense of possibly being inconsistent with other implementations.
+
+        To do cone attenuation, I'm just using the same math that we'd use to implement a basic spotlight in OpenGL. We
+        just need to get the direction from the source to the listener and then do a dot product against that and the
+        direction of the spotlight. Then we just compare that dot product against the cosine of the inner and outer
+        angles. If the dot product is greater than the the outer angle, we just use coneOuterGain. If it's less than
+        the inner angle, we just use a gain of 1. Otherwise we linearly interpolate between 1 and coneOuterGain.
+        */
+        if (distance > 0) {
+            /* Source anglular gain. */
+            gain *= ma_calculate_angular_gain(relativeDir, ma_vec3f_neg(relativePosNormalized), pSpatializer->config.coneInnerAngleInRadians, pSpatializer->config.coneOuterAngleInRadians, pSpatializer->config.coneOuterGain);
+
+            /*
+            We're supporting angular gain on the listener as well for those who want to reduce the volume of sounds that
+            are positioned behind the listener. On default settings, this will have no effect.
+            */
+            if (pListener != NULL && pListener->config.coneInnerAngleInRadians < 6.283185f) {
+                ma_vec3f listenerDirection;
+                float listenerInnerAngle;
+                float listenerOuterAngle;
+                float listenerOuterGain;
+
+                if (pListener->config.handedness == ma_handedness_right) {
+                    listenerDirection = ma_vec3f_init_3f(0, 0, -1);
+                } else {
+                    listenerDirection = ma_vec3f_init_3f(0, 0, +1);
+                }
+
+                listenerInnerAngle = pListener->config.coneInnerAngleInRadians;
+                listenerOuterAngle = pListener->config.coneOuterAngleInRadians;
+                listenerOuterGain  = pListener->config.coneOuterGain;
+
+                gain *= ma_calculate_angular_gain(listenerDirection, relativePosNormalized, listenerInnerAngle, listenerOuterAngle, listenerOuterGain);
+            }
+        } else {
+            /* The sound is right on top of the listener. Don't do any angular attenuation. */
+        }
+
 
         /* Clamp the gain. */
         gain = ma_clamp(gain, pSpatializer->config.minGain, pSpatializer->config.maxGain);
@@ -9399,7 +9497,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
         relation to the direction of the channel.
         */
-        if (distance > 0.001f) {
+        if (distance > 0) {
             ma_vec3f unitPos = relativePos;
             float distanceInv = 1/distance;
             unitPos.x *= distanceInv;
