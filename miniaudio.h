@@ -13564,23 +13564,32 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMM
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, LPCWSTR pDefaultDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
-    /*printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");*/
+    printf("IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");
 #endif
 
     /* We only ever use the eConsole role in miniaudio. */
     if (role != ma_eConsole) {
-        return S_OK;
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[WASAPI] Stream rerouting: role != eConsole\n");
+    #endif
+        /*return S_OK;*/
     }
 
     /* We only care about devices with the same data flow and role as the current device. */
     if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender) ||
         (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture)) {
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[WASAPI] Stream rerouting abandoned because dataFlow does match device type.\n");
+    #endif
         return S_OK;
     }
 
     /* Don't do automatic stream routing if we're not allowed. */
     if ((dataFlow == ma_eRender  && pThis->pDevice->wasapi.allowPlaybackAutoStreamRouting == MA_FALSE) ||
         (dataFlow == ma_eCapture && pThis->pDevice->wasapi.allowCaptureAutoStreamRouting  == MA_FALSE)) {
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[WASAPI] Stream rerouting abandoned because automatic stream routing has been disabled by the device config.\n");
+    #endif
         return S_OK;
     }
 
@@ -13591,6 +13600,9 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     */
     if ((dataFlow == ma_eRender  && pThis->pDevice->playback.shareMode == ma_share_mode_exclusive) ||
         (dataFlow == ma_eCapture && pThis->pDevice->capture.shareMode  == ma_share_mode_exclusive)) {
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[WASAPI] Stream rerouting abandoned because the device shared mode is exclusive.\n");
+    #endif
         return S_OK;
     }
 
@@ -15113,12 +15125,15 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     }
 
 
-    #ifdef MA_DEBUG_OUTPUT
-        printf("=== CHANGING DEVICE ===\n");
-    #endif
+#ifdef MA_DEBUG_OUTPUT
+    printf("=== CHANGING DEVICE ===\n");
+#endif
 
     result = ma_device_reinit__wasapi(pDevice, deviceType);
     if (result != MA_SUCCESS) {
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[WASAPI] Reinitializing device after route change failed.\n");
+    #endif
         return result;
     }
 
