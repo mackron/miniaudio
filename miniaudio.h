@@ -15074,20 +15074,40 @@ static ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_
         return MA_INVALID_OPERATION;
     }
 
-    hr = ma_IAudioClient_GetCurrentPadding(pAudioClient, &paddingFramesCount);
-    if (FAILED(hr)) {
-        return ma_result_from_HRESULT(hr);
-    }
+    /*
+    I've had a report that GetCurrentPadding() is returning a frame count of 0 which is preventing
+    higher level function calls from doing anything because it thinks nothing is available. I have
+    taken a look at the documentation and it looks like this is unnecessary in exclusive mode.
 
-    /* Slightly different rules for exclusive and shared modes. */
+    From Microsoft's documentation:
+
+        For an exclusive-mode rendering or capture stream that was initialized with the
+        AUDCLNT_STREAMFLAGS_EVENTCALLBACK flag, the client typically has no use for the padding
+        value reported by GetCurrentPadding. Instead, the client accesses an entire buffer during
+        each processing pass.
+
+    Considering this, I'm going to skip GetCurrentPadding() for exclusive mode and just report the
+    entire buffer. This depends on the caller making sure they wait on the event handler.
+    */
     shareMode = ((ma_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) ? pDevice->playback.shareMode : pDevice->capture.shareMode;
-    if (shareMode == ma_share_mode_exclusive) {
-        *pFrameCount = paddingFramesCount;
-    } else {
+    if (shareMode == ma_share_mode_shared) {
+        /* Shared mode. */
+        hr = ma_IAudioClient_GetCurrentPadding(pAudioClient, &paddingFramesCount);
+        if (FAILED(hr)) {
+            return ma_result_from_HRESULT(hr);
+        }
+
         if ((ma_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
             *pFrameCount = pDevice->wasapi.actualPeriodSizeInFramesPlayback - paddingFramesCount;
         } else {
             *pFrameCount = paddingFramesCount;
+        }
+    } else {
+        /* Exclusive mode. */
+        if ((ma_ptr)pAudioClient == pDevice->wasapi.pAudioClientPlayback) {
+            *pFrameCount = pDevice->wasapi.actualPeriodSizeInFramesPlayback;
+        } else {
+            *pFrameCount = pDevice->wasapi.actualPeriodSizeInFramesCapture;
         }
     }
 
@@ -25637,7 +25657,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
                 while (framesRemaining > 0) {
                     void* ppDeinterleavedBuffers[MA_MAX_CHANNELS];
                     ma_uint32 iChannel;
-                    ma_uint32 framesToSend = sizeof(tempBuffer) / ma_get_bytes_per_sample(pDevice->capture.internalFormat);
+                    ma_uint32 framesToSend = sizeof(tempBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
                     if (framesToSend > framesRemaining) {
                         framesToSend = framesRemaining;
                     }
