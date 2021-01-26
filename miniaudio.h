@@ -15254,13 +15254,6 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
 
                 /* The process is to map the playback buffer and fill it as quickly as possible from input data. */
                 if (pMappedDeviceBufferPlayback == NULL) {
-                    /* WASAPI is weird with exclusive mode. You need to wait on the event _before_ querying the available frames. */
-                    if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                        if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                            return MA_ERROR;   /* Wait failed. */
-                        }
-                    }
-
                     result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
                     if (result != MA_SUCCESS) {
                         return result;
@@ -15276,18 +15269,6 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                         }
                     }
 
-                    /* If there's no frames available in the playback device we need to wait for more. */
-                    if (framesAvailablePlayback == 0) {
-                        /* In exclusive mode we waited at the top. */
-                        if (pDevice->playback.shareMode != ma_share_mode_exclusive) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                                return MA_ERROR;   /* Wait failed. */
-                            }
-                        }
-
-                        continue;
-                    }
-
                     /* We're ready to map the playback device's buffer. We don't release this until it's been entirely filled. */
                     hr = ma_IAudioRenderClient_GetBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, framesAvailablePlayback, &pMappedDeviceBufferPlayback);
                     if (FAILED(hr)) {
@@ -15300,221 +15281,223 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                     mappedDeviceBufferFramesRemainingPlayback = framesAvailablePlayback;
                 }
 
-                /* At this point we should have a buffer available for output. We need to keep writing input samples to it. */
-                for (;;) {
-                    /* Try grabbing some captured data if we haven't already got a mapped buffer. */
-                    if (pMappedDeviceBufferCapture == NULL) {
-                        if (pDevice->capture.shareMode == ma_share_mode_shared) {
-                            if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                                return MA_ERROR;   /* Wait failed. */
-                            }
-                        }
-
-                        result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailableCapture);
-                        if (result != MA_SUCCESS) {
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
-
-                        /*printf("TRACE 2: framesAvailableCapture=%d\n", framesAvailableCapture);*/
-
-                        /* Wait for more if nothing is available. */
-                        if (framesAvailableCapture == 0) {
-                            /* In exclusive mode we waited at the top. */
-                            if (pDevice->capture.shareMode != ma_share_mode_shared) {
+                if (mappedDeviceBufferFramesRemainingPlayback > 0) {
+                    /* At this point we should have a buffer available for output. We need to keep writing input samples to it. */
+                    for (;;) {
+                        /* Try grabbing some captured data if we haven't already got a mapped buffer. */
+                        if (pMappedDeviceBufferCapture == NULL) {
+                            if (pDevice->capture.shareMode == ma_share_mode_shared) {
                                 if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                                     return MA_ERROR;   /* Wait failed. */
                                 }
                             }
 
-                            continue;
-                        }
+                            result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &framesAvailableCapture);
+                            if (result != MA_SUCCESS) {
+                                exitLoop = MA_TRUE;
+                                break;
+                            }
 
-                        /* Getting here means there's data available for writing to the output device. */
-                        mappedDeviceBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
-                        hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedDeviceBufferCapture, &mappedDeviceBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
-                        if (FAILED(hr)) {
-                            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
+                            /*printf("TRACE 2: framesAvailableCapture=%d\n", framesAvailableCapture);*/
 
-
-                        /* Overrun detection. */
-                        if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
-                            /* Glitched. Probably due to an overrun. */
-                        #ifdef MA_DEBUG_OUTPUT
-                            printf("[WASAPI] Data discontinuity (possible overrun). framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedDeviceBufferSizeInFramesCapture);
-                        #endif
-
-                            /*
-                            Exeriment: If we get an overrun it probably means we're straddling the end of the buffer. In order to prevent a never-ending sequence of glitches let's experiment
-                            by dropping every frame until we're left with only a single period. To do this we just keep retrieving and immediately releasing buffers until we're down to the
-                            last period.
-                            */
-                            if (framesAvailableCapture >= pDevice->wasapi.actualPeriodSizeInFramesCapture) {
-                            #ifdef MA_DEBUG_OUTPUT
-                                printf("[WASAPI] Synchronizing capture stream. ");
-                            #endif
-                                do
-                                {
-                                    hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedDeviceBufferSizeInFramesCapture);
-                                    if (FAILED(hr)) {
-                                        break;
+                            /* Wait for more if nothing is available. */
+                            if (framesAvailableCapture == 0) {
+                                /* In exclusive mode we waited at the top. */
+                                if (pDevice->capture.shareMode != ma_share_mode_shared) {
+                                    if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                                        return MA_ERROR;   /* Wait failed. */
                                     }
+                                }
 
-                                    framesAvailableCapture -= mappedDeviceBufferSizeInFramesCapture;
+                                continue;
+                            }
 
-                                    if (framesAvailableCapture > 0) {
-                                        mappedDeviceBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
-                                        hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedDeviceBufferCapture, &mappedDeviceBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
+                            /* Getting here means there's data available for writing to the output device. */
+                            mappedDeviceBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
+                            hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedDeviceBufferCapture, &mappedDeviceBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
+                            if (FAILED(hr)) {
+                                ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
+                                exitLoop = MA_TRUE;
+                                break;
+                            }
+
+
+                            /* Overrun detection. */
+                            if ((flagsCapture & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                                /* Glitched. Probably due to an overrun. */
+                            #ifdef MA_DEBUG_OUTPUT
+                                printf("[WASAPI] Data discontinuity (possible overrun). framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedDeviceBufferSizeInFramesCapture);
+                            #endif
+
+                                /*
+                                Exeriment: If we get an overrun it probably means we're straddling the end of the buffer. In order to prevent a never-ending sequence of glitches let's experiment
+                                by dropping every frame until we're left with only a single period. To do this we just keep retrieving and immediately releasing buffers until we're down to the
+                                last period.
+                                */
+                                if (framesAvailableCapture >= pDevice->wasapi.actualPeriodSizeInFramesCapture) {
+                                #ifdef MA_DEBUG_OUTPUT
+                                    printf("[WASAPI] Synchronizing capture stream. ");
+                                #endif
+                                    do
+                                    {
+                                        hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedDeviceBufferSizeInFramesCapture);
                                         if (FAILED(hr)) {
-                                            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
-                                            exitLoop = MA_TRUE;
                                             break;
                                         }
-                                    } else {
-                                        pMappedDeviceBufferCapture = NULL;
-                                        mappedDeviceBufferSizeInFramesCapture = 0;
-                                    }
-                                } while (framesAvailableCapture > periodSizeInFramesCapture);
+
+                                        framesAvailableCapture -= mappedDeviceBufferSizeInFramesCapture;
+
+                                        if (framesAvailableCapture > 0) {
+                                            mappedDeviceBufferSizeInFramesCapture = ma_min(framesAvailableCapture, periodSizeInFramesCapture);
+                                            hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pMappedDeviceBufferCapture, &mappedDeviceBufferSizeInFramesCapture, &flagsCapture, NULL, NULL);
+                                            if (FAILED(hr)) {
+                                                ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for writing to the device.", ma_result_from_HRESULT(hr));
+                                                exitLoop = MA_TRUE;
+                                                break;
+                                            }
+                                        } else {
+                                            pMappedDeviceBufferCapture = NULL;
+                                            mappedDeviceBufferSizeInFramesCapture = 0;
+                                        }
+                                    } while (framesAvailableCapture > periodSizeInFramesCapture);
+                                #ifdef MA_DEBUG_OUTPUT
+                                    printf("framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedDeviceBufferSizeInFramesCapture);
+                                #endif
+                                }
+                            } else {
                             #ifdef MA_DEBUG_OUTPUT
-                                printf("framesAvailableCapture=%d, mappedBufferSizeInFramesCapture=%d\n", framesAvailableCapture, mappedDeviceBufferSizeInFramesCapture);
+                                if (flagsCapture != 0) {
+                                    printf("[WASAPI] Capture Flags: %ld\n", flagsCapture);
+                                }
                             #endif
                             }
-                        } else {
-                        #ifdef MA_DEBUG_OUTPUT
-                            if (flagsCapture != 0) {
-                                printf("[WASAPI] Capture Flags: %ld\n", flagsCapture);
-                            }
-                        #endif
+
+                            mappedDeviceBufferFramesRemainingCapture = mappedDeviceBufferSizeInFramesCapture;
                         }
 
-                        mappedDeviceBufferFramesRemainingCapture = mappedDeviceBufferSizeInFramesCapture;
-                    }
 
+                        /* At this point we should have both input and output data available. We now need to convert the data and post it to the client. */
+                        for (;;) {
+                            BYTE* pRunningDeviceBufferCapture;
+                            BYTE* pRunningDeviceBufferPlayback;
+                            ma_uint32 framesToProcess;
+                            ma_uint32 framesProcessed;
 
-                    /* At this point we should have both input and output data available. We now need to convert the data and post it to the client. */
-                    for (;;) {
-                        BYTE* pRunningDeviceBufferCapture;
-                        BYTE* pRunningDeviceBufferPlayback;
-                        ma_uint32 framesToProcess;
-                        ma_uint32 framesProcessed;
+                            pRunningDeviceBufferCapture  = pMappedDeviceBufferCapture  + ((mappedDeviceBufferSizeInFramesCapture  - mappedDeviceBufferFramesRemainingCapture ) * bpfCaptureDevice);
+                            pRunningDeviceBufferPlayback = pMappedDeviceBufferPlayback + ((mappedDeviceBufferSizeInFramesPlayback - mappedDeviceBufferFramesRemainingPlayback) * bpfPlaybackDevice);
 
-                        pRunningDeviceBufferCapture  = pMappedDeviceBufferCapture  + ((mappedDeviceBufferSizeInFramesCapture  - mappedDeviceBufferFramesRemainingCapture ) * bpfCaptureDevice);
-                        pRunningDeviceBufferPlayback = pMappedDeviceBufferPlayback + ((mappedDeviceBufferSizeInFramesPlayback - mappedDeviceBufferFramesRemainingPlayback) * bpfPlaybackDevice);
+                            /* There may be some data sitting in the converter that needs to be processed first. Once this is exhaused, run the data callback again. */
+                            if (!pDevice->playback.converter.isPassthrough && outputDataInClientFormatConsumed < outputDataInClientFormatCount) {
+                                ma_uint64 convertedFrameCountClient = (outputDataInClientFormatCount - outputDataInClientFormatConsumed);
+                                ma_uint64 convertedFrameCountDevice = mappedDeviceBufferFramesRemainingPlayback;
+                                void* pConvertedFramesClient = outputDataInClientFormat + (outputDataInClientFormatConsumed * bpfPlaybackClient);
+                                void* pConvertedFramesDevice = pRunningDeviceBufferPlayback;
+                                result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, pConvertedFramesClient, &convertedFrameCountClient, pConvertedFramesDevice, &convertedFrameCountDevice);
+                                if (result != MA_SUCCESS) {
+                                    break;
+                                }
 
-                        /* There may be some data sitting in the converter that needs to be processed first. Once this is exhaused, run the data callback again. */
-                        if (!pDevice->playback.converter.isPassthrough && outputDataInClientFormatConsumed < outputDataInClientFormatCount) {
-                            ma_uint64 convertedFrameCountClient = (outputDataInClientFormatCount - outputDataInClientFormatConsumed);
-                            ma_uint64 convertedFrameCountDevice = mappedDeviceBufferFramesRemainingPlayback;
-                            void* pConvertedFramesClient = outputDataInClientFormat + (outputDataInClientFormatConsumed * bpfPlaybackClient);
-                            void* pConvertedFramesDevice = pRunningDeviceBufferPlayback;
-                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, pConvertedFramesClient, &convertedFrameCountClient, pConvertedFramesDevice, &convertedFrameCountDevice);
-                            if (result != MA_SUCCESS) {
-                                break;
+                                outputDataInClientFormatConsumed          += (ma_uint32)convertedFrameCountClient;  /* Safe cast. */
+                                mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)convertedFrameCountDevice;  /* Safe cast. */
+
+                                if (mappedDeviceBufferFramesRemainingPlayback == 0) {
+                                    break;
+                                }
                             }
 
-                            outputDataInClientFormatConsumed          += (ma_uint32)convertedFrameCountClient;  /* Safe cast. */
-                            mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)convertedFrameCountDevice;  /* Safe cast. */
+                            /*
+                            Getting here means we need to fire the callback. If format conversion is unnecessary, we can optimize this by passing the pointers to the internal
+                            buffers directly to the callback.
+                            */
+                            if (pDevice->capture.converter.isPassthrough && pDevice->playback.converter.isPassthrough) {
+                                /* Optimal path. We can pass mapped pointers directly to the callback. */
+                                framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, mappedDeviceBufferFramesRemainingPlayback);
+                                framesProcessed = framesToProcess;
 
-                            if (mappedDeviceBufferFramesRemainingPlayback == 0) {
-                                break;
+                                ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, pRunningDeviceBufferCapture, framesToProcess);
+
+                                mappedDeviceBufferFramesRemainingCapture  -= framesProcessed;
+                                mappedDeviceBufferFramesRemainingPlayback -= framesProcessed;
+
+                                if (mappedDeviceBufferFramesRemainingCapture == 0) {
+                                    break;  /* Exhausted input data. */
+                                }
+                                if (mappedDeviceBufferFramesRemainingPlayback == 0) {
+                                    break;  /* Exhausted output data. */
+                                }
+                            } else if (pDevice->capture.converter.isPassthrough) {
+                                /* The input buffer is a passthrough, but the playback buffer requires a conversion. */
+                                framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, outputDataInClientFormatCap);
+                                framesProcessed = framesToProcess;
+
+                                ma_device__on_data(pDevice, outputDataInClientFormat, pRunningDeviceBufferCapture, framesToProcess);
+                                outputDataInClientFormatCount    = framesProcessed;
+                                outputDataInClientFormatConsumed = 0;
+
+                                mappedDeviceBufferFramesRemainingCapture -= framesProcessed;
+                                if (mappedDeviceBufferFramesRemainingCapture == 0) {
+                                    break;  /* Exhausted input data. */
+                                }
+                            } else if (pDevice->playback.converter.isPassthrough) {
+                                /* The input buffer requires conversion, the playback buffer is passthrough. */
+                                ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
+                                ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, mappedDeviceBufferFramesRemainingPlayback);
+
+                                result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
+                                if (result != MA_SUCCESS) {
+                                    break;
+                                }
+
+                                if (capturedClientFramesToProcess == 0) {
+                                    break;
+                                }
+
+                                ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);   /* Safe cast. */
+
+                                mappedDeviceBufferFramesRemainingCapture  -= (ma_uint32)capturedDeviceFramesToProcess;
+                                mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)capturedClientFramesToProcess;
+                            } else {
+                                ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
+                                ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, outputDataInClientFormatCap);
+
+                                result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
+                                if (result != MA_SUCCESS) {
+                                    break;
+                                }
+
+                                if (capturedClientFramesToProcess == 0) {
+                                    break;
+                                }
+
+                                ma_device__on_data(pDevice, outputDataInClientFormat, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);
+
+                                mappedDeviceBufferFramesRemainingCapture -= (ma_uint32)capturedDeviceFramesToProcess;
+                                outputDataInClientFormatCount             = (ma_uint32)capturedClientFramesToProcess;
+                                outputDataInClientFormatConsumed          = 0;
                             }
                         }
 
-                        /*
-                        Getting here means we need to fire the callback. If format conversion is unnecessary, we can optimize this by passing the pointers to the internal
-                        buffers directly to the callback.
-                        */
-                        if (pDevice->capture.converter.isPassthrough && pDevice->playback.converter.isPassthrough) {
-                            /* Optimal path. We can pass mapped pointers directly to the callback. */
-                            framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, mappedDeviceBufferFramesRemainingPlayback);
-                            framesProcessed = framesToProcess;
 
-                            ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, pRunningDeviceBufferCapture, framesToProcess);
-
-                            mappedDeviceBufferFramesRemainingCapture  -= framesProcessed;
-                            mappedDeviceBufferFramesRemainingPlayback -= framesProcessed;
-
-                            if (mappedDeviceBufferFramesRemainingCapture == 0) {
-                                break;  /* Exhausted input data. */
-                            }
-                            if (mappedDeviceBufferFramesRemainingPlayback == 0) {
-                                break;  /* Exhausted output data. */
-                            }
-                        } else if (pDevice->capture.converter.isPassthrough) {
-                            /* The input buffer is a passthrough, but the playback buffer requires a conversion. */
-                            framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, outputDataInClientFormatCap);
-                            framesProcessed = framesToProcess;
-
-                            ma_device__on_data(pDevice, outputDataInClientFormat, pRunningDeviceBufferCapture, framesToProcess);
-                            outputDataInClientFormatCount    = framesProcessed;
-                            outputDataInClientFormatConsumed = 0;
-
-                            mappedDeviceBufferFramesRemainingCapture -= framesProcessed;
-                            if (mappedDeviceBufferFramesRemainingCapture == 0) {
-                                break;  /* Exhausted input data. */
-                            }
-                        } else if (pDevice->playback.converter.isPassthrough) {
-                            /* The input buffer requires conversion, the playback buffer is passthrough. */
-                            ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
-                            ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, mappedDeviceBufferFramesRemainingPlayback);
-
-                            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
-                            if (result != MA_SUCCESS) {
+                        /* If at this point we've run out of capture data we need to release the buffer. */
+                        if (mappedDeviceBufferFramesRemainingCapture == 0 && pMappedDeviceBufferCapture != NULL) {
+                            hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedDeviceBufferSizeInFramesCapture);
+                            if (FAILED(hr)) {
+                                ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.", ma_result_from_HRESULT(hr));
+                                exitLoop = MA_TRUE;
                                 break;
                             }
 
-                            if (capturedClientFramesToProcess == 0) {
-                                break;
-                            }
+                            /*printf("TRACE: Released capture buffer\n");*/
 
-                            ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);   /* Safe cast. */
-
-                            mappedDeviceBufferFramesRemainingCapture  -= (ma_uint32)capturedDeviceFramesToProcess;
-                            mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)capturedClientFramesToProcess;
-                        } else {
-                            ma_uint64 capturedDeviceFramesToProcess = mappedDeviceBufferFramesRemainingCapture;
-                            ma_uint64 capturedClientFramesToProcess = ma_min(inputDataInClientFormatCap, outputDataInClientFormatCap);
-
-                            result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningDeviceBufferCapture, &capturedDeviceFramesToProcess, inputDataInClientFormat, &capturedClientFramesToProcess);
-                            if (result != MA_SUCCESS) {
-                                break;
-                            }
-
-                            if (capturedClientFramesToProcess == 0) {
-                                break;
-                            }
-
-                            ma_device__on_data(pDevice, outputDataInClientFormat, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);
-
-                            mappedDeviceBufferFramesRemainingCapture -= (ma_uint32)capturedDeviceFramesToProcess;
-                            outputDataInClientFormatCount             = (ma_uint32)capturedClientFramesToProcess;
-                            outputDataInClientFormatConsumed          = 0;
+                            pMappedDeviceBufferCapture = NULL;
+                            mappedDeviceBufferFramesRemainingCapture = 0;
+                            mappedDeviceBufferSizeInFramesCapture    = 0;
                         }
-                    }
 
-
-                    /* If at this point we've run out of capture data we need to release the buffer. */
-                    if (mappedDeviceBufferFramesRemainingCapture == 0 && pMappedDeviceBufferCapture != NULL) {
-                        hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedDeviceBufferSizeInFramesCapture);
-                        if (FAILED(hr)) {
-                            ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.", ma_result_from_HRESULT(hr));
-                            exitLoop = MA_TRUE;
+                        /* Get out of this loop if we're run out of room in the playback buffer. */
+                        if (mappedDeviceBufferFramesRemainingPlayback == 0) {
                             break;
                         }
-
-                        /*printf("TRACE: Released capture buffer\n");*/
-
-                        pMappedDeviceBufferCapture = NULL;
-                        mappedDeviceBufferFramesRemainingCapture = 0;
-                        mappedDeviceBufferSizeInFramesCapture    = 0;
-                    }
-
-                    /* Get out of this loop if we're run out of room in the playback buffer. */
-                    if (mappedDeviceBufferFramesRemainingPlayback == 0) {
-                        break;
                     }
                 }
 
@@ -15553,6 +15536,11 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
                         }
                         c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                     }
+                }
+
+                /* Make sure the device has started before waiting. */
+                if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                    return MA_ERROR;   /* Wait failed. */
                 }
             } break;
 
