@@ -11224,7 +11224,7 @@ MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positionin
         return;
     }
 
-    ma_spatializer_set_attenuation_model(&pSound->engineNode.spatializer, positioning);
+    ma_spatializer_set_positioning(&pSound->engineNode.spatializer, positioning);
 }
 
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
@@ -11745,7 +11745,7 @@ MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positionin
         return;
     }
 
-    ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, positioning);
+    ma_spatializer_set_positioning(&pGroup->engineNode.spatializer, positioning);
 }
 
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup)
