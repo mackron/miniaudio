@@ -1322,7 +1322,7 @@ typedef struct
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
 } ma_resource_manager_config;
 
-MA_API ma_resource_manager_config ma_resource_manager_config_init();
+MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
 
 struct ma_resource_manager
 {
@@ -5650,7 +5650,7 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUser
 }
 
 
-MA_API ma_resource_manager_config ma_resource_manager_config_init()
+MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
 {
     ma_resource_manager_config config;
 
