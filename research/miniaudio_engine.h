@@ -10782,7 +10782,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
     */
     ma_mutex_lock(&pEngine->inlinedSoundLock);
     {
-        ma_uint32 dataSourceFlags = 0;
+        ma_uint32 soundFlags = 0;
 
         for (pNextSound = pEngine->pInlinedSoundHead; pNextSound != NULL; pNextSound = pNextSound->pNext) {
             if (c89atomic_load_8(&pNextSound->sound.atEnd)) {
@@ -10820,10 +10820,12 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
             At this point we should have memory allocated for the inlined sound. We just need
             to initialize it like a normal sound now.
             */
-            dataSourceFlags |= MA_SOUND_FLAG_ASYNC;                 /* For inlined sounds we don't want to be sitting around waiting for stuff to load so force an async load. */
-            dataSourceFlags |= MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT; /* We want specific control over where the sound is attached in the graph. We'll attach it manually just before playing the sound. */
+            soundFlags |= MA_SOUND_FLAG_ASYNC;                 /* For inlined sounds we don't want to be sitting around waiting for stuff to load so force an async load. */
+            soundFlags |= MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT; /* We want specific control over where the sound is attached in the graph. We'll attach it manually just before playing the sound. */
+            soundFlags |= MA_SOUND_FLAG_NO_PITCH;              /* Pitching isn't usable with inlined sounds, so disable it to save on speed. */
+            soundFlags |= MA_SOUND_FLAG_NO_SPATIALIZATION;     /* Not currently doing spatialization with inlined sounds, but this might actually change later. For now disable spatialization. Will be removed if we ever add support for spatialization here. */
 
-            result = ma_sound_init_from_file(pEngine, pFilePath, dataSourceFlags, NULL, &pSound->sound);
+            result = ma_sound_init_from_file(pEngine, pFilePath, soundFlags, NULL, &pSound->sound);
             if (result == MA_SUCCESS) {
                 /* Now attach the sound to the graph. */
                 result = ma_node_attach_output_bus(pSound, 0, pNode, nodeInputBusIndex);
