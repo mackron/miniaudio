@@ -1754,8 +1754,8 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound);
-MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
@@ -10823,7 +10823,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
             dataSourceFlags |= MA_SOUND_FLAG_ASYNC;                 /* For inlined sounds we don't want to be sitting around waiting for stuff to load so force an async load. */
             dataSourceFlags |= MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT; /* We want specific control over where the sound is attached in the graph. We'll attach it manually just before playing the sound. */
 
-            result = ma_sound_init_from_file(pEngine, pFilePath, dataSourceFlags, NULL, NULL, &pSound->sound);
+            result = ma_sound_init_from_file(pEngine, pFilePath, dataSourceFlags, NULL, &pSound->sound);
             if (result == MA_SUCCESS) {
                 /* Now attach the sound to the graph. */
                 result = ma_node_attach_output_bus(pSound, 0, pNode, nodeInputBusIndex);
@@ -10938,7 +10938,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
 }
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
     ma_result result;
 
@@ -10960,9 +10960,9 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
     flags |= MA_DATA_SOURCE_FLAG_WAIT_INIT;
 
     if (pFilePath != NULL) {
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, pNotification, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
     } else {
-        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pFilePathW, flags, pNotification, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pFilePathW, flags, NULL, &pSound->resourceManagerDataSource);
     }
     
     if (result != MA_SUCCESS) {
@@ -10981,14 +10981,14 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, pFilePath, NULL, flags, pNotification, pGroup, pSound);
+    return ma_sound_init_from_file_internal(pEngine, pFilePath, NULL, flags, pGroup, pSound);
 }
 
-MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, NULL, pFilePath, flags, pNotification, pGroup, pSound);
+    return ma_sound_init_from_file_internal(pEngine, NULL, pFilePath, flags, pGroup, pSound);
 }
 #endif
 
