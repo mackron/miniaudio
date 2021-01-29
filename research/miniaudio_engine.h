@@ -10324,7 +10324,6 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
     /* Now that the node has been uninitialized we can safely uninitialize the rest. */
     ma_resampler_uninit(&pEngineNode->resampler);
-    ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 }
 
 
