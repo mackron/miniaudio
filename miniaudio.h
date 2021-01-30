@@ -4227,7 +4227,6 @@ struct ma_device
             ma_uint32 currentBufferIndexCapture;
             ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
             ma_uint8* pBufferCapture;
-            ma_pcm_rb duplexRB;
         } opensl;
 #endif
 #ifdef MA_SUPPORT_WEBAUDIO
@@ -30422,18 +30421,51 @@ return_default_device:;
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static void ma_context_add_data_format_ex__opensl(ma_context* pContext, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_device_info* pDeviceInfo)
+{
+    MA_ASSERT(pContext    != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = channels;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = 0;
+    pDeviceInfo->nativeDataFormatCount += 1;
+}
+
+static void ma_context_add_data_format__opensl(ma_context* pContext, ma_format format, ma_device_info* pDeviceInfo)
+{
+    ma_uint32 minChannels   = 1;
+    ma_uint32 maxChannels   = 2;
+    ma_uint32 minSampleRate = (ma_uint32)ma_standard_sample_rate_8000;
+    ma_uint32 maxSampleRate = (ma_uint32)ma_standard_sample_rate_48000;
+    ma_uint32 iChannel;
+    ma_uint32 iSampleRate;
+
+    MA_ASSERT(pContext    != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    /*
+    Each sample format can support mono and stereo, and we'll support a small subset of standard
+    rates (up to 48000). A better solution would be to somehow find a native sample rate.
+    */
+    for (iChannel = minChannels; iChannel < maxChannels; iChannel += 1) {
+        for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); iSampleRate += 1) {
+            ma_uint32 standardSampleRate = g_maStandardSampleRatePriorities[iSampleRate];
+            if (standardSampleRate >= minSampleRate && standardSampleRate <= maxSampleRate) {
+                ma_context_add_data_format_ex__opensl(pContext, format, iChannel, standardSampleRate, pDeviceInfo);
+            }
+        }
+    }
+}
+
+static ma_result ma_context_get_device_info__opensl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     MA_ASSERT(pContext != NULL);
 
     MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to get device info. */
     if (g_maOpenSLInitCounter == 0) {
         return MA_INVALID_OPERATION;
-    }
-
-    /* No exclusive mode with OpenSL|ES. */
-    if (shareMode == ma_share_mode_exclusive) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
     /*
@@ -30487,6 +30519,8 @@ return_default_device:
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
+    pDeviceInfo->isDefault = MA_TRUE;
+
     goto return_detailed_info;
 
 
@@ -30497,17 +30531,12 @@ return_detailed_info:
     by the device natively. Later on we should work on this so that it more closely reflects the device's
     actual native format.
     */
-    pDeviceInfo->minChannels = 1;
-    pDeviceInfo->maxChannels = 2;
-    pDeviceInfo->minSampleRate = 8000;
-    pDeviceInfo->maxSampleRate = 48000;
-    pDeviceInfo->formatCount = 2;
-    pDeviceInfo->formats[0] = ma_format_u8;
-    pDeviceInfo->formats[1] = ma_format_s16;
+    pDeviceInfo->nativeDataFormatCount = 0;
 #if defined(MA_ANDROID) && __ANDROID_API__ >= 21
-    pDeviceInfo->formats[pDeviceInfo->formatCount] = ma_format_f32;
-    pDeviceInfo->formatCount += 1;
+    ma_context_add_data_format__opensl(pContext, ma_format_f32, pDeviceInfo);
 #endif
+    ma_context_add_data_format__opensl(pContext, ma_format_s16, pDeviceInfo);
+    ma_context_add_data_format__opensl(pContext, ma_format_u8,  pDeviceInfo);
 
     return MA_SUCCESS;
 }
@@ -30545,11 +30574,7 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
     periodSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     pBuffer = pDevice->opensl.pBufferCapture + (pDevice->opensl.currentBufferIndexCapture * periodSizeInBytes);
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_capture(pDevice, pDevice->capture.internalPeriodSizeInFrames, pBuffer, &pDevice->opensl.duplexRB);
-    } else {
-        ma_device__send_frames_to_client(pDevice, pDevice->capture.internalPeriodSizeInFrames, pBuffer);
-    }
+    ma_device_handle_backend_data_callback(pDevice, NULL, pBuffer, pDevice->capture.internalPeriodSizeInFrames);
 
     resultSL = MA_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueueCapture)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueueCapture, pBuffer, periodSizeInBytes);
     if (resultSL != SL_RESULT_SUCCESS) {
@@ -30583,11 +30608,7 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
     periodSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     pBuffer = pDevice->opensl.pBufferPlayback + (pDevice->opensl.currentBufferIndexPlayback * periodSizeInBytes);
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_playback(pDevice, pDevice->playback.internalPeriodSizeInFrames, pBuffer, &pDevice->opensl.duplexRB);
-    } else {
-        ma_device__read_frames_from_client(pDevice, pDevice->playback.internalPeriodSizeInFrames, pBuffer);
-    }
+    ma_device_handle_backend_data_callback(pDevice, pBuffer, NULL, pDevice->playback.internalPeriodSizeInFrames);
 
     resultSL = MA_OPENSL_BUFFERQUEUE(pDevice->opensl.pBufferQueuePlayback)->Enqueue((SLAndroidSimpleBufferQueueItf)pDevice->opensl.pBufferQueuePlayback, pBuffer, periodSizeInBytes);
     if (resultSL != SL_RESULT_SUCCESS) {
@@ -30598,13 +30619,13 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
 }
 #endif
 
-static void ma_device_uninit__opensl(ma_device* pDevice)
+static ma_result ma_device_uninit__opensl(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
     MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it before uninitializing the device. */
     if (g_maOpenSLInitCounter == 0) {
-        return;
+        return MA_INVALID_OPERATION;
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -30626,9 +30647,7 @@ static void ma_device_uninit__opensl(ma_device* pDevice)
         ma__free_from_callbacks(pDevice->opensl.pBufferPlayback, &pDevice->pContext->allocationCallbacks);
     }
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_pcm_rb_uninit(&pDevice->opensl.duplexRB);
-    }
+    return MA_SUCCESS;
 }
 
 #if defined(MA_ANDROID) && __ANDROID_API__ >= 21
@@ -30639,6 +30658,17 @@ typedef SLDataFormat_PCM            ma_SLDataFormat_PCM;
 
 static ma_result ma_SLDataFormat_PCM_init__opensl(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const ma_channel* channelMap, ma_SLDataFormat_PCM* pDataFormat)
 {
+    /* We need to convert our format/channels/rate so that they aren't set to default. */
+    if (format == ma_format_unknown) {
+        format = MA_DEFAULT_FORMAT;
+    }
+    if (channels == 0) {
+        channels = MA_DEFAULT_CHANNELS;
+    }
+    if (sampleRate == 0) {
+        sampleRate = MA_DEFAULT_SAMPLE_RATE;
+    }
+
 #if defined(MA_ANDROID) && __ANDROID_API__ >= 21
     if (format == ma_format_f32) {
         pDataFormat->formatType     = SL_ANDROID_DATAFORMAT_PCM_EX;
@@ -30651,7 +30681,7 @@ static ma_result ma_SLDataFormat_PCM_init__opensl(ma_format format, ma_uint32 ch
 #endif
 
     pDataFormat->numChannels   = channels;
-    ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = ma_round_to_standard_sample_rate__opensl(sampleRate * 1000);  /* In millihertz. Annoyingly, the sample rate variable is named differently between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM */
+    ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = ma_round_to_standard_sample_rate__opensl(sampleRate) * 1000;  /* In millihertz. Annoyingly, the sample rate variable is named differently between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM */
     pDataFormat->bitsPerSample = ma_get_bytes_per_sample(format)*8;
     pDataFormat->channelMask   = ma_channel_map_to_channel_mask__opensl(channelMap, channels);
     pDataFormat->endianness    = (ma_is_little_endian()) ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
@@ -30725,7 +30755,7 @@ static ma_result ma_deconstruct_SLDataFormat_PCM__opensl(ma_SLDataFormat_PCM* pD
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
 #ifdef MA_ANDROID
     SLDataLocator_AndroidSimpleBufferQueue queue;
@@ -30735,8 +30765,6 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     SLInterfaceID itfIDs1[1];
     const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
 #endif
-
-    (void)pContext;
 
     MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
     if (g_maOpenSLInitCounter == 0) {
@@ -30753,11 +30781,11 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     queues).
     */
 #ifdef MA_ANDROID
-    itfIDs1[0] = (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+    itfIDs1[0] = (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
 
     /* No exclusive mode with OpenSL|ES. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
+    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
@@ -30766,8 +30794,6 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
     MA_ZERO_OBJECT(&pDevice->opensl);
 
     queue.locatorType = SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE;
-    queue.numBuffers = pConfig->periods;
-
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_SLDataFormat_PCM pcm;
@@ -30776,15 +30802,17 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         SLDataSink sink;
         SLAndroidConfigurationItf pRecorderConfig;
 
-        ma_SLDataFormat_PCM_init__opensl(pConfig->capture.format, pConfig->capture.channels, pConfig->sampleRate, pConfig->capture.channelMap, &pcm);
+        ma_SLDataFormat_PCM_init__opensl(pDescriptorCapture->format, pDescriptorCapture->channels, pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, &pcm);
 
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
         locatorDevice.deviceType  = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID    = (pConfig->capture.pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pConfig->capture.pDeviceID->opensl;
+        locatorDevice.deviceID    = (pDescriptorCapture->pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDescriptorCapture->pDeviceID->opensl;
         locatorDevice.device      = NULL;
 
         source.pLocator = &locatorDevice;
         source.pFormat  = NULL;
+
+        queue.numBuffers = pDescriptorCapture->periodCount;
 
         sink.pLocator = &queue;
         sink.pFormat  = (SLDataFormat_PCM*)&pcm;
@@ -30809,7 +30837,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
 
         /* Set the recording preset before realizing the player. */
         if (pConfig->opensl.recordingPreset != ma_opensl_recording_preset_default) {
-            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pRecorderConfig);
+            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pRecorderConfig);
             if (resultSL == SL_RESULT_SUCCESS) {
                 SLint32 recordingPreset = ma_to_recording_preset__opensl(pConfig->opensl.recordingPreset);
                 resultSL = (*pRecorderConfig)->SetConfiguration(pRecorderConfig, SL_ANDROID_KEY_RECORDING_PRESET, &recordingPreset, sizeof(SLint32));
@@ -30825,13 +30853,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio recorder.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_RECORD, &pDevice->opensl.pAudioRecorder);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_RECORD interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueueCapture);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -30844,19 +30872,28 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         }
 
         /* The internal format is determined by the "pcm" object. */
-        ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDevice->capture.internalFormat, &pDevice->capture.internalChannels, &pDevice->capture.internalSampleRate, pDevice->capture.internalChannelMap, ma_countof(pDevice->capture.internalChannelMap));
+        ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorCapture->format, &pDescriptorCapture->channels, &pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap));
 
         /* Buffer. */
-        periodSizeInFrames = pConfig->periodSizeInFrames;
-        if (periodSizeInFrames == 0) {
-            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, pDevice->capture.internalSampleRate);
+        if (pDescriptorCapture->periodSizeInFrames == 0) {
+            if (pDescriptorCapture->periodSizeInMilliseconds == 0) {
+                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
+                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptorCapture->sampleRate);
+                } else {
+                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptorCapture->sampleRate);
+                }
+            } else {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate);
+            }
+        } else {
+            periodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
         }
-        pDevice->capture.internalPeriods            = pConfig->periods;
-        pDevice->capture.internalPeriodSizeInFrames = periodSizeInFrames;
+
+        pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
         pDevice->opensl.currentBufferIndexCapture   = 0;
 
-        bufferSizeInBytes = pDevice->capture.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels) * pDevice->capture.internalPeriods;
-        pDevice->opensl.pBufferCapture = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pContext->allocationCallbacks);
+        bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
+        pDevice->opensl.pBufferCapture = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
         if (pDevice->opensl.pBufferCapture == NULL) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MA_OUT_OF_MEMORY);
@@ -30871,7 +30908,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         SLDataSink sink;
         SLAndroidConfigurationItf pPlayerConfig;
 
-        ma_SLDataFormat_PCM_init__opensl(pConfig->playback.format, pConfig->playback.channels, pConfig->sampleRate, pConfig->playback.channelMap, &pcm);
+        ma_SLDataFormat_PCM_init__opensl(pDescriptorPlayback->format, pDescriptorPlayback->channels, pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, &pcm);
 
         resultSL = (*g_maEngineSL)->CreateOutputMix(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pOutputMixObj, 0, NULL, NULL);
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -30885,17 +30922,19 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize output mix object.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, (SLInterfaceID)pContext->opensl.SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->GetInterface((SLObjectItf)pDevice->opensl.pOutputMixObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_OUTPUTMIX, &pDevice->opensl.pOutputMix);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_OUTPUTMIX interface.", ma_result_from_OpenSL(resultSL));
         }
 
         /* Set the output device. */
-        if (pConfig->playback.pDeviceID != NULL) {
-            SLuint32 deviceID_OpenSL = pConfig->playback.pDeviceID->opensl;
+        if (pDescriptorPlayback->pDeviceID != NULL) {
+            SLuint32 deviceID_OpenSL = pDescriptorPlayback->pDeviceID->opensl;
             MA_OPENSL_OUTPUTMIX(pDevice->opensl.pOutputMix)->ReRoute((SLOutputMixItf)pDevice->opensl.pOutputMix, 1, &deviceID_OpenSL);
         }
+
+        queue.numBuffers = pDescriptorPlayback->periodCount;
 
         source.pLocator = &queue;
         source.pFormat  = (SLDataFormat_PCM*)&pcm;
@@ -30926,7 +30965,7 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
 
         /* Set the stream type before realizing the player. */
         if (pConfig->opensl.streamType != ma_opensl_stream_type_default) {
-            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pPlayerConfig);
+            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pPlayerConfig);
             if (resultSL == SL_RESULT_SUCCESS) {
                 SLint32 streamType = ma_to_stream_type__opensl(pConfig->opensl.streamType);
                 resultSL = (*pPlayerConfig)->SetConfiguration(pPlayerConfig, SL_ANDROID_KEY_STREAM_TYPE, &streamType, sizeof(SLint32));
@@ -30942,13 +30981,13 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to realize audio player.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_PLAY, &pDevice->opensl.pAudioPlayer);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_PLAY interface.", ma_result_from_OpenSL(resultSL));
         }
 
-        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
+        resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &pDevice->opensl.pBufferQueuePlayback);
         if (resultSL != SL_RESULT_SUCCESS) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to retrieve SL_IID_ANDROIDSIMPLEBUFFERQUEUE interface.", ma_result_from_OpenSL(resultSL));
@@ -30961,44 +31000,33 @@ static ma_result ma_device_init__opensl(ma_context* pContext, const ma_device_co
         }
 
         /* The internal format is determined by the "pcm" object. */
-        ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDevice->playback.internalFormat, &pDevice->playback.internalChannels, &pDevice->playback.internalSampleRate, pDevice->playback.internalChannelMap, ma_countof(pDevice->playback.internalChannelMap));
+        ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorPlayback->format, &pDescriptorPlayback->channels, &pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap));
 
         /* Buffer. */
-        periodSizeInFrames = pConfig->periodSizeInFrames;
-        if (periodSizeInFrames == 0) {
-            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, pDevice->playback.internalSampleRate);
+        if (pDescriptorPlayback->periodSizeInFrames == 0) {
+            if (pDescriptorPlayback->periodSizeInMilliseconds == 0) {
+                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
+                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptorPlayback->sampleRate);
+                } else {
+                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptorPlayback->sampleRate);
+                }
+            } else {
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
+            }
+        } else {
+            periodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
         }
-        pDevice->playback.internalPeriods            = pConfig->periods;
-        pDevice->playback.internalPeriodSizeInFrames = periodSizeInFrames;
+
+        pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
         pDevice->opensl.currentBufferIndexPlayback   = 0;
 
-        bufferSizeInBytes = pDevice->playback.internalPeriodSizeInFrames * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels) * pDevice->playback.internalPeriods;
-        pDevice->opensl.pBufferPlayback = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pContext->allocationCallbacks);
+        bufferSizeInBytes = pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount;
+        pDevice->opensl.pBufferPlayback = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
         if (pDevice->opensl.pBufferPlayback == NULL) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MA_OUT_OF_MEMORY);
         }
         MA_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, bufferSizeInBytes);
-    }
-
-    if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
-        ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->opensl.duplexRB);
-        if (result != MA_SUCCESS) {
-            ma_device_uninit__opensl(pDevice);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to initialize ring buffer.", result);
-        }
-
-        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
-        {
-            ma_uint32 marginSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
-            void* pMarginData;
-            ma_pcm_rb_acquire_write(&pDevice->opensl.duplexRB, &marginSizeInFrames, &pMarginData);
-            {
-                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-            }
-            ma_pcm_rb_commit_write(&pDevice->opensl.duplexRB, marginSizeInFrames, pMarginData);
-        }
     }
 
     return MA_SUCCESS;
@@ -31199,7 +31227,7 @@ static ma_result ma_context_init_engine_nolock__opensl(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     ma_result result;
 
@@ -31306,16 +31334,17 @@ static ma_result ma_context_init__opensl(const ma_context_config* pConfig, ma_co
         return result;
     }
 
-
-    pContext->isBackendAsynchronous = MA_TRUE;
-
-    pContext->onUninit        = ma_context_uninit__opensl;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__opensl;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__opensl;
-    pContext->onDeviceInit    = ma_device_init__opensl;
-    pContext->onDeviceUninit  = ma_device_uninit__opensl;
-    pContext->onDeviceStart   = ma_device_start__opensl;
-    pContext->onDeviceStop    = ma_device_stop__opensl;
+    pCallbacks->onContextInit             = ma_context_init__opensl;
+    pCallbacks->onContextUninit           = ma_context_uninit__opensl;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__opensl;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__opensl;
+    pCallbacks->onDeviceInit              = ma_device_init__opensl;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__opensl;
+    pCallbacks->onDeviceStart             = ma_device_start__opensl;
+    pCallbacks->onDeviceStop              = ma_device_stop__opensl;
+    pCallbacks->onDeviceRead              = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
+    pCallbacks->onDeviceAudioThread       = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
 
     return MA_SUCCESS;
 }
@@ -32452,6 +32481,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 pContext->callbacks.onContextInit = ma_context_init__jack;
             } break;
         #endif
+        #ifdef MA_HAS_OPENSL
+            case ma_backend_opensl:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__opensl;
+            } break;
+        #endif
         #ifdef MA_HAS_WEBAUDIO
             case ma_backend_webaudio:
             {
@@ -32556,8 +32591,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_OPENSL
                 case ma_backend_opensl:
                 {
-                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize OpenSL backend...");
-                    result = ma_context_init__opensl(pConfig, pContext);
+                    /*result = ma_context_init__opensl(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_WEBAUDIO
@@ -64633,8 +64667,11 @@ REVISION HISTORY
 v0.10.32 - TBD
   - WASAPI: Fix a deadlock in exclusive mode.
   - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
-  - ALSA: Internal refactoring to migrate to the new backend callback system.
-  - Core Audio: Internal refactoring to migrate to the new backend callback system.
+  - Internal refactoring to migrate to the new backend callback system for the following backends:
+    - PulseAudio
+    - ALSA
+    - Core Audio
+    - OpenSL|ES
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
 
