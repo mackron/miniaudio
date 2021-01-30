@@ -65009,6 +65009,7 @@ REVISION HISTORY
 ================
 v0.10.32 - TBD
   - WASAPI: Fix a deadlock in exclusive mode.
+  - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
 
