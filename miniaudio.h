@@ -5556,6 +5556,58 @@ callback.
 MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
 
+/*
+Calculates an appropriate buffer size from a descriptor, native sample rate and performance profile.
+
+This function is used by backends for helping determine an appropriately sized buffer to use with
+the device depending on the values of `periodSizeInFrames` and `periodSizeInMilliseconds` in the
+`pDescriptor` object. Since buffer size calculations based on time depends on the sample rate, a
+best guess at the device's native sample rate is also required which is where `nativeSampleRate`
+comes in. In addition, the performance profile is also needed for cases where both the period size
+in frames and milliseconds are both zero.
+
+
+Parameters
+----------
+pDescriptor (in)
+    A pointer to device descriptor whose `periodSizeInFrames` and `periodSizeInMilliseconds` members
+    will be used for the calculation of the buffer size.
+
+nativeSampleRate (in)
+    The device's native sample rate. This is only ever used when the `periodSizeInFrames` member of
+    `pDescriptor` is zero. In this case, `periodSizeInMilliseconds` will be used instead, in which
+    case a sample rate is required to convert to a size in frames.
+
+performanceProfile (in)
+    When both the `periodSizeInFrames` and `periodSizeInMilliseconds` members of `pDescriptor` are
+    zero, miniaudio will fall back to a buffer size based on the performance profile. The profile
+    to use for this calculation is determine by this parameter.
+
+
+Return Value
+------------
+The calculated buffer size in frames.
+
+
+Thread Safety
+-------------
+This is safe so long as nothing modifies `pDescriptor` at the same time. However, this function
+should only ever be called from within the backend's device initialization routine and therefore
+shouldn't have any multithreading concerns.
+
+
+Callback Safety
+---------------
+This is safe to call within the data callback, but there is no reason to ever do this.
+
+
+Remarks
+-------
+If `nativeSampleRate` is zero, this function will fall back to `pDescriptor->sampleRate`. If that
+is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
+*/
+MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile);
+
 
 
 /*
@@ -29537,11 +29589,7 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_capture(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
-    } else {
-        ma_device__send_frames_to_client(pDevice, frameCount, pAudioData);     /* Send directly to the client. */
-    }
+    ma_device_handle_backend_data_callback(pDevice, NULL, pAudioData, frameCount);
 
     (void)pStream;
     return MA_AAUDIO_CALLBACK_RESULT_CONTINUE;
@@ -29552,24 +29600,20 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_device__handle_duplex_callback_playback(pDevice, frameCount, pAudioData, &pDevice->aaudio.duplexRB);
-    } else {
-        ma_device__read_frames_from_client(pDevice, frameCount, pAudioData);   /* Read directly from the client. */
-    }
+    ma_device_handle_backend_data_callback(pDevice, pAudioData, NULL, frameCount);
 
     (void)pStream;
     return MA_AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
-static ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, const ma_device_config* pConfig, const ma_device* pDevice, ma_AAudioStream** ppStream)
+static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context* pContext, const ma_device_id* pDeviceID, ma_device_type deviceType, ma_share_mode shareMode, const ma_device_descriptor* pDescriptor, const ma_device_config* pConfig, ma_device* pDevice, ma_AAudioStreamBuilder** ppBuilder)
 {
     ma_AAudioStreamBuilder* pBuilder;
     ma_aaudio_result_t resultAA;
+    ma_uint32 bufferCapacityInFrames;
 
-    MA_ASSERT(deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
-
-    *ppStream = NULL;
+    /* Safety. */
+    *ppBuilder = NULL;
 
     resultAA = ((MA_PFN_AAudio_createStreamBuilder)pContext->aaudio.AAudio_createStreamBuilder)(&pBuilder);
     if (resultAA != MA_AAUDIO_OK) {
@@ -29583,36 +29627,42 @@ static ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type dev
     ((MA_PFN_AAudioStreamBuilder_setDirection)pContext->aaudio.AAudioStreamBuilder_setDirection)(pBuilder, (deviceType == ma_device_type_playback) ? MA_AAUDIO_DIRECTION_OUTPUT : MA_AAUDIO_DIRECTION_INPUT);
     ((MA_PFN_AAudioStreamBuilder_setSharingMode)pContext->aaudio.AAudioStreamBuilder_setSharingMode)(pBuilder, (shareMode == ma_share_mode_shared) ? MA_AAUDIO_SHARING_MODE_SHARED : MA_AAUDIO_SHARING_MODE_EXCLUSIVE);
 
-    if (pConfig != NULL) {
-        ma_uint32 bufferCapacityInFrames;
 
-        if (pDevice == NULL || !pDevice->usingDefaultSampleRate) {
-            ((MA_PFN_AAudioStreamBuilder_setSampleRate)pContext->aaudio.AAudioStreamBuilder_setSampleRate)(pBuilder, pConfig->sampleRate);
+    /* If we have a device descriptor make sure we configure the stream builder to take our requested parameters. */
+    if (pDescriptor != NULL) {
+        MA_ASSERT(pConfig != NULL); /* We must have a device config if we also have a descriptor. The config is required for AAudio specific configuration options. */
+
+        if (pDescriptor->sampleRate != 0) {
+            ((MA_PFN_AAudioStreamBuilder_setSampleRate)pContext->aaudio.AAudioStreamBuilder_setSampleRate)(pBuilder, pDescriptor->sampleRate);
         }
 
         if (deviceType == ma_device_type_capture) {
-            if (pDevice == NULL || !pDevice->capture.usingDefaultChannels) {
-                ((MA_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->capture.channels);
+            if (pDescriptor->channels != 0) {
+                ((MA_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pDescriptor->channels);
             }
-            if (pDevice == NULL || !pDevice->capture.usingDefaultFormat) {
-                ((MA_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->capture.format == ma_format_s16) ? MA_AAUDIO_FORMAT_PCM_I16 : MA_AAUDIO_FORMAT_PCM_FLOAT);
+            if (pDescriptor->format != ma_format_unknown) {
+                ((MA_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pDescriptor->format == ma_format_s16) ? MA_AAUDIO_FORMAT_PCM_I16 : MA_AAUDIO_FORMAT_PCM_FLOAT);
             }
         } else {
-            if (pDevice == NULL || !pDevice->playback.usingDefaultChannels) {
-                ((MA_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pConfig->playback.channels);
+            if (pDescriptor->channels != 0) {
+                ((MA_PFN_AAudioStreamBuilder_setChannelCount)pContext->aaudio.AAudioStreamBuilder_setChannelCount)(pBuilder, pDescriptor->channels);
             }
-            if (pDevice == NULL || !pDevice->playback.usingDefaultFormat) {
-                ((MA_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pConfig->playback.format == ma_format_s16) ? MA_AAUDIO_FORMAT_PCM_I16 : MA_AAUDIO_FORMAT_PCM_FLOAT);
+            if (pDescriptor->format != ma_format_unknown) {
+                ((MA_PFN_AAudioStreamBuilder_setFormat)pContext->aaudio.AAudioStreamBuilder_setFormat)(pBuilder, (pDescriptor->format == ma_format_s16) ? MA_AAUDIO_FORMAT_PCM_I16 : MA_AAUDIO_FORMAT_PCM_FLOAT);
             }
         }
 
-        bufferCapacityInFrames = pConfig->periodSizeInFrames * pConfig->periods;
-        if (bufferCapacityInFrames == 0) {
-            bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, pConfig->sampleRate) * pConfig->periods;
-        }
+        /*
+        AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
+        retrieve the actual sample rate until after you've opened the stream. But you need to configure
+        the buffer capacity before you open the stream... :/
+
+        To solve, we're just going to assume MA_DEFAULT_SAMPLE_RATE (48000) and move on.
+        */
+        bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile) * pDescriptor->periodCount;
 
         ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
-        ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pConfig->periods);
+        ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
 
         if (deviceType == ma_device_type_capture) {
             if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default && pContext->aaudio.AAudioStreamBuilder_setInputPreset != NULL) {
@@ -29634,19 +29684,59 @@ static ma_result ma_open_stream__aaudio(ma_context* pContext, ma_device_type dev
 
         /* Not sure how this affects things, but since there's a mapping between miniaudio's performance profiles and AAudio's performance modes, let go ahead and set it. */
         ((MA_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MA_AAUDIO_PERFORMANCE_MODE_NONE);
+    
+        /* We need to set an error callback to detect device changes. */
+        if (pDevice != NULL) {  /* <-- pDevice should never be null if pDescriptor is not null, which is always the case if we hit this branch. Check anyway for safety. */
+            ((MA_PFN_AAudioStreamBuilder_setErrorCallback)pContext->aaudio.AAudioStreamBuilder_setErrorCallback)(pBuilder, ma_stream_error_callback__aaudio, (void*)pDevice);
+        }
     }
 
-    ((MA_PFN_AAudioStreamBuilder_setErrorCallback)pContext->aaudio.AAudioStreamBuilder_setErrorCallback)(pBuilder, ma_stream_error_callback__aaudio, (void*)pDevice);
+    *ppBuilder = pBuilder;
 
-    resultAA = ((MA_PFN_AAudioStreamBuilder_openStream)pContext->aaudio.AAudioStreamBuilder_openStream)(pBuilder, ppStream);
-    if (resultAA != MA_AAUDIO_OK) {
-        *ppStream = NULL;
-        ((MA_PFN_AAudioStreamBuilder_delete)pContext->aaudio.AAudioStreamBuilder_delete)(pBuilder);
-        return ma_result_from_aaudio(resultAA);
-    }
-
-    ((MA_PFN_AAudioStreamBuilder_delete)pContext->aaudio.AAudioStreamBuilder_delete)(pBuilder);
     return MA_SUCCESS;
+}
+
+static ma_result ma_open_stream_and_close_builder__aaudio(ma_context* pContext, ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream** ppStream)
+{
+    ma_result result;
+
+    result = ma_result_from_aaudio(((MA_PFN_AAudioStreamBuilder_openStream)pContext->aaudio.AAudioStreamBuilder_openStream)(pBuilder, ppStream));
+    ((MA_PFN_AAudioStreamBuilder_delete)pContext->aaudio.AAudioStreamBuilder_delete)(pBuilder);
+
+    return result;
+}
+
+static ma_result ma_open_stream_basic__aaudio(ma_context* pContext, const ma_device_id* pDeviceID, ma_device_type deviceType, ma_share_mode shareMode, ma_AAudioStream** ppStream)
+{
+    ma_result result;
+    ma_AAudioStreamBuilder* pBuilder;
+
+    *ppStream = NULL;
+
+    result = ma_create_and_configure_AAudioStreamBuilder__aaudio(pContext, pDeviceID, deviceType, shareMode, NULL, NULL, NULL, &pBuilder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_open_stream_and_close_builder__aaudio(pContext, pBuilder, ppStream);
+}
+
+static ma_result ma_open_stream__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_type deviceType, const ma_device_descriptor* pDescriptor, ma_AAudioStream** ppStream)
+{
+    ma_result result;
+    ma_AAudioStreamBuilder* pBuilder;
+
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pConfig->deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
+
+    *ppStream = NULL;
+
+    result = ma_create_and_configure_AAudioStreamBuilder__aaudio(pDevice->pContext, pDescriptor->pDeviceID, deviceType, pDescriptor->shareMode, pDescriptor, pConfig, pDevice, &pBuilder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_open_stream_and_close_builder__aaudio(pDevice->pContext, pBuilder, ppStream);
 }
 
 static ma_result ma_close_stream__aaudio(ma_context* pContext, ma_AAudioStream* pStream)
@@ -29658,7 +29748,7 @@ static ma_bool32 ma_has_default_device__aaudio(ma_context* pContext, ma_device_t
 {
     /* The only way to know this is to try creating a stream. */
     ma_AAudioStream* pStream;
-    ma_result result = ma_open_stream__aaudio(pContext, deviceType, NULL, ma_share_mode_shared, NULL, NULL, &pStream);
+    ma_result result = ma_open_stream_basic__aaudio(pContext, NULL, deviceType, ma_share_mode_shared, &pStream);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
@@ -29719,17 +29809,32 @@ static ma_result ma_context_enumerate_devices__aaudio(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static void ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_format format, ma_uint32 flags, ma_device_info* pDeviceInfo)
+{
+    MA_ASSERT(pContext    != NULL);
+    MA_ASSERT(pStream     != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].format     = format;
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].channels   = ((MA_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)(pStream);
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = ((MA_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)(pStream);
+    pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
+    pDeviceInfo->nativeDataFormatCount += 1;
+}
+
+static void ma_context_add_native_data_format_from_AAudioStream__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_uint32 flags, ma_device_info* pDeviceInfo)
+{
+    /* AAudio supports s16 and f32. */
+    ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_f32, flags, pDeviceInfo);
+    ma_context_add_native_data_format_from_AAudioStream_ex__aaudio(pContext, pStream, ma_format_s16, flags, pDeviceInfo);
+}
+
+static ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_AAudioStream* pStream;
     ma_result result;
 
     MA_ASSERT(pContext != NULL);
-
-    /* No exclusive mode with AAudio. */
-    if (shareMode == ma_share_mode_exclusive) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
 
     /* ID */
     if (pDeviceID != NULL) {
@@ -29746,31 +29851,24 @@ static ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_dev
     }
 
 
+    pDeviceInfo->nativeDataFormatCount = 0;
+
     /* We'll need to open the device to get accurate sample rate and channel count information. */
-    result = ma_open_stream__aaudio(pContext, deviceType, pDeviceID, shareMode, NULL, NULL, &pStream);
+    result = ma_open_stream_basic__aaudio(pContext, pDeviceID, deviceType, ma_share_mode_shared, &pStream);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pDeviceInfo->minChannels   = ((MA_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)(pStream);
-    pDeviceInfo->maxChannels   = pDeviceInfo->minChannels;
-    pDeviceInfo->minSampleRate = ((MA_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)(pStream);
-    pDeviceInfo->maxSampleRate = pDeviceInfo->minSampleRate;
+    ma_context_add_native_data_format_from_AAudioStream__aaudio(pContext, pStream, 0, pDeviceInfo);
 
     ma_close_stream__aaudio(pContext, pStream);
     pStream = NULL;
-
-
-    /* AAudio supports s16 and f32. */
-    pDeviceInfo->formatCount = 2;
-    pDeviceInfo->formats[0] = ma_format_s16;
-    pDeviceInfo->formats[1] = ma_format_f32;
 
     return MA_SUCCESS;
 }
 
 
-static void ma_device_uninit__aaudio(ma_device* pDevice)
+static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -29784,12 +29882,57 @@ static void ma_device_uninit__aaudio(ma_device* pDevice)
         pDevice->aaudio.pStreamPlayback = NULL;
     }
 
-    if (pDevice->type == ma_device_type_duplex) {
-        ma_pcm_rb_uninit(&pDevice->aaudio.duplexRB);
-    }
+    return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_result ma_device_init_by_type__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_type deviceType, ma_device_descriptor* pDescriptor, ma_AAudioStream** ppStream)
+{
+    ma_result result;
+    int32_t bufferCapacityInFrames;
+    int32_t framesPerDataCallback;
+    ma_AAudioStream* pStream;
+
+    MA_ASSERT(pDevice     != NULL);
+    MA_ASSERT(pConfig     != NULL);
+    MA_ASSERT(pDescriptor != NULL);
+
+    *ppStream = NULL;   /* Safety. */
+
+    /* First step is to open the stream. From there we'll be able to extract the internal configuration. */
+    result = ma_open_stream__aaudio(pDevice, pConfig, deviceType, pDescriptor, &pStream);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to open the AAudio stream. */
+    }
+
+    /* Now extract the internal configuration. */
+    pDescriptor->format     = (((MA_PFN_AAudioStream_getFormat)pDevice->pContext->aaudio.AAudioStream_getFormat)(pStream) == MA_AAUDIO_FORMAT_PCM_I16) ? ma_format_s16 : ma_format_f32;
+    pDescriptor->channels   = ((MA_PFN_AAudioStream_getChannelCount)pDevice->pContext->aaudio.AAudioStream_getChannelCount)(pStream);
+    pDescriptor->sampleRate = ((MA_PFN_AAudioStream_getSampleRate)pDevice->pContext->aaudio.AAudioStream_getSampleRate)(pStream);
+
+    /* For the channel map we need to be sure we don't overflow any buffers. */
+    if (pDescriptor->channels <= MA_MAX_CHANNELS) {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptor->channels, pDescriptor->channelMap); /* <-- Cannot find info on channel order, so assuming a default. */
+    } else {
+        ma_channel_map_init_blank(MA_MAX_CHANNELS, pDescriptor->channelMap); /* Too many channels. Use a blank channel map. */
+    }
+
+    bufferCapacityInFrames = ((MA_PFN_AAudioStream_getBufferCapacityInFrames)pDevice->pContext->aaudio.AAudioStream_getBufferCapacityInFrames)(pStream);
+    framesPerDataCallback = ((MA_PFN_AAudioStream_getFramesPerDataCallback)pDevice->pContext->aaudio.AAudioStream_getFramesPerDataCallback)(pStream);
+
+    if (framesPerDataCallback > 0) {
+        pDescriptor->periodSizeInFrames = framesPerDataCallback;
+        pDescriptor->periodCount        = bufferCapacityInFrames / framesPerDataCallback;
+    } else {
+        pDescriptor->periodSizeInFrames = bufferCapacityInFrames;
+        pDescriptor->periodCount        = 1;
+    }
+
+    *ppStream = pStream;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
 
@@ -29800,86 +29943,22 @@ static ma_result ma_device_init__aaudio(ma_context* pContext, const ma_device_co
     }
 
     /* No exclusive mode with AAudio. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
+    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 
-    /* We first need to try opening the stream. */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        int32_t bufferCapacityInFrames;
-        int32_t framesPerDataCallback;
-
-        result = ma_open_stream__aaudio(pContext, ma_device_type_capture, pConfig->capture.pDeviceID, pConfig->capture.shareMode, pConfig, pDevice, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
+        result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
         if (result != MA_SUCCESS) {
-            return result;  /* Failed to open the AAudio stream. */
-        }
-
-        pDevice->capture.internalFormat     = (((MA_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture) == MA_AAUDIO_FORMAT_PCM_I16) ? ma_format_s16 : ma_format_f32;
-        pDevice->capture.internalChannels   = ((MA_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        pDevice->capture.internalSampleRate = ((MA_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.internalChannels, pDevice->capture.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
-
-        bufferCapacityInFrames = ((MA_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        framesPerDataCallback = ((MA_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-
-        if (framesPerDataCallback > 0) {
-            pDevice->capture.internalPeriodSizeInFrames = framesPerDataCallback;
-            pDevice->capture.internalPeriods            = bufferCapacityInFrames / framesPerDataCallback;
-        } else {
-            pDevice->capture.internalPeriodSizeInFrames = bufferCapacityInFrames;
-            pDevice->capture.internalPeriods            = 1;
+            return result;
         }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        int32_t bufferCapacityInFrames;
-        int32_t framesPerDataCallback;
-
-        result = ma_open_stream__aaudio(pContext, ma_device_type_playback, pConfig->playback.pDeviceID, pConfig->playback.shareMode, pConfig, pDevice, (ma_AAudioStream**)&pDevice->aaudio.pStreamPlayback);
+        result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_playback, pDescriptorPlayback, (ma_AAudioStream**)&pDevice->aaudio.pStreamPlayback);
         if (result != MA_SUCCESS) {
-            return result;  /* Failed to open the AAudio stream. */
-        }
-
-        pDevice->playback.internalFormat     = (((MA_PFN_AAudioStream_getFormat)pContext->aaudio.AAudioStream_getFormat)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback) == MA_AAUDIO_FORMAT_PCM_I16) ? ma_format_s16 : ma_format_f32;
-        pDevice->playback.internalChannels   = ((MA_PFN_AAudioStream_getChannelCount)pContext->aaudio.AAudioStream_getChannelCount)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        pDevice->playback.internalSampleRate = ((MA_PFN_AAudioStream_getSampleRate)pContext->aaudio.AAudioStream_getSampleRate)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.internalChannels, pDevice->playback.internalChannelMap); /* <-- Cannot find info on channel order, so assuming a default. */
-
-        bufferCapacityInFrames = ((MA_PFN_AAudioStream_getBufferCapacityInFrames)pContext->aaudio.AAudioStream_getBufferCapacityInFrames)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        framesPerDataCallback = ((MA_PFN_AAudioStream_getFramesPerDataCallback)pContext->aaudio.AAudioStream_getFramesPerDataCallback)((ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-
-        if (framesPerDataCallback > 0) {
-            pDevice->playback.internalPeriodSizeInFrames = framesPerDataCallback;
-            pDevice->playback.internalPeriods            = bufferCapacityInFrames / framesPerDataCallback;
-        } else {
-            pDevice->playback.internalPeriodSizeInFrames = bufferCapacityInFrames;
-            pDevice->playback.internalPeriods            = 1;
-        }
-    }
-
-    if (pConfig->deviceType == ma_device_type_duplex) {
-        ma_uint32 rbSizeInFrames = (ma_uint32)ma_calculate_frame_count_after_resampling(pDevice->sampleRate, pDevice->capture.internalSampleRate, pDevice->capture.internalPeriodSizeInFrames) * pDevice->capture.internalPeriods;
-        ma_result result = ma_pcm_rb_init(pDevice->capture.format, pDevice->capture.channels, rbSizeInFrames, NULL, &pDevice->pContext->allocationCallbacks, &pDevice->aaudio.duplexRB);
-        if (result != MA_SUCCESS) {
-            if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-                ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-            }
-            if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-                ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-            }
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[AAudio] Failed to initialize ring buffer.", result);
-        }
-
-        /* We need a period to act as a buffer for cases where the playback and capture device's end up desyncing. */
-        {
-            ma_uint32 marginSizeInFrames = rbSizeInFrames / pDevice->capture.internalPeriods;
-            void* pMarginData;
-            ma_pcm_rb_acquire_write(&pDevice->aaudio.duplexRB, &marginSizeInFrames, &pMarginData);
-            {
-                MA_ZERO_MEMORY(pMarginData, marginSizeInFrames * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-            }
-            ma_pcm_rb_commit_write(&pDevice->aaudio.duplexRB, marginSizeInFrames, pMarginData);
+            return result;
         }
     }
 
@@ -30020,7 +30099,7 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     size_t i;
     const char* libNames[] = {
@@ -30067,15 +30146,18 @@ static ma_result ma_context_init__aaudio(const ma_context_config* pConfig, ma_co
     pContext->aaudio.AAudioStream_requestStart                     = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStart");
     pContext->aaudio.AAudioStream_requestStop                      = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStop");
 
-    pContext->isBackendAsynchronous = MA_TRUE;
 
-    pContext->onUninit        = ma_context_uninit__aaudio;
-    pContext->onEnumDevices   = ma_context_enumerate_devices__aaudio;
-    pContext->onGetDeviceInfo = ma_context_get_device_info__aaudio;
-    pContext->onDeviceInit    = ma_device_init__aaudio;
-    pContext->onDeviceUninit  = ma_device_uninit__aaudio;
-    pContext->onDeviceStart   = ma_device_start__aaudio;
-    pContext->onDeviceStop    = ma_device_stop__aaudio;
+    pCallbacks->onContextInit             = ma_context_init__aaudio;
+    pCallbacks->onContextUninit           = ma_context_uninit__aaudio;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__aaudio;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__aaudio;
+    pCallbacks->onDeviceInit              = ma_device_init__aaudio;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__aaudio;
+    pCallbacks->onDeviceStart             = ma_device_start__aaudio;
+    pCallbacks->onDeviceStop              = ma_device_stop__aaudio;
+    pCallbacks->onDeviceRead              = NULL;   /* Not used because AAudio is asynchronous. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not used because AAudio is asynchronous. */
+    pCallbacks->onDeviceAudioThread       = NULL;   /* Not used because AAudio is asynchronous. */
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -30760,7 +30842,6 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
 #ifdef MA_ANDROID
     SLDataLocator_AndroidSimpleBufferQueue queue;
     SLresult resultSL;
-    ma_uint32 periodSizeInFrames;
     size_t bufferSizeInBytes;
     SLInterfaceID itfIDs1[1];
     const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
@@ -30875,22 +30956,8 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorCapture->format, &pDescriptorCapture->channels, &pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap));
 
         /* Buffer. */
-        if (pDescriptorCapture->periodSizeInFrames == 0) {
-            if (pDescriptorCapture->periodSizeInMilliseconds == 0) {
-                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptorCapture->sampleRate);
-                } else {
-                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptorCapture->sampleRate);
-                }
-            } else {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate);
-            }
-        } else {
-            periodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
-        }
-
-        pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
-        pDevice->opensl.currentBufferIndexCapture   = 0;
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
+        pDevice->opensl.currentBufferIndexCapture = 0;
 
         bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
         pDevice->opensl.pBufferCapture = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
@@ -32425,6 +32492,9 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
     for (iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
         ma_backend backend = pBackendsToIterate[iBackend];
 
+        /* Make sure all callbacks are reset so we don't accidentally drag in any from previously failed initialization attempts. */
+        MA_ZERO_OBJECT(&pContext->callbacks);
+
         /*
         I've had a subtle bug where some state is set by the backend's ma_context_init__*() function, but then later failed because
         a setting in the context that was set in the prior failed attempt was left unchanged in the next attempt which resulted in
@@ -32479,6 +32549,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             case ma_backend_jack:
             {
                 pContext->callbacks.onContextInit = ma_context_init__jack;
+            } break;
+        #endif
+        #ifdef MA_HAS_AAUDIO
+            case ma_backend_aaudio:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__aaudio;
             } break;
         #endif
         #ifdef MA_HAS_OPENSL
@@ -32584,8 +32660,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_AAUDIO
                 case ma_backend_aaudio:
                 {
-                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize AAudio backend...");
-                    result = ma_context_init__aaudio(pConfig, pContext);
+                    /*result = ma_context_init__aaudio(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_OPENSL
@@ -33728,6 +33803,42 @@ MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void
     }
 
     return MA_SUCCESS;
+}
+
+MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
+{
+    if (pDescriptor == NULL) {
+        return 0;
+    }
+
+    /*
+    We must have a non-0 native sample rate, but some backends don't allow retrieval of this at the
+    time when the size of the buffer needs to be determined. In this case we need to just take a best
+    guess and move on. We'll try using the sample rate in pDescriptor first. If that's not set we'll
+    just fall back to MA_DEFAULT_SAMPLE_RATE.
+    */
+    if (nativeSampleRate == 0) {
+        nativeSampleRate = pDescriptor->sampleRate;
+    }
+    if (nativeSampleRate == 0) {
+        nativeSampleRate = MA_DEFAULT_SAMPLE_RATE;
+    }
+
+    MA_ASSERT(nativeSampleRate != 0);
+
+    if (pDescriptor->periodSizeInFrames == 0) {
+        if (pDescriptor->periodSizeInMilliseconds == 0) {
+            if (performanceProfile == ma_performance_profile_low_latency) {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, nativeSampleRate);
+            } else {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, nativeSampleRate);
+            }
+        } else {
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
+        }
+    } else {
+        return pDescriptor->periodSizeInFrames;
+    }
 }
 #endif  /* MA_NO_DEVICE_IO */
 
@@ -64667,10 +64778,11 @@ REVISION HISTORY
 v0.10.32 - TBD
   - WASAPI: Fix a deadlock in exclusive mode.
   - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
-  - Internal refactoring to migrate to the new backend callback system for the following backends:
+  - Internal refactoring to migrate over to the new backend callback system for the following backends:
     - PulseAudio
     - ALSA
     - Core Audio
+    - AAudio
     - OpenSL|ES
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
