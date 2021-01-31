@@ -30956,7 +30956,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorCapture->format, &pDescriptorCapture->channels, &pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap));
 
         /* Buffer. */
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
         pDevice->opensl.currentBufferIndexCapture = 0;
 
         bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
@@ -31070,21 +31070,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorPlayback->format, &pDescriptorPlayback->channels, &pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap));
 
         /* Buffer. */
-        if (pDescriptorPlayback->periodSizeInFrames == 0) {
-            if (pDescriptorPlayback->periodSizeInMilliseconds == 0) {
-                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptorPlayback->sampleRate);
-                } else {
-                    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptorPlayback->sampleRate);
-                }
-            } else {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
-            }
-        } else {
-            periodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
-        }
-
-        pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
         pDevice->opensl.currentBufferIndexPlayback   = 0;
 
         bufferSizeInBytes = pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount;
