@@ -12024,29 +12024,32 @@ static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDevi
 }
 
 
-/* TODO: Remove the pCallbacks parameter when we move all backends to the new callbacks system, at which time we can just reference the context directly. */
-static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, ma_backend_callbacks* pCallbacks)
+static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
     ma_bool32 exitLoop = MA_FALSE;
     ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
+    ma_uint32 capturedDeviceDataCapInFrames = 0;
+    ma_uint32 playbackDeviceDataCapInFrames = 0;
 
     MA_ASSERT(pDevice != NULL);
 
     /* Just some quick validation on the device type and the available callbacks. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        if (pCallbacks->onDeviceRead == NULL) {
+        if (pDevice->pContext->callbacks.onDeviceRead == NULL) {
             return MA_NOT_IMPLEMENTED;
         }
+
+        capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        if (pCallbacks->onDeviceWrite == NULL) {
+        if (pDevice->pContext->callbacks.onDeviceWrite == NULL) {
             return MA_NOT_IMPLEMENTED;
         }
+
+        playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     }
 
     /* NOTE: The device was started outside of this function, in the worker thread. */
@@ -12068,7 +12071,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
                         capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = pCallbacks->onDeviceRead(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
+                    result = pDevice->pContext->callbacks.onDeviceRead(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -12115,7 +12118,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
                                 break;
                             }
 
-                            result = pCallbacks->onDeviceWrite(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
+                            result = pDevice->pContext->callbacks.onDeviceWrite(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
                             if (result != MA_SUCCESS) {
                                 exitLoop = MA_TRUE;
                                 break;
@@ -12151,7 +12154,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
                         framesToReadThisIteration = capturedDeviceDataCapInFrames;
                     }
 
-                    result = pCallbacks->onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
+                    result = pDevice->pContext->callbacks.onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -12178,7 +12181,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice, 
 
                     ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, playbackDeviceData);
 
-                    result = pCallbacks->onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
+                    result = pDevice->pContext->callbacks.onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -15278,9 +15281,9 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
     ma_uint32 bpfCaptureClient = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
     ma_uint32 bpfPlaybackClient = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
     ma_uint8  inputDataInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 inputDataInClientFormatCap = sizeof(inputDataInClientFormat) / bpfCaptureClient;
+    ma_uint32 inputDataInClientFormatCap = 0;
     ma_uint8  outputDataInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 outputDataInClientFormatCap = sizeof(outputDataInClientFormat) / bpfPlaybackClient;
+    ma_uint32 outputDataInClientFormatCap = 0;
     ma_uint32 outputDataInClientFormatCount = 0;
     ma_uint32 outputDataInClientFormatConsumed = 0;
     ma_uint32 periodSizeInFramesCapture = 0;
@@ -15296,6 +15299,12 @@ static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", ma_result_from_HRESULT(hr));
         }
         c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_TRUE);
+
+        inputDataInClientFormatCap = sizeof(inputDataInClientFormat) / bpfCaptureClient;
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        outputDataInClientFormatCap = sizeof(outputDataInClientFormat) / bpfPlaybackClient;
     }
 
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
@@ -31886,7 +31895,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             pDevice->pContext->callbacks.onDeviceAudioThread(pDevice);
         } else {
             /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
-            ma_device_audio_thread__default_read_write(pDevice, &pDevice->pContext->callbacks);
+            ma_device_audio_thread__default_read_write(pDevice);
         }
 
         /*
@@ -32587,7 +32596,6 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
 MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
     ma_result result;
-    ma_device_config config;
     ma_device_descriptor descriptorPlayback;
     ma_device_descriptor descriptorCapture;
 
@@ -32613,28 +32621,25 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-    /* We need to make a copy of the config so we can set default values if they were left unset in the input config. */
-    config = *pConfig;
-
     /* Basic config validation. */
-    if (config.deviceType != ma_device_type_playback && config.deviceType != ma_device_type_capture && config.deviceType != ma_device_type_duplex && config.deviceType != ma_device_type_loopback) {
+    if (pConfig->deviceType != ma_device_type_playback && pConfig->deviceType != ma_device_type_capture && pConfig->deviceType != ma_device_type_duplex && pConfig->deviceType != ma_device_type_loopback) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Device type is invalid. Make sure the device type has been set in the config.", MA_INVALID_DEVICE_CONFIG);
     }
 
-    if (config.deviceType == ma_device_type_capture || config.deviceType == ma_device_type_duplex) {
-        if (config.capture.channels > MA_MAX_CHANNELS) {
+    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
+        if (pConfig->capture.channels > MA_MAX_CHANNELS) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Capture channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
         }
-        if (!ma__is_channel_map_valid(config.capture.channelMap, config.capture.channels)) {
+        if (!ma__is_channel_map_valid(pConfig->capture.channelMap, pConfig->capture.channels)) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Capture channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
         }
     }
 
-    if (config.deviceType == ma_device_type_playback || config.deviceType == ma_device_type_duplex || config.deviceType == ma_device_type_loopback) {
-        if (config.playback.channels > MA_MAX_CHANNELS) {
+    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+        if (pConfig->playback.channels > MA_MAX_CHANNELS) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with an invalid config. Playback channel count cannot exceed 32.", MA_INVALID_DEVICE_CONFIG);
         }
-        if (!ma__is_channel_map_valid(config.playback.channelMap, config.playback.channels)) {
+        if (!ma__is_channel_map_valid(pConfig->playback.channelMap, pConfig->playback.channels)) {
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "ma_device_init() called with invalid config. Playback channel map is invalid.", MA_INVALID_DEVICE_CONFIG);
         }
     }
@@ -32642,9 +32647,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->pContext = pContext;
 
     /* Set the user data and log callback ASAP to ensure it is available for the entire initialization process. */
-    pDevice->pUserData = config.pUserData;
-    pDevice->onData = config.dataCallback;
-    pDevice->onStop = config.stopCallback;
+    pDevice->pUserData = pConfig->pUserData;
+    pDevice->onData    = pConfig->dataCallback;
+    pDevice->onStop    = pConfig->stopCallback;
 
     if (((ma_uintptr)pDevice % sizeof(pDevice)) != 0) {
         if (pContext->logCallback) {
@@ -32652,105 +32657,75 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
     }
 
-    if (config.playback.pDeviceID != NULL) {
-        MA_COPY_MEMORY(&pDevice->playback.id, config.playback.pDeviceID, sizeof(pDevice->playback.id));
+    if (pConfig->playback.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->playback.id, pConfig->playback.pDeviceID, sizeof(pDevice->playback.id));
     }
 
-    if (config.capture.pDeviceID != NULL) {
-        MA_COPY_MEMORY(&pDevice->capture.id, config.capture.pDeviceID, sizeof(pDevice->capture.id));
+    if (pConfig->capture.pDeviceID != NULL) {
+        MA_COPY_MEMORY(&pDevice->capture.id, pConfig->capture.pDeviceID, sizeof(pDevice->capture.id));
     }
 
-    pDevice->noPreZeroedOutputBuffer = config.noPreZeroedOutputBuffer;
-    pDevice->noClip = config.noClip;
+    pDevice->noPreZeroedOutputBuffer = pConfig->noPreZeroedOutputBuffer;
+    pDevice->noClip = pConfig->noClip;
     pDevice->masterVolumeFactor = 1;
 
     /*
     When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
     to defaults it means the format conversion pipeline will run on a fast path where data transfer is just passed straight through to the backend.
     */
-    if (config.sampleRate == 0) {
-        config.sampleRate = MA_DEFAULT_SAMPLE_RATE;
+    if (pConfig->sampleRate == 0) {
         pDevice->usingDefaultSampleRate = MA_TRUE;
     }
 
-    if (config.capture.format == ma_format_unknown) {
-        config.capture.format = MA_DEFAULT_FORMAT;
+    if (pConfig->capture.format == ma_format_unknown) {
         pDevice->capture.usingDefaultFormat = MA_TRUE;
     }
-    if (config.capture.channels == 0) {
-        config.capture.channels = MA_DEFAULT_CHANNELS;
+    if (pConfig->capture.channels == 0) {
         pDevice->capture.usingDefaultChannels = MA_TRUE;
     }
-    if (config.capture.channelMap[0] == MA_CHANNEL_NONE) {
+    if (pConfig->capture.channelMap[0] == MA_CHANNEL_NONE) {
         pDevice->capture.usingDefaultChannelMap = MA_TRUE;
     }
 
-    if (config.playback.format == ma_format_unknown) {
-        config.playback.format = MA_DEFAULT_FORMAT;
+    if (pConfig->playback.format == ma_format_unknown) {
         pDevice->playback.usingDefaultFormat = MA_TRUE;
     }
-    if (config.playback.channels == 0) {
-        config.playback.channels = MA_DEFAULT_CHANNELS;
+    if (pConfig->playback.channels == 0) {
         pDevice->playback.usingDefaultChannels = MA_TRUE;
     }
-    if (config.playback.channelMap[0] == MA_CHANNEL_NONE) {
+    if (pConfig->playback.channelMap[0] == MA_CHANNEL_NONE) {
         pDevice->playback.usingDefaultChannelMap = MA_TRUE;
     }
 
 
     /* Default periods. */
-    if (config.periods == 0) {
-        config.periods = MA_DEFAULT_PERIODS;
+    if (pConfig->periods == 0) {
         pDevice->usingDefaultPeriods = MA_TRUE;
     }
 
-    /*
-    Must have at least 3 periods for full-duplex mode. The idea is that the playback and capture positions hang out in the middle period, with the surrounding
-    periods acting as a buffer in case the capture and playback devices get's slightly out of sync.
-    */
-    if (config.deviceType == ma_device_type_duplex && config.periods < 3) {
-        config.periods = 3;
-    }
-
     /* Default buffer size. */
-    if (config.periodSizeInMilliseconds == 0 && config.periodSizeInFrames == 0) {
-        config.periodSizeInMilliseconds = (config.performanceProfile == ma_performance_profile_low_latency) ? MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY : MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+    if (pConfig->periodSizeInMilliseconds == 0 && pConfig->periodSizeInFrames == 0) {
         pDevice->usingDefaultBufferSize = MA_TRUE;
     }
 
-    MA_ASSERT(config.capture.channels  <= MA_MAX_CHANNELS);
-    MA_ASSERT(config.playback.channels <= MA_MAX_CHANNELS);
+    pDevice->type                       = pConfig->deviceType;
+    pDevice->sampleRate                 = pConfig->sampleRate;
+    pDevice->resampling.algorithm       = pConfig->resampling.algorithm;
+    pDevice->resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
+    pDevice->resampling.speex.quality   = pConfig->resampling.speex.quality;
 
-    pDevice->type                       = config.deviceType;
-    pDevice->sampleRate                 = config.sampleRate;
-    pDevice->resampling.algorithm       = config.resampling.algorithm;
-    pDevice->resampling.linear.lpfOrder = config.resampling.linear.lpfOrder;
-    pDevice->resampling.speex.quality   = config.resampling.speex.quality;
-
-    pDevice->capture.shareMode          = config.capture.shareMode;
-    pDevice->capture.format             = config.capture.format;
-    pDevice->capture.channels           = config.capture.channels;
-    ma_channel_map_copy(pDevice->capture.channelMap, config.capture.channelMap, config.capture.channels);
-    pDevice->capture.channelMixMode     = config.capture.channelMixMode;
+    pDevice->capture.shareMode          = pConfig->capture.shareMode;
+    pDevice->capture.format             = pConfig->capture.format;
+    pDevice->capture.channels           = pConfig->capture.channels;
+    ma_channel_map_copy(pDevice->capture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+    pDevice->capture.channelMixMode     = pConfig->capture.channelMixMode;
     
-    pDevice->playback.shareMode         = config.playback.shareMode;
-    pDevice->playback.format            = config.playback.format;
-    pDevice->playback.channels          = config.playback.channels;
-    ma_channel_map_copy(pDevice->playback.channelMap, config.playback.channelMap, config.playback.channels);
-    pDevice->playback.channelMixMode    = config.playback.channelMixMode;
+    pDevice->playback.shareMode         = pConfig->playback.shareMode;
+    pDevice->playback.format            = pConfig->playback.format;
+    pDevice->playback.channels          = pConfig->playback.channels;
+    ma_channel_map_copy(pDevice->playback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+    pDevice->playback.channelMixMode    = pConfig->playback.channelMixMode;
     
-
-
-    /* The internal format, channel count and sample rate can be modified by the backend. */
-    pDevice->capture.internalFormat      = pDevice->capture.format;
-    pDevice->capture.internalChannels    = pDevice->capture.channels;
-    pDevice->capture.internalSampleRate  = pDevice->sampleRate;
-    ma_channel_map_copy(pDevice->capture.internalChannelMap, pDevice->capture.channelMap, pDevice->capture.channels);
-
-    pDevice->playback.internalFormat     = pDevice->playback.format;
-    pDevice->playback.internalChannels   = pDevice->playback.channels;
-    pDevice->playback.internalSampleRate = pDevice->sampleRate;
-    ma_channel_map_copy(pDevice->playback.internalChannelMap, pDevice->playback.channelMap, pDevice->playback.channels);
 
     result = ma_mutex_init(&pDevice->lock);
     if (result != MA_SUCCESS) {
