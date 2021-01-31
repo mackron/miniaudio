@@ -12389,23 +12389,6 @@ static ma_result ma_device_uninit__null(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_buffer_size_in_frames__null(const ma_device_config* pConfig, const ma_device_descriptor* pDescriptor)
-{
-    if (pDescriptor->periodSizeInFrames == 0) {
-        if (pDescriptor->periodSizeInMilliseconds == 0) {
-            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptor->sampleRate);
-            } else {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptor->sampleRate);
-            }
-        } else {
-            return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate);
-        }
-    } else {
-        return pDescriptor->periodSizeInFrames;
-    }
-}
-
 static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
@@ -12428,7 +12411,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
             ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         }
 
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames__null(pConfig, pDescriptorCapture);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -12440,7 +12423,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
             ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         }
 
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames__null(pConfig, pDescriptorPlayback);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
     }
 
     /*
@@ -14384,10 +14367,6 @@ typedef struct
     ma_uint32 periodSizeInFramesIn;
     ma_uint32 periodSizeInMillisecondsIn;
     ma_uint32 periodsIn;
-    /*ma_bool32 usingDefaultFormat;
-    ma_bool32 usingDefaultChannels;
-    ma_bool32 usingDefaultSampleRate;
-    ma_bool32 usingDefaultChannelMap;*/
     ma_share_mode shareMode;
     ma_performance_profile performanceProfile;
     ma_bool32 noAutoConvertSRC;
@@ -16842,23 +16821,13 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
+static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__dsound(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
 {
     /* DirectSound has a minimum period size of 20ms. */
-    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(20, sampleRate);
+    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(20, nativeSampleRate);
+    ma_uint32 periodSizeInFrames;
 
-    if (periodSizeInFrames == 0) {
-        if (periodSizeInMilliseconds == 0) {
-            if (performanceProfile == ma_performance_profile_low_latency) {
-                periodSizeInFrames = minPeriodSizeInFrames;
-            } else {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, sampleRate);
-            }
-        } else {
-            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
-        }
-    }
-
+    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate, performanceProfile);
     if (periodSizeInFrames < minPeriodSizeInFrames) {
         periodSizeInFrames = minPeriodSizeInFrames;
     }
@@ -16915,7 +16884,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         wf.SubFormat                   = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, wf.Format.nSamplesPerSec, pConfig->performanceProfile);
+        periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__dsound(pDescriptorCapture, wf.Format.nSamplesPerSec, pConfig->performanceProfile);
         periodCount = (pDescriptorCapture->periodCount > 0) ? pDescriptorCapture->periodCount : MA_DEFAULT_PERIODS;
 
         MA_ZERO_OBJECT(&descDS);
@@ -17072,7 +17041,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
+        periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__dsound(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
         periodCount = (pDescriptorPlayback->periodCount > 0) ? pDescriptorPlayback->periodCount : MA_DEFAULT_PERIODS;
 
         /*
@@ -18157,23 +18126,13 @@ static ma_result ma_device_uninit__winmm(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames__winmm(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
+static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__winmm(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
 {
     /* WinMM has a minimum period size of 40ms. */
-    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(40, sampleRate);
+    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(40, nativeSampleRate);
+    ma_uint32 periodSizeInFrames;
 
-    if (periodSizeInFrames == 0) {
-        if (periodSizeInMilliseconds == 0) {
-            if (performanceProfile == ma_performance_profile_low_latency) {
-                periodSizeInFrames = minPeriodSizeInFrames;
-            } else {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, sampleRate);
-            }
-        } else {
-            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
-        }
-    }
-
+    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate, performanceProfile);
     if (periodSizeInFrames < minPeriodSizeInFrames) {
         periodSizeInFrames = minPeriodSizeInFrames;
     }
@@ -18247,7 +18206,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorCapture->sampleRate         = wf.nSamplesPerSec;
         ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         pDescriptorCapture->periodCount        = pDescriptorCapture->periodCount;
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorCapture, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
@@ -18285,7 +18244,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorPlayback->sampleRate         = wf.nSamplesPerSec;
         ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         pDescriptorPlayback->periodCount        = pDescriptorPlayback->periodCount;
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames__winmm(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
     }
 
     /*
@@ -20008,23 +19967,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
     /* Buffer Size */
     {
-        ma_snd_pcm_uframes_t actualBufferSizeInFrames;
-
-        if (pDescriptor->periodSizeInFrames == 0) {
-            if (pDescriptor->periodSizeInMilliseconds == 0) {
-                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                    actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, internalSampleRate);
-                } else {
-                    actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, internalSampleRate);
-                }
-            } else {
-                actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, internalSampleRate);
-            }
-        } else {
-            actualBufferSizeInFrames = pDescriptor->periodSizeInFrames;
-        }
-
-        actualBufferSizeInFrames *= internalPeriods;
+        ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, pConfig->performanceProfile) * internalPeriods;
 
         resultALSA = ((ma_snd_pcm_hw_params_set_buffer_size_near_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)(pPCM, pHWParams, &actualBufferSizeInFrames);
         if (resultALSA < 0) {
@@ -22226,17 +22169,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
-        if (pDescriptorCapture->periodSizeInFrames == 0) {
-            if (pDescriptorCapture->periodSizeInMilliseconds == 0) {
-                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                    pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, ss.rate);
-                } else {
-                    pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, ss.rate);
-                }
-            } else {
-                pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorCapture->periodSizeInMilliseconds, ss.rate);
-            }
-        }
+        /* We now have enough information to calculate our actual period size in frames. */
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, ss.rate, pConfig->performanceProfile);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodCount, &ss);
     #ifdef MA_DEBUG_OUTPUT
@@ -22323,17 +22257,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
 
-        if (pDescriptorPlayback->periodSizeInFrames == 0) {
-            if (pDescriptorPlayback->periodSizeInMilliseconds == 0) {
-                if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                    pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, ss.rate);
-                } else {
-                    pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, ss.rate);
-                }
-            } else {
-                pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, ss.rate);
-            }
-        }
+        /* We now have enough information to calculate the actual buffer size in frames. */
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, ss.rate, pConfig->performanceProfile);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodCount, &ss);
     #ifdef MA_DEBUG_OUTPUT
@@ -31566,23 +31491,27 @@ static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames__dsound(ma_uint32 periodSizeInFrames, ma_uint32 periodSizeInMilliseconds, ma_uint32 sampleRate, ma_performance_profile performanceProfile)
+static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__webaudio(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
 {
     /*
     There have been reports of the default buffer size being too small on some browsers. There have been reports of the default buffer
     size being too small on some browsers. If we're using default buffer size, we'll make sure the period size is a big biffer than our
     standard defaults.
     */
-    if (periodSizeInFrames == 0) {
-        if (periodSizeInMilliseconds == 0) {
+    ma_uint32 periodSizeInFrames;
+
+    if (pDescriptor->periodSizeInFrames == 0) {
+        if (pDescriptor->periodSizeInMilliseconds == 0) {
             if (performanceProfile == ma_performance_profile_low_latency) {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(33, sampleRate);  /* 1 frame @ 30 FPS */
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(33, nativeSampleRate);  /* 1 frame @ 30 FPS */
             } else {
-                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(333, sampleRate);
+                periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(333, nativeSampleRate);
             }
         } else {
-            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(periodSizeInMilliseconds, sampleRate);
+            periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
         }
+    } else {
+        periodSizeInFrames = pDescriptor->periodSizeInFrames;
     }
 
     /* The size of the buffer must be a power of 2 and between 256 and 16384. */
@@ -31615,7 +31544,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
     /* We're going to calculate some stuff in C just to simplify the JS code. */
     channels           = (pDescriptor->channels   > 0) ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
     sampleRate         = (pDescriptor->sampleRate > 0) ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
-    periodSizeInFrames = ma_calculate_period_size_in_frames__dsound(pDescriptor->periodSizeInFrames, pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate, pConfig->performanceProfile);
+    periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__webaudio(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile);
 
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
