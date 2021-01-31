@@ -366,22 +366,11 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_
 
     Note that options 2 and 3 require knowledge of the sample rate in order to convert it to a frame count. You should try to keep the
     calculation of the period size as accurate as possible, but sometimes it's just not practical so just use whatever you can.
+
+    A helper function called ma_calculate_buffer_size_in_frames_from_descriptor() is available to do all of this for you which is what
+    we'll be using here.
     */
-    if (pDescriptor->periodSizeInFrames == 0) {
-        if (pDescriptor->periodSizeInMilliseconds == 0) {
-            /* The default period size has been requested. I don't think SDL has an API to retrieve this, so just using defaults defined by miniaudio. */
-            if (pConfig->performanceProfile == ma_performance_profile_low_latency) {
-                pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pDescriptor->sampleRate);
-            } else {
-                pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pDescriptor->sampleRate);
-            }
-        } else {
-            /* An explicit period size in milliseconds was specified. */
-            pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, pDescriptor->sampleRate);
-        }
-    } else {
-        /* Nothing to do here. An explicit period size in frames was specified. */
-    }
+    pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile);
 
     /* SDL wants the buffer size to be a power of 2 for some reason. */
     if (pDescriptor->periodSizeInFrames > 32768) {
