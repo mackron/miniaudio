@@ -3993,7 +3993,7 @@ struct ma_device
     ma_device_callback_proc onData;         /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
-    ma_mutex lock;
+    ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
     ma_event stopEvent;
@@ -32679,7 +32679,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->playback.channelMixMode    = pConfig->playback.channelMixMode;
     
 
-    result = ma_mutex_init(&pDevice->lock);
+    result = ma_mutex_init(&pDevice->startStopLock);
     if (result != MA_SUCCESS) {
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create mutex.", result);
     }
@@ -32693,14 +32693,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     */
     result = ma_event_init(&pDevice->wakeupEvent);
     if (result != MA_SUCCESS) {
-        ma_mutex_uninit(&pDevice->lock);
+        ma_mutex_uninit(&pDevice->startStopLock);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread wakeup event.", result);
     }
 
     result = ma_event_init(&pDevice->startEvent);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->lock);
+        ma_mutex_uninit(&pDevice->startStopLock);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread start event.", result);
     }
 
@@ -32708,7 +32708,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->lock);
+        ma_mutex_uninit(&pDevice->startStopLock);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread stop event.", result);
     }
 
@@ -32749,7 +32749,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
-        ma_mutex_uninit(&pDevice->lock);
+        ma_mutex_uninit(&pDevice->startStopLock);
         return result;
     }
 
@@ -32989,7 +32989,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     ma_event_uninit(&pDevice->stopEvent);
     ma_event_uninit(&pDevice->startEvent);
     ma_event_uninit(&pDevice->wakeupEvent);
-    ma_mutex_uninit(&pDevice->lock);
+    ma_mutex_uninit(&pDevice->startStopLock);
 
     if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
         if (pDevice->type == ma_device_type_duplex) {
@@ -33023,7 +33023,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_start() called when the device is already started.", MA_INVALID_OPERATION);  /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    ma_mutex_lock(&pDevice->lock);
+    ma_mutex_lock(&pDevice->startStopLock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
         MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
@@ -33061,7 +33061,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
             ma_device__set_state(pDevice, MA_STATE_STOPPED);
         }
     }
-    ma_mutex_unlock(&pDevice->lock);
+    ma_mutex_unlock(&pDevice->startStopLock);
 
     return result;
 }
@@ -33082,7 +33082,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return ma_post_error(pDevice, MA_LOG_LEVEL_WARNING, "ma_device_stop() called when the device is already stopped.", MA_INVALID_OPERATION);   /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
-    ma_mutex_lock(&pDevice->lock);
+    ma_mutex_lock(&pDevice->startStopLock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
         MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTED);
@@ -33120,7 +33120,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             result = MA_SUCCESS;
         }
     }
-    ma_mutex_unlock(&pDevice->lock);
+    ma_mutex_unlock(&pDevice->startStopLock);
 
     return result;
 }
