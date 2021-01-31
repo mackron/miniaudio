@@ -8592,7 +8592,7 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64) && !defined(C89ATOMIC_64BIT)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
+            c89atomic_uint64 oldValue;
             do {
                 oldValue = *dst;
             } while (c89atomic_compare_and_swap_64(dst, oldValue, src) != oldValue);
@@ -8677,8 +8677,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64) && !defined(C89ATOMIC_64BIT)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_add_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue + src;
@@ -8751,8 +8751,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_8)
         static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_sub_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue - src);
@@ -8764,8 +8764,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_16)
         static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_sub_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue - src);
@@ -8777,8 +8777,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_32)
         static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_sub_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue - src;
@@ -8790,8 +8790,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_sub_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue - src;
@@ -8803,8 +8803,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_8)
         static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_and_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue & src);
@@ -8816,8 +8816,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_16)
         static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_and_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue & src);
@@ -8829,8 +8829,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_32)
         static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_and_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue & src;
@@ -8842,8 +8842,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_and_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue & src;
@@ -8855,8 +8855,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_8)
         static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_xor_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue ^ src);
@@ -8868,8 +8868,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_16)
         static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_xor_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue ^ src);
@@ -8881,8 +8881,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_32)
         static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_xor_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue ^ src;
@@ -8894,8 +8894,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_xor_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue ^ src;
@@ -8907,8 +8907,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_8)
         static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_or_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue | src);
@@ -8920,8 +8920,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_16)
         static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_or_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue | src);
@@ -8933,8 +8933,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_32)
         static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_or_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue | src;
@@ -8946,8 +8946,8 @@ typedef unsigned char           c89atomic_bool;
     #if defined(C89ATOMIC_HAS_64)
         static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_or_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue | src;
@@ -9082,7 +9082,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
+            c89atomic_uint16 oldValue;
             do {
                 oldValue = *dst;
             } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
@@ -9091,7 +9091,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
+            c89atomic_uint32 oldValue;
             do {
                 oldValue = *dst;
             } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
@@ -9100,7 +9100,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
+            c89atomic_uint64 oldValue;
             do {
                 oldValue = *dst;
             } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
@@ -9122,87 +9122,87 @@ typedef unsigned char           c89atomic_bool;
             (void)order;
             return __sync_fetch_and_add(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_add_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_add_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_add(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_sub_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_sub_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_sub(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_sub_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_sub_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_sub(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_sub_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_sub_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_sub(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_sub_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_sub_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_sub(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_or_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_or_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_or(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_or_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_or_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_or(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_or_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_or_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_or(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_or_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_or_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_or(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_xor_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_xor_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_xor(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_xor_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_xor_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_xor(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_xor_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_xor_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_xor(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_xor_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_xor_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_xor(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint8 __stdcall c89atomic_fetch_and_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_and_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_and(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint16 __stdcall c89atomic_fetch_and_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_and_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_and(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint32 __stdcall c89atomic_fetch_and_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_and_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_and(dst, src);
         }
-        static C89ATOMIC_INLINE c89atomic_uint64 __stdcall c89atomic_fetch_and_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
+        static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_and_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
             (void)order;
             return __sync_fetch_and_and(dst, src);
@@ -9221,7 +9221,7 @@ typedef unsigned char           c89atomic_bool;
         #endif
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_compare_and_swap_8(volatile c89atomic_uint8* dst, c89atomic_uint8 expected, c89atomic_uint8 desired)
         {
-            volatile c89atomic_uint8 result;
+            c89atomic_uint8 result;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
         #else
@@ -9231,7 +9231,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_compare_and_swap_16(volatile c89atomic_uint16* dst, c89atomic_uint16 expected, c89atomic_uint16 desired)
         {
-            volatile c89atomic_uint16 result;
+            c89atomic_uint16 result;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
         #else
@@ -9241,7 +9241,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_compare_and_swap_32(volatile c89atomic_uint32* dst, c89atomic_uint32 expected, c89atomic_uint32 desired)
         {
-            volatile c89atomic_uint32 result;
+            c89atomic_uint32 result;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
         #else
@@ -9253,8 +9253,8 @@ typedef unsigned char           c89atomic_bool;
         {
             volatile c89atomic_uint64 result;
         #if defined(C89ATOMIC_X86)
-            volatile c89atomic_uint32 resultEAX;
-            volatile c89atomic_uint32 resultEDX;
+            c89atomic_uint32 resultEAX;
+            c89atomic_uint32 resultEDX;
             __asm__ __volatile__("push %%ebx; xchg %5, %%ebx; lock; cmpxchg8b %0; pop %%ebx" : "+m"(*dst), "=a"(resultEAX), "=d"(resultEDX) : "a"(expected & 0xFFFFFFFF), "d"(expected >> 32), "r"(desired & 0xFFFFFFFF), "c"(desired >> 32) : "cc");
             result = ((c89atomic_uint64)resultEDX << 32) | resultEAX;
         #elif defined(C89ATOMIC_X64)
@@ -9266,7 +9266,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_exchange_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 result = 0;
+            c89atomic_uint8 result = 0;
             (void)order;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
@@ -9277,7 +9277,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_exchange_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 result = 0;
+            c89atomic_uint16 result = 0;
             (void)order;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
@@ -9288,7 +9288,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_exchange_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 result;
+            c89atomic_uint32 result;
             (void)order;
         #if defined(C89ATOMIC_X86) || defined(C89ATOMIC_X64)
             __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
@@ -9299,7 +9299,7 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_exchange_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 result;
+            c89atomic_uint64 result;
             (void)order;
         #if defined(C89ATOMIC_X86)
             do {
@@ -9348,8 +9348,8 @@ typedef unsigned char           c89atomic_bool;
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_add_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
         #if defined(C89ATOMIC_X86)
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             (void)order;
             do {
                 oldValue = *dst;
@@ -9357,7 +9357,7 @@ typedef unsigned char           c89atomic_bool;
             } while (c89atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
             return oldValue;
         #elif defined(C89ATOMIC_X64)
-            volatile c89atomic_uint64 result;
+            c89atomic_uint64 result;
             (void)order;
             __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
             return result;
@@ -9365,8 +9365,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_sub_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue - src);
@@ -9376,8 +9376,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_sub_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue - src);
@@ -9387,8 +9387,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_sub_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue - src;
@@ -9398,8 +9398,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_sub_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue - src;
@@ -9409,8 +9409,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_and_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue & src);
@@ -9420,8 +9420,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_and_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue & src);
@@ -9431,8 +9431,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_and_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue & src;
@@ -9442,8 +9442,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_and_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue & src;
@@ -9453,8 +9453,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_xor_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue ^ src);
@@ -9464,8 +9464,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_xor_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue ^ src);
@@ -9475,8 +9475,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_xor_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue ^ src;
@@ -9486,8 +9486,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_xor_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue ^ src;
@@ -9497,8 +9497,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint8 c89atomic_fetch_or_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint8 oldValue;
-            volatile c89atomic_uint8 newValue;
+            c89atomic_uint8 oldValue;
+            c89atomic_uint8 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint8)(oldValue | src);
@@ -9508,8 +9508,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint16 c89atomic_fetch_or_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint16 oldValue;
-            volatile c89atomic_uint16 newValue;
+            c89atomic_uint16 oldValue;
+            c89atomic_uint16 newValue;
             do {
                 oldValue = *dst;
                 newValue = (c89atomic_uint16)(oldValue | src);
@@ -9519,8 +9519,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint32 c89atomic_fetch_or_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint32 oldValue;
-            volatile c89atomic_uint32 newValue;
+            c89atomic_uint32 oldValue;
+            c89atomic_uint32 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue | src;
@@ -9530,8 +9530,8 @@ typedef unsigned char           c89atomic_bool;
         }
         static C89ATOMIC_INLINE c89atomic_uint64 c89atomic_fetch_or_explicit_64(volatile c89atomic_uint64* dst, c89atomic_uint64 src, c89atomic_memory_order order)
         {
-            volatile c89atomic_uint64 oldValue;
-            volatile c89atomic_uint64 newValue;
+            c89atomic_uint64 oldValue;
+            c89atomic_uint64 newValue;
             do {
                 oldValue = *dst;
                 newValue = oldValue | src;
@@ -27751,7 +27751,6 @@ static ma_format ma_format_from_encoding__audio4(unsigned int encoding, unsigned
 
 static void ma_encoding_from_format__audio4(ma_format format, unsigned int* pEncoding, unsigned int* pPrecision)
 {
-    MA_ASSERT(format     != ma_format_unknown);
     MA_ASSERT(pEncoding  != NULL);
     MA_ASSERT(pPrecision != NULL);
 
@@ -27777,6 +27776,7 @@ static void ma_encoding_from_format__audio4(ma_format format, unsigned int* pEnc
 
         case ma_format_s16:
         case ma_format_f32:
+        case ma_format_unknown:
         default:
         {
             *pEncoding = (ma_is_little_endian()) ? AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_SLINEAR_BE;
@@ -27788,6 +27788,56 @@ static void ma_encoding_from_format__audio4(ma_format format, unsigned int* pEnc
 static ma_format ma_format_from_prinfo__audio4(struct audio_prinfo* prinfo)
 {
     return ma_format_from_encoding__audio4(prinfo->encoding, prinfo->precision);
+}
+
+static ma_format ma_best_format_from_fd__audio4(int fd, ma_format preferredFormat)
+{
+    audio_encoding_t encoding;
+    ma_uint32 iFormat;
+    int counter = 0;
+
+    /* First check to see if the preferred format is supported. */
+    if (preferredFormat != ma_format_unknown) {
+        counter = 0;
+        for (;;) {
+            MA_ZERO_OBJECT(&encoding);
+            encoding.index = counter;
+            if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
+                break;
+            }
+
+            if (preferredFormat == ma_format_from_encoding__audio4(encoding.encoding, encoding.precision)) {
+                return preferredFormat;  /* Found the preferred format. */
+            }
+
+            /* Getting here means this encoding does not match our preferred format so we need to more on to the next encoding. */
+            counter += 1;
+        }
+    }
+
+    /* Getting here means our preferred format is not supported, so fall back to our standard priorities. */
+    for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); iFormat += 1) {
+        ma_format format = g_maFormatPriorities[iFormat];
+
+        counter = 0;
+        for (;;) {
+            MA_ZERO_OBJECT(&encoding);
+            encoding.index = counter;
+            if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
+                break;
+            }
+
+            if (format == ma_format_from_encoding__audio4(encoding.encoding, encoding.precision)) {
+                return format;  /* Found a workable format. */
+            }
+
+            /* Getting here means this encoding does not match our preferred format so we need to more on to the next encoding. */
+            counter += 1;
+        }
+    }
+
+    /* Getting here means not appropriate format was found. */
+    return ma_format_unknown;
 }
 #else
 static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
@@ -27810,20 +27860,13 @@ static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
 }
 #endif
 
-static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext, ma_device_type deviceType, int fd, ma_device_info* pInfoOut)
+static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext, ma_device_type deviceType, int fd, ma_device_info* pDeviceInfo)
 {
     audio_device_t fdDevice;
-#if !defined(MA_AUDIO4_USE_NEW_API)
-    int counter = 0;
-    audio_info_t fdInfo;
-#else
-    struct audio_swpar fdPar;
-    ma_format format;
-#endif
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(fd >= 0);
-    MA_ASSERT(pInfoOut != NULL);
+    MA_ASSERT(pDeviceInfo != NULL);
 
     (void)pContext;
     (void)deviceType;
@@ -27833,65 +27876,75 @@ static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext
     }
 
     /* Name. */
-    ma_strcpy_s(pInfoOut->name, sizeof(pInfoOut->name), fdDevice.name);
+    ma_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), fdDevice.name);
 
-#if !defined(MA_AUDIO4_USE_NEW_API)
-    /* Supported formats. We get this by looking at the encodings. */
-    for (;;) {
-        audio_encoding_t encoding;
+    #if !defined(MA_AUDIO4_USE_NEW_API)
+    {
+        audio_info_t fdInfo;
+        int counter = 0;
+        ma_uint32 channels;
+        ma_uint32 sampleRate;
+
+        if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
+            return MA_ERROR;
+        }
+
+        if (deviceType == ma_device_type_playback) {
+            channels   = fdInfo.play.channels;
+            sampleRate = fdInfo.play.sample_rate;
+        } else {
+            channels   = fdInfo.record.channels;
+            sampleRate = fdInfo.record.sample_rate;
+        }
+
+        /* Supported formats. We get this by looking at the encodings. */
+        pDeviceInfo->nativeDataFormatCount = 0;
+        for (;;) {
+            audio_encoding_t encoding;
+            ma_format format;
+
+            MA_ZERO_OBJECT(&encoding);
+            encoding.index = counter;
+            if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
+                break;
+            }
+
+            format = ma_format_from_encoding__audio4(encoding.encoding, encoding.precision);
+            if (format != ma_format_unknown) {
+                ma_device_info_add_native_data_format(pDeviceInfo, format, channels, sampleRate, 0);
+            }
+
+            counter += 1;
+        }
+    }
+    #else
+    {
+        struct audio_swpar fdPar;
         ma_format format;
+        ma_uint32 channels;
+        ma_uint32 sampleRate;
 
-        MA_ZERO_OBJECT(&encoding);
-        encoding.index = counter;
-        if (ioctl(fd, AUDIO_GETENC, &encoding) < 0) {
-            break;
+        if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
+            return MA_ERROR;
         }
 
-        format = ma_format_from_encoding__audio4(encoding.encoding, encoding.precision);
-        if (format != ma_format_unknown) {
-            pInfoOut->formats[pInfoOut->formatCount++] = format;
+        format = ma_format_from_swpar__audio4(&fdPar);
+        if (format == ma_format_unknown) {
+            return MA_FORMAT_NOT_SUPPORTED;
         }
 
-        counter += 1;
-    }
+        if (deviceType == ma_device_type_playback) {
+            channels = fdPar.pchan;
+        } else {
+            channels = fdPar.rchan;
+        }
 
-    if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
-        return MA_ERROR;
-    }
+        sampleRate = fdPar.rate;
 
-    if (deviceType == ma_device_type_playback) {
-        pInfoOut->minChannels = fdInfo.play.channels;
-        pInfoOut->maxChannels = fdInfo.play.channels;
-        pInfoOut->minSampleRate = fdInfo.play.sample_rate;
-        pInfoOut->maxSampleRate = fdInfo.play.sample_rate;
-    } else {
-        pInfoOut->minChannels = fdInfo.record.channels;
-        pInfoOut->maxChannels = fdInfo.record.channels;
-        pInfoOut->minSampleRate = fdInfo.record.sample_rate;
-        pInfoOut->maxSampleRate = fdInfo.record.sample_rate;
+        pDeviceInfo->nativeDataFormatCount = 0;
+        ma_device_info_add_native_data_format(pDeviceInfo, format, channels, sampleRate, 0);
     }
-#else
-    if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
-        return MA_ERROR;
-    }
-
-    format = ma_format_from_swpar__audio4(&fdPar);
-    if (format == ma_format_unknown) {
-        return MA_FORMAT_NOT_SUPPORTED;
-    }
-    pInfoOut->formats[pInfoOut->formatCount++] = format;
-
-    if (deviceType == ma_device_type_playback) {
-        pInfoOut->minChannels = fdPar.pchan;
-        pInfoOut->maxChannels = fdPar.pchan;
-    } else {
-        pInfoOut->minChannels = fdPar.rchan;
-        pInfoOut->maxChannels = fdPar.rchan;
-    }
-
-    pInfoOut->minSampleRate = fdPar.rate;
-    pInfoOut->maxSampleRate = fdPar.rate;
-#endif
+    #endif
 
     return MA_SUCCESS;
 }
@@ -27963,7 +28016,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     int fd = -1;
     int deviceIndex = -1;
@@ -27971,7 +28024,6 @@ static ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_dev
     ma_result result;
 
     MA_ASSERT(pContext != NULL);
-    (void)shareMode;
 
     /*
     We need to open the "/dev/audioctlN" device to get the info. To do this we need to extract the number
@@ -28007,7 +28059,7 @@ static ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_dev
     return result;
 }
 
-static void ma_device_uninit__audio4(ma_device* pDevice)
+static ma_result ma_device_uninit__audio4(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -28018,9 +28070,11 @@ static void ma_device_uninit__audio4(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         close(pDevice->audio4.fdPlayback);
     }
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device_config* pConfig, ma_device_type deviceType, ma_device* pDevice)
+static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptor, ma_device_type deviceType)
 {
     const char* pDefaultDeviceNames[] = {
         "/dev/audio",
@@ -28028,23 +28082,15 @@ static ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device
     };
     int fd;
     int fdFlags = 0;
-#if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
-    audio_info_t fdInfo;
-#else
-    struct audio_swpar fdPar;
-#endif
     ma_format internalFormat;
     ma_uint32 internalChannels;
     ma_uint32 internalSampleRate;
     ma_uint32 internalPeriodSizeInFrames;
     ma_uint32 internalPeriods;
 
-    MA_ASSERT(pContext   != NULL);
     MA_ASSERT(pConfig    != NULL);
     MA_ASSERT(deviceType != ma_device_type_duplex);
     MA_ASSERT(pDevice    != NULL);
-
-    (void)pContext;
 
     /* The first thing to do is open the file. */
     if (deviceType == ma_device_type_capture) {
@@ -28054,7 +28100,7 @@ static ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device
     }
     /*fdFlags |= O_NONBLOCK;*/
 
-    if ((deviceType == ma_device_type_capture && pConfig->capture.pDeviceID == NULL) || (deviceType == ma_device_type_playback && pConfig->playback.pDeviceID == NULL)) {
+    if (pDescriptor->pDeviceID == NULL) {
         /* Default device. */
         size_t iDevice;
         for (iDevice = 0; iDevice < ma_countof(pDefaultDeviceNames); ++iDevice) {
@@ -28065,137 +28111,167 @@ static ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device
         }
     } else {
         /* Specific device. */
-        fd = open((deviceType == ma_device_type_capture) ? pConfig->capture.pDeviceID->audio4 : pConfig->playback.pDeviceID->audio4, fdFlags, 0);
+        fd = open(pDescriptor->pDeviceID->audio4, fdFlags, 0);
     }
 
     if (fd == -1) {
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to open device.", ma_result_from_errno(errno));
     }
 
-#if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
-    AUDIO_INITINFO(&fdInfo);
-
-    /* We get the driver to do as much of the data conversion as possible. */
-    if (deviceType == ma_device_type_capture) {
-        fdInfo.mode = AUMODE_RECORD;
-        ma_encoding_from_format__audio4(pConfig->capture.format, &fdInfo.record.encoding, &fdInfo.record.precision);
-        fdInfo.record.channels    = pConfig->capture.channels;
-        fdInfo.record.sample_rate = pConfig->sampleRate;
-    } else {
-        fdInfo.mode = AUMODE_PLAY;
-        ma_encoding_from_format__audio4(pConfig->playback.format, &fdInfo.play.encoding, &fdInfo.play.precision);
-        fdInfo.play.channels    = pConfig->playback.channels;
-        fdInfo.play.sample_rate = pConfig->sampleRate;
-    }
-
-    if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
-        close(fd);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
-    }
-
-    if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
-        close(fd);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
-    }
-
-    if (deviceType == ma_device_type_capture) {
-        internalFormat     = ma_format_from_prinfo__audio4(&fdInfo.record);
-        internalChannels   = fdInfo.record.channels;
-        internalSampleRate = fdInfo.record.sample_rate;
-    } else {
-        internalFormat     = ma_format_from_prinfo__audio4(&fdInfo.play);
-        internalChannels   = fdInfo.play.channels;
-        internalSampleRate = fdInfo.play.sample_rate;
-    }
-
-    if (internalFormat == ma_format_unknown) {
-        close(fd);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MA_FORMAT_NOT_SUPPORTED);
-    }
-
-    /* Buffer. */
+    #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
     {
-        ma_uint32 internalPeriodSizeInBytes;
+        audio_info_t fdInfo;
 
-        internalPeriodSizeInFrames = pConfig->periodSizeInFrames;
-        if (internalPeriodSizeInFrames == 0) {
-            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, internalSampleRate);
-        }
+        /*
+        The documentation is a little bit unclear to me as to how it handles formats. It says the
+        following:
 
-        internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
-        if (internalPeriodSizeInBytes < 16) {
-            internalPeriodSizeInBytes = 16;
-        }
+            Regardless of formats supported by underlying driver, the audio driver accepts the
+            following formats.
 
-        internalPeriods = pConfig->periods;
-        if (internalPeriods < 2) {
-            internalPeriods = 2;
-        }
+        By then the next sentence says this:
 
-        /* What miniaudio calls a period, audio4 calls a block. */
+            `encoding` and `precision` are one of the values obtained by AUDIO_GETENC.
+
+        It sounds like a direct contradiction to me. I'm going to play this safe any only use the
+        best sample format returned by AUDIO_GETENC. If the requested format is supported we'll
+        use that, but otherwise we'll just use our standard format priorities to pick an
+        appropriate one.
+        */
         AUDIO_INITINFO(&fdInfo);
-        fdInfo.hiwat     = internalPeriods;
-        fdInfo.lowat     = internalPeriods-1;
-        fdInfo.blocksize = internalPeriodSizeInBytes;
+
+        /* We get the driver to do as much of the data conversion as possible. */
+        if (deviceType == ma_device_type_capture) {
+            fdInfo.mode = AUMODE_RECORD;
+            ma_encoding_from_format__audio4(ma_best_format_from_fd__audio4(fd, pDescriptor->format), &fdInfo.record.encoding, &fdInfo.record.precision);
+
+            if (pDescriptor->channels != 0) {
+                fdInfo.record.channels = ma_clamp(pDescriptor->channels, 1, 12);    /* From the documentation: `channels` ranges from 1 to 12. */
+            }
+
+            if (pDescriptor->sampleRate != 0) {
+                fdInfo.record.sample_rate = ma_clamp(pDescriptor->sampleRate, 1000, 192000);    /* From the documentation: `frequency` ranges from 1000Hz to 192000Hz. (They mean `sample_rate` instead of `frequency`.) */
+            }
+        } else {
+            fdInfo.mode = AUMODE_PLAY;
+            ma_encoding_from_format__audio4(ma_best_format_from_fd__audio4(fd, pDescriptor->format), &fdInfo.play.encoding, &fdInfo.play.precision);
+
+            if (pDescriptor->channels != 0) {
+                fdInfo.play.channels = ma_clamp(pDescriptor->channels, 1, 12);    /* From the documentation: `channels` ranges from 1 to 12. */
+            }
+
+            if (pDescriptor->sampleRate != 0) {
+                fdInfo.play.sample_rate = ma_clamp(pDescriptor->sampleRate, 1000, 192000);    /* From the documentation: `frequency` ranges from 1000Hz to 192000Hz. (They mean `sample_rate` instead of `frequency`.) */
+            }
+        }
+
         if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
             close(fd);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device format. AUDIO_SETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
         }
 
-        internalPeriods            = fdInfo.hiwat;
-        internalPeriodSizeInFrames = fdInfo.blocksize / ma_get_bytes_per_frame(internalFormat, internalChannels);
-    }
-#else
-    /* We need to retrieve the format of the device so we can know the channel count and sample rate. Then we can calculate the buffer size. */
-    if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
-        close(fd);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.", MA_FORMAT_NOT_SUPPORTED);
-    }
-
-    internalFormat     = ma_format_from_swpar__audio4(&fdPar);
-    internalChannels   = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
-    internalSampleRate = fdPar.rate;
-
-    if (internalFormat == ma_format_unknown) {
-        close(fd);
-        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MA_FORMAT_NOT_SUPPORTED);
-    }
-
-    /* Buffer. */
-    {
-        ma_uint32 internalPeriodSizeInBytes;
-
-        internalPeriodSizeInFrames = pConfig->periodSizeInFrames;
-        if (internalPeriodSizeInFrames == 0) {
-            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, internalSampleRate);
-        }
-
-        /* What miniaudio calls a period, audio4 calls a block. */
-        internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
-        if (internalPeriodSizeInBytes < 16) {
-            internalPeriodSizeInBytes = 16;
-        }
-
-        fdPar.nblks = pConfig->periods;
-        fdPar.round = internalPeriodSizeInBytes;
-
-        if (ioctl(fd, AUDIO_SETPAR, &fdPar) < 0) {
+        if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
             close(fd);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device parameters.", MA_FORMAT_NOT_SUPPORTED);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
         }
 
+        if (deviceType == ma_device_type_capture) {
+            internalFormat     = ma_format_from_prinfo__audio4(&fdInfo.record);
+            internalChannels   = fdInfo.record.channels;
+            internalSampleRate = fdInfo.record.sample_rate;
+        } else {
+            internalFormat     = ma_format_from_prinfo__audio4(&fdInfo.play);
+            internalChannels   = fdInfo.play.channels;
+            internalSampleRate = fdInfo.play.sample_rate;
+        }
+
+        if (internalFormat == ma_format_unknown) {
+            close(fd);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MA_FORMAT_NOT_SUPPORTED);
+        }
+
+        /* Buffer. */
+        {
+            ma_uint32 internalPeriodSizeInBytes;
+
+            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, pConfig->performanceProfile);
+
+            internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
+            if (internalPeriodSizeInBytes < 16) {
+                internalPeriodSizeInBytes = 16;
+            }
+
+            internalPeriods = pDescriptor->periodCount;
+            if (internalPeriods < 2) {
+                internalPeriods = 2;
+            }
+
+            /* What miniaudio calls a period, audio4 calls a block. */
+            AUDIO_INITINFO(&fdInfo);
+            fdInfo.hiwat     = internalPeriods;
+            fdInfo.lowat     = internalPeriods-1;
+            fdInfo.blocksize = internalPeriodSizeInBytes;
+            if (ioctl(fd, AUDIO_SETINFO, &fdInfo) < 0) {
+                close(fd);
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set internal buffer size. AUDIO_SETINFO failed.", MA_FORMAT_NOT_SUPPORTED);
+            }
+
+            internalPeriods            = fdInfo.hiwat;
+            internalPeriodSizeInFrames = fdInfo.blocksize / ma_get_bytes_per_frame(internalFormat, internalChannels);
+        }
+    }
+    #else
+    {
+        struct audio_swpar fdPar;
+
+        /* We need to retrieve the format of the device so we can know the channel count and sample rate. Then we can calculate the buffer size. */
         if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
             close(fd);
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual device parameters.", MA_FORMAT_NOT_SUPPORTED);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve initial device parameters.", MA_FORMAT_NOT_SUPPORTED);
         }
-    }
 
-    internalFormat             = ma_format_from_swpar__audio4(&fdPar);
-    internalChannels           = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
-    internalSampleRate         = fdPar.rate;
-    internalPeriods            = fdPar.nblks;
-    internalPeriodSizeInFrames = fdPar.round / ma_get_bytes_per_frame(internalFormat, internalChannels);
-#endif
+        internalFormat     = ma_format_from_swpar__audio4(&fdPar);
+        internalChannels   = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
+        internalSampleRate = fdPar.rate;
+
+        if (internalFormat == ma_format_unknown) {
+            close(fd);
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] The device's internal device format is not supported by miniaudio. The device is unusable.", MA_FORMAT_NOT_SUPPORTED);
+        }
+
+        /* Buffer. */
+        {
+            ma_uint32 internalPeriodSizeInBytes;
+
+            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, pConfig->performanceProfile);
+
+            /* What miniaudio calls a period, audio4 calls a block. */
+            internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
+            if (internalPeriodSizeInBytes < 16) {
+                internalPeriodSizeInBytes = 16;
+            }
+
+            fdPar.nblks = pDescriptor->periodCount;
+            fdPar.round = internalPeriodSizeInBytes;
+
+            if (ioctl(fd, AUDIO_SETPAR, &fdPar) < 0) {
+                close(fd);
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to set device parameters.", MA_FORMAT_NOT_SUPPORTED);
+            }
+
+            if (ioctl(fd, AUDIO_GETPAR, &fdPar) < 0) {
+                close(fd);
+                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[audio4] Failed to retrieve actual device parameters.", MA_FORMAT_NOT_SUPPORTED);
+            }
+        }
+
+        internalFormat             = ma_format_from_swpar__audio4(&fdPar);
+        internalChannels           = (deviceType == ma_device_type_capture) ? fdPar.rchan : fdPar.pchan;
+        internalSampleRate         = fdPar.rate;
+        internalPeriods            = fdPar.nblks;
+        internalPeriodSizeInFrames = fdPar.round / ma_get_bytes_per_frame(internalFormat, internalChannels);
+    }
+    #endif
 
     if (internalFormat == ma_format_unknown) {
         close(fd);
@@ -28203,27 +28279,22 @@ static ma_result ma_device_init_fd__audio4(ma_context* pContext, const ma_device
     }
 
     if (deviceType == ma_device_type_capture) {
-        pDevice->audio4.fdCapture                    = fd;
-        pDevice->capture.internalFormat              = internalFormat;
-        pDevice->capture.internalChannels            = internalChannels;
-        pDevice->capture.internalSampleRate          = internalSampleRate;
-        ma_get_standard_channel_map(ma_standard_channel_map_sound4, internalChannels, pDevice->capture.internalChannelMap);
-        pDevice->capture.internalPeriodSizeInFrames  = internalPeriodSizeInFrames;
-        pDevice->capture.internalPeriods             = internalPeriods;
+        pDevice->audio4.fdCapture  = fd;
     } else {
-        pDevice->audio4.fdPlayback                   = fd;
-        pDevice->playback.internalFormat             = internalFormat;
-        pDevice->playback.internalChannels           = internalChannels;
-        pDevice->playback.internalSampleRate         = internalSampleRate;
-        ma_get_standard_channel_map(ma_standard_channel_map_sound4, internalChannels, pDevice->playback.internalChannelMap);
-        pDevice->playback.internalPeriodSizeInFrames = internalPeriodSizeInFrames;
-        pDevice->playback.internalPeriods            = internalPeriods;
+        pDevice->audio4.fdPlayback = fd;
     }
+
+    pDescriptor->format             = internalFormat;
+    pDescriptor->channels           = internalChannels;
+    pDescriptor->sampleRate         = internalSampleRate;
+    ma_get_standard_channel_map(ma_standard_channel_map_sound4, internalChannels, pDescriptor->channelMap);
+    pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
+    pDescriptor->periodCount        = internalPeriods;
 
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
+static ma_result ma_device_init__audio4(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -28243,8 +28314,8 @@ static ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_co
     */
 #if defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000
     /* NetBSD 8.0+ */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.shareMode  == ma_share_mode_exclusive)) {
+    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
+        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
     }
 #else
@@ -28252,14 +28323,14 @@ static ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_co
 #endif
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pContext, pConfig, ma_device_type_capture, pDevice);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pConfig, pDescriptorCapture, ma_device_type_capture);
         if (result != MA_SUCCESS) {
             return result;
         }
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_init_fd__audio4(pContext, pConfig, ma_device_type_playback, pDevice);
+        ma_result result = ma_device_init_fd__audio4(pDevice, pConfig, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
             if (pConfig->deviceType == ma_device_type_duplex) {
                 close(pDevice->audio4.fdCapture);
@@ -28271,7 +28342,6 @@ static ma_result ma_device_init__audio4(ma_context* pContext, const ma_device_co
     return MA_SUCCESS;
 }
 
-#if 0
 static ma_result ma_device_start__audio4(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
@@ -28290,7 +28360,6 @@ static ma_result ma_device_start__audio4(ma_device* pDevice)
 
     return MA_SUCCESS;
 }
-#endif
 
 static ma_result ma_device_stop_fd__audio4(ma_device* pDevice, int fd)
 {
@@ -28382,171 +28451,6 @@ static ma_result ma_device_read__audio4(ma_device* pDevice, void* pPCMFrames, ma
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_main_loop__audio4(ma_device* pDevice)
-{
-    ma_result result = MA_SUCCESS;
-    ma_bool32 exitLoop = MA_FALSE;
-
-    /* No need to explicitly start the device like the other backends. */
-
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
-        switch (pDevice->type)
-        {
-            case ma_device_type_duplex:
-            {
-                /* The process is: device_read -> convert -> callback -> convert -> device_write */
-                ma_uint32 totalCapturedDeviceFramesProcessed = 0;
-                ma_uint32 capturedDevicePeriodSizeInFrames = ma_min(pDevice->capture.internalPeriodSizeInFrames, pDevice->playback.internalPeriodSizeInFrames);
-
-                while (totalCapturedDeviceFramesProcessed < capturedDevicePeriodSizeInFrames) {
-                    ma_uint8  capturedDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint8  playbackDeviceData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                    ma_uint32 capturedDeviceDataCapInFrames = sizeof(capturedDeviceData) / ma_get_bytes_per_frame(pDevice->capture.internalFormat,  pDevice->capture.internalChannels);
-                    ma_uint32 playbackDeviceDataCapInFrames = sizeof(playbackDeviceData) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                    ma_uint32 capturedDeviceFramesRemaining;
-                    ma_uint32 capturedDeviceFramesProcessed;
-                    ma_uint32 capturedDeviceFramesToProcess;
-                    ma_uint32 capturedDeviceFramesToTryProcessing = capturedDevicePeriodSizeInFrames - totalCapturedDeviceFramesProcessed;
-                    if (capturedDeviceFramesToTryProcessing > capturedDeviceDataCapInFrames) {
-                        capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
-                    }
-
-                    result = ma_device_read__audio4(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    capturedDeviceFramesRemaining = capturedDeviceFramesToProcess;
-                    capturedDeviceFramesProcessed = 0;
-
-                    for (;;) {
-                        ma_uint8  capturedClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint8  playbackClientData[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-                        ma_uint32 capturedClientDataCapInFrames = sizeof(capturedClientData) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-                        ma_uint32 playbackClientDataCapInFrames = sizeof(playbackClientData) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-                        ma_uint64 capturedClientFramesToProcessThisIteration = ma_min(capturedClientDataCapInFrames, playbackClientDataCapInFrames);
-                        ma_uint64 capturedDeviceFramesToProcessThisIteration = capturedDeviceFramesRemaining;
-                        ma_uint8* pRunningCapturedDeviceFrames = ma_offset_ptr(capturedDeviceData, capturedDeviceFramesProcessed * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
-
-                        /* Convert capture data from device format to client format. */
-                        result = ma_data_converter_process_pcm_frames(&pDevice->capture.converter, pRunningCapturedDeviceFrames, &capturedDeviceFramesToProcessThisIteration, capturedClientData, &capturedClientFramesToProcessThisIteration);
-                        if (result != MA_SUCCESS) {
-                            break;
-                        }
-
-                        /*
-                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
-                        which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
-                        */
-                        if (capturedClientFramesToProcessThisIteration == 0) {
-                            break;
-                        }
-
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
-
-                        capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-                        capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
-
-                        /* At this point the playbackClientData buffer should be holding data that needs to be written to the device. */
-                        for (;;) {
-                            ma_uint64 convertedClientFrameCount = capturedClientFramesToProcessThisIteration;
-                            ma_uint64 convertedDeviceFrameCount = playbackDeviceDataCapInFrames;
-                            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackClientData, &convertedClientFrameCount, playbackDeviceData, &convertedDeviceFrameCount);
-                            if (result != MA_SUCCESS) {
-                                break;
-                            }
-
-                            result = ma_device_write__audio4(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);  /* Safe cast. */
-                            if (result != MA_SUCCESS) {
-                                exitLoop = MA_TRUE;
-                                break;
-                            }
-
-                            capturedClientFramesToProcessThisIteration -= (ma_uint32)convertedClientFrameCount;  /* Safe cast. */
-                            if (capturedClientFramesToProcessThisIteration == 0) {
-                                break;
-                            }
-                        }
-
-                        /* In case an error happened from ma_device_write__audio4()... */
-                        if (result != MA_SUCCESS) {
-                            exitLoop = MA_TRUE;
-                            break;
-                        }
-                    }
-
-                    totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
-                }
-            } break;
-
-            case ma_device_type_capture:
-            {
-                /* We read in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint8 intermediaryBuffer[8192];
-                ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-                ma_uint32 periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
-                ma_uint32 framesReadThisPeriod = 0;
-                while (framesReadThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesReadThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToReadThisIteration = framesRemainingInPeriod;
-                    if (framesToReadThisIteration > intermediaryBufferSizeInFrames) {
-                        framesToReadThisIteration = intermediaryBufferSizeInFrames;
-                    }
-
-                    result = ma_device_read__audio4(pDevice, intermediaryBuffer, framesToReadThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    ma_device__send_frames_to_client(pDevice, framesProcessed, intermediaryBuffer);
-
-                    framesReadThisPeriod += framesProcessed;
-                }
-            } break;
-
-            case ma_device_type_playback:
-            {
-                /* We write in chunks of the period size, but use a stack allocated buffer for the intermediary. */
-                ma_uint8 intermediaryBuffer[8192];
-                ma_uint32 intermediaryBufferSizeInFrames = sizeof(intermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-                ma_uint32 periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
-                ma_uint32 framesWrittenThisPeriod = 0;
-                while (framesWrittenThisPeriod < periodSizeInFrames) {
-                    ma_uint32 framesRemainingInPeriod = periodSizeInFrames - framesWrittenThisPeriod;
-                    ma_uint32 framesProcessed;
-                    ma_uint32 framesToWriteThisIteration = framesRemainingInPeriod;
-                    if (framesToWriteThisIteration > intermediaryBufferSizeInFrames) {
-                        framesToWriteThisIteration = intermediaryBufferSizeInFrames;
-                    }
-
-                    ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, intermediaryBuffer);
-
-                    result = ma_device_write__audio4(pDevice, intermediaryBuffer, framesToWriteThisIteration, &framesProcessed);
-                    if (result != MA_SUCCESS) {
-                        exitLoop = MA_TRUE;
-                        break;
-                    }
-
-                    framesWrittenThisPeriod += framesProcessed;
-                }
-            } break;
-
-            /* To silence a warning. Will never hit this. */
-            case ma_device_type_loopback:
-            default: break;
-        }
-    }
-
-
-    /* Here is where the device is stopped. */
-    ma_device_stop__audio4(pDevice);
-
-    return result;
-}
-
 static ma_result ma_context_uninit__audio4(ma_context* pContext)
 {
     MA_ASSERT(pContext != NULL);
@@ -28556,20 +28460,23 @@ static ma_result ma_context_uninit__audio4(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__audio4(const ma_context_config* pConfig, ma_context* pContext)
+static ma_result ma_context_init__audio4(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
 {
     MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
-    pContext->onUninit         = ma_context_uninit__audio4;
-    pContext->onEnumDevices    = ma_context_enumerate_devices__audio4;
-    pContext->onGetDeviceInfo  = ma_context_get_device_info__audio4;
-    pContext->onDeviceInit     = ma_device_init__audio4;
-    pContext->onDeviceUninit   = ma_device_uninit__audio4;
-    pContext->onDeviceStart    = NULL; /* Not required for synchronous backends. */
-    pContext->onDeviceStop     = NULL; /* Not required for synchronous backends. */
-    pContext->onDeviceMainLoop = ma_device_main_loop__audio4;
+    pCallbacks->onContextInit             = ma_context_init__audio4;
+    pCallbacks->onContextUninit           = ma_context_uninit__audio4;
+    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__audio4;
+    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__audio4;
+    pCallbacks->onDeviceInit              = ma_device_init__audio4;
+    pCallbacks->onDeviceUninit            = ma_device_uninit__audio4;
+    pCallbacks->onDeviceStart             = ma_device_start__audio4;
+    pCallbacks->onDeviceStop              = ma_device_stop__audio4;
+    pCallbacks->onDeviceRead              = ma_device_read__audio4;
+    pCallbacks->onDeviceWrite             = ma_device_write__audio4;
+    pCallbacks->onDeviceAudioThread       = NULL;
 
     return MA_SUCCESS;
 }
@@ -32345,6 +32252,12 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 pContext->callbacks.onContextInit = ma_context_init__coreaudio;
             } break;
         #endif
+        #ifdef MA_HAS_AUDIO4
+            case ma_backend_audio4:
+            {
+                pContext->callbacks.onContextInit = ma_context_init__audio4;
+            } break;
+        #endif
         #ifdef MA_HAS_OSS
             case ma_backend_oss:
             {
@@ -32464,8 +32377,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             #ifdef MA_HAS_AUDIO4
                 case ma_backend_audio4:
                 {
-                    ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_VERBOSE, "Attempting to initialize audio(4) backend...");
-                    result = ma_context_init__audio4(pConfig, pContext);
+                    /*result = ma_context_init__audio4(pConfig, pContext);*/
                 } break;
             #endif
             #ifdef MA_HAS_OSS
@@ -64601,6 +64513,7 @@ v0.10.32 - TBD
     - Core Audio
     - AAudio
     - OpenSL|ES
+    - OSS
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
 
