@@ -3999,9 +3999,6 @@ struct ma_device
     ma_event stopEvent;
     ma_thread thread;
     ma_result workResult;                   /* This is set by the worker thread after it's finished doing a job. */
-    ma_bool8 usingDefaultSampleRate;
-    ma_bool8 usingDefaultBufferSize;
-    ma_bool8 usingDefaultPeriods;
     ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreZeroedOutputBuffer;
     ma_bool8 noClip;
@@ -4035,9 +4032,6 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
-        ma_bool8 usingDefaultFormat;
-        ma_bool8 usingDefaultChannels;
-        ma_bool8 usingDefaultChannelMap;
     } playback;
     struct
     {
@@ -4055,9 +4049,6 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
-        ma_bool8 usingDefaultFormat;
-        ma_bool8 usingDefaultChannels;
-        ma_bool8 usingDefaultChannelMap;
     } capture;
 
     union
@@ -31740,13 +31731,13 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     MA_ASSERT(pDevice != NULL);
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        if (pDevice->capture.usingDefaultFormat) {
+        if (pDevice->capture.format == ma_format_unknown) {
             pDevice->capture.format = pDevice->capture.internalFormat;
         }
-        if (pDevice->capture.usingDefaultChannels) {
+        if (pDevice->capture.channels == 0) {
             pDevice->capture.channels = pDevice->capture.internalChannels;
         }
-        if (pDevice->capture.usingDefaultChannelMap) {
+        if (pDevice->capture.channelMap[0] == MA_CHANNEL_NONE) {
             MA_ASSERT(pDevice->capture.channels <= MA_MAX_CHANNELS);
             if (pDevice->capture.internalChannels == pDevice->capture.channels) {
                 ma_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
@@ -31761,13 +31752,13 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        if (pDevice->playback.usingDefaultFormat) {
+        if (pDevice->playback.format == ma_format_unknown) {
             pDevice->playback.format = pDevice->playback.internalFormat;
         }
-        if (pDevice->playback.usingDefaultChannels) {
+        if (pDevice->playback.channels == 0) {
             pDevice->playback.channels = pDevice->playback.internalChannels;
         }
-        if (pDevice->playback.usingDefaultChannelMap) {
+        if (pDevice->playback.channelMap[0] == MA_CHANNEL_NONE) {
             MA_ASSERT(pDevice->playback.channels <= MA_MAX_CHANNELS);
             if (pDevice->playback.internalChannels == pDevice->playback.channels) {
                 ma_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
@@ -31781,7 +31772,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         }
     }
 
-    if (pDevice->usingDefaultSampleRate) {
+    if (pDevice->sampleRate == 0) {
         if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
             pDevice->sampleRate = pDevice->capture.internalSampleRate;
         } else {
@@ -32668,45 +32659,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->noPreZeroedOutputBuffer = pConfig->noPreZeroedOutputBuffer;
     pDevice->noClip = pConfig->noClip;
     pDevice->masterVolumeFactor = 1;
-
-    /*
-    When passing in 0 for the format/channels/rate/chmap it means the device will be using whatever is chosen by the backend. If everything is set
-    to defaults it means the format conversion pipeline will run on a fast path where data transfer is just passed straight through to the backend.
-    */
-    if (pConfig->sampleRate == 0) {
-        pDevice->usingDefaultSampleRate = MA_TRUE;
-    }
-
-    if (pConfig->capture.format == ma_format_unknown) {
-        pDevice->capture.usingDefaultFormat = MA_TRUE;
-    }
-    if (pConfig->capture.channels == 0) {
-        pDevice->capture.usingDefaultChannels = MA_TRUE;
-    }
-    if (pConfig->capture.channelMap[0] == MA_CHANNEL_NONE) {
-        pDevice->capture.usingDefaultChannelMap = MA_TRUE;
-    }
-
-    if (pConfig->playback.format == ma_format_unknown) {
-        pDevice->playback.usingDefaultFormat = MA_TRUE;
-    }
-    if (pConfig->playback.channels == 0) {
-        pDevice->playback.usingDefaultChannels = MA_TRUE;
-    }
-    if (pConfig->playback.channelMap[0] == MA_CHANNEL_NONE) {
-        pDevice->playback.usingDefaultChannelMap = MA_TRUE;
-    }
-
-
-    /* Default periods. */
-    if (pConfig->periods == 0) {
-        pDevice->usingDefaultPeriods = MA_TRUE;
-    }
-
-    /* Default buffer size. */
-    if (pConfig->periodSizeInMilliseconds == 0 && pConfig->periodSizeInFrames == 0) {
-        pDevice->usingDefaultBufferSize = MA_TRUE;
-    }
 
     pDevice->type                       = pConfig->deviceType;
     pDevice->sampleRate                 = pConfig->sampleRate;
