@@ -3532,12 +3532,12 @@ If the backend requires absolute flexibility with it's data delivery, it can opt
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
-encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceAudioThread()` callback.
+encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
 
-The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
+The invocation of the `onDeviceDataLoop()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
-which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceAudioThread()` callback,
-look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceAudioThreadWakeup()` callback if you need a mechanism to
+which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceDataLoop()` callback,
+look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceDataLoopWakeup()` callback if you need a mechanism to
 wake up the audio thread.
 */
 struct ma_backend_callbacks
@@ -3552,8 +3552,8 @@ struct ma_backend_callbacks
     ma_result (* onDeviceStop)(ma_device* pDevice);
     ma_result (* onDeviceRead)(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
     ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
-    ma_result (* onDeviceAudioThread)(ma_device* pDevice);
-    ma_result (* onDeviceAudioThreadWakeup)(ma_device* pDevice);
+    ma_result (* onDeviceDataLoop)(ma_device* pDevice);
+    ma_result (* onDeviceDataLoopWakeup)(ma_device* pDevice);
 };
 
 struct ma_context_config
@@ -12648,7 +12648,7 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
     pCallbacks->onDeviceStop              = ma_device_stop__null;
     pCallbacks->onDeviceRead              = ma_device_read__null;
     pCallbacks->onDeviceWrite             = ma_device_write__null;
-    pCallbacks->onDeviceAudioThread       = NULL;   /* Our backend is asynchronous with a blocking read-write API which means we can get miniaudio to deal with the audio thread. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* Our backend is asynchronous with a blocking read-write API which means we can get miniaudio to deal with the audio thread. */
 
     /* The null backend always works. */
     return MA_SUCCESS;
@@ -15255,7 +15255,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 #define MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS 5000
 #endif
 
-static ma_result ma_device_audio_thread__wasapi(ma_device* pDevice)
+static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
 {
     ma_result result;
     HRESULT hr;
@@ -15924,11 +15924,11 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
     pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__wasapi;
     pCallbacks->onDeviceInit              = ma_device_init__wasapi;
     pCallbacks->onDeviceUninit            = ma_device_uninit__wasapi;
-    pCallbacks->onDeviceStart             = NULL;                   /* Not used. Started in onDeviceAudioThread. */
+    pCallbacks->onDeviceStart             = NULL;                   /* Not used. Started in onDeviceDataLoop. */
     pCallbacks->onDeviceStop              = ma_device_stop__wasapi; /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
     pCallbacks->onDeviceRead              = NULL;                   /* Not used. Reading is done manually in the audio thread. */
     pCallbacks->onDeviceWrite             = NULL;                   /* Not used. Writing is done manually in the audio thread. */
-    pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__wasapi;
+    pCallbacks->onDeviceDataLoop          = ma_device_data_loop__wasapi;
 
     return result;
 }
@@ -17083,7 +17083,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
 }
 
 
-static ma_result ma_device_audio_thread__dsound(ma_device* pDevice)
+static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
 {
     ma_result result = MA_SUCCESS;
     ma_uint32 bpfDeviceCapture  = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
@@ -17638,11 +17638,11 @@ static ma_result ma_context_init__dsound(ma_context* pContext, const ma_context_
     pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__dsound;
     pCallbacks->onDeviceInit              = ma_device_init__dsound;
     pCallbacks->onDeviceUninit            = ma_device_uninit__dsound;
-    pCallbacks->onDeviceStart             = NULL;   /* Not used. Started in onDeviceAudioThread. */
-    pCallbacks->onDeviceStop              = NULL;   /* Not used. Stopped in onDeviceAudioThread. */
-    pCallbacks->onDeviceRead              = NULL;   /* Not used. Data is read directly in onDeviceAudioThread. */
-    pCallbacks->onDeviceWrite             = NULL;   /* Not used. Data is written directly in onDeviceAudioThread. */
-    pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__dsound;
+    pCallbacks->onDeviceStart             = NULL;   /* Not used. Started in onDeviceDataLoop. */
+    pCallbacks->onDeviceStop              = NULL;   /* Not used. Stopped in onDeviceDataLoop. */
+    pCallbacks->onDeviceRead              = NULL;   /* Not used. Data is read directly in onDeviceDataLoop. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not used. Data is written directly in onDeviceDataLoop. */
+    pCallbacks->onDeviceDataLoop          = ma_device_data_loop__dsound;
 
     return MA_SUCCESS;
 }
@@ -18673,7 +18673,7 @@ static ma_result ma_context_init__winmm(ma_context* pContext, const ma_context_c
     pCallbacks->onDeviceStop              = ma_device_stop__winmm;
     pCallbacks->onDeviceRead              = ma_device_read__winmm;
     pCallbacks->onDeviceWrite             = ma_device_write__winmm;
-    pCallbacks->onDeviceAudioThread       = NULL;   /* This is a blocking read-write API, so this can be NULL since miniaudio will manage the audio thread for us. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* This is a blocking read-write API, so this can be NULL since miniaudio will manage the audio thread for us. */
 
     return MA_SUCCESS;
 }
@@ -20560,7 +20560,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pCallbacks->onDeviceStop              = ma_device_stop__alsa;
     pCallbacks->onDeviceRead              = ma_device_read__alsa;
     pCallbacks->onDeviceWrite             = ma_device_write__alsa;
-    pCallbacks->onDeviceAudioThread       = NULL;
+    pCallbacks->onDeviceDataLoop          = NULL;
 
     return MA_SUCCESS;
 }
@@ -22348,7 +22348,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     We need a ring buffer for handling duplex mode. We can use the main duplex ring buffer in the main
     part of the ma_device struct. We cannot, however, depend on ma_device_init() initializing this for
     us later on because that will only do it if it's a fully asynchronous backend - i.e. the
-    onDeviceAudioThread callback is NULL, which is not the case for PulseAudio.
+    onDeviceDataLoop callback is NULL, which is not the case for PulseAudio.
     */
     if (pConfig->deviceType == ma_device_type_duplex) {
         result = ma_duplex_rb_init(format, channels, sampleRate, pDescriptorCapture->sampleRate, pDescriptorCapture->periodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
@@ -22488,7 +22488,7 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_audio_thread__pulse(ma_device* pDevice)
+static ma_result ma_device_data_loop__pulse(ma_device* pDevice)
 {
     int resultPA;
 
@@ -22511,7 +22511,7 @@ static ma_result ma_device_audio_thread__pulse(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_audio_thread_wakeup__pulse(ma_device* pDevice)
+static ma_result ma_device_data_loop_wakeup__pulse(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
@@ -22787,10 +22787,10 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
     pCallbacks->onDeviceUninit            = ma_device_uninit__pulse;
     pCallbacks->onDeviceStart             = ma_device_start__pulse;
     pCallbacks->onDeviceStop              = ma_device_stop__pulse;
-    pCallbacks->onDeviceRead              = NULL;   /* Not used because we're implementing onDeviceAudioThread. */
-    pCallbacks->onDeviceWrite             = NULL;   /* Not used because we're implementing onDeviceAudioThread. */
-    pCallbacks->onDeviceAudioThread       = ma_device_audio_thread__pulse;
-    pCallbacks->onDeviceAudioThreadWakeup = ma_device_audio_thread_wakeup__pulse;
+    pCallbacks->onDeviceRead              = NULL;   /* Not used because we're implementing onDeviceDataLoop. */
+    pCallbacks->onDeviceWrite             = NULL;   /* Not used because we're implementing onDeviceDataLoop. */
+    pCallbacks->onDeviceDataLoop          = ma_device_data_loop__pulse;
+    pCallbacks->onDeviceDataLoopWakeup    = ma_device_data_loop_wakeup__pulse;
 
     return MA_SUCCESS;
 }
@@ -23422,7 +23422,7 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
     pCallbacks->onDeviceStop              = ma_device_stop__jack;
     pCallbacks->onDeviceRead              = NULL;   /* Not used because JACK is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not used because JACK is asynchronous. */
-    pCallbacks->onDeviceAudioThread       = NULL;   /* Not used because JACK is asynchronous. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* Not used because JACK is asynchronous. */
 
     return MA_SUCCESS;
 }
@@ -26601,7 +26601,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     pCallbacks->onDeviceStop              = ma_device_stop__coreaudio;
     pCallbacks->onDeviceRead              = NULL;
     pCallbacks->onDeviceWrite             = NULL;
-    pCallbacks->onDeviceAudioThread       = NULL;
+    pCallbacks->onDeviceDataLoop          = NULL;
 
     return MA_SUCCESS;
 }
@@ -27625,7 +27625,7 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const ma_context_c
     pCallbacks->onDeviceStop              = ma_device_stop__sndio;
     pCallbacks->onDeviceRead              = ma_device_read__sndio;
     pCallbacks->onDeviceWrite             = ma_device_write__sndio;
-    pCallbacks->onDeviceAudioThread       = NULL;
+    pCallbacks->onDeviceDataLoop          = NULL;
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -28458,7 +28458,7 @@ static ma_result ma_context_init__audio4(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceStop              = ma_device_stop__audio4;
     pCallbacks->onDeviceRead              = ma_device_read__audio4;
     pCallbacks->onDeviceWrite             = ma_device_write__audio4;
-    pCallbacks->onDeviceAudioThread       = NULL;
+    pCallbacks->onDeviceDataLoop          = NULL;
 
     return MA_SUCCESS;
 }
@@ -29073,7 +29073,7 @@ static ma_result ma_context_init__oss(ma_context* pContext, const ma_context_con
     pCallbacks->onDeviceStop              = ma_device_stop__oss;
     pCallbacks->onDeviceRead              = ma_device_read__oss;
     pCallbacks->onDeviceWrite             = ma_device_write__oss;
-    pCallbacks->onDeviceAudioThread       = NULL;
+    pCallbacks->onDeviceDataLoop          = NULL;
 
     return MA_SUCCESS;
 }
@@ -29868,7 +29868,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceStop              = ma_device_stop__aaudio;
     pCallbacks->onDeviceRead              = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not used because AAudio is asynchronous. */
-    pCallbacks->onDeviceAudioThread       = NULL;   /* Not used because AAudio is asynchronous. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* Not used because AAudio is asynchronous. */
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -31108,7 +31108,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceStop              = ma_device_stop__opensl;
     pCallbacks->onDeviceRead              = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
-    pCallbacks->onDeviceAudioThread       = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* Not needed because OpenSL|ES is asynchronous. */
 
     return MA_SUCCESS;
 }
@@ -31691,7 +31691,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
     pCallbacks->onDeviceStop              = ma_device_stop__webaudio;
     pCallbacks->onDeviceRead              = NULL;   /* Not needed because WebAudio is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not needed because WebAudio is asynchronous. */
-    pCallbacks->onDeviceAudioThread       = NULL;   /* Not needed because WebAudio is asynchronous. */
+    pCallbacks->onDeviceDataLoop          = NULL;   /* Not needed because WebAudio is asynchronous. */
 
     return MA_SUCCESS;
 }
@@ -31882,8 +31882,8 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         ma_device__set_state(pDevice, MA_STATE_STARTED);
         ma_event_signal(&pDevice->startEvent);
 
-        if (pDevice->pContext->callbacks.onDeviceAudioThread != NULL) {
-            pDevice->pContext->callbacks.onDeviceAudioThread(pDevice);
+        if (pDevice->pContext->callbacks.onDeviceDataLoop != NULL) {
+            pDevice->pContext->callbacks.onDeviceDataLoop(pDevice);
         } else {
             /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
             ma_device_audio_thread__default_read_write(pDevice);
@@ -32094,7 +32094,7 @@ static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
 
     if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
-        if (pContext->callbacks.onDeviceAudioThread == NULL) {
+        if (pContext->callbacks.onDeviceDataLoop == NULL) {
             return MA_TRUE;
         } else {
             return MA_FALSE;
@@ -33108,8 +33108,8 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             */
             MA_ASSERT(ma_device_get_state(pDevice) != MA_STATE_STARTED);
 
-            if (pDevice->pContext->callbacks.onDeviceAudioThreadWakeup != NULL) {
-                pDevice->pContext->callbacks.onDeviceAudioThreadWakeup(pDevice);
+            if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup != NULL) {
+                pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
             }
 
             /*
