@@ -13642,7 +13642,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     #ifdef MA_DEBUG_OUTPUT
         printf("[WASAPI] Stream rerouting: role != eConsole\n");
     #endif
-        /*return S_OK;*/
+        return S_OK;
     }
 
     /* We only care about devices with the same data flow and role as the current device. */
