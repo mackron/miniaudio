@@ -4072,8 +4072,6 @@ struct ma_device
             ma_performance_profile originalPerformanceProfile;
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            MA_ATOMIC ma_bool8 hasDefaultPlaybackDeviceChanged;    /* Can be read and written simultaneously across different threads. Must be used atomically. */
-            MA_ATOMIC ma_bool8 hasDefaultCaptureDeviceChanged;     /* Can be read and written simultaneously across different threads. Must be used atomically. */
             MA_ATOMIC ma_bool8 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically. */
             MA_ATOMIC ma_bool8 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically. */
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
@@ -4081,6 +4079,8 @@ struct ma_device
             ma_bool8 noHardwareOffloading;
             ma_bool8 allowCaptureAutoStreamRouting;
             ma_bool8 allowPlaybackAutoStreamRouting;
+            ma_bool8 isDetachedPlayback;
+            ma_bool8 isDetachedCapture;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -7171,14 +7171,14 @@ MA_API int ma_strcpy_s(char* dst, size_t dstSizeInBytes, const char* src)
     return 34;
 }
 
-MA_API int ma_wcscpy_s(wchar_t* dst, size_t dstSizeInBytes, const wchar_t* src)
+MA_API int ma_wcscpy_s(wchar_t* dst, size_t dstCap, const wchar_t* src)
 {
     size_t i;
 
     if (dst == 0) {
         return 22;
     }
-    if (dstSizeInBytes == 0) {
+    if (dstCap == 0) {
         return 34;
     }
     if (src == 0) {
@@ -7186,11 +7186,11 @@ MA_API int ma_wcscpy_s(wchar_t* dst, size_t dstSizeInBytes, const wchar_t* src)
         return 22;
     }
 
-    for (i = 0; i < dstSizeInBytes && src[i] != '\0'; ++i) {
+    for (i = 0; i < dstCap && src[i] != '\0'; ++i) {
         dst[i] = src[i];
     }
 
-    if (i < dstSizeInBytes) {
+    if (i < dstCap) {
         dst[i] = '\0';
         return 0;
     }
@@ -12938,6 +12938,8 @@ WASAPI Backend
 #endif
 #endif  /* 0 */
 
+static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceType);
+
 /* Some compilers don't define VerifyVersionInfoW. Need to write this ourselves. */
 #define MA_WIN32_WINNT_VISTA    0x0600
 #define MA_VER_MINORVERSION     0x01
@@ -13575,33 +13577,83 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
 {
     ma_bool32 isThisDevice = MA_FALSE;
+    ma_bool32 isCapture    = MA_FALSE;
+    ma_bool32 isPlayback   = MA_FALSE;
+    
 
 #ifdef MA_DEBUG_OUTPUT
-    /*printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);*/
+    printf("IMMNotificationClient_OnDeviceStateChanged(pDeviceID=%S, dwNewState=%u)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)", (unsigned int)dwNewState);
 #endif
-
-    if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
-        return S_OK;
-    }
 
     /*
     There have been reports of a hang when a playback device is disconnected. The idea with this code is to explicitly stop the device if we detect
     that the device is disabled or has been unplugged.
     */
     if (pThis->pDevice->wasapi.allowCaptureAutoStreamRouting && (pThis->pDevice->type == ma_device_type_capture || pThis->pDevice->type == ma_device_type_duplex || pThis->pDevice->type == ma_device_type_loopback)) {
+        isCapture = MA_TRUE;
         if (wcscmp(pThis->pDevice->capture.id.wasapi, pDeviceID) == 0) {
             isThisDevice = MA_TRUE;
         }
     }
 
     if (pThis->pDevice->wasapi.allowPlaybackAutoStreamRouting && (pThis->pDevice->type == ma_device_type_playback || pThis->pDevice->type == ma_device_type_duplex)) {
+        isPlayback = MA_TRUE;
         if (wcscmp(pThis->pDevice->playback.id.wasapi, pDeviceID) == 0) {
             isThisDevice = MA_TRUE;
         }
     }
 
+
+    /*
+    If the device ID matches our device we need to mark our device as detached and stop it. When a
+    device is added in OnDeviceAdded(), we'll restart it. We only mark it as detached if the device
+    was started at the time of being removed.
+    */
     if (isThisDevice) {
-        ma_device_stop(pThis->pDevice);
+        if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) == 0) {
+            /*
+            Unplugged or otherwise unavailable. Mark as detached if we were in a playing state. We'll
+            use this to determine whether or not we need to automatically start the device when it's
+            plugged back in again.
+            */
+            if (ma_device_get_state(pThis->pDevice) == MA_STATE_STARTED) {
+                if (isPlayback) {
+                    pThis->pDevice->wasapi.isDetachedPlayback = MA_TRUE;
+                }
+                if (isCapture) {
+                    pThis->pDevice->wasapi.isDetachedCapture = MA_TRUE;
+                }
+
+                ma_device_stop(pThis->pDevice);
+            }
+        }
+
+        if ((dwNewState & MA_MM_DEVICE_STATE_ACTIVE) != 0) {
+            /* The device was activated. If we were detached, we need to start it again. */
+            ma_bool8 tryRestartingDevice = MA_FALSE;
+
+            if (isPlayback) {
+                if (pThis->pDevice->wasapi.isDetachedPlayback) {
+                    pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
+                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
+                    tryRestartingDevice = MA_TRUE;
+                }
+            }
+
+            if (isCapture) {
+                if (pThis->pDevice->wasapi.isDetachedCapture) {
+                    pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
+                    ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                    tryRestartingDevice = MA_TRUE;
+                }
+            }
+
+            if (tryRestartingDevice) {
+                if (pThis->pDevice->wasapi.isDetachedPlayback == MA_FALSE && pThis->pDevice->wasapi.isDetachedCapture == MA_FALSE) {
+                    ma_device_start(pThis->pDevice);
+                }
+            }
+        }
     }
 
     return S_OK;
@@ -13622,7 +13674,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNo
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
-    /*printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
+    printf("IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");
 #endif
 
     /* We don't need to worry about this event for our purposes. */
@@ -13676,19 +13728,56 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
         return S_OK;
     }
 
+
+
+
     /*
-    We don't change the device here - we change it in the worker thread to keep synchronization simple. To do this I'm just setting a flag to
-    indicate that the default device has changed. Loopback devices are treated as capture devices so we need to do a bit of a dance to handle
-    that properly.
+    Second attempt at device rerouting. We're going to retrieve the device's state at the time of
+    the route change. We're then going to stop the device, reinitialize the device, and then start
+    it again if the state before stopping was MA_STATE_STARTED.
     */
-    if (dataFlow == ma_eRender  && pThis->pDevice->type != ma_device_type_loopback) {
-        c89atomic_exchange_8(&pThis->pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_TRUE);
-    }
-    if (dataFlow == ma_eCapture || pThis->pDevice->type == ma_device_type_loopback) {
-        c89atomic_exchange_8(&pThis->pDevice->wasapi.hasDefaultCaptureDeviceChanged, MA_TRUE);
+    {
+        ma_uint32 previousState = ma_device_get_state(pThis->pDevice);
+        ma_bool8 restartDevice = MA_FALSE;
+
+        if (previousState == MA_STATE_STARTED) {
+            ma_device_stop(pThis->pDevice);
+            restartDevice = MA_TRUE;
+        }
+
+        if (pDefaultDeviceID != NULL) { /* <-- The input device ID will be null if there's no other device available. */
+            if (dataFlow == ma_eRender) {
+                ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
+
+                if (pThis->pDevice->wasapi.isDetachedPlayback) {
+                    pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
+                    
+                    if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedCapture) {
+                        restartDevice = MA_FALSE;   /* It's a duplex device and the capture side is detached. We cannot be restarting the device just yet. */
+                    } else {
+                        restartDevice = MA_TRUE;    /* It's not a duplex device, or the capture side is also attached so we can go ahead and restart the device. */
+                    }
+                }
+            } else {
+                ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+
+                if (pThis->pDevice->wasapi.isDetachedCapture) {
+                    pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
+                    
+                    if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedPlayback) {
+                        restartDevice = MA_FALSE;   /* It's a duplex device and the playback side is detached. We cannot be restarting the device just yet. */
+                    } else {
+                        restartDevice = MA_TRUE;    /* It's not a duplex device, or the playback side is also attached so we can go ahead and restart the device. */
+                    }
+                }
+            }
+
+            if (restartDevice) {
+                ma_device_start(pThis->pDevice);
+            }
+        }
     }
 
-    (void)pDefaultDeviceID;
     return S_OK;
 }
 
@@ -13980,9 +14069,36 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     return MA_SUCCESS;
 }
 
+static ma_result ma_context_get_device_id_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, ma_device_id* pDeviceID)
+{
+    LPWSTR pDeviceIDString;
+    HRESULT hr;
+
+    MA_ASSERT(pDeviceID != NULL);
+
+    hr = ma_IMMDevice_GetId(pMMDevice, &pDeviceIDString);
+    if (SUCCEEDED(hr)) {
+        size_t idlen = wcslen(pDeviceIDString);
+        if (idlen+1 > ma_countof(pDeviceID->wasapi)) {
+            ma_CoTaskMemFree(pContext, pDeviceIDString);
+            MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
+            return MA_ERROR;
+        }
+
+        MA_COPY_MEMORY(pDeviceID->wasapi, pDeviceIDString, idlen * sizeof(wchar_t));
+        pDeviceID->wasapi[idlen] = '\0';
+
+        ma_CoTaskMemFree(pContext, pDeviceIDString);
+
+        return MA_SUCCESS;
+    }
+
+    return MA_ERROR;
+}
+
 static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, LPWSTR pDefaultDeviceID, ma_bool32 onlySimpleInfo, ma_device_info* pInfo)
 {
-    LPWSTR pDeviceID;
+    ma_result result;
     HRESULT hr;
 
     MA_ASSERT(pContext != NULL);
@@ -13990,35 +14106,22 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
     MA_ASSERT(pInfo != NULL);
 
     /* ID. */
-    hr = ma_IMMDevice_GetId(pMMDevice, &pDeviceID);
-    if (SUCCEEDED(hr)) {
-        size_t idlen = wcslen(pDeviceID);
-        if (idlen+1 > ma_countof(pInfo->id.wasapi)) {
-            ma_CoTaskMemFree(pContext, pDeviceID);
-            MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
-            return MA_ERROR;
-        }
-
-        MA_COPY_MEMORY(pInfo->id.wasapi, pDeviceID, idlen * sizeof(wchar_t));
-        pInfo->id.wasapi[idlen] = '\0';
-
+    result = ma_context_get_device_id_from_MMDevice__wasapi(pContext, pMMDevice, &pInfo->id);
+    if (result == MA_SUCCESS) {
         if (pDefaultDeviceID != NULL) {
-            if (wcscmp(pDeviceID, pDefaultDeviceID) == 0) {
-                /* It's a default device. */
+            if (wcscmp(pInfo->id.wasapi, pDefaultDeviceID) == 0) {
                 pInfo->isDefault = MA_TRUE;
             }
         }
-
-        ma_CoTaskMemFree(pContext, pDeviceID);
     }
 
+    /* Description / Friendly Name */
     {
         ma_IPropertyStore *pProperties;
         hr = ma_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
             PROPVARIANT var;
 
-            /* Description / Friendly Name */
             ma_PropVariantInit(&var);
             hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_Device_FriendlyName, &var);
             if (SUCCEEDED(hr)) {
@@ -14035,7 +14138,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
         ma_IAudioClient* pAudioClient;
         hr = ma_IMMDevice_Activate(pMMDevice, &MA_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pAudioClient);
         if (SUCCEEDED(hr)) {
-            ma_result result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, pMMDevice, pAudioClient, pInfo);
+            result = ma_context_get_device_info_from_IAudioClient__wasapi(pContext, pMMDevice, pAudioClient, pInfo);
 
             ma_IAudioClient_Release(pAudioClient);
             return result;
@@ -14383,6 +14486,7 @@ typedef struct
     ma_uint32 periodsOut;
     ma_bool32 usingAudioClient3;
     char deviceName[256];
+    ma_device_id id;
 } ma_device_init_internal_data__wasapi;
 
 static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_init_internal_data__wasapi* pData)
@@ -14746,7 +14850,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
 
     /* Grab the name of the device. */
-#ifdef MA_WIN32_DESKTOP
+    #ifdef MA_WIN32_DESKTOP
     {
         ma_IPropertyStore *pProperties;
         hr = ma_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pProperties);
@@ -14762,7 +14866,24 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             ma_IPropertyStore_Release(pProperties);
         }
     }
-#endif
+    #endif
+
+    /*
+    For the WASAPI backend we need to know the actual IDs of the device in order to do automatic
+    stream routing so that IDs can be compared and we can determine which device has been detached
+    and whether or not it matches with our ma_device.
+    */
+    #ifdef MA_WIN32_DESKTOP
+    {
+        /* Desktop */
+        ma_context_get_device_id_from_MMDevice__wasapi(pContext, pDeviceInterface, &pData->id);
+    }
+    #else
+    {
+        /* UWP */
+        /* TODO: Implement me. Need to figure out how to get the ID of the default device. */
+    }
+    #endif
 
 done:
     /* Clean up. */
@@ -14845,7 +14966,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         }
 
         if (pDevice->wasapi.pAudioClientCapture) {
-            ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+            /*ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);*/
             pDevice->wasapi.pAudioClientCapture = NULL;
         }
 
@@ -14865,13 +14986,8 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualPeriodSizeInFramesCapture);
 
-        /* The device may be in a started state. If so we need to immediately restart it. */
-        if (c89atomic_load_8(&pDevice->wasapi.isStartedCapture)) {
-            HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-            if (FAILED(hr)) {
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device after reinitialization.", ma_result_from_HRESULT(hr));
-            }
-        }
+        /* We must always have a valid ID. */
+        ma_wcscpy_s(pDevice->capture.id.wasapi, sizeof(pDevice->capture.id.wasapi), data.id.wasapi);
     }
 
     if (deviceType == ma_device_type_playback) {
@@ -14881,7 +14997,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         }
 
         if (pDevice->wasapi.pAudioClientPlayback) {
-            ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+            /*ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);*/
             pDevice->wasapi.pAudioClientPlayback = NULL;
         }
 
@@ -14901,13 +15017,8 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
-        /* The device may be in a started state. If so we need to immediately restart it. */
-        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
-            HRESULT hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-            if (FAILED(hr)) {
-                return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device after reinitialization.", ma_result_from_HRESULT(hr));
-            }
-        }
+        /* We must always have a valid ID. */
+        ma_wcscpy_s(pDevice->playback.id.wasapi, sizeof(pDevice->playback.id.wasapi), data.id.wasapi);
     }
 
     return MA_SUCCESS;
@@ -14984,6 +15095,9 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualPeriodSizeInFramesCapture);
+
+        /* We must always have a valid ID. */
+        ma_wcscpy_s(pDevice->capture.id.wasapi, sizeof(pDevice->capture.id.wasapi), data.id.wasapi);
 
         /* The descriptor needs to be updated with actual values. */
         pDescriptorCapture->format             = data.formatOut;
@@ -15075,6 +15189,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
+        /* We must always have a valid ID. */
+        ma_wcscpy_s(pDevice->playback.id.wasapi, sizeof(pDevice->playback.id.wasapi), data.id.wasapi);
 
         /* The descriptor needs to be updated with actual values. */
         pDescriptorPlayback->format             = data.formatOut;
@@ -15180,20 +15296,6 @@ static ma_result ma_device__get_available_frames__wasapi(ma_device* pDevice, ma_
     return MA_SUCCESS;
 }
 
-static ma_bool32 ma_device_is_reroute_required__wasapi(ma_device* pDevice, ma_device_type deviceType)
-{
-    MA_ASSERT(pDevice != NULL);
-
-    if (deviceType == ma_device_type_playback) {
-        return c89atomic_load_8(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged);
-    }
-
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        return c89atomic_load_8(&pDevice->wasapi.hasDefaultCaptureDeviceChanged);
-    }
-
-    return MA_FALSE;
-}
 
 static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
@@ -15202,14 +15304,6 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     if (deviceType == ma_device_type_duplex) {
         return MA_INVALID_ARGS;
     }
-
-    if (deviceType == ma_device_type_playback) {
-        c89atomic_exchange_8(&pDevice->wasapi.hasDefaultPlaybackDeviceChanged, MA_FALSE);
-    }
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        c89atomic_exchange_8(&pDevice->wasapi.hasDefaultCaptureDeviceChanged,  MA_FALSE);
-    }
-
 
 #ifdef MA_DEBUG_OUTPUT
     printf("=== CHANGING DEVICE ===\n");
@@ -15228,23 +15322,101 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     return MA_SUCCESS;
 }
 
-
-static ma_result ma_device_stop__wasapi(ma_device* pDevice)
+static ma_result ma_device_start__wasapi(ma_device* pDevice)
 {
+    HRESULT hr;
+
     MA_ASSERT(pDevice != NULL);
 
-    /*
-    It's possible for the main loop to get stuck if the device is disconnected.
-
-    In loopback mode it's possible for WaitForSingleObject() to get stuck in a deadlock when nothing is being played. When nothing
-    is being played, the event is never signalled internally by WASAPI which means we will deadlock when stopping the device.
-    */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
+        hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", ma_result_from_HRESULT(hr));
+        }
+
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_TRUE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        SetEvent((HANDLE)pDevice->wasapi.hEventPlayback);
+        /* No need to do anything for playback as that'll be started automatically in the data loop. */
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_stop__wasapi(ma_device* pDevice)
+{
+    ma_result result;
+    HRESULT hr;
+
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        hr = ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.", ma_result_from_HRESULT(hr));
+        }
+
+        /* The audio client needs to be reset otherwise restarting will fail. */
+        hr = ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
+        if (FAILED(hr)) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", ma_result_from_HRESULT(hr));
+        }
+
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_FALSE);
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        /*
+        The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
+        the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
+        */
+        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
+            /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
+            DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
+
+            if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
+                WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
+            } else {
+                ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
+                ma_uint32 framesAvailablePlayback;
+                for (;;) {
+                    result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
+
+                    if (framesAvailablePlayback >= pDevice->wasapi.actualPeriodSizeInFramesPlayback) {
+                        break;
+                    }
+
+                    /*
+                    Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
+                    has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
+                    */
+                    if (framesAvailablePlayback == prevFramesAvaialablePlayback) {
+                        break;
+                    }
+                    prevFramesAvaialablePlayback = framesAvailablePlayback;
+
+                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
+                    ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
+                }
+            }
+        }
+
+        hr = ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+        if (FAILED(hr)) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal playback device.", ma_result_from_HRESULT(hr));
+        }
+
+        /* The audio client needs to be reset otherwise restarting will fail. */
+        hr = ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
+        if (FAILED(hr)) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", ma_result_from_HRESULT(hr));
+        }
+
+        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
     }
 
     return MA_SUCCESS;
@@ -15281,16 +15453,8 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
 
     MA_ASSERT(pDevice != NULL);
 
-    /* The capture device needs to be started immediately. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        periodSizeInFramesCapture = pDevice->capture.internalPeriodSizeInFrames;
-
-        hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", ma_result_from_HRESULT(hr));
-        }
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_TRUE);
-
+        periodSizeInFramesCapture  = pDevice->capture.internalPeriodSizeInFrames;
         inputDataInClientFormatCap = sizeof(inputDataInClientFormat) / bpfCaptureClient;
     }
 
@@ -15299,22 +15463,6 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
     }
 
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
-        /* We may need to reroute the device. */
-        if (ma_device_is_reroute_required__wasapi(pDevice, ma_device_type_playback)) {
-            result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
-            if (result != MA_SUCCESS) {
-                exitLoop = MA_TRUE;
-                break;
-            }
-        }
-        if (ma_device_is_reroute_required__wasapi(pDevice, ma_device_type_capture)) {
-            result = ma_device_reroute__wasapi(pDevice, (pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
-            if (result != MA_SUCCESS) {
-                exitLoop = MA_TRUE;
-                break;
-            }
-        }
-
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -15605,6 +15753,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                             ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
                             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
                         }
+
                         c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                     }
                 }
@@ -15761,6 +15910,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                         exitLoop = MA_TRUE;
                         break;
                     }
+
                     c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                 }
 
@@ -15781,19 +15931,6 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
         if (pMappedDeviceBufferCapture != NULL) {
             hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, mappedDeviceBufferSizeInFramesCapture);
         }
-
-        hr = ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.", ma_result_from_HRESULT(hr));
-        }
-
-        /* The audio client needs to be reset otherwise restarting will fail. */
-        hr = ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
-        if (FAILED(hr)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", ma_result_from_HRESULT(hr));
-        }
-
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -15801,57 +15938,21 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
         if (pMappedDeviceBufferPlayback != NULL) {
             hr = ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, mappedDeviceBufferSizeInFramesPlayback, 0);
         }
+    }
 
-        /*
-        The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
-        the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
-        */
-        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
-            /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
-            DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
+    return MA_SUCCESS;
+}
 
-            if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
-            } else {
-                ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
-                ma_uint32 framesAvailablePlayback;
-                for (;;) {
-                    result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
-                    if (result != MA_SUCCESS) {
-                        break;
-                    }
+static ma_result ma_device_data_loop_wakeup__wasapi(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
 
-                    if (framesAvailablePlayback >= pDevice->wasapi.actualPeriodSizeInFramesPlayback) {
-                        break;
-                    }
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        SetEvent((HANDLE)pDevice->wasapi.hEventCapture);
+    }
 
-                    /*
-                    Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
-                    has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
-                    */
-                    if (framesAvailablePlayback == prevFramesAvaialablePlayback) {
-                        break;
-                    }
-                    prevFramesAvaialablePlayback = framesAvailablePlayback;
-
-                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
-                    ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
-                }
-            }
-        }
-
-        hr = ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-        if (FAILED(hr)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal playback device.", ma_result_from_HRESULT(hr));
-        }
-
-        /* The audio client needs to be reset otherwise restarting will fail. */
-        hr = ma_IAudioClient_Reset((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
-        if (FAILED(hr)) {
-            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", ma_result_from_HRESULT(hr));
-        }
-
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        SetEvent((HANDLE)pDevice->wasapi.hEventPlayback);
     }
 
     return MA_SUCCESS;
@@ -15924,11 +16025,12 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
     pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__wasapi;
     pCallbacks->onDeviceInit              = ma_device_init__wasapi;
     pCallbacks->onDeviceUninit            = ma_device_uninit__wasapi;
-    pCallbacks->onDeviceStart             = NULL;                   /* Not used. Started in onDeviceDataLoop. */
-    pCallbacks->onDeviceStop              = ma_device_stop__wasapi; /* Required to ensure the capture event is signalled when stopping a loopback device while nothing is playing. */
+    pCallbacks->onDeviceStart             = ma_device_start__wasapi;
+    pCallbacks->onDeviceStop              = ma_device_stop__wasapi;
     pCallbacks->onDeviceRead              = NULL;                   /* Not used. Reading is done manually in the audio thread. */
     pCallbacks->onDeviceWrite             = NULL;                   /* Not used. Writing is done manually in the audio thread. */
     pCallbacks->onDeviceDataLoop          = ma_device_data_loop__wasapi;
+    pCallbacks->onDeviceDataLoopWakeup    = ma_device_data_loop_wakeup__wasapi;
 
     return result;
 }
