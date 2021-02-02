@@ -25710,21 +25710,19 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
         } break;
     }
 
-    if (reason == AVAudioSessionRouteChangeReasonNewDeviceAvailable || reason == AVAudioSessionRouteChangeReasonCategoryChange || reason == AVAudioSessionRouteChangeReasonOverride) {
-    #if defined(MA_DEBUG_OUTPUT)
-        printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
-    #endif
+#if defined(MA_DEBUG_OUTPUT)
+    printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
+#endif
 
-        m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
+    m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
 
-        if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-            m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
-            ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
-        }
-        if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-            m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
-            ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
-        }
+    if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
+        m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
+        ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
+    }
+    if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
+        m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
+        ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
     }
 }
 @end
