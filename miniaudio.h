@@ -64158,8 +64158,10 @@ v0.10.32 - TBD
     - OSS
     - audio(4)
     - sndio
-  - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
+  - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
+  - Update to latest version of c89atomic.
+  
 
 v0.10.31 - 2021-01-17
   - Make some functions const correct.
