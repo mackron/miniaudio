@@ -64156,6 +64156,8 @@ v0.10.32 - TBD
     - AAudio
     - OpenSL|ES
     - OSS
+    - audio(4)
+    - sndio
   - Update to latest version of c89atomic.
   - Fix a bug where thread handles are not being freed.
 
