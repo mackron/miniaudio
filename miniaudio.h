@@ -25716,7 +25716,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
     ma_uint32 previousState = ma_device_get_state(m_pDevice);
 
-    if (previousState == MA_DEVICE_STARTED) {
+    if (previousState == MA_STATE_STARTED) {
         ma_device_stop(m_pDevice);
     }
 
@@ -25731,7 +25731,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
         ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
     }
 
-    if (previousState == MA_DEVICE_STARTED) {
+    if (previousState == MA_STATE_STARTED) {
         ma_device_start(m_pDevice);
     }
 }
