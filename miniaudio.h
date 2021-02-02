@@ -25714,15 +25714,25 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
 #endif
 
-    m_pDevice->sampleRate = (ma_uint32)pSession.sampleRate;
+    ma_uint32 previousState = ma_device_get_state(m_pDevice);
+
+    if (previousState == MA_DEVICE_STARTED) {
+        ma_device_stop(m_pDevice);
+    }
 
     if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->capture.internalChannels = (ma_uint32)pSession.inputNumberOfChannels;
+        m_pDevice->capture.internalChannels   = (ma_uint32)pSession.inputNumberOfChannels;
+        m_pDevice->capture.internalSampleRate = (ma_uint32)pSession.sampleRate;
         ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
     }
     if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->playback.internalChannels = (ma_uint32)pSession.outputNumberOfChannels;
+        m_pDevice->playback.internalChannels   = (ma_uint32)pSession.outputNumberOfChannels;
+        m_pDevice->playback.internalSampleRate = (ma_uint32)pSession.sampleRate;
         ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
+    }
+
+    if (previousState == MA_DEVICE_STARTED) {
+        ma_device_start(m_pDevice);
     }
 }
 @end
