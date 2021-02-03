@@ -13847,7 +13847,11 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve mix format for device info retrieval.", ma_result_from_HRESULT(hr));
     }
 
-    /* Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on UWP. */
+    /*
+    Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on
+    UWP. Failure to retrieve the exclusive mode format is not considered an error, so from here
+    on out, MA_SUCCESS is guaranteed to be returned.
+    */
 #ifdef MA_WIN32_DESKTOP
     /*
     The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
@@ -13876,14 +13880,6 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
                 */
                 ma_uint32 channels = pInfo->minChannels;
-                ma_format formatsToSearch[] = {
-                    ma_format_s16,
-                    ma_format_s24,
-                    /*ma_format_s24_32,*/
-                    ma_format_f32,
-                    ma_format_s32,
-                    ma_format_u8
-                };
                 ma_channel defaultChannelMap[MA_MAX_CHANNELS];
                 WAVEFORMATEXTENSIBLE wf;
                 ma_bool32 found;
@@ -13903,8 +13899,8 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
 
                 found = MA_FALSE;
-                for (iFormat = 0; iFormat < ma_countof(formatsToSearch); ++iFormat) {
-                    ma_format format = formatsToSearch[iFormat];
+                for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
+                    ma_format format = g_maFormatPriorities[iFormat];
                     ma_uint32 iSampleRate;
 
                     wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
@@ -13937,17 +13933,17 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
 
                 if (!found) {
                     ma_IPropertyStore_Release(pProperties);
-                    return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
+                    ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
                 }
             }
         } else {
             ma_IPropertyStore_Release(pProperties);
-            return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
         }
 
         ma_IPropertyStore_Release(pProperties);
     } else {
-        return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
+        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
     }
 #endif
 
@@ -64161,7 +64157,6 @@ v0.10.32 - TBD
   - Fix a bug where thread handles are not being freed.
   - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
   - Update to latest version of c89atomic.
-  
 
 v0.10.31 - 2021-01-17
   - Make some functions const correct.
