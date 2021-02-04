@@ -5105,7 +5105,7 @@ pDevice (in)
 
 Return Value
 ------------
-MA_SUCCESS if successful; any other error code otherwise.
+Nothing
 
 
 Thread Safety
