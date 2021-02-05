@@ -1109,7 +1109,7 @@ typedef struct
             ma_uint16 code;
             ma_uint16 slot;
             ma_uint32 refcount;
-        };
+        } breakup;
         ma_uint64 allocation;
     } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
     ma_uint64 next;     /* refcount + slot for the next item. Does not include the job code. */
@@ -4932,9 +4932,9 @@ MA_API ma_job ma_job_init(ma_uint16 code)
     ma_job job;
     
     MA_ZERO_OBJECT(&job);
-    job.toc.code = code;
-    job.toc.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
-    job.next     = MA_JOB_ID_NONE;
+    job.toc.breakup.code = code;
+    job.toc.breakup.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
+    job.next             = MA_JOB_ID_NONE;
 
     return job;
 }
@@ -5005,10 +5005,10 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
     MA_ASSERT(ma_job_extract_slot(slot) < MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY);
 
     /* We need to put the job into memory before we do anything. */
-    pQueue->jobs[ma_job_extract_slot(slot)]                = *pJob;
-    pQueue->jobs[ma_job_extract_slot(slot)].toc.allocation = slot;           /* This will overwrite the job code. */
-    pQueue->jobs[ma_job_extract_slot(slot)].toc.code       = pJob->toc.code; /* The job code needs to be applied again because the line above overwrote it. */
-    pQueue->jobs[ma_job_extract_slot(slot)].next           = MA_JOB_ID_NONE; /* Reset for safety. */
+    pQueue->jobs[ma_job_extract_slot(slot)]                  = *pJob;
+    pQueue->jobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
+    pQueue->jobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
+    pQueue->jobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
 
     /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
     for (;;) {
@@ -5079,7 +5079,7 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
     could instead just leave it on the queue, but that would involve fiddling with the lock-free code above and I want to keep that as simple as
     possible.
     */
-    if (pJob->toc.code == MA_JOB_QUIT) {
+    if (pJob->toc.breakup.code == MA_JOB_QUIT) {
         ma_job_queue_post(pQueue, pJob);
         return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
     }
@@ -5648,7 +5648,7 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUser
         }
 
         /* Terminate if we got a quit message. */
-        if (job.toc.code == MA_JOB_QUIT) {
+        if (job.toc.breakup.code == MA_JOB_QUIT) {
             break;
         }
 
@@ -8341,7 +8341,7 @@ MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceM
         return MA_INVALID_ARGS;
     }
 
-    switch (pJob->toc.code)
+    switch (pJob->toc.breakup.code)
     {
         /* Data Buffer */
         case MA_JOB_LOAD_DATA_BUFFER: return ma_resource_manager_process_job__load_data_buffer(pResourceManager, pJob);
