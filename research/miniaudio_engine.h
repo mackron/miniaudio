@@ -1760,6 +1760,7 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
+MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
 MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
@@ -10129,7 +10130,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 c89atomic_exchange_8(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
             }
 
-            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(pSound->engineNode.pEngine));
+            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(ma_sound_get_engine(pSound)));
 
             frameCountIn = (ma_uint32)framesJustRead;
             frameCountOut = framesRemaining;
@@ -11043,6 +11044,15 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
 #endif
 }
 
+MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return NULL;
+    }
+
+    return pSound->engineNode.pEngine;
+}
+
 MA_API ma_result ma_sound_start(ma_sound* pSound)
 {
     if (pSound == NULL) {
@@ -11140,7 +11150,7 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
 
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
 {
-    if (pSound == NULL || listenerIndex >= ma_engine_get_listener_count(pSound->engineNode.pEngine)) {
+    if (pSound == NULL || listenerIndex >= ma_engine_get_listener_count(ma_sound_get_engine(pSound))) {
         return;
     }
 
@@ -11446,7 +11456,7 @@ MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return ma_node_get_state_by_time(pSound, ma_engine_get_time(pSound->engineNode.pEngine)) == ma_node_state_started;
+    return ma_node_get_state_by_time(pSound, ma_engine_get_time(ma_sound_get_engine(pSound))) == ma_node_state_started;
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
