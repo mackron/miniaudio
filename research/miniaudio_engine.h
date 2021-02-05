@@ -2304,14 +2304,12 @@ static ma_bool8 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 
 static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-
-    MA_ASSERT(pNodeBase != NULL);
-    MA_ASSERT(ma_node_get_input_bus_count(pNodeBase)  == 1);
-    MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) == 1);
+    MA_ASSERT(pNode != NULL);
+    MA_ASSERT(ma_node_get_input_bus_count(pNode)  == 1);
+    MA_ASSERT(ma_node_get_output_bus_count(pNode) == 1);
 
     /* Input channel count needs to be the same as the output channel count. */
-    MA_ASSERT(ma_node_get_input_channels(pNodeBase, 0) == ma_node_get_output_channels(pNodeBase, 0));
+    MA_ASSERT(ma_node_get_input_channels(pNode, 0) == ma_node_get_output_channels(pNode, 0));
 
     /* We don't need to do anything here because it's a passthrough. */
     (void)pNode;
@@ -2323,7 +2321,7 @@ static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const floa
 #if 0
     /* The data has already been mixed. We just need to move it to the output buffer. */
     if (ppFramesIn != NULL) {
-        ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNodeBase, 0));
+        ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNode, 0));
     }
 #endif
 }
