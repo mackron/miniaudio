@@ -13832,9 +13832,6 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
 {
     HRESULT hr;
     WAVEFORMATEX* pWF = NULL;
-#ifdef MA_WIN32_DESKTOP
-    ma_IPropertyStore *pProperties;
-#endif
 
     MA_ASSERT(pAudioClient != NULL);
     MA_ASSERT(pInfo != NULL);
@@ -13848,102 +13845,106 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     }
 
     /*
-    Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently support on
-    UWP. Failure to retrieve the exclusive mode format is not considered an error, so from here
-    on out, MA_SUCCESS is guaranteed to be returned.
+    Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently supported on
+    UWP. Failure to retrieve the exclusive mode format is not considered an error, so from here on
+    out, MA_SUCCESS is guaranteed to be returned.
     */
-#ifdef MA_WIN32_DESKTOP
-    /*
-    The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
-    correct which will simplify our searching.
-    */
-    hr = ma_IMMDevice_OpenPropertyStore((ma_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
-    if (SUCCEEDED(hr)) {
-        PROPVARIANT var;
-        ma_PropVariantInit(&var);
+    #ifdef MA_WIN32_DESKTOP
+    {
+        ma_IPropertyStore *pProperties;
 
-        hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
+        /*
+        The first thing to do is get the format from PKEY_AudioEngine_DeviceFormat. This should give us a channel count we assume is
+        correct which will simplify our searching.
+        */
+        hr = ma_IMMDevice_OpenPropertyStore((ma_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
-            pWF = (WAVEFORMATEX*)var.blob.pBlobData;
+            PROPVARIANT var;
+            ma_PropVariantInit(&var);
 
-            /*
-            In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
-            first. If this fails, fall back to a search.
-            */
-            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
+            hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
             if (SUCCEEDED(hr)) {
-                /* The format returned by PKEY_AudioEngine_DeviceFormat is supported. */
-                ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
-            } else {
+                pWF = (WAVEFORMATEX*)var.blob.pBlobData;
+
                 /*
-                The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
-                count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
+                In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
+                first. If this fails, fall back to a search.
                 */
-                ma_uint32 channels = pInfo->minChannels;
-                ma_channel defaultChannelMap[MA_MAX_CHANNELS];
-                WAVEFORMATEXTENSIBLE wf;
-                ma_bool32 found;
-                ma_uint32 iFormat;
+                hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pWF, NULL);
+                if (SUCCEEDED(hr)) {
+                    /* The format returned by PKEY_AudioEngine_DeviceFormat is supported. */
+                    ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_exclusive, pInfo);
+                } else {
+                    /*
+                    The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
+                    count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
+                    */
+                    ma_uint32 channels = pInfo->minChannels;
+                    ma_channel defaultChannelMap[MA_MAX_CHANNELS];
+                    WAVEFORMATEXTENSIBLE wf;
+                    ma_bool32 found;
+                    ma_uint32 iFormat;
 
-                /* Make sure we don't overflow the channel map. */
-                if (channels > MA_MAX_CHANNELS) {
-                    channels = MA_MAX_CHANNELS;
-                }
-
-                ma_get_standard_channel_map(ma_standard_channel_map_microsoft, channels, defaultChannelMap);
-
-                MA_ZERO_OBJECT(&wf);
-                wf.Format.cbSize     = sizeof(wf);
-                wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-                wf.Format.nChannels  = (WORD)channels;
-                wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
-
-                found = MA_FALSE;
-                for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
-                    ma_format format = g_maFormatPriorities[iFormat];
-                    ma_uint32 iSampleRate;
-
-                    wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
-                    wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
-                    wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-                    wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
-                    if (format == ma_format_f32) {
-                        wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-                    } else {
-                        wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+                    /* Make sure we don't overflow the channel map. */
+                    if (channels > MA_MAX_CHANNELS) {
+                        channels = MA_MAX_CHANNELS;
                     }
 
-                    for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
-                        wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
+                    ma_get_standard_channel_map(ma_standard_channel_map_microsoft, channels, defaultChannelMap);
 
-                        hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
-                        if (SUCCEEDED(hr)) {
-                            ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
-                            found = MA_TRUE;
+                    MA_ZERO_OBJECT(&wf);
+                    wf.Format.cbSize     = sizeof(wf);
+                    wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+                    wf.Format.nChannels  = (WORD)channels;
+                    wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
+
+                    found = MA_FALSE;
+                    for (iFormat = 0; iFormat < ma_countof(g_maFormatPriorities); ++iFormat) {
+                        ma_format format = g_maFormatPriorities[iFormat];
+                        ma_uint32 iSampleRate;
+
+                        wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
+                        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
+                        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+                        wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
+                        if (format == ma_format_f32) {
+                            wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+                        } else {
+                            wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
+                        }
+
+                        for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
+                            wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
+
+                            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+                            if (SUCCEEDED(hr)) {
+                                ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
+                                found = MA_TRUE;
+                                break;
+                            }
+                        }
+
+                        if (found) {
                             break;
                         }
                     }
 
-                    if (found) {
-                        break;
+                    ma_PropVariantClear(pContext, &var);
+
+                    if (!found) {
+                        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
                     }
                 }
-
-                ma_PropVariantClear(pContext, &var);
-
-                if (!found) {
-                    ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
-                }
+            } else {
+                ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
             }
-        } else {
-            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
-        }
 
-        ma_IPropertyStore_Release(pProperties);
-    } else {
-        ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
+            ma_IPropertyStore_Release(pProperties);
+        } else {
+            ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to open property store for device info retrieval.", ma_result_from_HRESULT(hr));
+        }
     }
-#endif
+    #endif
 
     return MA_SUCCESS;
 }
@@ -64151,7 +64152,12 @@ REVISION HISTORY
 ================
 v0.10.32 - TBD
   - WASAPI: Fix a deadlock in exclusive mode.
+  - WASAPI: No longer return an error from ma_context_get_device_info() when an exclusive mode format
+    cannot be retrieved.
   - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
+  - Fix a bug where thread handles are not being freed.
+  - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
+  - Update to latest version of c89atomic.
   - Internal refactoring to migrate over to the new backend callback system for the following backends:
     - PulseAudio
     - ALSA
@@ -64161,9 +64167,6 @@ v0.10.32 - TBD
     - OSS
     - audio(4)
     - sndio
-  - Fix a bug where thread handles are not being freed.
-  - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
-  - Update to latest version of c89atomic.
 
 v0.10.31 - 2021-01-17
   - Make some functions const correct.
