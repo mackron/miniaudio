@@ -895,6 +895,7 @@ MA_API ma_result ma_node_set_state(ma_node* pNode, ma_node_state state);
 MA_API ma_node_state ma_node_get_state(const ma_node* pNode);
 MA_API ma_result ma_node_set_state_time(ma_node* pNode, ma_node_state state, ma_uint64 globalTime);
 MA_API ma_uint64 ma_node_get_state_time(const ma_node* pNode, ma_node_state state);
+MA_API ma_node_state ma_node_get_state_by_time(const ma_node* pNode, ma_uint64 globalTime);
 MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_uint64 globalTimeBeg, ma_uint64 globalTimeEnd);
 MA_API ma_uint64 ma_node_get_time(const ma_node* pNode);
 MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
@@ -3350,6 +3351,15 @@ MA_API ma_uint64 ma_node_get_state_time(const ma_node* pNode, ma_node_state stat
     }
 
     return c89atomic_load_64(&((ma_node_base*)pNode)->stateTimes[state]);
+}
+
+MA_API ma_node_state ma_node_get_state_by_time(const ma_node* pNode, ma_uint64 globalTime)
+{
+    if (pNode == NULL) {
+        return ma_node_state_stopped;
+    }
+
+    return ma_node_get_state_by_time_range(pNode, globalTime, globalTime);
 }
 
 MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_uint64 globalTimeBeg, ma_uint64 globalTimeEnd)
@@ -11438,7 +11448,7 @@ MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return ma_node_get_state(pSound) == ma_node_state_started;
+    return ma_node_get_state_by_time(pSound, ma_engine_get_time(pSound->engineNode.pEngine)) == ma_node_state_started;
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
