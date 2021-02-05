@@ -13932,12 +13932,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                 ma_PropVariantClear(pContext, &var);
 
                 if (!found) {
-                    ma_IPropertyStore_Release(pProperties);
                     ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to find suitable device format for device info retrieval.", MA_FORMAT_NOT_SUPPORTED);
                 }
             }
         } else {
-            ma_IPropertyStore_Release(pProperties);
             ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to retrieve device format for device info retrieval.", ma_result_from_HRESULT(hr));
         }
 
