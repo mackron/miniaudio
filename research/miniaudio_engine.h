@@ -10397,6 +10397,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
         deviceConfig = ma_device_config_init(ma_device_type_playback);
         deviceConfig.playback.pDeviceID       = engineConfig.pPlaybackDeviceID;
+        deviceConfig.playback.format          = ma_format_f32;
         deviceConfig.playback.channels        = engineConfig.channels;
         deviceConfig.sampleRate               = engineConfig.sampleRate;
         deviceConfig.dataCallback             = ma_engine_data_callback_internal;
