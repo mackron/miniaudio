@@ -3386,11 +3386,11 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
     it's start time not having been reached yet. Also, the stop time may have also been reached in
     which case it'll be considered stopped.
     */
-    if (ma_node_get_state_time(pNode, ma_node_state_started) >= globalTimeEnd) {
+    if (ma_node_get_state_time(pNode, ma_node_state_started) > globalTimeBeg) {
         return ma_node_state_stopped;   /* Start time has not yet been reached. */
     }
 
-    if (ma_node_get_state_time(pNode, ma_node_state_stopped) <= globalTimeBeg) {
+    if (ma_node_get_state_time(pNode, ma_node_state_stopped) <= globalTimeEnd) {
         return ma_node_state_stopped;   /* Stop time has been reached. */
     }
 
