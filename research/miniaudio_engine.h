@@ -10355,7 +10355,33 @@ MA_API ma_engine_config ma_engine_config_init_default(void)
 
 static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
-    ma_engine_data_callback((ma_engine*)pDevice->pUserData, pFramesOut, pFramesIn, frameCount);
+    ma_engine* pEngine = (ma_engine*)pDevice->pUserData;
+
+    /*
+    Experiment: Try processing a resource manager job if we're on the Emscripten build.
+
+    This serves two purposes:
+
+        1) It ensures jobs are actually processed at some point since we cannot guarantee that the
+           caller is doing the right thing and calling ma_resource_manager_process_next_job(); and
+
+        2) It's an attempt at working around an issue where processing jobs on the Emscripten main
+           loop doesn't work as well as it should. When trying to load sounds without the `DECODE`
+           flag or with the `ASYNC` flag, the sound data is just not able to be loaded in time
+           before the callback is processed. I think it's got something to do with the single-
+           threaded nature of Web, but I'm not entirely sure.
+    */
+    #if !defined(MA_NO_RESOURCE_MANAGER) && defined(MA_EMSCRIPTEN)
+    {
+        if (pEngine->pResourceManager != NULL) {
+            if ((pEngine->pResourceManager->config.flags & MA_RESOURCE_MANAGER_FLAG_NO_THREADING) != 0) {
+                ma_resource_manager_process_next_job(pEngine->pResourceManager);
+            }
+        }
+    }
+    #endif
+
+    ma_engine_data_callback(pEngine, pFramesOut, pFramesIn, frameCount);
 }
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine)
