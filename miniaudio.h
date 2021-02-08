@@ -31613,6 +31613,26 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
             miniaudio.get_device_by_index = function(deviceIndex) {
                 return miniaudio.devices[deviceIndex];
             };
+
+            miniaudio.unlock_event_types = (function(){
+                return ['touchstart', 'touchend', 'click'];
+            })();
+
+            miniaudio.unlock = function() {
+                for(var i = 0; i < miniaudio.devices.length; ++i) {
+                    var device = miniaudio.devices[i];
+                    if (device != null && device.webaudio != null) {
+                        device.webaudio.resume();
+                    }
+                }
+                miniaudio.unlock_event_types.map(function(event_type) {
+                    document.removeEventListener(event_type, miniaudio.unlock, true);
+                });
+            };
+
+            miniaudio.unlock_event_types.map(function(event_type) {
+                document.addEventListener(event_type, miniaudio.unlock, true);
+            });
         }
 
         return 1;
