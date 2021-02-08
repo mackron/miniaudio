@@ -31271,7 +31271,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
     /* We're going to calculate some stuff in C just to simplify the JS code. */
     channels           = (pDescriptor->channels   > 0) ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
     sampleRate         = (pDescriptor->sampleRate > 0) ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
-    periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__webaudio(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile);
+    periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__webaudio(pDescriptor, sampleRate, pConfig->performanceProfile);
 
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
