@@ -31271,7 +31271,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
     /* We're going to calculate some stuff in C just to simplify the JS code. */
     channels           = (pDescriptor->channels   > 0) ? pDescriptor->channels   : MA_DEFAULT_CHANNELS;
     sampleRate         = (pDescriptor->sampleRate > 0) ? pDescriptor->sampleRate : MA_DEFAULT_SAMPLE_RATE;
-    periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__webaudio(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile);
+    periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__webaudio(pDescriptor, sampleRate, pConfig->performanceProfile);
 
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
@@ -31291,6 +31291,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         /* The AudioContext must be created in a suspended state. */
         device.webaudio = new (window.AudioContext || window.webkitAudioContext)({sampleRate:sampleRate});
         device.webaudio.suspend();
+        device.state = 1; /* MA_STATE_STOPPED */
 
         /*
         We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. Because it's passed between
@@ -31498,13 +31499,17 @@ static ma_result ma_device_start__webaudio(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            miniaudio.get_device_by_index($0).webaudio.resume();
+            var device = miniaudio.get_device_by_index($0);
+            device.webaudio.resume();
+            device.state = 2; /* MA_STATE_STARTED */
         }, pDevice->webaudio.indexCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            miniaudio.get_device_by_index($0).webaudio.resume();
+            var device = miniaudio.get_device_by_index($0);
+            device.webaudio.resume();
+            device.state = 2; /* MA_STATE_STARTED */
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -31527,13 +31532,17 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            miniaudio.get_device_by_index($0).webaudio.suspend();
+            var device = miniaudio.get_device_by_index($0);
+            device.webaudio.suspend();
+            device.state = 1; /* MA_STATE_STOPPED */
         }, pDevice->webaudio.indexCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         EM_ASM({
-            miniaudio.get_device_by_index($0).webaudio.suspend();
+            var device = miniaudio.get_device_by_index($0);
+            device.webaudio.suspend();
+            device.state = 1; /* MA_STATE_STOPPED */
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -31613,6 +31622,26 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
             miniaudio.get_device_by_index = function(deviceIndex) {
                 return miniaudio.devices[deviceIndex];
             };
+
+            miniaudio.unlock_event_types = (function(){
+                return ['touchstart', 'touchend', 'click'];
+            })();
+
+            miniaudio.unlock = function() {
+                for(var i = 0; i < miniaudio.devices.length; ++i) {
+                    var device = miniaudio.devices[i];
+                    if (device != null && device.webaudio != null && device.state === 2 /* MA_STATE_STARTED */) {
+                        device.webaudio.resume();
+                    }
+                }
+                miniaudio.unlock_event_types.map(function(event_type) {
+                    document.removeEventListener(event_type, miniaudio.unlock, true);
+                });
+            };
+
+            miniaudio.unlock_event_types.map(function(event_type) {
+                document.addEventListener(event_type, miniaudio.unlock, true);
+            });
         }
 
         return 1;
