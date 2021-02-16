@@ -26653,7 +26653,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
         data.sampleRateIn                   = pDescriptorPlayback->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pDescriptorPlayback->channelMap, sizeof(pDescriptorPlayback->channelMap));
         data.shareMode                      = pDescriptorPlayback->shareMode;
-        data.shareMode                      = pDescriptorPlayback->shareMode;
+        data.performanceProfile             = pConfig->performanceProfile;
 
         /* In full-duplex mode we want the playback buffer to be the same size as the capture buffer. */
         if (pConfig->deviceType == ma_device_type_duplex) {
