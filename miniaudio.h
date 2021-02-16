@@ -64184,6 +64184,9 @@ v0.10.32 - TBD
   - WASAPI: No longer return an error from ma_context_get_device_info() when an exclusive mode format
     cannot be retrieved.
   - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
+  - Web Audio: Fix a bug on Chrome and any other browser using the same engine.
+  - Web Audio: Automatically start the device on some user input if the device has been started. This
+    is to work around Google's policy of not starting audio if no user input has yet been performed.
   - Fix a bug where thread handles are not being freed.
   - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
   - Update to latest version of c89atomic.
