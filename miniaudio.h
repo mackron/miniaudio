@@ -25653,7 +25653,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
 -(void)remove_handler
 {
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"AVAudioSessionRouteChangeNotification" object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionRouteChangeNotification object:nil];
 }
 
 -(void)handle_route_change:(NSNotification*)pNotification
