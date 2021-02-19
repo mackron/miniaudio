@@ -9300,6 +9300,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         float speedOfSound;
         float distance = 0;
         float gain = 1;
+        ma_uint32 iChannel;
+        float channelGainsOut[MA_MAX_CHANNELS];
 
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
@@ -9490,8 +9492,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         MA_ASSERT(pChannelMapOut != NULL);
 
         /*
-        We're not converting to mono so we'll want to apply some panning. This where the feeling of something being to
-        the left, right, infront or behind the listener is calculated. I'm just using a basic model here. Note that
+        We're not converting to mono so we'll want to apply some panning. This is where the feeling of something being
+        to the left, right, infront or behind the listener is calculated. I'm just using a basic model here. Note that
         the code below is not based on any specific algorithm. I'm just implementing this off the top of my head and
         seeing how it goes. There might be better ways to do this.
 
@@ -9500,9 +9502,6 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         be +1 on the X axis. A dot product is performed against the direction vector of the channel and the normalized
         position of the sound.
         */
-        ma_uint32 iChannel;
-        float channelGainsOut[MA_MAX_CHANNELS];
-
         for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
             channelGainsOut[iChannel] = gain;
         }
