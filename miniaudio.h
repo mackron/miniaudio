@@ -7863,7 +7863,7 @@ static ma_result ma_result_from_errno(int e)
 
 MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpenMode)
 {
-#if _MSC_VER && _MSC_VER >= 1400
+#if defined(_MSC_VER) && _MSC_VER >= 1400
     errno_t err;
 #endif
 
@@ -7875,7 +7875,7 @@ MA_API ma_result ma_fopen(FILE** ppFile, const char* pFilePath, const char* pOpe
         return MA_INVALID_ARGS;
     }
 
-#if _MSC_VER && _MSC_VER >= 1400
+#if defined(_MSC_VER) && _MSC_VER >= 1400
     err = fopen_s(ppFile, pFilePath, pOpenMode);
     if (err != 0) {
         return ma_result_from_errno(err);
@@ -64189,6 +64189,7 @@ v0.10.32 - TBD
     is to work around Google's policy of not starting audio if no user input has yet been performed.
   - Fix a bug where thread handles are not being freed.
   - Fix some static analysis warnings in FLAC, WAV and MP3 decoders.
+  - Fix a warning due to referencing _MSC_VER when it is undefined.
   - Update to latest version of c89atomic.
   - Internal refactoring to migrate over to the new backend callback system for the following backends:
     - PulseAudio
