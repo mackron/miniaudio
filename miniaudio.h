@@ -3588,6 +3588,32 @@ struct ma_context_config
     ma_backend_callbacks custom;
 };
 
+/* WASAPI specific structure for some commands which must run on a common thread due to bugs in WASAPI. */
+typedef struct
+{
+    int code;
+    ma_event* pEvent;   /* This will be signalled when the event is complete. */
+    union
+    {
+        struct
+        {
+            int _unused;
+        } quit;
+        struct
+        {
+            ma_device_type deviceType;
+            void* pAudioClient;
+            void** ppAudioClientService;
+            ma_result result;   /* The result from creating the audio client service. */
+        } createAudioClient;
+        struct
+        {
+            ma_device* pDevice;
+            ma_device_type deviceType;
+        } releaseAudioClient;
+    } data;
+} ma_context_command__wasapi;
+
 struct ma_context
 {
     ma_backend_callbacks callbacks;
@@ -3609,7 +3635,12 @@ struct ma_context
 #ifdef MA_SUPPORT_WASAPI
         struct
         {
-            int _unused;
+            ma_thread commandThread;
+            ma_mutex commandLock;
+            ma_semaphore commandSem;
+            ma_uint32 commandIndex;
+            ma_uint32 commandCount;
+            ma_context_command__wasapi commands[4];
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -13812,6 +13843,187 @@ typedef ma_IUnknown ma_WASAPIDeviceInterface;
 #endif
 
 
+#define MA_CONTEXT_COMMAND_QUIT__WASAPI                 1
+#define MA_CONTEXT_COMMAND_CREATE_IAUDIOCLIENT__WASAPI  2
+#define MA_CONTEXT_COMMAND_RELEASE_IAUDIOCLIENT__WASAPI 3
+
+static ma_context_command__wasapi ma_context_init_command__wasapi(int code)
+{
+    ma_context_command__wasapi cmd;
+    
+    MA_ZERO_OBJECT(&cmd);
+    cmd.code = code;
+
+    return cmd;
+}
+
+static ma_result ma_context_post_command__wasapi(ma_context* pContext, const ma_context_command__wasapi* pCmd)
+{
+    /* For now we are doing everything synchronously, but I might relax this later if the need arises. */
+    ma_result result;
+    ma_bool32 isUsingLocalEvent = MA_FALSE;
+    ma_event localEvent;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pCmd     != NULL);
+
+    if (pCmd->pEvent == NULL) {
+        isUsingLocalEvent = MA_TRUE;
+
+        result = ma_event_init(&localEvent);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to create the event for this command. */
+        }
+    }
+
+    /* Here is where we add the command to the list. If there's not enough room we'll spin until there is. */
+    ma_mutex_lock(&pContext->wasapi.commandLock);
+    {
+        ma_uint32 index;
+
+        /* Spin until we've got some space available. */
+        while (pContext->wasapi.commandCount == ma_countof(pContext->wasapi.commands)) {
+            ma_yield();
+        }
+
+        /* Space is now available. Can safely add to the list. */
+        index = (pContext->wasapi.commandIndex + pContext->wasapi.commandCount) % ma_countof(pContext->wasapi.commands);
+        pContext->wasapi.commands[index]        = *pCmd;
+        pContext->wasapi.commands[index].pEvent = &localEvent;
+        pContext->wasapi.commandCount += 1;
+
+        /* Now that the command has been added, release the semaphore so ma_context_next_command__wasapi() can return. */
+        ma_semaphore_release(&pContext->wasapi.commandSem);
+    }
+    ma_mutex_unlock(&pContext->wasapi.commandLock);    
+
+    if (isUsingLocalEvent) {
+        ma_event_wait(&localEvent);
+        ma_event_uninit(&localEvent);
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_context_next_command__wasapi(ma_context* pContext, ma_context_command__wasapi* pCmd)
+{
+    ma_result result = MA_SUCCESS;
+
+    MA_ASSERT(pContext != NULL);
+    MA_ASSERT(pCmd     != NULL);
+
+    result = ma_semaphore_wait(&pContext->wasapi.commandSem);
+    if (result == MA_SUCCESS) {
+        ma_mutex_lock(&pContext->wasapi.commandLock);
+        {
+            *pCmd = pContext->wasapi.commands[pContext->wasapi.commandIndex];
+            pContext->wasapi.commandIndex  = (pContext->wasapi.commandIndex + 1) % ma_countof(pContext->wasapi.commands);
+            pContext->wasapi.commandCount -= 1;
+        }
+        ma_mutex_unlock(&pContext->wasapi.commandLock);
+    }    
+
+    return result;
+}
+
+static ma_thread_result MA_THREADCALL ma_context_command_thread__wasapi(void* pUserData)
+{
+    ma_result result;
+    ma_context* pContext = (ma_context*)pUserData;
+    MA_ASSERT(pContext != NULL);
+
+    for (;;) {
+        ma_context_command__wasapi cmd;
+        result = ma_context_next_command__wasapi(pContext, &cmd);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        switch (cmd.code)
+        {
+            case MA_CONTEXT_COMMAND_QUIT__WASAPI:
+            {
+                /* Do nothing. Handled after the switch. */
+            } break;
+
+            case MA_CONTEXT_COMMAND_CREATE_IAUDIOCLIENT__WASAPI:
+            {
+                if (cmd.data.createAudioClient.deviceType == ma_device_type_playback) {
+                    result = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioRenderClient, cmd.data.createAudioClient.ppAudioClientService));
+                } else {
+                    result = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioCaptureClient, cmd.data.createAudioClient.ppAudioClientService));
+                }
+            } break;
+
+            case MA_CONTEXT_COMMAND_RELEASE_IAUDIOCLIENT__WASAPI:
+            {
+                if (cmd.data.releaseAudioClient.deviceType == ma_device_type_playback) { 
+                    if (cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientPlayback != NULL) {
+                        ma_IAudioClient_Release((ma_IAudioClient*)cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientPlayback);
+                        cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientPlayback = NULL;
+                    }
+                }
+
+                if (cmd.data.releaseAudioClient.deviceType == ma_device_type_capture) {
+                    if (cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientCapture != NULL) {
+                        ma_IAudioClient_Release((ma_IAudioClient*)cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientCapture);
+                        cmd.data.releaseAudioClient.pDevice->wasapi.pAudioClientCapture = NULL;
+                    }
+                }
+            } break;
+
+            default:
+            {
+                /* Unknown command. Ignore it, but trigger an assert in debug mode so we're aware of it. */
+                MA_ASSERT(MA_FALSE);
+            } break;
+        }
+
+        if (cmd.pEvent != NULL) {
+            ma_event_signal(cmd.pEvent);
+        }
+
+        if (cmd.code == MA_CONTEXT_COMMAND_QUIT__WASAPI) {
+            break;  /* Received a quit message. Get out of here. */
+        }
+    }
+
+    return (ma_thread_result)0;
+}
+
+static ma_result ma_device_create_IAudioClient_service__wasapi(ma_context* pContext, ma_device_type deviceType, ma_IAudioClient* pAudioClient, void** ppAudioClientService)
+{
+    ma_result result;
+    ma_context_command__wasapi cmd = ma_context_init_command__wasapi(MA_CONTEXT_COMMAND_CREATE_IAUDIOCLIENT__WASAPI);
+    cmd.data.createAudioClient.deviceType           = deviceType;
+    cmd.data.createAudioClient.pAudioClient         = (void*)pAudioClient;
+    cmd.data.createAudioClient.ppAudioClientService = ppAudioClientService;
+    cmd.data.createAudioClient.result               = MA_SUCCESS;
+    
+    result = ma_context_post_command__wasapi(pContext, &cmd);  /* This will not return until the command has actually been run. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return cmd.data.createAudioClient.result;
+}
+
+static ma_result ma_device_release_IAudioClient_service__wasapi(ma_device* pDevice, ma_device_type deviceType)
+{
+    ma_result result;
+    ma_context_command__wasapi cmd = ma_context_init_command__wasapi(MA_CONTEXT_COMMAND_RELEASE_IAUDIOCLIENT__WASAPI);
+    cmd.data.releaseAudioClient.pDevice    = pDevice;
+    cmd.data.releaseAudioClient.deviceType = deviceType;
+
+    result = ma_context_post_command__wasapi(pDevice->pContext, &cmd);  /* This will not return until the command has actually been run. */
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+
 static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
 {
     MA_ASSERT(pWF != NULL);
@@ -14832,14 +15044,16 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
     pData->usingAudioClient3 = wasInitializedUsingIAudioClient3;
 
+    
     if (deviceType == ma_device_type_playback) {
-        hr = ma_IAudioClient_GetService((ma_IAudioClient*)pData->pAudioClient, &MA_IID_IAudioRenderClient, (void**)&pData->pRenderClient);
+        result = ma_device_create_IAudioClient_service__wasapi(pContext, deviceType, (ma_IAudioClient*)pData->pAudioClient, (void**)&pData->pRenderClient);
     } else {
-        hr = ma_IAudioClient_GetService((ma_IAudioClient*)pData->pAudioClient, &MA_IID_IAudioCaptureClient, (void**)&pData->pCaptureClient);
+        result = ma_device_create_IAudioClient_service__wasapi(pContext, deviceType, (ma_IAudioClient*)pData->pAudioClient, (void**)&pData->pCaptureClient);
     }
 
-    if (FAILED(hr)) {
-        errorMsg = "[WASAPI] Failed to get audio client service.", result = ma_result_from_HRESULT(hr);
+    /*if (FAILED(hr)) {*/
+    if (result != MA_SUCCESS) {
+        errorMsg = "[WASAPI] Failed to get audio client service.";
         goto done;
     }
 
@@ -14928,6 +15142,42 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         return MA_INVALID_ARGS;
     }
 
+
+    /*
+    Before reinitializing the device we need to free the previous audio clients.
+
+    There's a known memory leak here. We will be calling this from the routing change callback that
+    is fired by WASAPI. If we attempt to release the IAudioClient we will deadlock. In my opinion
+    this is a bug. I'm not sure what I need to do to handle this cleanly, but I think we'll probably
+    need some system where we post an event, but delay the execution of it until the callback has
+    returned. I'm not sure how to do this reliably, however. I have set up some infrastructure for
+    a command thread which might be useful for this.
+    */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
+        if (pDevice->wasapi.pCaptureClient) {
+            ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
+            pDevice->wasapi.pCaptureClient = NULL;
+        }
+
+        if (pDevice->wasapi.pAudioClientCapture) {
+            /*ma_device_release_IAudioClient_service__wasapi(pDevice, ma_device_type_capture);*/
+            pDevice->wasapi.pAudioClientCapture = NULL;
+        }
+    }
+
+    if (deviceType == ma_device_type_playback) {
+        if (pDevice->wasapi.pRenderClient) {
+            ma_IAudioRenderClient_Release((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
+            pDevice->wasapi.pRenderClient = NULL;
+        }
+
+        if (pDevice->wasapi.pAudioClientPlayback) {
+            /*ma_device_release_IAudioClient_service__wasapi(pDevice, ma_device_type_playback);*/
+            pDevice->wasapi.pAudioClientPlayback = NULL;
+        }
+    }
+
+
     if (deviceType == ma_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
         data.channelsIn             = pDevice->playback.channels;
@@ -14955,16 +15205,6 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
 
     /* At this point we have some new objects ready to go. We need to uninitialize the previous ones and then set the new ones. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_loopback) {
-        if (pDevice->wasapi.pCaptureClient) {
-            ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
-            pDevice->wasapi.pCaptureClient = NULL;
-        }
-
-        if (pDevice->wasapi.pAudioClientCapture) {
-            /*ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);*/
-            pDevice->wasapi.pAudioClientCapture = NULL;
-        }
-
         pDevice->wasapi.pAudioClientCapture         = data.pAudioClient;
         pDevice->wasapi.pCaptureClient              = data.pCaptureClient;
 
@@ -14986,16 +15226,6 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     }
 
     if (deviceType == ma_device_type_playback) {
-        if (pDevice->wasapi.pRenderClient) {
-            ma_IAudioRenderClient_Release((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
-            pDevice->wasapi.pRenderClient = NULL;
-        }
-
-        if (pDevice->wasapi.pAudioClientPlayback) {
-            /*ma_IAudioClient_Release((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);*/
-            pDevice->wasapi.pAudioClientPlayback = NULL;
-        }
-
         pDevice->wasapi.pAudioClientPlayback         = data.pAudioClient;
         pDevice->wasapi.pRenderClient                = data.pRenderClient;
 
@@ -15953,11 +16183,21 @@ static ma_result ma_device_data_loop_wakeup__wasapi(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+
 static ma_result ma_context_uninit__wasapi(ma_context* pContext)
 {
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_wasapi);
-    (void)pContext;
+    
+    if (pContext->wasapi.commandThread != NULL) {
+        ma_context_command__wasapi cmd = ma_context_init_command__wasapi(MA_CONTEXT_COMMAND_QUIT__WASAPI);
+        ma_context_post_command__wasapi(pContext, &cmd);
+        ma_thread_wait(&pContext->wasapi.commandThread);
+
+        /* Only after the thread has been terminated can we uninitialize the sync objects for the command thread. */
+        ma_semaphore_uninit(&pContext->wasapi.commandSem);
+        ma_mutex_uninit(&pContext->wasapi.commandLock);
+    }
 
     return MA_SUCCESS;
 }
@@ -16014,6 +16254,52 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         return result;
     }
 
+    /*
+    Annoyingly, WASAPI does not allow you to release an IAudioClient object from a different thread
+    than the one that retrieved it with GetService(). This can result in a deadlock in two
+    situations:
+
+        1) When calling ma_device_uninit() from a different thread to ma_device_init(); and
+        2) When uninitializing and reinitializing the internal IAudioClient object in response to
+           automatic stream routing.
+
+    We could define ma_device_uninit() such that it must be called on the same thread as
+    ma_device_init(). We could also just not release the IAudioClient when performing automatic
+    stream routing to avoid the deadlock. Neither of these are acceptable solutions in my view so
+    we're going to have to work around this with a worker thread. This is not ideal, but I can't
+    think of a better way to do this.
+
+    More information about this can be found here:
+
+        https://docs.microsoft.com/en-us/windows/win32/api/audioclient/nn-audioclient-iaudiorenderclient
+
+    Note this section:
+
+        When releasing an IAudioRenderClient interface instance, the client must call the interface's
+        Release method from the same thread as the call to IAudioClient::GetService that created the
+        object.
+    */
+    {
+        result = ma_mutex_init(&pContext->wasapi.commandLock);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_semaphore_init(0, &pContext->wasapi.commandSem);
+        if (result != MA_SUCCESS) {
+            ma_mutex_uninit(&pContext->wasapi.commandLock);
+            return result;
+        }
+
+        result = ma_thread_create(&pContext->wasapi.commandThread, ma_thread_priority_normal, 0, ma_context_command_thread__wasapi, pContext);
+        if (result != MA_SUCCESS) {
+            ma_semaphore_uninit(&pContext->wasapi.commandSem);
+            ma_mutex_uninit(&pContext->wasapi.commandLock);
+            return result;
+        }
+    }
+
+
     pCallbacks->onContextInit             = ma_context_init__wasapi;
     pCallbacks->onContextUninit           = ma_context_uninit__wasapi;
     pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__wasapi;
@@ -16027,7 +16313,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceDataLoop          = ma_device_data_loop__wasapi;
     pCallbacks->onDeviceDataLoopWakeup    = ma_device_data_loop_wakeup__wasapi;
 
-    return result;
+    return MA_SUCCESS;
 }
 #endif
 
@@ -64185,6 +64471,7 @@ v0.10.32 - TBD
   - WASAPI: Fix a deadlock in exclusive mode.
   - WASAPI: No longer return an error from ma_context_get_device_info() when an exclusive mode format
     cannot be retrieved.
+  - WASAPI: Attempt to fix some bugs with device uninitialization.
   - PulseAudio: Yet another refactor, this time to remove the dependency on `pa_threaded_mainloop`.
   - Web Audio: Fix a bug on Chrome and any other browser using the same engine.
   - Web Audio: Automatically start the device on some user input if the device has been started. This
