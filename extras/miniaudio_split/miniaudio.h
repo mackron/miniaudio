@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.31 - 2020-01-17
+miniaudio - v0.10.32 - 2020-02-23
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 31
+#define MA_VERSION_REVISION 32
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -359,28 +359,11 @@ typedef int ma_result;
 #define MA_FAILED_TO_STOP_BACKEND_DEVICE               -303
 
 
-/* Standard sample rates. */
-#define MA_SAMPLE_RATE_8000                            8000
-#define MA_SAMPLE_RATE_11025                           11025
-#define MA_SAMPLE_RATE_16000                           16000
-#define MA_SAMPLE_RATE_22050                           22050
-#define MA_SAMPLE_RATE_24000                           24000
-#define MA_SAMPLE_RATE_32000                           32000
-#define MA_SAMPLE_RATE_44100                           44100
-#define MA_SAMPLE_RATE_48000                           48000
-#define MA_SAMPLE_RATE_88200                           88200
-#define MA_SAMPLE_RATE_96000                           96000
-#define MA_SAMPLE_RATE_176400                          176400
-#define MA_SAMPLE_RATE_192000                          192000
-#define MA_SAMPLE_RATE_352800                          352800
-#define MA_SAMPLE_RATE_384000                          384000
-
 #define MA_MIN_CHANNELS                                1
 #ifndef MA_MAX_CHANNELS
 #define MA_MAX_CHANNELS                                32
 #endif
-#define MA_MIN_SAMPLE_RATE                             MA_SAMPLE_RATE_8000
-#define MA_MAX_SAMPLE_RATE                             MA_SAMPLE_RATE_384000
+
 
 #ifndef MA_MAX_FILTER_ORDER
 #define MA_MAX_FILTER_ORDER                            8
@@ -418,6 +401,38 @@ typedef enum
     ma_format_f32     = 5,
     ma_format_count
 } ma_format;
+
+typedef enum
+{
+    /* Standard rates need to be in priority order. */
+    ma_standard_sample_rate_48000  = 48000,     /* Most common */
+    ma_standard_sample_rate_44100  = 44100,
+
+    ma_standard_sample_rate_32000  = 32000,     /* Lows */
+    ma_standard_sample_rate_24000  = 24000,
+    ma_standard_sample_rate_22050  = 22050,
+    
+    ma_standard_sample_rate_88200  = 88200,     /* Highs */
+    ma_standard_sample_rate_96000  = 96000,
+    ma_standard_sample_rate_176400 = 176400,
+    ma_standard_sample_rate_192000 = 192000,
+
+    ma_standard_sample_rate_16000  = 16000,     /* Extreme lows */
+    ma_standard_sample_rate_11025  = 11250,
+    ma_standard_sample_rate_8000   = 8000,
+
+    ma_standard_sample_rate_352800 = 352800,    /* Extreme highs */
+    ma_standard_sample_rate_384000 = 384000,
+
+    ma_standard_sample_rate_min    = ma_standard_sample_rate_8000,
+    ma_standard_sample_rate_max    = ma_standard_sample_rate_384000,
+    ma_standard_sample_rate_count  = 14         /* Need to maintain the count manually. Make sure this is updated if items are added to enum. */
+} ma_standard_sample_rate;
+
+/* These are deprecated. Use ma_standard_sample_rate_min and ma_standard_sample_rate_max. */
+#define MA_MIN_SAMPLE_RATE  (ma_uint32)ma_standard_sample_rate_min
+#define MA_MAX_SAMPLE_RATE  (ma_uint32)ma_standard_sample_rate_max
+
 
 typedef enum
 {
@@ -476,7 +491,8 @@ typedef enum
     ma_thread_priority_default  =  0
 } ma_thread_priority;
 
-typedef unsigned char ma_spinlock;
+/* Spinlocks are 32-bit for compatibility reasons. */
+typedef ma_uint32 ma_spinlock;
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_thread;
@@ -1365,7 +1381,7 @@ typedef struct
     ma_pcm_rb rb;
 } ma_duplex_rb;
 
-MA_API ma_result ma_duplex_rb_init(ma_uint32 inputSampleRate, ma_format captureFormat, ma_uint32 captureChannels, ma_uint32 captureSampleRate, ma_uint32 capturePeriodSizeInFrames, const ma_allocation_callbacks* pAllocationCallbacks, ma_duplex_rb* pRB);
+MA_API ma_result ma_duplex_rb_init(ma_format captureFormat, ma_uint32 captureChannels, ma_uint32 sampleRate, ma_uint32 captureInternalSampleRate, ma_uint32 captureInternalPeriodSizeInFrames, const ma_allocation_callbacks* pAllocationCallbacks, ma_duplex_rb* pRB);
 MA_API ma_result ma_duplex_rb_uninit(ma_duplex_rb* pRB);
 
 
@@ -1846,8 +1862,8 @@ typedef struct
         ma_format format;       /* Sample format. If set to ma_format_unknown, all sample formats are supported. */
         ma_uint32 channels;     /* If set to 0, all channels are supported. */
         ma_uint32 sampleRate;   /* If set to 0, all sample rates are supported. */
-        ma_uint32 flags;
-    } nativeDataFormats[64];
+        ma_uint32 flags;        /* A combination of MA_DATA_FORMAT_FLAG_* flags. */
+    } nativeDataFormats[/*ma_format_count * ma_standard_sample_rate_count * MA_MAX_CHANNELS*/ 64];  /* Not sure how big to make this. There can be *many* permutations for virtual devices which can support anything. */
 } ma_device_info;
 
 struct ma_device_config
@@ -2027,12 +2043,13 @@ If the backend requires absolute flexibility with it's data delivery, it can opt
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
-encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceAudioThread()` callback.
+encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
 
-The invocation of the `onDeviceAudioThread()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
+The invocation of the `onDeviceDataLoop()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
-which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceAudioThread()` callback,
-look at `ma_device_audio_thread__default_read_write()`.
+which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceDataLoop()` callback,
+look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceDataLoopWakeup()` callback if you need a mechanism to
+wake up the audio thread.
 */
 struct ma_backend_callbacks
 {
@@ -2046,7 +2063,8 @@ struct ma_backend_callbacks
     ma_result (* onDeviceStop)(ma_device* pDevice);
     ma_result (* onDeviceRead)(ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
     ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
-    ma_result (* onDeviceAudioThread)(ma_device* pDevice);
+    ma_result (* onDeviceDataLoop)(ma_device* pDevice);
+    ma_result (* onDeviceDataLoopWakeup)(ma_device* pDevice);
 };
 
 struct ma_context_config
@@ -2081,6 +2099,32 @@ struct ma_context_config
     ma_backend_callbacks custom;
 };
 
+/* WASAPI specific structure for some commands which must run on a common thread due to bugs in WASAPI. */
+typedef struct
+{
+    int code;
+    ma_event* pEvent;   /* This will be signalled when the event is complete. */
+    union
+    {
+        struct
+        {
+            int _unused;
+        } quit;
+        struct
+        {
+            ma_device_type deviceType;
+            void* pAudioClient;
+            void** ppAudioClientService;
+            ma_result result;   /* The result from creating the audio client service. */
+        } createAudioClient;
+        struct
+        {
+            ma_device* pDevice;
+            ma_device_type deviceType;
+        } releaseAudioClient;
+    } data;
+} ma_context_command__wasapi;
+
 struct ma_context
 {
     ma_backend_callbacks callbacks;
@@ -2096,23 +2140,18 @@ struct ma_context
     ma_uint32 playbackDeviceInfoCount;
     ma_uint32 captureDeviceInfoCount;
     ma_device_info* pDeviceInfos;       /* Playback devices first, then capture. */
-    ma_bool8 isBackendAsynchronous;     /* Set when the context is initialized. Set to 1 for asynchronous backends such as Core Audio and JACK. Do not modify. */
-
-    ma_result (* onUninit        )(ma_context* pContext);
-    ma_result (* onEnumDevices   )(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData);    /* Return false from the callback to stop enumeration. */
-    ma_result (* onGetDeviceInfo )(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
-    ma_result (* onDeviceInit    )(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice);
-    void      (* onDeviceUninit  )(ma_device* pDevice);
-    ma_result (* onDeviceStart   )(ma_device* pDevice);
-    ma_result (* onDeviceStop    )(ma_device* pDevice);
-    ma_result (* onDeviceMainLoop)(ma_device* pDevice);
 
     union
     {
 #ifdef MA_SUPPORT_WASAPI
         struct
         {
-            int _unused;
+            ma_thread commandThread;
+            ma_mutex commandLock;
+            ma_semaphore commandSem;
+            ma_uint32 commandIndex;
+            ma_uint32 commandCount;
+            ma_context_command__wasapi commands[4];
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -2159,8 +2198,11 @@ struct ma_context
             ma_proc snd_pcm_hw_params_set_format;
             ma_proc snd_pcm_hw_params_set_format_first;
             ma_proc snd_pcm_hw_params_get_format_mask;
+            ma_proc snd_pcm_hw_params_set_channels;
             ma_proc snd_pcm_hw_params_set_channels_near;
+            ma_proc snd_pcm_hw_params_set_channels_minmax;
             ma_proc snd_pcm_hw_params_set_rate_resample;
+            ma_proc snd_pcm_hw_params_set_rate;
             ma_proc snd_pcm_hw_params_set_rate_near;
             ma_proc snd_pcm_hw_params_set_buffer_size_near;
             ma_proc snd_pcm_hw_params_set_periods_near;
@@ -2175,6 +2217,9 @@ struct ma_context
             ma_proc snd_pcm_hw_params_get_buffer_size;
             ma_proc snd_pcm_hw_params_get_periods;
             ma_proc snd_pcm_hw_params_get_access;
+            ma_proc snd_pcm_hw_params_test_format;
+            ma_proc snd_pcm_hw_params_test_channels;
+            ma_proc snd_pcm_hw_params_test_rate;
             ma_proc snd_pcm_hw_params;
             ma_proc snd_pcm_sw_params_sizeof;
             ma_proc snd_pcm_sw_params_current;
@@ -2275,7 +2320,7 @@ struct ma_context
             ma_proc pa_stream_writable_size;
             ma_proc pa_stream_readable_size;
 
-            /*pa_threaded_mainloop**/ ma_ptr pMainLoop;
+            /*pa_mainloop**/ ma_ptr pMainLoop;
             /*pa_context**/ ma_ptr pPulseContext;
         } pulse;
 #endif
@@ -2332,7 +2377,6 @@ struct ma_context
             ma_proc AudioUnitRender;
 
             /*AudioComponent*/ ma_ptr component;
-
             ma_bool32 noAudioSessionDeactivate; /* For tracking whether or not the iOS audio session should be explicitly deactivated. Set from the config in ma_context_init__coreaudio(). */
         } coreaudio;
 #endif
@@ -2491,15 +2535,12 @@ struct ma_device
     ma_device_callback_proc onData;         /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
-    ma_mutex lock;
+    ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
     ma_event stopEvent;
     ma_thread thread;
     ma_result workResult;                   /* This is set by the worker thread after it's finished doing a job. */
-    ma_bool8 usingDefaultSampleRate;
-    ma_bool8 usingDefaultBufferSize;
-    ma_bool8 usingDefaultPeriods;
     ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreZeroedOutputBuffer;
     ma_bool8 noClip;
@@ -2533,9 +2574,6 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
-        ma_bool8 usingDefaultFormat;
-        ma_bool8 usingDefaultChannels;
-        ma_bool8 usingDefaultChannelMap;
     } playback;
     struct
     {
@@ -2553,9 +2591,6 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
-        ma_bool8 usingDefaultFormat;
-        ma_bool8 usingDefaultChannels;
-        ma_bool8 usingDefaultChannelMap;
     } capture;
 
     union
@@ -2579,15 +2614,15 @@ struct ma_device
             ma_performance_profile originalPerformanceProfile;
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            MA_ATOMIC ma_bool8 hasDefaultPlaybackDeviceChanged;    /* Can be read and written simultaneously across different threads. Must be used atomically. */
-            MA_ATOMIC ma_bool8 hasDefaultCaptureDeviceChanged;     /* Can be read and written simultaneously across different threads. Must be used atomically. */
-            MA_ATOMIC ma_bool8 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically. */
-            MA_ATOMIC ma_bool8 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            MA_ATOMIC ma_bool32 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            MA_ATOMIC ma_bool32 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
             ma_bool8 noDefaultQualitySRC;                           /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
             ma_bool8 noHardwareOffloading;
             ma_bool8 allowCaptureAutoStreamRouting;
             ma_bool8 allowPlaybackAutoStreamRouting;
+            ma_bool8 isDetachedPlayback;
+            ma_bool8 isDetachedCapture;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -2633,7 +2668,6 @@ struct ma_device
         {
             /*pa_stream**/ ma_ptr pStreamPlayback;
             /*pa_stream**/ ma_ptr pStreamCapture;
-            ma_pcm_rb duplexRB;
         } pulse;
 #endif
 #ifdef MA_SUPPORT_JACK
@@ -2659,11 +2693,11 @@ struct ma_device
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
+            ma_performance_profile originalPerformanceProfile;
             ma_bool32 isDefaultPlaybackDevice;
             ma_bool32 isDefaultCaptureDevice;
             ma_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             ma_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
-            ma_pcm_rb duplexRB;
             void* pRouteChangeHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
         } coreaudio;
 #endif
@@ -2695,7 +2729,6 @@ struct ma_device
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
-            ma_pcm_rb duplexRB;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -2715,7 +2748,6 @@ struct ma_device
             ma_uint32 currentBufferIndexCapture;
             ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
             ma_uint8* pBufferCapture;
-            ma_pcm_rb duplexRB;
         } opensl;
 #endif
 #ifdef MA_SUPPORT_WEBAUDIO
@@ -2740,7 +2772,7 @@ struct ma_device
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            MA_ATOMIC ma_bool8 isStarted;   /* Read and written by multiple threads. Must be used atomically. */
+            MA_ATOMIC ma_bool32 isStarted;   /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
 #endif
     };
@@ -3615,7 +3647,7 @@ pDevice (in)
 
 Return Value
 ------------
-MA_SUCCESS if successful; any other error code otherwise.
+Nothing
 
 
 Thread Safety
@@ -4044,6 +4076,58 @@ callback.
 */
 MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
+
+/*
+Calculates an appropriate buffer size from a descriptor, native sample rate and performance profile.
+
+This function is used by backends for helping determine an appropriately sized buffer to use with
+the device depending on the values of `periodSizeInFrames` and `periodSizeInMilliseconds` in the
+`pDescriptor` object. Since buffer size calculations based on time depends on the sample rate, a
+best guess at the device's native sample rate is also required which is where `nativeSampleRate`
+comes in. In addition, the performance profile is also needed for cases where both the period size
+in frames and milliseconds are both zero.
+
+
+Parameters
+----------
+pDescriptor (in)
+    A pointer to device descriptor whose `periodSizeInFrames` and `periodSizeInMilliseconds` members
+    will be used for the calculation of the buffer size.
+
+nativeSampleRate (in)
+    The device's native sample rate. This is only ever used when the `periodSizeInFrames` member of
+    `pDescriptor` is zero. In this case, `periodSizeInMilliseconds` will be used instead, in which
+    case a sample rate is required to convert to a size in frames.
+
+performanceProfile (in)
+    When both the `periodSizeInFrames` and `periodSizeInMilliseconds` members of `pDescriptor` are
+    zero, miniaudio will fall back to a buffer size based on the performance profile. The profile
+    to use for this calculation is determine by this parameter.
+
+
+Return Value
+------------
+The calculated buffer size in frames.
+
+
+Thread Safety
+-------------
+This is safe so long as nothing modifies `pDescriptor` at the same time. However, this function
+should only ever be called from within the backend's device initialization routine and therefore
+shouldn't have any multithreading concerns.
+
+
+Callback Safety
+---------------
+This is safe to call within the data callback, but there is no reason to ever do this.
+
+
+Remarks
+-------
+If `nativeSampleRate` is zero, this function will fall back to `pDescriptor->sampleRate`. If that
+is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
+*/
+MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile);
 
 
 

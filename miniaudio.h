@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.32 - TBD
+miniaudio - v0.10.32 - 2020-02-23
 
 David Reid - mackron@gmail.com
 
@@ -1510,7 +1510,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 31
+#define MA_VERSION_REVISION 32
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -64470,7 +64470,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.32 - TBD
+v0.10.32 - 2020-02-23
   - WASAPI: Fix a deadlock in exclusive mode.
   - WASAPI: No longer return an error from ma_context_get_device_info() when an exclusive mode format
     cannot be retrieved.
