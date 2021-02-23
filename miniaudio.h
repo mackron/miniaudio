@@ -1981,7 +1981,8 @@ typedef enum
     ma_thread_priority_default  =  0
 } ma_thread_priority;
 
-typedef unsigned char ma_spinlock;
+/* Spinlocks are 32-bit for compatibility reasons. */
+typedef ma_uint32 ma_spinlock;
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_thread;
@@ -4103,8 +4104,8 @@ struct ma_device
             ma_performance_profile originalPerformanceProfile;
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            MA_ATOMIC ma_bool8 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically. */
-            MA_ATOMIC ma_bool8 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically. */
+            MA_ATOMIC ma_bool32 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            MA_ATOMIC ma_bool32 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
             ma_bool8 noDefaultQualitySRC;                           /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
             ma_bool8 noHardwareOffloading;
@@ -4261,7 +4262,7 @@ struct ma_device
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            MA_ATOMIC ma_bool8 isStarted;   /* Read and written by multiple threads. Must be used atomically. */
+            MA_ATOMIC ma_bool32 isStarted;   /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
 #endif
     };
@@ -10186,11 +10187,11 @@ static MA_INLINE ma_result ma_spinlock_lock_ex(volatile ma_spinlock* pSpinlock, 
     }
 
     for (;;) {
-        if (c89atomic_flag_test_and_set_explicit(pSpinlock, c89atomic_memory_order_acquire) == 0) {
+        if (c89atomic_exchange_explicit_32(pSpinlock, 1, c89atomic_memory_order_acquire) == 0) {
             break;
         }
 
-        while (c89atomic_load_explicit_8(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
+        while (c89atomic_load_explicit_32(pSpinlock, c89atomic_memory_order_relaxed) == 1) {
             if (yield) {
                 ma_yield();
             }
@@ -10216,7 +10217,7 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
+    c89atomic_store_explicit_32(pSpinlock, 0, c89atomic_memory_order_release);
     return MA_SUCCESS;
 }
 
@@ -12488,7 +12489,7 @@ static ma_result ma_device_start__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_START__NULL);
 
-    c89atomic_exchange_8(&pDevice->null_device.isStarted, MA_TRUE);
+    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_TRUE);
     return MA_SUCCESS;
 }
 
@@ -12498,7 +12499,7 @@ static ma_result ma_device_stop__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_SUSPEND__NULL);
 
-    c89atomic_exchange_8(&pDevice->null_device.isStarted, MA_FALSE);
+    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_FALSE);
     return MA_SUCCESS;
 }
 
@@ -12512,7 +12513,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         *pFramesWritten = 0;
     }
 
-    wasStartedOnEntry = c89atomic_load_8(&pDevice->null_device.isStarted);
+    wasStartedOnEntry = c89atomic_load_32(&pDevice->null_device.isStarted);
 
     /* Keep going until everything has been read. */
     totalPCMFramesProcessed = 0;
@@ -12538,7 +12539,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         if (pDevice->null_device.currentPeriodFramesRemainingPlayback == 0) {
             pDevice->null_device.currentPeriodFramesRemainingPlayback = 0;
 
-            if (!c89atomic_load_8(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
                 result = ma_device_start__null(pDevice);
                 if (result != MA_SUCCESS) {
                     break;
@@ -12558,7 +12559,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_8(&pDevice->null_device.isStarted)) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -12629,7 +12630,7 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_8(&pDevice->null_device.isStarted)) {
+            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
                 break;
             }
 
@@ -14008,6 +14009,7 @@ static ma_result ma_device_create_IAudioClient_service__wasapi(ma_context* pCont
     return cmd.data.createAudioClient.result;
 }
 
+#if 0   /* Not used at the moment, but leaving here for future use. */
 static ma_result ma_device_release_IAudioClient_service__wasapi(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
@@ -14022,6 +14024,7 @@ static ma_result ma_device_release_IAudioClient_service__wasapi(ma_device* pDevi
 
     return MA_SUCCESS;
 }
+#endif
 
 
 static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
@@ -15460,8 +15463,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     }
 #endif
 
-    c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
-    c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+    c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
+    c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
 
     return MA_SUCCESS;
 }
@@ -15559,7 +15562,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.", ma_result_from_HRESULT(hr));
         }
 
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_TRUE);
+        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_TRUE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -15588,7 +15591,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal capture device.", ma_result_from_HRESULT(hr));
         }
 
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedCapture, MA_FALSE);
+        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -15596,7 +15599,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
-        if (c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
+        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
             DWORD waitTime = pDevice->wasapi.actualPeriodSizeInFramesPlayback / pDevice->playback.internalSampleRate;
 
@@ -15641,7 +15644,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.", ma_result_from_HRESULT(hr));
         }
 
-        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
     }
 
     return MA_SUCCESS;
@@ -15963,7 +15966,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                     mappedDeviceBufferSizeInFramesPlayback    = 0;
                 }
 
-                if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
+                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
                     ma_uint32 startThreshold = pDevice->playback.internalPeriodSizeInFrames * 1;
 
                     /* Prevent a deadlock. If we don't clamp against the actual buffer size we'll never end up starting the playback device which will result in a deadlock. */
@@ -15979,7 +15982,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
                         }
 
-                        c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                     }
                 }
 
@@ -16128,7 +16131,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                     framesWrittenToPlaybackDevice += framesAvailablePlayback;
                 }
 
-                if (!c89atomic_load_8(&pDevice->wasapi.isStartedPlayback)) {
+                if (!c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
                     hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
                     if (FAILED(hr)) {
                         ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.", ma_result_from_HRESULT(hr));
@@ -16136,7 +16139,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                         break;
                     }
 
-                    c89atomic_exchange_8(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+                    c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
                 }
 
                 /* Make sure we don't wait on the event before we've started the device or we may end up deadlocking. */
