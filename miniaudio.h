@@ -22892,7 +22892,7 @@ static ma_result ma_device_data_loop__pulse(ma_device* pDevice)
     /* NOTE: Don't start the device here. It'll be done at a higher level. */
 
     /*
-    Are data is handled through callbacks. All we need to do is iterate over the main loop and let
+    All data is handled through callbacks. All we need to do is iterate over the main loop and let
     the callbacks deal with it.
     */
     while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
