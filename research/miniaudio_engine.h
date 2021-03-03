@@ -1586,6 +1586,8 @@ MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, m
 MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning);
 MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rolloff);
+MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain);
 MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxGain);
@@ -1781,6 +1783,8 @@ MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_mode
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound);
 MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound);
+MA_API void ma_sound_set_rolloff(ma_sound* pSound, float rolloff);
+MA_API float ma_sound_get_rolloff(const ma_sound* pSound);
 MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain);
 MA_API float ma_sound_get_min_gain(const ma_sound* pSound);
 MA_API void ma_sound_set_max_gain(ma_sound* pSound, float maxGain);
@@ -1832,6 +1836,8 @@ MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_atte
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff);
+MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain);
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain);
@@ -9670,6 +9676,24 @@ MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpat
     return pSpatializer->config.positioning;
 }
 
+MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rolloff)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.rolloff = rolloff;
+}
+
+MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.rolloff;
+}
+
 MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain)
 {
     if (pSpatializer == NULL) {
@@ -11305,6 +11329,24 @@ MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
     return ma_spatializer_get_positioning(&pSound->engineNode.spatializer);
 }
 
+MA_API void ma_sound_set_rolloff(ma_sound* pSound, float rolloff)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_rolloff(&pSound->engineNode.spatializer, rolloff);
+}
+
+MA_API float ma_sound_get_rolloff(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_rolloff(&pSound->engineNode.spatializer);
+}
+
 MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain)
 {
     if (pSound == NULL) {
@@ -11851,6 +11893,24 @@ MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGrou
     }
 
     return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
+}
+
+MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff)
+{
+    if (pGroup == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_rolloff(&pGroup->engineNode.spatializer, rolloff);
+}
+
+MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_rolloff(&pGroup->engineNode.spatializer);
 }
 
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
