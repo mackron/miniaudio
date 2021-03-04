@@ -5443,6 +5443,7 @@ static ma_result ma_resource_manager_data_buffer_node_remove(ma_resource_manager
                     pReplacementDataBufferNode->pParent->pChildHi = NULL;
                 }
             } else {
+                pReplacementDataBufferNode->pChildHi->pParent = pReplacementDataBufferNode->pParent;
                 if (pReplacementDataBufferNode->pParent->pChildLo == pReplacementDataBufferNode) {
                     pReplacementDataBufferNode->pParent->pChildLo = pReplacementDataBufferNode->pChildHi;
                 } else {
