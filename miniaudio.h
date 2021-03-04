@@ -33543,11 +33543,21 @@ MA_API ma_uint32 ma_scale_buffer_size(ma_uint32 baseBufferSize, float scale)
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 bufferSizeInFrames, ma_uint32 sampleRate)
 {
+    /* Prevent a division by zero. */
+    if (sampleRate == 0) {
+        return 0;
+    }
+
     return bufferSizeInFrames / (sampleRate/1000);
 }
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 bufferSizeInMilliseconds, ma_uint32 sampleRate)
 {
+    /* Prevent a division by zero. */
+    if (sampleRate == 0) {
+        return 0;
+    }
+
     return bufferSizeInMilliseconds * (sampleRate/1000);
 }
 
@@ -64471,7 +64481,9 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.33 - TBD
-  - 
+  - Add a safety check to the following APIs to prevent a division by zero:
+    - ma_calculate_buffer_size_in_milliseconds_from_frames()
+    - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
 
 v0.10.32 - 2021-02-23
   - WASAPI: Fix a deadlock in exclusive mode.
