@@ -9754,7 +9754,7 @@ MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float 
         return;
     }
 
-    pSpatializer->config.minDistance = maxDistance;
+    pSpatializer->config.maxDistance = maxDistance;
 }
 
 MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer)
