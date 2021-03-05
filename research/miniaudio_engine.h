@@ -1633,6 +1633,7 @@ typedef struct
     ma_engine* pEngine;
     ma_engine_node_type type;
     ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
@@ -10315,7 +10316,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     */
 
     /* We'll always do resampling first. */
-    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
+    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], pConfig->sampleRate ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
     resamplerConfig.linear.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
     result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
@@ -10986,7 +10987,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
     */
     engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound, flags);
 
-    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, NULL);
+    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, &engineNodeConfig.sampleRate);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the channel count. */
     }
