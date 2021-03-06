@@ -527,7 +527,7 @@ and include the following:
     |                                         | `MA_NODE_FLAG_CONTINUOUS_PROCESSING`. When this   |
     |                                         | is set, the `ppFramesIn` parameter of the         |
     |                                         | processing callback will be set to NULL when      |
-    |                                         | there are no input frames are. available. When    |
+    |                                         | there are no input frames are available. When     |
     |                                         | this is unset, silence will be posted to the      |
     |                                         | processing callback.                              |
     +-----------------------------------------+---------------------------------------------------+
