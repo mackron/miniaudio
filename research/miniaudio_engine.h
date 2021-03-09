@@ -9968,7 +9968,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     isPanningEnabled        = pEngineNode->panner.pan != 0 && channelsOut != 1;
 
     /* Keep going while we've still got data available for processing. */
-    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+    while (totalFramesProcessedOut < frameCountOut) {
         /*
         We need to process in a specific order. We always do resampling first because it's likely
         we're going to be increasing the channel count after spatialization. Also, I want to do
@@ -10082,9 +10082,14 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             ma_panner_process_pcm_frames(&pEngineNode->panner, pRunningFramesOut, pRunningFramesOut, framesJustProcessedOut);   /* In-place processing. */
         }
 
-        /* We're done. */
+        /* We're done for this chunk. */
         totalFramesProcessedIn  += framesJustProcessedIn;
         totalFramesProcessedOut += framesJustProcessedOut;
+
+        /* If we didn't process any output frames this iteration it means we've either run out of input data, or run out of room in the output buffer. */
+        if (framesJustProcessedOut == 0) {
+            break;
+        }
     }
 
     /* At this point we're done processing. */
