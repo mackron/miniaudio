@@ -22511,9 +22511,9 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     int error = 0;
     const char* devPlayback = NULL;
     const char* devCapture  = NULL;
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
+    ma_format format = ma_format_unknown;
+    ma_uint32 channels = 0;
+    ma_uint32 sampleRate = 0;
     ma_pa_sink_info sinkInfo;
     ma_pa_source_info sourceInfo;
     ma_pa_sample_spec ss;
