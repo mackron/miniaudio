@@ -16257,6 +16257,8 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         return result;
     }
 
+    MA_ZERO_OBJECT(&pContext->wasapi);
+
     /*
     Annoyingly, WASAPI does not allow you to release an IAudioClient object from a different thread
     than the one that retrieved it with GetService(). This can result in a deadlock in two
