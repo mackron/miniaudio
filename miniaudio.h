@@ -25224,6 +25224,8 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
                     }
                 }
                 
+                ma_free(pSampleRateRanges, &pContext->allocationCallbacks);
+
                 if (pDeviceInfo->nativeDataFormatCount >= ma_countof(pDeviceInfo->nativeDataFormats)) {
                     break;  /* No more room for any more formats. */
                 }
