@@ -64484,6 +64484,7 @@ REVISION HISTORY
 ================
 v0.10.33 - TBD
   - Core Audio: Fix a memory leak.
+  - Core Audio: Fix a bug where the performance profile is not being used by playback devices.
   - Add a safety check to the following APIs to prevent a division by zero:
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
     - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
