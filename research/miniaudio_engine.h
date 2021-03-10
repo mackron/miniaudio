@@ -10842,6 +10842,7 @@ MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 list
 }
 
 
+#ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeInputBusIndex)
 {
     ma_result result = MA_SUCCESS;
@@ -10956,6 +10957,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 {
     return ma_engine_play_sound_ex(pEngine, pFilePath, pGroup, 0);
 }
+#endif
 
 
 static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
