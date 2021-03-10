@@ -1645,18 +1645,18 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;              /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;                 /* A pointer to the engine. Set based on the value from the config. */
+    ma_node_base baseNode;                        /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                           /* A pointer to the engine. Set based on the value from the config. */
     ma_fader fader;
-    ma_resampler resampler;             /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_resampler resampler;                       /* For pitch shift. May change this to ma_linear_resampler later. */
     ma_spatializer spatializer;
     ma_panner panner;
-    float pitch;
-    float oldPitch;                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    float oldDopplerPitch;              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
-    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    MA_ATOMIC float pitch;
+    float oldPitch;                               /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;                        /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
+    MA_ATOMIC ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
@@ -9901,8 +9901,10 @@ static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 
     MA_ASSERT(pEngineNode != NULL);
 
-    if (pEngineNode->oldPitch != pEngineNode->pitch) {
-        pEngineNode->oldPitch  = pEngineNode->pitch;
+    float newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
+
+    if (pEngineNode->oldPitch != newPitch) {
+        pEngineNode->oldPitch  = newPitch;
         isUpdateRequired = MA_TRUE;
     }
 
@@ -9921,14 +9923,14 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
     MA_ASSERT(pEngineNode != NULL);
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
-    return !pEngineNode->isPitchDisabled;
+    return !c89atomic_load_explicit_8(&pEngineNode->isPitchDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* pEngineNode)
 {
     MA_ASSERT(pEngineNode != NULL);
 
-    return !pEngineNode->isSpatializationDisabled;
+    return !c89atomic_load_explicit_8(&pEngineNode->isSpatializationDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
@@ -11196,7 +11198,7 @@ MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
         return MA_INVALID_ARGS;
     }
 
-    pSound->engineNode.pitch = pitch;
+    c89atomic_exchange_explicit_f32(&pSound->engineNode.pitch, pitch, c89atomic_memory_order_release);
 
     return MA_SUCCESS;
 }
@@ -11225,7 +11227,7 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
         return;
     }
 
-    pSound->engineNode.isSpatializationDisabled = !enabled;
+    c89atomic_exchange_explicit_8(&pSound->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
 }
 
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
@@ -11234,7 +11236,7 @@ MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listen
         return;
     }
 
-    pSound->engineNode.pinnedListenerIndex = listenerIndex;
+    c89atomic_exchange_explicit_8(&pSound->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
 }
 
 MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
@@ -11243,7 +11245,7 @@ MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
         return (ma_uint8)-1;
     }
 
-    return pSound->engineNode.pinnedListenerIndex;
+    return c89atomic_load_explicit_8(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
@@ -11791,7 +11793,7 @@ MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma
         return;
     }
 
-    pGroup->engineNode.isSpatializationDisabled = !enabled;
+    c89atomic_exchange_explicit_8(&pGroup->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
 }
 
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
@@ -11800,7 +11802,7 @@ MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_
         return;
     }
 
-    pGroup->engineNode.pinnedListenerIndex = listenerIndex;
+    c89atomic_exchange_explicit_8(&pGroup->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
 }
 
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
@@ -11809,7 +11811,7 @@ MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* p
         return (ma_uint8)-1;
     }
 
-    return pGroup->engineNode.pinnedListenerIndex;
+    return c89atomic_load_explicit_8(&pGroup->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
