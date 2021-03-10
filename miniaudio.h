@@ -64481,6 +64481,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.33 - TBD
+  - Core Audio: Fix a memory leak.
   - Add a safety check to the following APIs to prevent a division by zero:
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
     - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
