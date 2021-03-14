@@ -6752,6 +6752,14 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
     #endif
 #endif
 
+#ifndef MA_RESTRICT
+    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+        #define MA_RESTRICT __restrict
+    #else
+        #define MA_RESTRICT
+    #endif
+#endif
+
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     #define MA_HAS_BYTESWAP16_INTRINSIC
     #define MA_HAS_BYTESWAP32_INTRINSIC
