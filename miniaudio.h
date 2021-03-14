@@ -38384,7 +38384,7 @@ static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma
     return (ma_int16)(r >> shift);
 }
 
-static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResampler, ma_int16* pFrameOut)
+static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResampler, ma_int16* MA_RESTRICT pFrameOut)
 {
     ma_uint32 c;
     ma_uint32 a;
@@ -38403,7 +38403,7 @@ static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResa
 }
 
 
-static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResampler, float* pFrameOut)
+static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResampler, float* MA_RESTRICT pFrameOut)
 {
     ma_uint32 c;
     float a;
