@@ -6734,22 +6734,25 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
     #endif
 #endif
 
+#if defined(__has_builtin)
+    #define MA_COMPILER_HAS_BUILTIN(x) __has_builtin(x)
+#else
+    #define MA_COMPILER_HAS_BUILTIN(x) 0
+#endif
 
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     #define MA_HAS_BYTESWAP16_INTRINSIC
     #define MA_HAS_BYTESWAP32_INTRINSIC
     #define MA_HAS_BYTESWAP64_INTRINSIC
 #elif defined(__clang__)
-    #if defined(__has_builtin)
-        #if __has_builtin(__builtin_bswap16)
-            #define MA_HAS_BYTESWAP16_INTRINSIC
-        #endif
-        #if __has_builtin(__builtin_bswap32)
-            #define MA_HAS_BYTESWAP32_INTRINSIC
-        #endif
-        #if __has_builtin(__builtin_bswap64)
-            #define MA_HAS_BYTESWAP64_INTRINSIC
-        #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap16)
+        #define MA_HAS_BYTESWAP16_INTRINSIC
+    #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap32)
+        #define MA_HAS_BYTESWAP32_INTRINSIC
+    #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap64)
+        #define MA_HAS_BYTESWAP64_INTRINSIC
     #endif
 #elif defined(__GNUC__)
     #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
