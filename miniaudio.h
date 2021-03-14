@@ -6740,6 +6740,18 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
     #define MA_COMPILER_HAS_BUILTIN(x) 0
 #endif
 
+#ifndef MA_ASSUME
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_assume)
+        #define MA_ASSUME(x) __builtin_assume(x)
+    #elif MA_COMPILER_HAS_BUILTIN(__builtin_unreachable)
+        #define MA_ASSUME(x) do { if (!(x)) __builtin_unreachable(); } while (0)
+    #elif defined(_MSC_VER)
+        #define MA_ASSUME(x) __assume(x)
+    #else
+        #define MA_ASSUME(x) while(0)
+    #endif
+#endif
+
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     #define MA_HAS_BYTESWAP16_INTRINSIC
     #define MA_HAS_BYTESWAP32_INTRINSIC
