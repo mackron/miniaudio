@@ -9323,6 +9323,9 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         const ma_uint32 channelsOut = pSpatializer->config.channelsOut;
         const ma_uint32 channelsIn = pSpatializer->config.channelsIn;
 
+        MA_ASSUME(channelsOut >= MA_MIN_CHANNELS && channelsOut <= MA_MAX_CHANNELS);
+        MA_ASSUME(channelsIn >= MA_MIN_CHANNELS && channelsIn <= MA_MAX_CHANNELS);
+
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
         defined by the listener, so we'll grab that here too.

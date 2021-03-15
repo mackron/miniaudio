@@ -36324,6 +36324,7 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
     const float a1 = pBQ->a1.f32;
     const float a2 = pBQ->a2.f32;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
         float r2 = pBQ->r2[c].f32;
@@ -36355,6 +36356,7 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
     const ma_int32 a1 = pBQ->a1.s32;
     const ma_int32 a2 = pBQ->a2.s32;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pBQ->r1[c].s32;
         ma_int32 r2 = pBQ->r2[c].s32;
@@ -36523,6 +36525,7 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
     const float a = pLPF->a.f32;
     const float b = 1 - a;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         float r1 = pLPF->r1[c].f32;
         float x  = pX[c];
@@ -36542,6 +36545,7 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_s16(ma_lpf1* pLPF, ma_int16* pY,
     const ma_int32 a = pLPF->a.s32;
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pLPF->r1[c].s32;
         ma_int32 x  = pX[c];
@@ -37032,6 +37036,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
     const float a = 1 - pHPF->a.f32;
     const float b = 1 - a;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         float r1 = pHPF->r1[c].f32;
         float x  = pX[c];
@@ -37051,6 +37056,7 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_s16(ma_hpf1* pHPF, ma_int16* pY,
     const ma_int32 a = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - pHPF->a.s32);
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pHPF->r1[c].s32;
         ma_int32 x  = pX[c];
@@ -38396,6 +38402,7 @@ static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResa
 
     a = (pResampler->inTimeFrac << shift) / pResampler->config.sampleRateOut;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         ma_int16 s = ma_linear_resampler_mix_s16(pResampler->x0.s16[c], pResampler->x1.s16[c], a, shift);
         pFrameOut[c] = s;
@@ -38414,6 +38421,7 @@ static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResa
 
     a = (float)pResampler->inTimeFrac / pResampler->config.sampleRateOut;
 
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
         float s = ma_mix_f32_fast(pResampler->x0.f32[c], pResampler->x1.f32[c], a);
         pFrameOut[c] = s;
@@ -48723,6 +48731,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
@@ -48841,6 +48850,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
@@ -48922,6 +48932,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
