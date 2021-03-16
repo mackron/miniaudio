@@ -23710,7 +23710,8 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
 #ifndef MA_NO_RUNTIME_LINKING
     const char* libjackNames[] = {
 #ifdef MA_WIN32
-        "libjack.dll"
+        "libjack.dll",
+        "libjack64.dll"
 #else
         "libjack.so",
         "libjack.so.0"
@@ -64487,6 +64488,7 @@ REVISION HISTORY
 v0.10.33 - TBD
   - Core Audio: Fix a memory leak.
   - Core Audio: Fix a bug where the performance profile is not being used by playback devices.
+  - JACK: Fix loading of 64-bit JACK on Windows.
   - Add a safety check to the following APIs to prevent a division by zero:
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
     - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
