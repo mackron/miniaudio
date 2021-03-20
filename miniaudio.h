@@ -33576,7 +33576,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 
         return 0;
     }
 
-    return bufferSizeInFrames / (sampleRate/1000);
+    return bufferSizeInFrames*1000 / sampleRate;
 }
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 bufferSizeInMilliseconds, ma_uint32 sampleRate)
@@ -33586,7 +33586,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 
         return 0;
     }
 
-    return bufferSizeInMilliseconds * (sampleRate/1000);
+    return bufferSizeInMilliseconds*sampleRate / 1000;
 }
 
 MA_API void ma_copy_pcm_frames(void* dst, const void* src, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
@@ -64534,9 +64534,9 @@ v0.10.33 - TBD
   - Core Audio: Fix a memory leak.
   - Core Audio: Fix a bug where the performance profile is not being used by playback devices.
   - JACK: Fix loading of 64-bit JACK on Windows.
-  - Add a safety check to the following APIs to prevent a division by zero:
+  - Fix a calculation error and add a safety check to the following APIs to prevent a division by zero:
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
-    - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
+    - ma_calculate_buffer_size_in_frames_from_milliseconds()
   - Fix compilation errors relating to c89atomic.
 
 v0.10.32 - 2021-02-23
