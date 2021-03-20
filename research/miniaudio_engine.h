@@ -6361,75 +6361,31 @@ static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_man
     ma_resource_manager_data_buffer_uninit_connector(pDataBuffer->pResourceManager, pDataBuffer);
     pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_unknown;
 
-    /* Free the node last. */
-    ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+    /* With the connector uninitialized we can decrement the ref count of the node and free it if required. */
+    ma_resource_manager_data_buffer_bst_lock(pDataBuffer->pResourceManager);
+    {
+        ma_result result;
+        ma_uint32 refCount;
 
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manager_data_buffer* pDataBuffer)
-{
-    ma_uint32 result;
-    ma_uint32 refCount;
-
-    MA_ASSERT(pDataBuffer != NULL);
-
-    result = ma_resource_manager_data_buffer_node_decrement_ref(pDataBuffer->pResourceManager, pDataBuffer->pNode, &refCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* If the reference count has hit zero it means we need to delete the data buffer and it's backing data (so long as it's owned by the resource manager). */
-    if (refCount == 0) {
-        ma_bool32 asyncUninit = MA_TRUE;
-
-        result = ma_resource_manager_data_buffer_node_remove(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+        result = ma_resource_manager_data_buffer_node_decrement_ref(pDataBuffer->pResourceManager, pDataBuffer->pNode, &refCount);
         if (result != MA_SUCCESS) {
-            return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
+            return result;
         }
 
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
-            asyncUninit = MA_FALSE;
-        }
-
-        /*
-        The data buffer has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
-        want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
-        */
-        c89atomic_exchange_i32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
-
-        if (asyncUninit == MA_FALSE) {
-            /* The data buffer can be deleted synchronously. */
-            return ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
-        } else {
-            /*
-            The data buffer needs to be deleted asynchronously because it's still loading. With the status set to MA_UNAVAILABLE, no more pages will
-            be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
-            to get processed before returning.
-            */
-            ma_resource_manager_inline_notification notification;
-            ma_job job;
-
-            result = ma_resource_manager_inline_notification_init(pDataBuffer->pResourceManager, &notification);
+        if (refCount == 0) {
+            result = ma_resource_manager_data_buffer_node_remove(pDataBuffer->pResourceManager, pDataBuffer->pNode);
             if (result != MA_SUCCESS) {
-                return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
+                return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
             }
 
-            job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
-            job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            job.freeDataBuffer.pDataBuffer   = pDataBuffer;
-            job.freeDataBuffer.pNotification = &notification;
+            /* Mark the node as unavailable just to be safe. */
+            c89atomic_exchange_i32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
 
-            result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
-            if (result != MA_SUCCESS) {
-                ma_resource_manager_inline_notification_uninit(&notification);
-                return result;
-            }
-
-            ma_resource_manager_inline_notification_wait(&notification);
-            ma_resource_manager_inline_notification_uninit(&notification);
+            /* Free the node last. */
+            ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
         }
     }
+    ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
 
     return MA_SUCCESS;
 }
@@ -6442,11 +6398,37 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         return MA_INVALID_ARGS;
     }
 
-    ma_resource_manager_data_buffer_bst_lock(pDataBuffer->pResourceManager);
-    {
-        result = ma_resource_manager_data_buffer_uninit_nolock(pDataBuffer);
+    if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
+        /* The data buffer can be deleted synchronously. */
+        return ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
+    } else {
+        /*
+        The data buffer needs to be deleted asynchronously because it's still loading. With the status set to MA_UNAVAILABLE, no more pages will
+        be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
+        to get processed before returning.
+        */
+        ma_resource_manager_inline_notification notification;
+        ma_job job;
+
+        result = ma_resource_manager_inline_notification_init(pDataBuffer->pResourceManager, &notification);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
+        }
+
+        job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
+        job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
+        job.freeDataBuffer.pDataBuffer   = pDataBuffer;
+        job.freeDataBuffer.pNotification = &notification;
+
+        result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_inline_notification_uninit(&notification);
+            return result;
+        }
+
+        ma_resource_manager_inline_notification_wait(&notification);
+        ma_resource_manager_inline_notification_uninit(&notification);
     }
-    ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
 
     return result;
 }
