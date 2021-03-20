@@ -64537,6 +64537,7 @@ v0.10.33 - TBD
   - Add a safety check to the following APIs to prevent a division by zero:
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
     - ma_calculate_buffer_size_in_milliseconds_from_milliseconds()
+  - Fix compilation errors relating to c89atomic.
 
 v0.10.32 - 2021-02-23
   - WASAPI: Fix a deadlock in exclusive mode.
