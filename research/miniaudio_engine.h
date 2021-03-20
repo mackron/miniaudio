@@ -9320,6 +9320,11 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         float gain = 1;
         ma_uint32 iChannel;
         float channelGainsOut[MA_MAX_CHANNELS];
+        const ma_uint32 channelsOut = pSpatializer->config.channelsOut;
+        const ma_uint32 channelsIn = pSpatializer->config.channelsIn;
+
+        MA_ASSUME(channelsOut >= MA_MIN_CHANNELS && channelsOut <= MA_MAX_CHANNELS);
+        MA_ASSUME(channelsIn >= MA_MIN_CHANNELS && channelsIn <= MA_MAX_CHANNELS);
 
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
@@ -9520,12 +9525,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         be +1 on the X axis. A dot product is performed against the direction vector of the channel and the normalized
         position of the sound.
         */
-        for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+        for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
             channelGainsOut[iChannel] = gain;
         }
 
         /* Convert to our output channel count. */
-        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, (const float*)pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);
+        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, channelsOut, pChannelMapOut, (const float*)pFramesIn, channelsIn, pChannelMapIn, frameCount);
 
         /*
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
@@ -9538,7 +9543,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             unitPos.y *= distanceInv;
             unitPos.z *= distanceInv;
 
-            for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+            for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
                 float d = ma_vec3f_dot(unitPos, g_maChannelDirections[pChannelMapOut[iChannel]]);
 
                 /*
@@ -9606,7 +9611,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         }
 
         /* Now we need to apply the volume to each channel. */
-        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, pSpatializer->config.channelsOut, channelGainsOut);
+        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, channelsOut, channelGainsOut);
 
         /*
         Before leaving we'll want to update our doppler pitch so that the caller can apply some

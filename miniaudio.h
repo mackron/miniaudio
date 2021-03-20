@@ -6734,22 +6734,45 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
     #endif
 #endif
 
+#if defined(__has_builtin)
+    #define MA_COMPILER_HAS_BUILTIN(x) __has_builtin(x)
+#else
+    #define MA_COMPILER_HAS_BUILTIN(x) 0
+#endif
+
+#ifndef MA_ASSUME
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_assume)
+        #define MA_ASSUME(x) __builtin_assume(x)
+    #elif MA_COMPILER_HAS_BUILTIN(__builtin_unreachable)
+        #define MA_ASSUME(x) do { if (!(x)) __builtin_unreachable(); } while (0)
+    #elif defined(_MSC_VER)
+        #define MA_ASSUME(x) __assume(x)
+    #else
+        #define MA_ASSUME(x) while(0)
+    #endif
+#endif
+
+#ifndef MA_RESTRICT
+    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+        #define MA_RESTRICT __restrict
+    #else
+        #define MA_RESTRICT
+    #endif
+#endif
 
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     #define MA_HAS_BYTESWAP16_INTRINSIC
     #define MA_HAS_BYTESWAP32_INTRINSIC
     #define MA_HAS_BYTESWAP64_INTRINSIC
 #elif defined(__clang__)
-    #if defined(__has_builtin)
-        #if __has_builtin(__builtin_bswap16)
-            #define MA_HAS_BYTESWAP16_INTRINSIC
-        #endif
-        #if __has_builtin(__builtin_bswap32)
-            #define MA_HAS_BYTESWAP32_INTRINSIC
-        #endif
-        #if __has_builtin(__builtin_bswap64)
-            #define MA_HAS_BYTESWAP64_INTRINSIC
-        #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap16)
+        #define MA_HAS_BYTESWAP16_INTRINSIC
+    #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap32)
+        #define MA_HAS_BYTESWAP32_INTRINSIC
+    #endif
+    #if MA_COMPILER_HAS_BUILTIN(__builtin_bswap64)
+        #define MA_HAS_BYTESWAP64_INTRINSIC
     #endif
 #elif defined(__GNUC__)
     #if ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
@@ -36295,13 +36318,15 @@ MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pB
 static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pBQ->channels;
     const float b0 = pBQ->b0.f32;
     const float b1 = pBQ->b1.f32;
     const float b2 = pBQ->b2.f32;
     const float a1 = pBQ->a1.f32;
     const float a2 = pBQ->a2.f32;
 
-    for (c = 0; c < pBQ->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         float r1 = pBQ->r1[c].f32;
         float r2 = pBQ->r2[c].f32;
         float x  = pX[c];
@@ -36325,13 +36350,15 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32(ma_biquad* pBQ, float* pY,
 static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(ma_biquad* pBQ, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pBQ->channels;
     const ma_int32 b0 = pBQ->b0.s32;
     const ma_int32 b1 = pBQ->b1.s32;
     const ma_int32 b2 = pBQ->b2.s32;
     const ma_int32 a1 = pBQ->a1.s32;
     const ma_int32 a2 = pBQ->a2.s32;
 
-    for (c = 0; c < pBQ->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pBQ->r1[c].s32;
         ma_int32 r2 = pBQ->r2[c].s32;
         ma_int32 x  = pX[c];
@@ -36495,10 +36522,12 @@ MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
 static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, const float* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pLPF->channels;
     const float a = pLPF->a.f32;
     const float b = 1 - a;
 
-    for (c = 0; c < pLPF->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         float r1 = pLPF->r1[c].f32;
         float x  = pX[c];
         float y;
@@ -36513,10 +36542,12 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
 static MA_INLINE void ma_lpf1_process_pcm_frame_s16(ma_lpf1* pLPF, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pLPF->channels;
     const ma_int32 a = pLPF->a.s32;
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
 
-    for (c = 0; c < pLPF->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pLPF->r1[c].s32;
         ma_int32 x  = pX[c];
         ma_int32 y;
@@ -37002,10 +37033,12 @@ MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
 static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, const float* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pHPF->channels;
     const float a = 1 - pHPF->a.f32;
     const float b = 1 - a;
 
-    for (c = 0; c < pHPF->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         float r1 = pHPF->r1[c].f32;
         float x  = pX[c];
         float y;
@@ -37020,10 +37053,12 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
 static MA_INLINE void ma_hpf1_process_pcm_frame_s16(ma_hpf1* pHPF, ma_int16* pY, const ma_int16* pX)
 {
     ma_uint32 c;
+    const ma_uint32 channels = pHPF->channels;
     const ma_int32 a = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - pHPF->a.s32);
     const ma_int32 b = ((1 << MA_BIQUAD_FIXED_POINT_SHIFT) - a);
 
-    for (c = 0; c < pHPF->channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         ma_int32 r1 = pHPF->r1[c].s32;
         ma_int32 x  = pX[c];
         ma_int32 y;
@@ -38356,10 +38391,11 @@ static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma
     return (ma_int16)(r >> shift);
 }
 
-static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResampler, ma_int16* pFrameOut)
+static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResampler, ma_int16* MA_RESTRICT pFrameOut)
 {
     ma_uint32 c;
     ma_uint32 a;
+    const ma_uint32 channels = pResampler->config.channels;
     const ma_uint32 shift = 12;
 
     MA_ASSERT(pResampler != NULL);
@@ -38367,24 +38403,27 @@ static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResa
 
     a = (pResampler->inTimeFrac << shift) / pResampler->config.sampleRateOut;
 
-    for (c = 0; c < pResampler->config.channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         ma_int16 s = ma_linear_resampler_mix_s16(pResampler->x0.s16[c], pResampler->x1.s16[c], a, shift);
         pFrameOut[c] = s;
     }
 }
 
 
-static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResampler, float* pFrameOut)
+static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResampler, float* MA_RESTRICT pFrameOut)
 {
     ma_uint32 c;
     float a;
+    const ma_uint32 channels = pResampler->config.channels;
 
     MA_ASSERT(pResampler != NULL);
     MA_ASSERT(pFrameOut  != NULL);
 
     a = (float)pResampler->inTimeFrac / pResampler->config.sampleRateOut;
 
-    for (c = 0; c < pResampler->config.channels; c += 1) {
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    for (c = 0; c < channels; c += 1) {
         float s = ma_mix_f32_fast(pResampler->x0.f32[c], pResampler->x1.f32[c], a);
         pFrameOut[c] = s;
     }
@@ -48692,20 +48731,22 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
+    const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_white(pNoise);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = ma_noise_f32_white(pNoise);
                 }
             }
         }
@@ -48714,31 +48755,31 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 ma_int16 s = ma_noise_s16_white(pNoise);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_white(pNoise);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = ma_noise_s16_white(pNoise);
                 }
             }
         }
     } else {
-        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
-        ma_uint32 bpf = bps * pNoise->config.channels;
+        const ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        const ma_uint32 bpf = bps * channels;
 
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_white(pNoise);
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
@@ -48809,20 +48850,22 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
+    const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_pink(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_pink(pNoise, iChannel);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = ma_noise_f32_pink(pNoise, iChannel);
                 }
             }
         }
@@ -48831,31 +48874,31 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 ma_int16 s = ma_noise_s16_pink(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_pink(pNoise, iChannel);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = ma_noise_s16_pink(pNoise, iChannel);
                 }
             }
         }
     } else {
-        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
-        ma_uint32 bpf = bps * pNoise->config.channels;
+        const ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        const ma_uint32 bpf = bps * channels;
 
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_pink(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_pink(pNoise, iChannel);
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
@@ -48889,20 +48932,22 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
+    const ma_uint32 channels = pNoise->config.channels;
+    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_brownian(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pNoise->config.channels + iChannel] = ma_noise_f32_brownian(pNoise, iChannel);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*channels + iChannel] = ma_noise_f32_brownian(pNoise, iChannel);
                 }
             }
         }
@@ -48911,31 +48956,31 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 ma_int16 s = ma_noise_s16_brownian(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = s;
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = s;
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
-                    pFramesOutS16[iFrame*pNoise->config.channels + iChannel] = ma_noise_s16_brownian(pNoise, iChannel);
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
+                    pFramesOutS16[iFrame*channels + iChannel] = ma_noise_s16_brownian(pNoise, iChannel);
                 }
             }
         }
     } else {
-        ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
-        ma_uint32 bpf = bps * pNoise->config.channels;
+        const ma_uint32 bps = ma_get_bytes_per_sample(pNoise->config.format);
+        const ma_uint32 bpf = bps * channels;
 
         if (pNoise->config.duplicateChannels) {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_brownian(pNoise, 0);
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pNoise->config.channels; iChannel += 1) {
+                for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_brownian(pNoise, iChannel);
                     ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
