@@ -188,10 +188,12 @@ int main(int argc, char** argv)
         }
 
         //ma_spatializer_set_position(&g_spatializer, ma_vec3f_init_3f(posX, 0, posZ));
-        ma_sound_set_position(&sound, posX, 0, posZ);
-        ma_sound_set_velocity(&sound, step*1000, 0, 0);
+        ma_sound_set_position(&sound, 0, 0, -2);
+        ma_engine_listener_set_position(&engine, 0, 0, 0, -20);
+        ma_engine_listener_set_direction(&engine, 0, -1, 0, 0);
+        //ma_sound_set_velocity(&sound, step*1000, 0, 0);
 
-        //ma_engine_listener_set_direciton(&engine, (float)ma_cos(angle), 0, (float)ma_sin(angle));
+        ma_engine_listener_set_direction(&engine, 0, (float)ma_cos(angle), 0, (float)ma_sin(angle));
         angle += stepAngle;
 
         ma_sleep(1);
