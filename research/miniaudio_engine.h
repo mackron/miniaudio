@@ -8784,8 +8784,13 @@ MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
 
 MA_API ma_vec3f ma_vec3f_normalize(ma_vec3f v)
 {
-    float f = 1 / ma_vec3f_len(v);
-    
+    float f;
+    float l = ma_vec3f_len(v);
+    if (l == 0) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    f = 1 / l;
     v.x *= f;
     v.y *= f;
     v.z *= f;
