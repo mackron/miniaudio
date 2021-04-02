@@ -9380,10 +9380,10 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             }
             #else
             {
-                m[0][0] = axisX.x; m[1][0] = axisX.y; m[2][0] = axisX.z; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
-                m[0][1] = axisY.x; m[1][1] = axisY.y; m[2][1] = axisY.z; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
-                m[0][2] = axisZ.x; m[1][2] = axisZ.y; m[2][2] = axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;       m[3][3] = 1;
+                m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
+                m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
+                m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+                m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
             }
             #endif
 
