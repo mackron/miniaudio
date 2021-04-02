@@ -1753,6 +1753,8 @@ MA_API void ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listen
 MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex);
 MA_API void ma_engine_listener_set_cone(ma_engine* pEngine, ma_uint32 listenerIndex, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 listenerIndex, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_engine_listener_set_world_up(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -9369,18 +9371,18 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 axisX = ma_vec3f_neg(axisX);
             }
 
-            #if 1
+            #if 0
             {
-                m[0][0] = axisX.x; m[0][1] = axisY.x; m[0][2] = axisZ.x; m[0][3] = -ma_vec3f_dot(axisX, pListener->position);
-                m[1][0] = axisX.y; m[1][1] = axisY.y; m[1][2] = axisZ.y; m[1][3] = -ma_vec3f_dot(axisY, pListener->position);
-                m[2][0] = axisX.z; m[2][1] = axisY.z; m[2][2] = axisZ.z; m[2][3] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[3][0] = 0;       m[3][1] = 0;       m[3][2] = 0;       m[3][3] = 1;
+                m[0][0] = axisX.x;                                   m[0][1] = axisY.x;                                   m[0][2] = axisZ.x;                                   m[0][3] = 0;
+                m[1][0] = axisX.y;                                   m[1][1] = axisY.y;                                   m[1][2] = axisZ.y;                                   m[1][3] = 0;
+                m[2][0] = axisX.z;                                   m[2][1] = axisY.z;                                   m[2][2] = axisZ.z;                                   m[2][3] = 0;
+                m[3][0] = -ma_vec3f_dot(axisX, pListener->position); m[3][1] = -ma_vec3f_dot(axisY, pListener->position); m[3][2] = -ma_vec3f_dot(axisZ, pListener->position); m[3][3] = 1;
             }
             #else
             {
-                m[0][0] = axisX.x; m[1][0] = axisY.x; m[2][0] = axisZ.x; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
-                m[0][1] = axisX.y; m[1][1] = axisY.y; m[2][1] = axisZ.y; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
-                m[0][2] = axisX.z; m[1][2] = axisY.z; m[2][2] = axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
+                m[0][0] = axisX.x; m[1][0] = axisX.y; m[2][0] = axisX.z; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
+                m[0][1] = axisY.x; m[1][1] = axisY.y; m[2][1] = axisY.z; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
+                m[0][2] = axisZ.x; m[1][2] = axisZ.y; m[2][2] = axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
                 m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;       m[3][3] = 1;
             }
             #endif
@@ -9391,7 +9393,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             origin which makes things simpler.
             */
             v = pSpatializer->position;
-            #if 1
+            #if 0
             {
                 relativePos.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3] * 1;
                 relativePos.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3] * 1;
@@ -10852,6 +10854,24 @@ MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 list
     }
 
     ma_spatializer_listener_get_cone(&pEngine->listeners[listenerIndex], pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
+}
+
+MA_API void ma_engine_listener_set_world_up(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return;
+    }
+
+    ma_spatializer_listener_set_world_up(&pEngine->listeners[listenerIndex], x, y, z);
+}
+
+MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uint32 listenerIndex)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return ma_vec3f_init_3f(0, 1, 0);
+    }
+
+    return ma_spatializer_listener_get_world_up(&pEngine->listeners[listenerIndex]);
 }
 
 
