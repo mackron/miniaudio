@@ -9371,17 +9371,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
             #if 1
             {
-                m[0][0] = axisX.x; m[0][1] = axisY.x; m[0][2] = -axisZ.x; m[0][3] = -ma_vec3f_dot(axisX, pListener->position);
-                m[1][0] = axisX.y; m[1][1] = axisY.y; m[1][2] = -axisZ.y; m[1][3] = -ma_vec3f_dot(axisY, pListener->position);
-                m[2][0] = axisX.z; m[2][1] = axisY.z; m[2][2] = -axisZ.z; m[2][3] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[3][0] = 0;       m[3][1] = 0;       m[3][2] = 0;        m[3][3] = 1;
+                m[0][0] = axisX.x; m[0][1] = axisY.x; m[0][2] = axisZ.x; m[0][3] = -ma_vec3f_dot(axisX, pListener->position);
+                m[1][0] = axisX.y; m[1][1] = axisY.y; m[1][2] = axisZ.y; m[1][3] = -ma_vec3f_dot(axisY, pListener->position);
+                m[2][0] = axisX.z; m[2][1] = axisY.z; m[2][2] = axisZ.z; m[2][3] = -ma_vec3f_dot(axisZ, pListener->position);
+                m[3][0] = 0;       m[3][1] = 0;       m[3][2] = 0;       m[3][3] = 1;
             }
             #else
             {
-                m[0][0] = axisX.x; m[1][0] = axisY.x; m[2][0] = -axisZ.x; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
-                m[0][1] = axisX.y; m[1][1] = axisY.y; m[2][1] = -axisZ.y; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
-                m[0][2] = axisX.z; m[1][2] = axisY.z; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;        m[3][3] = 1;
+                m[0][0] = axisX.x; m[1][0] = axisY.x; m[2][0] = axisZ.x; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
+                m[0][1] = axisX.y; m[1][1] = axisY.y; m[2][1] = axisZ.y; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
+                m[0][2] = axisX.z; m[1][2] = axisY.z; m[2][2] = axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
+                m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;       m[3][3] = 1;
             }
             #endif
 
@@ -9410,9 +9410,19 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             rotation of the listener.
             */
             v = pSpatializer->direction;
-            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            #if 0
+            {
+                relativeDir.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z;
+                relativeDir.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z;
+                relativeDir.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z;
+            }
+            #else
+            {
+                relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+                relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+                relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            }
+            #endif
 
             #if defined(MA_DEBUG_OUTPUT)
             {
