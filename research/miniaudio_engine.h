@@ -9347,6 +9347,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             */
             axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
             axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
+
+            /*
+            The calculation of axisX above can result in a zero-length vector if the listener is
+            looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
+            the calculations below don't fall apart. This is where a quaternion based listener and
+            sound orientation would come in handy.
+            */
+            if (ma_vec3f_len2(axisX) == 0) {
+                axisX = ma_vec3f_init_3f(1, 0, 0);
+            }
+
             axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
 
             /*
