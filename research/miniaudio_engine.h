@@ -9630,10 +9630,16 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         source.
         */
         if (pSpatializer->config.dopplerFactor > 0) {
-            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_neg(relativePos), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
+            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(pListener->position, pSpatializer->position), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
         } else {
             pSpatializer->dopplerPitch = 1;
         }
+
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            /*printf("dopplerPitch = %f; relativePos = {%f %f %f}\n", pSpatializer->dopplerPitch, relativePos.x, relativePos.y, relativePos.z);*/
+        }
+        #endif
     }
 
     return MA_SUCCESS;
