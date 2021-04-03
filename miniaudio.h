@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.33 - TBD
+miniaudio - v0.10.33 - 2021-04-04
 
 David Reid - mackron@gmail.com
 
@@ -64571,7 +64571,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.33 - TBD
+v0.10.33 - 2021-04-04
   - Core Audio: Fix a memory leak.
   - Core Audio: Fix a bug where the performance profile is not being used by playback devices.
   - JACK: Fix loading of 64-bit JACK on Windows.
@@ -64579,6 +64579,7 @@ v0.10.33 - TBD
     - ma_calculate_buffer_size_in_milliseconds_from_frames()
     - ma_calculate_buffer_size_in_frames_from_milliseconds()
   - Fix compilation errors relating to c89atomic.
+  - Update FLAC decoder.
 
 v0.10.32 - 2021-02-23
   - WASAPI: Fix a deadlock in exclusive mode.
