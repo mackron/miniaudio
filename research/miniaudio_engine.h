@@ -1413,9 +1413,8 @@ Within the world there is the concept of a "listener". Each `ma_engine` instance
 if you need more than one listener. In this case you will want to share a resource manager which you can do by initializing one manually and passing it into
 `ma_engine_config`. Using this method will require your application to manage groups and sounds on a per `ma_engine` basis.
 */
-typedef struct ma_engine        ma_engine;
-typedef struct ma_sound         ma_sound;
-typedef struct ma_sound_group   ma_sound_group;
+typedef struct ma_engine ma_engine;
+typedef struct ma_sound  ma_sound;
 
 
 /* Stereo panner. */
@@ -1705,10 +1704,11 @@ struct ma_sound_inlined
     ma_sound_inlined* pPrev;
 };
 
-struct ma_sound_group
-{
-    ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
-};
+/* A sound group is just a sound. */
+typedef ma_sound_config ma_sound_group_config;
+typedef ma_sound        ma_sound_group;
+
+MA_API ma_sound_group_config ma_sound_group_config_init(void);
 
 
 typedef struct
@@ -1834,6 +1834,7 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup);
 MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);
 MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
@@ -10437,6 +10438,15 @@ MA_API ma_sound_config ma_sound_config_init(void)
     return config;
 }
 
+MA_API ma_sound_group_config ma_sound_group_config_init(void)
+{
+    ma_sound_group_config config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
+
 
 MA_API ma_engine_config ma_engine_config_init_default(void)
 {
@@ -11826,8 +11836,15 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
 {
-    ma_result result;
-    ma_engine_node_config engineNodeConfig;
+    ma_sound_group_config config = ma_sound_group_config_init();
+    config.flags              = flags;
+    config.pInitialAttachment = pParentGroup;
+    return ma_sound_group_init_ex(pEngine, &config, pGroup);
+}
+
+MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup)
+{
+    ma_sound_config soundConfig;
 
     if (pGroup == NULL) {
         return MA_INVALID_ARGS;
@@ -11835,9 +11852,15 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
 
     MA_ZERO_OBJECT(pGroup);
 
-    if (pEngine == NULL) {
+    if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* A sound group is just a sound without a data source. */
+    soundConfig = *pConfig;
+    soundConfig.pFilePath   = NULL;
+    soundConfig.pFilePathW  = NULL;
+    soundConfig.pDataSource = NULL;
 
     /*
     Groups need to have spatialization disabled by default because I think it'll be pretty rare
@@ -11845,451 +11868,229 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
     disabling this by default feels like the right option. Spatialization can be enabled with a
     call to ma_sound_group_set_spatialization_enabled().
     */
-    flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
+    soundConfig.flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
 
-    /* A sound group is just an engine node. */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group, flags);
-    
-    result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pGroup->engineNode);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Attach the engine node to the graph if requested. */
-    if (pParentGroup == NULL) {
-        /* No parent group specified. Attach to the endpoint by default. */
-        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
-            ma_node_attach_output_bus(pGroup, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
-        }
-    } else {
-        /* Parent group specified. Attach to it's first endpoint. */
-        ma_node_attach_output_bus(pGroup, 0, pParentGroup, 0);
-    }
-
-    return MA_SUCCESS;
+    return ma_sound_init_ex(pEngine, &soundConfig, pGroup);
 }
 
 MA_API void ma_sound_group_uninit(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    /*
-    First thing to do is uninitialize the node. This will wait until the group is completely detached
-    which makes the parts below trivial with respect to thread-safety.
-    */
-    ma_node_uninit(pGroup, &pGroup->engineNode.pEngine->allocationCallbacks);
+    ma_sound_uninit(pGroup);
 }
 
 MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return NULL;
-    }
-
-    return pGroup->engineNode.pEngine;
+    return ma_sound_get_engine(pGroup);
 }
 
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* This won't actually start the group if a start delay has been applied. */
-    ma_node_set_state(pGroup, ma_node_state_started);
-
-    return MA_SUCCESS;
+    return ma_sound_start(pGroup);
 }
 
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* This will stop the group immediately. Use ma_sound_group_set_stop_time() to delay stopping to a specific time. */
-    ma_node_set_state(pGroup, ma_node_state_stopped);
-
-    return MA_SUCCESS;
+    return ma_sound_stop(pGroup);
 }
 
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* The volume is controlled via the output bus on the node. */
-    ma_node_set_output_bus_volume(pGroup, 0, volume);
-
-    return MA_SUCCESS;
+    return ma_sound_set_volume(pGroup, volume);
 }
 
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB)
 {
-    return ma_sound_group_set_volume(pGroup, ma_gain_db_to_factor(gainDB));
+    return ma_sound_set_gain_db(pGroup, gainDB);
 }
 
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_panner_set_pan(&pGroup->engineNode.panner, pan);
+    return ma_sound_set_pan(pGroup, pan);
 }
 
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pGroup->engineNode.pitch = pitch;
-
-    return MA_SUCCESS;
+    return ma_sound_set_pitch(pGroup, pitch);
 }
 
 MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    c89atomic_exchange_explicit_8(&pGroup->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
+    ma_sound_set_spatialization_enabled(pGroup, enabled);
 }
 
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
 {
-    if (pGroup == NULL || listenerIndex >= ma_engine_get_listener_count(pGroup->engineNode.pEngine)) {
-        return;
-    }
-
-    c89atomic_exchange_explicit_8(&pGroup->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
+    ma_sound_set_pinned_listener_index(pGroup, listenerIndex);
 }
 
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return (ma_uint8)-1;
-    }
-
-    return c89atomic_load_explicit_8(&pGroup->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
+    return ma_sound_get_pinned_listener_index(pGroup);
 }
 
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_position(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_position(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_position(&pGroup->engineNode.spatializer);
+    return ma_sound_get_position(pGroup);
 }
 
 MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_direction(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_direction(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_direction(&pGroup->engineNode.spatializer);
+    return ma_sound_get_direction(pGroup);
 }
 
 MA_API void ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_velocity(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_velocity(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_velocity(&pGroup->engineNode.spatializer);
+    return ma_sound_get_velocity(pGroup);
 }
 
 MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, attenuationModel);
+    ma_sound_set_attenuation_model(pGroup, attenuationModel);
 }
 
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_attenuation_model_none;
-    }
-
-    return ma_spatializer_get_attenuation_model(&pGroup->engineNode.spatializer);
+    return ma_sound_get_attenuation_model(pGroup);
 }
 
 MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_positioning(&pGroup->engineNode.spatializer, positioning);
+    ma_sound_set_positioning(pGroup, positioning);
 }
 
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_positioning_absolute;
-    }
-
-    return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
+    return ma_sound_get_positioning(pGroup);
 }
 
 MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_rolloff(&pGroup->engineNode.spatializer, rolloff);
+    ma_sound_set_rolloff(pGroup, rolloff);
 }
 
 MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_rolloff(&pGroup->engineNode.spatializer);
+    return ma_sound_get_rolloff(pGroup);
 }
 
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_min_gain(&pGroup->engineNode.spatializer, minGain);
+    ma_sound_set_min_gain(pGroup, minGain);
 }
 
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_min_gain(&pGroup->engineNode.spatializer);
+    return ma_sound_get_min_gain(pGroup);
 }
 
 MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_max_gain(&pGroup->engineNode.spatializer, maxGain);
+    ma_sound_set_max_gain(pGroup, maxGain);
 }
 
 MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_max_gain(&pGroup->engineNode.spatializer);
+    return ma_sound_get_max_gain(pGroup);
 }
 
 MA_API void ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_min_distance(&pGroup->engineNode.spatializer, minDistance);
+    ma_sound_set_min_distance(pGroup, minDistance);
 }
 
 MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_min_distance(&pGroup->engineNode.spatializer);
+    return ma_sound_get_min_distance(pGroup);
 }
 
 MA_API void ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_max_distance(&pGroup->engineNode.spatializer, maxDistance);
+    ma_sound_set_max_distance(pGroup, maxDistance);
 }
 
 MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_max_distance(&pGroup->engineNode.spatializer);
+    return ma_sound_get_max_distance(pGroup);
 }
 
 MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_cone(&pGroup->engineNode.spatializer, innerAngleInRadians, outerAngleInRadians, outerGain);
+    ma_sound_set_cone(pGroup, innerAngleInRadians, outerAngleInRadians, outerGain);
 }
 
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
 {
-    if (pInnerAngleInRadians != NULL) {
-        *pInnerAngleInRadians = 0;
-    }
-
-    if (pOuterAngleInRadians != NULL) {
-        *pOuterAngleInRadians = 0;
-    }
-
-    if (pOuterGain != NULL) {
-        *pOuterGain = 0;
-    }
-
-    ma_spatializer_get_cone(&pGroup->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
+    return ma_sound_get_cone(pGroup, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
 MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_doppler_factor(&pGroup->engineNode.spatializer, dopplerFactor);
+    ma_sound_set_doppler_factor(pGroup, dopplerFactor);
 }
 
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_doppler_factor(&pGroup->engineNode.spatializer);
+    return ma_sound_get_doppler_factor(pGroup);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_fader_set_fade(&pGroup->engineNode.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    return ma_sound_set_fade_in_pcm_frames(pGroup, volumeBeg, volumeEnd, fadeLengthInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_fade_in_pcm_frames(pGroup, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pGroup->engineNode.fader.config.sampleRate) / 1000);
+    return ma_sound_set_fade_in_milliseconds(pGroup, volumeBeg, volumeEnd, fadeLengthInMilliseconds);
 }
 
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_fader_get_current_volume(&pGroup->engineNode.fader, pVolume);
+    return ma_sound_get_current_fade_volume(pGroup, pVolume);
 }
 
 MA_API ma_result ma_sound_group_set_start_time_in_pcm_frames(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_node_set_state_time(pGroup, ma_node_state_started, absoluteGlobalTimeInFrames);
+    return ma_sound_set_start_time_in_pcm_frames(pGroup, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_start_time_in_milliseconds(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_start_time_in_pcm_frames(pGroup, absoluteGlobalTimeInMilliseconds * ma_engine_get_sample_rate(ma_sound_group_get_engine(pGroup)) / 1000);
+    return ma_sound_set_start_time_in_milliseconds(pGroup, absoluteGlobalTimeInMilliseconds);
 }
 
 MA_API ma_result ma_sound_group_set_stop_time_in_pcm_frames(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_node_set_state_time(pGroup, ma_node_state_stopped, absoluteGlobalTimeInFrames);
+    return ma_sound_set_stop_time_in_pcm_frames(pGroup, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_stop_time_in_milliseconds(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_stop_time_in_pcm_frames(pGroup, absoluteGlobalTimeInMilliseconds * ma_engine_get_sample_rate(ma_sound_group_get_engine(pGroup)) / 1000);
+    return ma_sound_set_stop_time_in_milliseconds(pGroup, absoluteGlobalTimeInMilliseconds);
 }
 
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_FALSE;
-    }
-
-    return ma_node_get_state(pGroup) == ma_node_state_started;
+    return ma_sound_is_playing(pGroup);
 }
 
 MA_API ma_result ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
 {
-    if (pTimeInFrames == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = 0;
-
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = ma_node_get_time(pGroup);
-
-    return MA_SUCCESS;
+    return ma_sound_get_time_in_pcm_frames(pGroup, pTimeInFrames);
 }
 
 
