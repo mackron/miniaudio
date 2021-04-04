@@ -1691,7 +1691,7 @@ struct ma_sound
     sound via the resource manager, which I *think* will be the most common scenario.
     */
 #ifndef MA_NO_RESOURCE_MANAGER
-    ma_resource_manager_data_source resourceManagerDataSource;
+    ma_resource_manager_data_source* pResourceManagerDataSource;
 #endif
 };
 
@@ -11145,10 +11145,15 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     */
     flags = pConfig->flags | MA_DATA_SOURCE_FLAG_WAIT_INIT;
 
+    pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
+    if (pSound->pResourceManagerDataSource == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
     if (pConfig->pFilePath != NULL) {
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pConfig->pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pConfig->pFilePath, flags, NULL, pSound->pResourceManagerDataSource);
     } else {
-        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pConfig->pFilePathW, flags, NULL, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pConfig->pFilePathW, flags, NULL, pSound->pResourceManagerDataSource);
     }
     
     if (result != MA_SUCCESS) {
@@ -11161,11 +11166,12 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     config = *pConfig;
     config.pFilePath   = NULL;
     config.pFilePathW  = NULL;
-    config.pDataSource = &pSound->resourceManagerDataSource;
+    config.pDataSource = pSound->pResourceManagerDataSource;
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
-        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
+        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
+        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
         MA_ZERO_OBJECT(pSound);
         return result;
     }
@@ -11246,7 +11252,8 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->ownsDataSource) {
-        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
+        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
+        ma_free(pSound->pResourceManagerDataSource, &pSound->engineNode.pEngine->allocationCallbacks);
         pSound->pDataSource = NULL;
     }
 #else
@@ -11710,8 +11717,8 @@ MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
     generically.
     */
 #ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(&pSound->resourceManagerDataSource, isLooping);
+    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
+        ma_resource_manager_data_source_set_looping(pSound->pResourceManagerDataSource, isLooping);
     }
 #endif
 
@@ -11762,8 +11769,8 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
     thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
     */
 #ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
+        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(pSound->pResourceManagerDataSource, frameIndex);
         if (result != MA_SUCCESS) {
             return result;
         }
