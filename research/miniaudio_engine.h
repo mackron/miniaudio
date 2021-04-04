@@ -1816,8 +1816,6 @@ MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor);
 MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
-MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume);
@@ -1826,8 +1824,10 @@ MA_API ma_result ma_sound_set_start_time_in_milliseconds(ma_sound* pSound, ma_ui
 MA_API ma_result ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API ma_result ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
-MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
@@ -11590,38 +11590,6 @@ MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound)
     return ma_spatializer_get_doppler_factor(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_exchange_8(&pSound->isLooping, isLooping);
-
-    /*
-    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
-    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
-    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
-    generically.
-    */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(&pSound->resourceManagerDataSource, isLooping);
-    }
-#endif
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
-{
-    if (pSound == NULL) {
-        return MA_FALSE;
-    }
-
-    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
-}
-
 
 MA_API ma_result ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
@@ -11695,15 +11663,6 @@ MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
     return ma_node_get_state_by_time(pSound, ma_engine_get_time(ma_sound_get_engine(pSound))) == ma_node_state_started;
 }
 
-MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
-{
-    if (pSound == NULL) {
-        return MA_FALSE;
-    }
-
-    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
-}
-
 MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames)
 {
     if (pTimeInFrames == NULL) {
@@ -11721,10 +11680,71 @@ MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Looping is only a valid concept if the sound is backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    c89atomic_exchange_8(&pSound->isLooping, isLooping);
+
+    /*
+    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
+    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
+    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
+    generically.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
+        ma_resource_manager_data_source_set_looping(&pSound->resourceManagerDataSource, isLooping);
+    }
+#endif
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    /* There is no notion of looping for sounds that are not backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
+}
+
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    /* There is no notion of an end of a sound if it's not backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
+}
+
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* Seeking is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
     }
 
     /*
@@ -11755,13 +11775,35 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
         return MA_INVALID_ARGS;
     }
 
-    return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+    /* The data format is retrieved directly from the data source if the sound is backed by one. Otherwise we pull it from the node. */
+    if (pSound->pDataSource == NULL) {
+        if (pFormat != NULL) {
+            *pFormat = ma_format_f32;
+        }
+
+        if (pChannels != NULL) {
+            *pChannels = pSound->engineNode.baseNode.inputBuses[0].channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pSound->engineNode.resampler.config.sampleRateIn;
+        }
+
+        return MA_SUCCESS;
+    } else {
+        return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+    }
 }
 
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* The notion of a cursor is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
     }
 
     return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
@@ -11771,6 +11813,11 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* The notion of a sound length is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
     }
 
     return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
