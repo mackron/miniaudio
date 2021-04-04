@@ -1632,7 +1632,8 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
-    ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
@@ -1662,6 +1663,20 @@ typedef struct
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 
+
+typedef struct
+{
+    const char* pFilePath;                      /* Set this to load from the resource manager. */
+    const wchar_t* pFilePathW;                  /* Set this to load from the resource manager. */
+    ma_data_source* pDataSource;                /* Set this to load from an existing data source. */
+    ma_node* pInitialAttachment;                /* If set, the sound will be attached to an input of this node. This can be set to a ma_sound. If set to NULL, the sound will be attached directly to the endpoint unless MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT is set in `flags`. */
+    ma_uint32 initialAttachmentInputBusIndex;   /* The index of the input bus of pInitialAttachment to attach the sound to. */
+    ma_uint32 channelsIn;                       /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
+    ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. */
+    ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
+} ma_sound_config;
+
+MA_API ma_sound_config ma_sound_config_init(void);
 
 struct ma_sound
 {
@@ -1764,6 +1779,7 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
 MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
@@ -10288,6 +10304,8 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     ma_fader_config faderConfig;
     ma_spatializer_config spatializerConfig;
     ma_panner_config pannerConfig;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
 
     if (pEngineNode == NULL) {
         return MA_INVALID_ARGS;
@@ -10307,19 +10325,23 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
         return MA_INVALID_ARGS; /* Invalid listener. */
     }
 
+    /* Assume the engine channel count if no channels were specified. */
+    channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
+    channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
+
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
         baseNodeConfig = ma_node_config_init();
         baseNodeConfig.vtable            = &g_ma_engine_node_vtable__sound;
-        baseNodeConfig.inputChannels[0]  = pConfig->channels;   /* Set this even though there's no input channels for this node. It's used later on. */
-        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
+        baseNodeConfig.inputChannels[0]  = channelsIn;
+        baseNodeConfig.outputChannels[0] = channelsOut;
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
         baseNodeConfig = ma_node_config_init();
         baseNodeConfig.vtable            = &g_ma_engine_node_vtable__group;
-        baseNodeConfig.inputChannels[0]  = ma_engine_get_channels(pConfig->pEngine);
-        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
+        baseNodeConfig.inputChannels[0]  = channelsIn;
+        baseNodeConfig.outputChannels[0] = channelsOut;
         baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
     }
 
@@ -10363,8 +10385,11 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     }
 
 
-    /* Spatialization comes next. Everything after this needs to use the engine's channel count. */
-    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], ma_engine_get_channels(pEngineNode->pEngine));
+    /*
+    Spatialization comes next. We spatialize based ont he node's output channel count. It's up the caller to
+    ensure channels counts link up correctly in the node graph.
+    */
+    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], baseNodeConfig.outputChannels[0]);
     
     result = ma_spatializer_init(&spatializerConfig, &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
@@ -10374,10 +10399,9 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     /*
     After spatialization comes panning. We need to do this after spatialization because otherwise we wouldn't
-    be able to pan mono sounds. By doing it after spatialization, which converts the number of channels over
-    to the engine's channel count, we can pan mono sounds.
+    be able to pan mono sounds.
     */
-    pannerConfig = ma_panner_config_init(ma_format_f32, ma_engine_get_channels(pEngineNode->pEngine));
+    pannerConfig = ma_panner_config_init(ma_format_f32, baseNodeConfig.outputChannels[0]);
 
     result = ma_panner_init(&pannerConfig, &pEngineNode->panner);
     if (result != MA_SUCCESS) {
@@ -10403,6 +10427,15 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_resampler_uninit(&pEngineNode->resampler);
 }
 
+
+MA_API ma_sound_config ma_sound_config_init(void)
+{
+    ma_sound_config config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
 
 
 MA_API ma_engine_config ma_engine_config_init_default(void)
@@ -11014,36 +11047,49 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
     return MA_SUCCESS;
 }
 
-static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
     ma_engine_node_config engineNodeConfig;
+    ma_engine_node_type type;   /* Will be set to ma_engine_node_type_group if no data source is specified. */
 
     /* Do not clear pSound to zero here - that's done at a higher level with ma_sound_preinit(). */
     MA_ASSERT(pEngine != NULL);
     MA_ASSERT(pSound  != NULL);
 
-    if (pDataSource == NULL) {
+    if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pSound->pDataSource = pDataSource;
+    pSound->pDataSource = pConfig->pDataSource;
+
+    if (pConfig->pDataSource != NULL) {
+        type = ma_engine_node_type_sound;
+    } else {
+        type = ma_engine_node_type_group;
+    }
 
     /*
     Sounds are engine nodes. Before we can initialize this we need to determine the channel count.
     If we can't do this we need to abort. It's up to the caller to ensure they're using a data
     source that provides this information upfront.
     */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound, flags);
+    engineNodeConfig = ma_engine_node_config_init(pEngine, type, pConfig->flags);
+    engineNodeConfig.channelsIn  = pConfig->channelsIn;
+    engineNodeConfig.channelsOut = pConfig->channelsOut;
 
-    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, &engineNodeConfig.sampleRate);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to retrieve the channel count. */
-    }
+    /* If we're loading from a data source the input channel count needs to be the data source's native channel count. */
+    if (pConfig->pDataSource != NULL) {
+        result = ma_data_source_get_data_format(pConfig->pDataSource, NULL, &engineNodeConfig.channelsIn, &engineNodeConfig.sampleRate);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to retrieve the channel count. */
+        }
 
-    if (engineNodeConfig.channels == 0) {
-        return MA_INVALID_OPERATION;    /* Invalid channel count. */
+        if (engineNodeConfig.channelsIn == 0) {
+            return MA_INVALID_OPERATION;    /* Invalid channel count. */
+        }
     }
+    
 
     /* Getting here means we should have a valid channel count and we can initialize the engine node. */
     result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pSound->engineNode);
@@ -11051,15 +11097,15 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
         return result;
     }
 
-    /* If no group is specified, attach the sound straight to the endpoint. */
-    if (pGroup == NULL) {
+    /* If no attachment is specified, attach the sound straight to the endpoint. */
+    if (pConfig->pInitialAttachment == NULL) {
         /* No group. Attach straight to the endpoint by default, unless the caller has requested that do not. */
-        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
+        if ((pConfig->flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
             result = ma_node_attach_output_bus(pSound, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
         }
     } else {
-        /* A group is specified. Attach to it by default. The sound has only a single output bus, and the group has a single input bus which makes attachment trivial. */
-        result = ma_node_attach_output_bus(pSound, 0, pGroup, 0);
+        /* An attachment is specified. Attach to it by default. The sound has only a single output bus, and the config will specify which input bus to attach to. */
+        result = ma_node_attach_output_bus(pSound, 0, pConfig->pInitialAttachment, pConfig->initialAttachmentInputBusIndex);
     }
 
     if (result != MA_SUCCESS) {
@@ -11071,14 +11117,11 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
 }
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
-
-    result = ma_sound_preinit(pEngine, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    ma_uint32 flags;
+    ma_sound_config config;
 
     /*
     The engine requires knowledge of the channel count of the underlying data source before it can
@@ -11090,21 +11133,27 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
     will get triggered before this function returns. This is OK, so long as the caller is aware of
     it and can avoid accessing the sound from within the notification.
     */
-    flags |= MA_DATA_SOURCE_FLAG_WAIT_INIT;
+    flags = pConfig->flags | MA_DATA_SOURCE_FLAG_WAIT_INIT;
 
-    if (pFilePath != NULL) {
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
+    if (pConfig->pFilePath != NULL) {
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pConfig->pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
     } else {
-        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pFilePathW, flags, NULL, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pConfig->pFilePathW, flags, NULL, &pSound->resourceManagerDataSource);
     }
     
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pSound->ownsDataSource = MA_TRUE;
+    pSound->ownsDataSource = MA_TRUE;   /* <-- Important. Not setting this will result in the resource manager data source never getting uninitialized. */
 
-    result = ma_sound_init_from_data_source_internal(pEngine, &pSound->resourceManagerDataSource, flags, pGroup, pSound);
+    /* We need to use a slightly customized version of the config so we'll need to make a copy. */
+    config = *pConfig;
+    config.pFilePath   = NULL;
+    config.pFilePathW  = NULL;
+    config.pDataSource = &pSound->resourceManagerDataSource;
+
+    result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
         ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
         MA_ZERO_OBJECT(pSound);
@@ -11116,16 +11165,33 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
 
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, pFilePath, NULL, flags, pGroup, pSound);
+    ma_sound_config config = ma_sound_config_init();
+    config.pFilePath          = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, NULL, pFilePath, flags, pGroup, pSound);
+    ma_sound_config config = ma_sound_config_init();
+    config.pFilePathW         = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
 }
 #endif
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_sound_config config = ma_sound_config_init();
+    config.pDataSource        = pDataSource;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
+}
+
+MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
 
@@ -11134,14 +11200,25 @@ MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_sour
         return result;
     }
 
-    pSound->ownsDataSource = MA_FALSE;
-
-    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    return MA_SUCCESS;
+    /* We need to load the sound differently depending on whether or not we're loading from a file. */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pConfig->pFilePath != NULL || pConfig->pFilePathW != NULL) {
+        return ma_sound_init_from_file_internal(pEngine, pConfig, pSound);
+    } else
+#endif
+    {
+        /*
+        Getting here means we're not loading from a file. We may be loading from an already-initialized
+        data source, or none at all. If we aren't specifying any data source, we'll be initializing the
+        the equivalent to a group. ma_data_source_init_from_data_source_internal() will deal with this
+        for us, so no special treatment required here.
+        */
+        return ma_sound_init_from_data_source_internal(pEngine, pConfig, pSound);
+    }
 }
 
 MA_API void ma_sound_uninit(ma_sound* pSound)
