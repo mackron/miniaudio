@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.33 - 2021-04-04
+miniaudio - v0.10.34 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1510,7 +1510,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 33
+#define MA_VERSION_REVISION 34
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -12381,6 +12381,7 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Playback Device", (size_t)-1);
+        deviceInfo.isDefault = MA_TRUE; /* Only one playback and capture device for the null backend, so might as well mark as default. */
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
 
@@ -12389,6 +12390,7 @@ static ma_result ma_context_enumerate_devices__null(ma_context* pContext, ma_enu
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), "NULL Capture Device", (size_t)-1);
+        deviceInfo.isDefault = MA_TRUE; /* Only one playback and capture device for the null backend, so might as well mark as default. */
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
 
@@ -12411,6 +12413,8 @@ static ma_result ma_context_get_device_info__null(ma_context* pContext, ma_devic
     } else {
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), "NULL Capture Device", (size_t)-1);
     }
+
+    pDeviceInfo->isDefault = MA_TRUE;   /* Only one playback and capture device for the null backend, so might as well mark as default. */
 
     /* Support everything on the null backend. */
     pDeviceInfo->nativeDataFormats[0].format     = ma_format_unknown;
@@ -64571,6 +64575,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.34 - TBD
+  - Mark devices as default on the null backend.
+
 v0.10.33 - 2021-04-04
   - Core Audio: Fix a memory leak.
   - Core Audio: Fix a bug where the performance profile is not being used by playback devices.
