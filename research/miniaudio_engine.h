@@ -1973,7 +1973,7 @@ MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGai
     }
 
     pGainer->config = *pConfig;
-    pGainer->t      = pConfig->smoothTimeInFrames;  /* No interpolation by default. */
+    pGainer->t      = (size_t)-1;  /* No interpolation by default. */
 
     for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
         pGainer->oldGains[iChannel] = 1;
@@ -2054,8 +2054,13 @@ MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
         pGainer->newGains[iChannel] = pNewGains[iChannel];
     }
 
-    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time. */
-    pGainer->t = 0;
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
+    if (pGainer->t == (ma_uint32)-1) {
+        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
+    } else {
+        pGainer->t = 0;
+    }
+    
 
     return MA_SUCCESS;
 }
