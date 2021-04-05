@@ -9342,7 +9342,7 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.coneOuterAngleInRadians = 6.283185f; /* 360 degress. */
     config.coneOuterGain           = 0.0f;
     config.dopplerFactor           = 1;
-    config.gainSmoothTimeInFrames  = 96;        /* 2ms @ 48K. */
+    config.gainSmoothTimeInFrames  = 360;       /* 7.5ms @ 48K. */
 
     if (config.channelsIn >= MA_MIN_CHANNELS && config.channelsOut <= MA_MAX_CHANNELS) {
         ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelsIn, config.channelMapIn);
