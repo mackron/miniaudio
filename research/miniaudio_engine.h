@@ -2003,6 +2003,11 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         /* Fast path. No gain calculation required. */
         ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->newGains);
+
+        /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
+        if (pGainer->t == (ma_uint32)-1) {
+            pGainer->t = pGainer->config.smoothTimeInFrames;
+        }
     } else {
         /* Slow path. Need to interpolate the gain for each channel individually. */
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
@@ -2061,7 +2066,6 @@ MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
         pGainer->t = 0;
     }
     
-
     return MA_SUCCESS;
 }
 
