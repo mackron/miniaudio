@@ -1751,6 +1751,8 @@ typedef struct
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
     ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
     ma_uint32 periodSizeInMilliseconds;     /* Used if periodSizeInFrames is unset. */
+    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
+    ma_uint32 gainSmoothTimeInMilliseconds; /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
@@ -1773,6 +1775,7 @@ struct ma_engine
     ma_mutex inlinedSoundLock;              /* For synchronizing access so the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC ma_uint32 inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. */
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -10568,6 +10571,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     ensure channels counts link up correctly in the node graph.
     */
     spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], baseNodeConfig.outputChannels[0]);
+    spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
     
     result = ma_spatializer_init(&spatializerConfig, &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
@@ -10760,6 +10764,18 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         pEngine->listenerCount += 1;
+    }
+
+
+    /* Gain smoothing for spatialized sounds. */
+    pEngine->gainSmoothTimeInFrames = pConfig->gainSmoothTimeInFrames;
+    if (pEngine->gainSmoothTimeInFrames == 0) {
+        ma_uint32 gainSmoothTimeInMilliseconds = pConfig->gainSmoothTimeInMilliseconds;
+        if (gainSmoothTimeInMilliseconds == 0) {
+            gainSmoothTimeInMilliseconds = 8;
+        }
+
+        pEngine->gainSmoothTimeInFrames = (gainSmoothTimeInMilliseconds * ma_engine_get_sample_rate(pEngine)) / 1000;  /* 8ms by default. */
     }
 
 
