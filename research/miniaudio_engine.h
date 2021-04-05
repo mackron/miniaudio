@@ -1135,6 +1135,7 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             ma_decoder* pDecoder;
+            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized, but not necessarily fully decoded. */
             ma_async_notification* pCompletedNotification;  /* Signalled when the data buffer has been fully decoded. */
             void* pData;
             size_t dataSizeInBytes;
@@ -7974,7 +7975,8 @@ done:
         pageDataBufferJob.pageDataBuffer.decodedFrameCount      = framesRead;
 
         if (totalFrameCount > 0) {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_FALSE;
+            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_FALSE;
+            pageDataBufferJob.pageDataBuffer.pInitNotification = NULL;  /* <-- Clear this notification to NULL to ensure it's not signalled a second time at the end of decoding, which will be done for sounds of unknown length. */
 
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = totalFrameCount;
@@ -7990,7 +7992,8 @@ done:
             /* The sound is of a known length so we can go ahead and initialize the connector now. */
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
         } else {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
+            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_TRUE;
+            pageDataBufferJob.pageDataBuffer.pInitNotification = pJob->loadDataBuffer.pInitNotification;    /* <-- Set this to the init notification so that the PAGE_DATA_BUFFER job can signal it at the end of decoding. Only needed for sounds of unknown length. */
 
             /*
             These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
@@ -8000,6 +8003,8 @@ done:
             pDataBuffer->pNode->data.decoded.pData             = NULL;
             pDataBuffer->pNode->data.decoded.frameCount        = 0;
             pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
+
+            result = MA_SUCCESS;
         }
 
         if (result == MA_SUCCESS) {
@@ -8166,7 +8171,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
         /* If it was an unknown length, we can finally initialize the connector. For sounds of a known length, the connector was initialized when the first page was decoded in MA_JOB_LOAD_DATA_BUFFER. */
         if (jobCopy.pageDataBuffer.isUnknownLength) {
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, jobCopy.pageDataBuffer.pInitNotification);
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
