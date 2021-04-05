@@ -324,8 +324,34 @@ multiple threads comes into play when loading multiple sounds at the time time.
 extern "C" {
 #endif
 
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
+MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
+
 MA_API size_t ma_get_accumulation_bytes_per_sample(ma_format format);
 MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 channels);
+
+
+typedef struct
+{
+    ma_uint32 channels;
+    ma_uint32 smoothTimeInFrames;
+} ma_gainer_config;
+
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames);
+
+
+typedef struct
+{
+    ma_gainer_config config;
+    ma_uint32 t;
+    float oldGains[MA_MAX_CHANNELS];
+    float newGains[MA_MAX_CHANNELS];
+} ma_gainer;
+
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer);
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
 
 
 /*
@@ -1553,7 +1579,7 @@ typedef struct
     ma_channel channelMapIn[MA_MAX_CHANNELS];
     ma_attenuation_model attenuationModel;
     ma_positioning positioning;
-    ma_handedness handedness;   /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
     float minGain;
     float maxGain;
     float minDistance;
@@ -1562,7 +1588,8 @@ typedef struct
     float coneInnerAngleInRadians;
     float coneOuterAngleInRadians;
     float coneOuterGain;
-    float dopplerFactor;        /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
 MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
@@ -1575,6 +1602,7 @@ typedef struct
     ma_vec3f direction;
     ma_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
+    ma_gainer gainer;   /* For smooth gain transitions. */
 } ma_spatializer;
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
@@ -1911,6 +1939,127 @@ MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 ch
 
 
 
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames)
+{
+    ma_gainer_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.channels           = channels;
+    config.smoothTimeInFrames = smoothTimeInFrames;
+
+    return config;
+}
+
+
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pGainer);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS; /* Too many channels. */
+    }
+
+    pGainer->config = *pConfig;
+    pGainer->t      = pConfig->smoothTimeInFrames;  /* No interpolation by default. */
+
+    for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+        pGainer->oldGains[iChannel] = 1;
+        pGainer->newGains[iChannel] = 1;
+    }
+    
+    return MA_SUCCESS;
+}
+
+static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint32 channel)
+{
+    float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
+    return ma_mix_f32_fast(pGainer->oldGains[channel], pGainer->newGains[channel], a);
+}
+
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannel;
+    float* pFramesOutF32 = (float*)pFramesOut;
+    const float* pFramesInF32 = (const float*)pFramesIn;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
+        /* Fast path. No gain calculation required. */
+        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->newGains);
+    } else {
+        /* Slow path. Need to interpolate the gain for each channel individually. */
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
+            if (pFramesOut != NULL && pFramesIn != NULL) {
+                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
+                }
+            }
+
+            /* Move interpolation time forward, but don't go beyond our smoothing time. */
+            pGainer->t = ma_min(pGainer->t + 1, pGainer->config.smoothTimeInFrames);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain)
+{
+    float newGains[MA_MAX_CHANNELS];
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGainer->config.channels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        newGains[iChannel] = newGain;
+    }
+
+    return ma_gainer_set_gains(pGainer, newGains);
+}
+
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL || pNewGains == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        pGainer->oldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
+        pGainer->newGains[iChannel] = pNewGains[iChannel];
+    }
+
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time. */
+    pGainer->t = 0;
+
+    return MA_SUCCESS;
+}
+
+
+
+
 /* 10ms @ 48K = 480. Must never exceed 65535. */
 #ifndef MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS
 #define MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS 480
@@ -2049,7 +2198,9 @@ static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 chan
     ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pChannelMapOut, pFramesIn, ma_format_f32, channelsIn, pChannelMapIn, frameCount, ma_dither_mode_none);
 }
 
-MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+
+
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
 {
     ma_uint64 iFrame;
 
@@ -2060,9 +2211,14 @@ MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
         ma_uint32 iChannel;
         for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            pFramesOut[iFrame * channels + iChannel] *= pChannelGains[iChannel];
+            pFramesOut[iFrame * channels + iChannel] = pFramesIn[iFrame * channels + iChannel] * pChannelGains[iChannel];
         }
     }
+}
+
+MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+{
+    ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOut, pFramesOut, frameCount, channels, pChannelGains);
 }
 
 
@@ -9182,10 +9338,11 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.minDistance             = 1;
     config.maxDistance             = MA_FLT_MAX;
     config.rolloff                 = 1;
-    config.coneInnerAngleInRadians = 6.283185f;  /* 360 degrees. */
-    config.coneOuterAngleInRadians = 6.283185f;  /* 360 degress. */
+    config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
+    config.coneOuterAngleInRadians = 6.283185f; /* 360 degress. */
     config.coneOuterGain           = 0.0f;
     config.dopplerFactor           = 1;
+    config.gainSmoothTimeInFrames  = 96;        /* 2ms @ 48K. */
 
     if (config.channelsIn >= MA_MIN_CHANNELS && config.channelsOut <= MA_MAX_CHANNELS) {
         ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelsIn, config.channelMapIn);
@@ -9197,6 +9354,9 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
 {
+    ma_result result;
+    ma_gainer_config gainerConfig;
+
     if (pSpatializer == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -9227,6 +9387,13 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
     ma_channel_map_copy_or_default(pSpatializer->config.channelMapIn, pConfig->channelMapIn, pSpatializer->config.channelsIn);
     if (ma_channel_map_blank(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn)) {
         ma_get_default_channel_map_for_spatializer(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn);
+    }
+
+    /* We need a gainer for smoothing gain transitions. */
+    gainerConfig = ma_gainer_config_init(pConfig->channelsOut, pConfig->gainSmoothTimeInFrames);
+    result = ma_gainer_init(&gainerConfig, &pSpatializer->gainer);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     return MA_SUCCESS;
@@ -9643,8 +9810,9 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             /* Assume the sound is right on top of us. Don't do any panning. */
         }
 
-        /* Now we need to apply the volume to each channel. */
-        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, channelsOut, channelGainsOut);
+        /* Now we need to apply the volume to each channel. This needs to run through the gainer to ensure we get a smooth volume transition. */
+        ma_gainer_set_gains(&pSpatializer->gainer, channelGainsOut);
+        ma_gainer_process_pcm_frames(&pSpatializer->gainer, pFramesOut, pFramesOut, frameCount);
 
         /*
         Before leaving we'll want to update our doppler pitch so that the caller can apply some
