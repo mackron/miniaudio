@@ -1646,18 +1646,19 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;                        /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;                           /* A pointer to the engine. Set based on the value from the config. */
+    ma_node_base baseNode;                          /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                             /* A pointer to the engine. Set based on the value from the config. */
+    ma_uint32 sampleRate;                           /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
     ma_fader fader;
-    ma_resampler resampler;                       /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_resampler resampler;                         /* For pitch shift. May change this to ma_linear_resampler later. */
     ma_spatializer spatializer;
     ma_panner panner;
     MA_ATOMIC float pitch;
-    float oldPitch;                               /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    float oldDopplerPitch;                        /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    MA_ATOMIC ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    MA_ATOMIC ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
-    MA_ATOMIC ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    float oldPitch;                                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;                          /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
+    MA_ATOMIC ma_bool8 isPitchDisabled;             /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC ma_bool8 isSpatializationDisabled;    /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
@@ -9941,10 +9942,11 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 {
     ma_bool32 isUpdateRequired = MA_FALSE;
+    float newPitch;
 
     MA_ASSERT(pEngineNode != NULL);
 
-    float newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
+    newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
 
     if (pEngineNode->oldPitch != newPitch) {
         pEngineNode->oldPitch  = newPitch;
@@ -9957,7 +9959,8 @@ static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
     }
 
     if (isUpdateRequired) {
-        ma_resampler_set_rate_ratio(&pEngineNode->resampler, pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
+        float basePitch = (float)pEngineNode->sampleRate / ma_engine_get_sample_rate(pEngineNode->pEngine);
+        ma_resampler_set_rate_ratio(&pEngineNode->resampler, basePitch * pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
     }
 }
 
@@ -10357,6 +10360,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     }
 
     pEngineNode->pEngine                  = pConfig->pEngine;
+    pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
     pEngineNode->pitch                    = 1;
     pEngineNode->oldPitch                 = 1;
     pEngineNode->oldDopplerPitch          = 1;
@@ -10373,7 +10377,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     */
 
     /* We'll always do resampling first. */
-    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
+    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], pEngineNode->sampleRate, ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
     resamplerConfig.linear.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
     result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
