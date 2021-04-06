@@ -8275,16 +8275,31 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
     /* We should have the memory set up so now we can decode the next page. */
     if (result == MA_SUCCESS) {
+        ma_uint64 framesToTryReading = pageSizeInFrames;
+
+        /* Can't try reading more than what we originally retrieved when we first initialized the decoder. */
+        if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
+            ma_uint64 framesRemaining = pDataBuffer->pNode->data.decoded.frameCount - pDataBuffer->pNode->data.decoded.decodedFrameCount;
+            if (framesToTryReading > framesRemaining) {
+                framesToTryReading = framesRemaining;
+            }
+        }
+
         pRunningData = ma_offset_ptr(jobCopy.pageDataBuffer.pData, jobCopy.pageDataBuffer.decodedFrameCount * ma_get_bytes_per_frame(jobCopy.pageDataBuffer.pDecoder->outputFormat, jobCopy.pageDataBuffer.pDecoder->outputChannels));
 
-        framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, pageSizeInFrames);
-        if (framesRead < pageSizeInFrames) {
+        framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, framesToTryReading);
+        if (framesRead < framesToTryReading) {
             result = MA_AT_END;
         }
 
         /* If the total length is known we can increment out decoded frame count. Otherwise it needs to be left at 0 until the last page is decoded. */
         if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
             pDataBuffer->pNode->data.decoded.decodedFrameCount += framesRead;
+
+            /* If we've read up to the length reported when we first loaded the file we've reached the end. */
+            if (pDataBuffer->pNode->data.decoded.decodedFrameCount == pDataBuffer->pNode->data.decoded.frameCount) {
+                result = MA_AT_END;
+            }
         }
 
         /*
