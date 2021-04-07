@@ -3605,7 +3605,7 @@ typedef struct
             ma_device_type deviceType;
             void* pAudioClient;
             void** ppAudioClientService;
-            ma_result result;   /* The result from creating the audio client service. */
+            ma_result* pResult; /* The result from creating the audio client service. */
         } createAudioClient;
         struct
         {
@@ -13977,9 +13977,9 @@ static ma_thread_result MA_THREADCALL ma_context_command_thread__wasapi(void* pU
             case MA_CONTEXT_COMMAND_CREATE_IAUDIOCLIENT__WASAPI:
             {
                 if (cmd.data.createAudioClient.deviceType == ma_device_type_playback) {
-                    result = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioRenderClient, cmd.data.createAudioClient.ppAudioClientService));
+                    *cmd.data.createAudioClient.pResult = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioRenderClient, cmd.data.createAudioClient.ppAudioClientService));
                 } else {
-                    result = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioCaptureClient, cmd.data.createAudioClient.ppAudioClientService));
+                    *cmd.data.createAudioClient.pResult = ma_result_from_HRESULT(ma_IAudioClient_GetService((ma_IAudioClient*)cmd.data.createAudioClient.pAudioClient, &MA_IID_IAudioCaptureClient, cmd.data.createAudioClient.ppAudioClientService));
                 }
             } break;
 
@@ -14022,18 +14022,19 @@ static ma_thread_result MA_THREADCALL ma_context_command_thread__wasapi(void* pU
 static ma_result ma_device_create_IAudioClient_service__wasapi(ma_context* pContext, ma_device_type deviceType, ma_IAudioClient* pAudioClient, void** ppAudioClientService)
 {
     ma_result result;
+    ma_result cmdResult;
     ma_context_command__wasapi cmd = ma_context_init_command__wasapi(MA_CONTEXT_COMMAND_CREATE_IAUDIOCLIENT__WASAPI);
     cmd.data.createAudioClient.deviceType           = deviceType;
     cmd.data.createAudioClient.pAudioClient         = (void*)pAudioClient;
     cmd.data.createAudioClient.ppAudioClientService = ppAudioClientService;
-    cmd.data.createAudioClient.result               = MA_SUCCESS;
+    cmd.data.createAudioClient.pResult              = &cmdResult;   /* Declared locally, but won't be dereferenced after this function returns since execution of the command will wait here. */
     
     result = ma_context_post_command__wasapi(pContext, &cmd);  /* This will not return until the command has actually been run. */
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    return cmd.data.createAudioClient.result;
+    return *cmd.data.createAudioClient.pResult;
 }
 
 #if 0   /* Not used at the moment, but leaving here for future use. */
