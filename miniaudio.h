@@ -64577,6 +64577,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.34 - TBD
+  - WASAPI: Fix a bug where a result code is not getting checked at initialization time.
   - Mark devices as default on the null backend.
 
 v0.10.33 - 2021-04-04
