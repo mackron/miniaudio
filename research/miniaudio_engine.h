@@ -1973,7 +1973,7 @@ MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGai
     }
 
     pGainer->config = *pConfig;
-    pGainer->t      = (size_t)-1;  /* No interpolation by default. */
+    pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
 
     for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
         pGainer->oldGains[iChannel] = 1;
