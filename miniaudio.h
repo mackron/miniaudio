@@ -2002,7 +2002,7 @@ typedef pthread_mutex_t ma_mutex;
 typedef ma_handle ma_event;
 #endif
 #if defined(MA_POSIX)
-typedef struct
+typedef struct ma_event
 {
     ma_uint32 value;
     pthread_mutex_t lock;
@@ -2014,7 +2014,7 @@ typedef struct
 typedef ma_handle ma_semaphore;
 #endif
 #if defined(MA_POSIX)
-typedef struct
+typedef struct ma_semaphore
 {
     int value;
     pthread_mutex_t lock;
@@ -2051,7 +2051,7 @@ typedef union
     ma_int32 s32;
 } ma_biquad_coefficient;
 
-typedef struct
+typedef struct ma_biquad_config
 {
     ma_format format;
     ma_uint32 channels;
@@ -2065,7 +2065,7 @@ typedef struct
 
 MA_API ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channels, double b0, double b1, double b2, double a0, double a1, double a2);
 
-typedef struct
+typedef struct ma_biquad
 {
     ma_format format;
     ma_uint32 channels;
@@ -5898,7 +5898,7 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
 
 
 
-typedef struct
+typedef struct ma_audio_buffer_ref
 {
     ma_data_source_callbacks ds;
     ma_format format;
@@ -5919,7 +5919,7 @@ MA_API ma_result ma_audio_buffer_ref_get_available_frames(ma_audio_buffer_ref* p
 
 
 
-typedef struct
+typedef struct ma_audio_buffer_config
 {
     ma_format format;
     ma_uint32 channels;
@@ -5930,7 +5930,7 @@ typedef struct
 
 MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
 
-typedef struct
+typedef struct ma_audio_buffer
 {
     ma_audio_buffer_ref ref;
     ma_allocation_callbacks allocationCallbacks;
@@ -5974,7 +5974,7 @@ typedef enum
     ma_seek_origin_end  /* Not used by decoders. */
 } ma_seek_origin;
 
-typedef struct
+typedef struct ma_file_info
 {
     ma_uint64 sizeInBytes;
 } ma_file_info;
@@ -6038,7 +6038,7 @@ typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDeco
 typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
 typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
 
-typedef struct
+typedef struct ma_decoder_config
 {
     ma_format format;      /* Set to 0 or ma_format_unknown to use the stream's internal format. */
     ma_uint32 channels;    /* Set to 0 to use the stream's internal channels. */
@@ -6263,7 +6263,7 @@ typedef enum
     ma_waveform_type_sawtooth
 } ma_waveform_type;
 
-typedef struct
+typedef struct ma_waveform_config
 {
     ma_format format;
     ma_uint32 channels;
@@ -6275,7 +6275,7 @@ typedef struct
 
 MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_waveform_type type, double amplitude, double frequency);
 
-typedef struct
+typedef struct ma_waveform
 {
     ma_data_source_callbacks ds;
     ma_waveform_config config;
@@ -6298,7 +6298,7 @@ typedef enum
     ma_noise_type_brownian
 } ma_noise_type;
 
-typedef struct
+typedef struct ma_noise_config
 {
     ma_format format;
     ma_uint32 channels;
