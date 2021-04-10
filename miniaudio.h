@@ -3322,7 +3322,7 @@ typedef struct ma_backend_callbacks ma_backend_callbacks;
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
-typedef struct
+typedef struct ma_device_info
 {
     /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
