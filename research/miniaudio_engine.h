@@ -527,7 +527,7 @@ and include the following:
     |                                         | `MA_NODE_FLAG_CONTINUOUS_PROCESSING`. When this   |
     |                                         | is set, the `ppFramesIn` parameter of the         |
     |                                         | processing callback will be set to NULL when      |
-    |                                         | there are no input frames are. available. When    |
+    |                                         | there are no input frames are available. When     |
     |                                         | this is unset, silence will be posted to the      |
     |                                         | processing callback.                              |
     +-----------------------------------------+---------------------------------------------------+
@@ -1586,6 +1586,8 @@ MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, m
 MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning);
 MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rolloff);
+MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain);
 MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxGain);
@@ -1631,6 +1633,7 @@ typedef struct
     ma_engine* pEngine;
     ma_engine_node_type type;
     ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
@@ -1642,18 +1645,18 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;              /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;                 /* A pointer to the engine. Set based on the value from the config. */
+    ma_node_base baseNode;                        /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                           /* A pointer to the engine. Set based on the value from the config. */
     ma_fader fader;
-    ma_resampler resampler;             /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_resampler resampler;                       /* For pitch shift. May change this to ma_linear_resampler later. */
     ma_spatializer spatializer;
     ma_panner panner;
-    float pitch;
-    float oldPitch;                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    float oldDopplerPitch;              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
-    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    MA_ATOMIC float pitch;
+    float oldPitch;                               /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;                        /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
+    MA_ATOMIC ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
@@ -1744,12 +1747,14 @@ MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine);
 MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
 MA_API void ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex);
-MA_API void ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API void ma_engine_listener_set_direction(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_direction(const ma_engine* pEngine, ma_uint32 listenerIndex);
 MA_API void ma_engine_listener_set_velocity(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_velocity(const ma_engine* pEngine, ma_uint32 listenerIndex);
 MA_API void ma_engine_listener_set_cone(ma_engine* pEngine, ma_uint32 listenerIndex, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 listenerIndex, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
+MA_API void ma_engine_listener_set_world_up(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
+MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -1781,6 +1786,8 @@ MA_API void ma_sound_set_attenuation_model(ma_sound* pSound, ma_attenuation_mode
 MA_API ma_attenuation_model ma_sound_get_attenuation_model(const ma_sound* pSound);
 MA_API void ma_sound_set_positioning(ma_sound* pSound, ma_positioning positioning);
 MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound);
+MA_API void ma_sound_set_rolloff(ma_sound* pSound, float rolloff);
+MA_API float ma_sound_get_rolloff(const ma_sound* pSound);
 MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain);
 MA_API float ma_sound_get_min_gain(const ma_sound* pSound);
 MA_API void ma_sound_set_max_gain(ma_sound* pSound, float maxGain);
@@ -1832,6 +1839,8 @@ MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_atte
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning);
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff);
+MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain);
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain);
@@ -5436,6 +5445,7 @@ static ma_result ma_resource_manager_data_buffer_node_remove(ma_resource_manager
                     pReplacementDataBufferNode->pParent->pChildHi = NULL;
                 }
             } else {
+                pReplacementDataBufferNode->pChildHi->pParent = pReplacementDataBufferNode->pParent;
                 if (pReplacementDataBufferNode->pParent->pChildLo == pReplacementDataBufferNode) {
                     pReplacementDataBufferNode->pParent->pChildLo = pReplacementDataBufferNode->pChildHi;
                 } else {
@@ -6353,75 +6363,31 @@ static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_man
     ma_resource_manager_data_buffer_uninit_connector(pDataBuffer->pResourceManager, pDataBuffer);
     pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_unknown;
 
-    /* Free the node last. */
-    ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+    /* With the connector uninitialized we can decrement the ref count of the node and free it if required. */
+    ma_resource_manager_data_buffer_bst_lock(pDataBuffer->pResourceManager);
+    {
+        ma_result result;
+        ma_uint32 refCount;
 
-    return MA_SUCCESS;
-}
-
-static ma_result ma_resource_manager_data_buffer_uninit_nolock(ma_resource_manager_data_buffer* pDataBuffer)
-{
-    ma_uint32 result;
-    ma_uint32 refCount;
-
-    MA_ASSERT(pDataBuffer != NULL);
-
-    result = ma_resource_manager_data_buffer_node_decrement_ref(pDataBuffer->pResourceManager, pDataBuffer->pNode, &refCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* If the reference count has hit zero it means we need to delete the data buffer and it's backing data (so long as it's owned by the resource manager). */
-    if (refCount == 0) {
-        ma_bool32 asyncUninit = MA_TRUE;
-
-        result = ma_resource_manager_data_buffer_node_remove(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+        result = ma_resource_manager_data_buffer_node_decrement_ref(pDataBuffer->pResourceManager, pDataBuffer->pNode, &refCount);
         if (result != MA_SUCCESS) {
-            return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
+            return result;
         }
 
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
-            asyncUninit = MA_FALSE;
-        }
-
-        /*
-        The data buffer has been removed from the BST so now we need to delete the underyling data. This needs to be done in a separate thread. We don't
-        want to delete anything if the data is owned by the application. Also, just to be safe, we set the result to MA_UNAVAILABLE.
-        */
-        c89atomic_exchange_i32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
-
-        if (asyncUninit == MA_FALSE) {
-            /* The data buffer can be deleted synchronously. */
-            return ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
-        } else {
-            /*
-            The data buffer needs to be deleted asynchronously because it's still loading. With the status set to MA_UNAVAILABLE, no more pages will
-            be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
-            to get processed before returning.
-            */
-            ma_resource_manager_inline_notification notification;
-            ma_job job;
-
-            result = ma_resource_manager_inline_notification_init(pDataBuffer->pResourceManager, &notification);
+        if (refCount == 0) {
+            result = ma_resource_manager_data_buffer_node_remove(pDataBuffer->pResourceManager, pDataBuffer->pNode);
             if (result != MA_SUCCESS) {
-                return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
+                return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
             }
 
-            job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
-            job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            job.freeDataBuffer.pDataBuffer   = pDataBuffer;
-            job.freeDataBuffer.pNotification = &notification;
+            /* Mark the node as unavailable just to be safe. */
+            c89atomic_exchange_i32(&pDataBuffer->pNode->result, MA_UNAVAILABLE);
 
-            result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
-            if (result != MA_SUCCESS) {
-                ma_resource_manager_inline_notification_uninit(&notification);
-                return result;
-            }
-
-            ma_resource_manager_inline_notification_wait(&notification);
-            ma_resource_manager_inline_notification_uninit(&notification);
+            /* Free the node last. */
+            ma_resource_manager_data_buffer_node_free(pDataBuffer->pResourceManager, pDataBuffer->pNode);
         }
     }
+    ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
 
     return MA_SUCCESS;
 }
@@ -6434,11 +6400,37 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         return MA_INVALID_ARGS;
     }
 
-    ma_resource_manager_data_buffer_bst_lock(pDataBuffer->pResourceManager);
-    {
-        result = ma_resource_manager_data_buffer_uninit_nolock(pDataBuffer);
+    if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_SUCCESS) {
+        /* The data buffer can be deleted synchronously. */
+        return ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
+    } else {
+        /*
+        The data buffer needs to be deleted asynchronously because it's still loading. With the status set to MA_UNAVAILABLE, no more pages will
+        be loaded and the uninitialization should happen fairly quickly. Since the caller owns the data buffer, we need to wait for this event
+        to get processed before returning.
+        */
+        ma_resource_manager_inline_notification notification;
+        ma_job job;
+
+        result = ma_resource_manager_inline_notification_init(pDataBuffer->pResourceManager, &notification);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
+        }
+
+        job = ma_job_init(MA_JOB_FREE_DATA_BUFFER);
+        job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
+        job.freeDataBuffer.pDataBuffer   = pDataBuffer;
+        job.freeDataBuffer.pNotification = &notification;
+
+        result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
+        if (result != MA_SUCCESS) {
+            ma_resource_manager_inline_notification_uninit(&notification);
+            return result;
+        }
+
+        ma_resource_manager_inline_notification_wait(&notification);
+        ma_resource_manager_inline_notification_uninit(&notification);
     }
-    ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
 
     return result;
 }
@@ -7268,6 +7260,16 @@ MA_API ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_st
     return MA_SUCCESS;
 }
 
+static void ma_resource_manager_data_stream_set_absolute_cursor(ma_resource_manager_data_stream* pDataStream, ma_uint64 absoluteCursor)
+{
+    /* Loop if possible. */
+    if (absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
+        absoluteCursor = absoluteCursor % pDataStream->totalLengthInPCMFrames;
+    }
+
+    c89atomic_exchange_64(&pDataStream->absoluteCursor, absoluteCursor);
+}
+
 MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount)
 {
     ma_uint32 newRelativeCursor;
@@ -7292,11 +7294,8 @@ MA_API ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    /* The absolute cursor needs to be updated. We want to make sure to loop if possible. */
-    pDataStream->absoluteCursor += frameCount;
-    if (pDataStream->absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
-        pDataStream->absoluteCursor = pDataStream->absoluteCursor % pDataStream->totalLengthInPCMFrames;
-    }
+    /* The absolute cursor needs to be updated for ma_resource_manager_data_stream_get_cursor_in_pcm_frames(). */
+    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, c89atomic_load_64(&pDataStream->absoluteCursor) + frameCount);
 
     /* Here is where we need to check if we need to load a new page, and if so, post a job to load it. */
     newRelativeCursor = pDataStream->relativeCursor + (ma_uint32)frameCount;
@@ -7345,6 +7344,9 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
 
     /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
     c89atomic_fetch_add_32(&pDataStream->seekCounter, 1);
+
+    /* Update the absolute cursor so that ma_resource_manager_data_stream_get_cursor_in_pcm_frames() returns the new position. */
+    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, frameIndex);
 
     /*
     We need to clear our currently loaded pages so that the stream starts playback from the new seek point as soon as possible. These are for the purpose of the public
@@ -8784,8 +8786,13 @@ MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
 
 MA_API ma_vec3f ma_vec3f_normalize(ma_vec3f v)
 {
-    float f = 1 / ma_vec3f_len(v);
-    
+    float f;
+    float l = ma_vec3f_len(v);
+    if (l == 0) {
+        return ma_vec3f_init_3f(0, 0, 0);
+    }
+
+    f = 1 / l;
     v.x *= f;
     v.y *= f;
     v.z *= f;
@@ -9302,6 +9309,11 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         float gain = 1;
         ma_uint32 iChannel;
         float channelGainsOut[MA_MAX_CHANNELS];
+        const ma_uint32 channelsOut = pSpatializer->config.channelsOut;
+        const ma_uint32 channelsIn = pSpatializer->config.channelsIn;
+
+        MA_ASSUME(channelsOut >= MA_MIN_CHANNELS && channelsOut <= MA_MAX_CHANNELS);
+        MA_ASSUME(channelsIn >= MA_MIN_CHANNELS && channelsIn <= MA_MAX_CHANNELS);
 
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
@@ -9337,6 +9349,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             */
             axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
             axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
+
+            /*
+            The calculation of axisX above can result in a zero-length vector if the listener is
+            looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
+            the calculations below don't fall apart. This is where a quaternion based listener and
+            sound orientation would come in handy.
+            */
+            if (ma_vec3f_len2(axisX) == 0) {
+                axisX = ma_vec3f_init_3f(1, 0, 0);
+            }
+
             axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
 
             /*
@@ -9348,19 +9371,19 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 axisX = ma_vec3f_neg(axisX);
             }
 
-            #if 1
+            #if 0
             {
-                m[0][0] = axisX.x; m[0][1] = axisY.x; m[0][2] = -axisZ.x; m[0][3] = -ma_vec3f_dot(axisX, pListener->position);
-                m[1][0] = axisX.y; m[1][1] = axisY.y; m[1][2] = -axisZ.y; m[1][3] = -ma_vec3f_dot(axisY, pListener->position);
-                m[2][0] = axisX.z; m[2][1] = axisY.z; m[2][2] = -axisZ.z; m[2][3] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[3][0] = 0;       m[3][1] = 0;       m[3][2] = 0;        m[3][3] = 1;
+                m[0][0] = axisX.x;                                   m[0][1] = axisY.x;                                   m[0][2] = axisZ.x;                                   m[0][3] = 0;
+                m[1][0] = axisX.y;                                   m[1][1] = axisY.y;                                   m[1][2] = axisZ.y;                                   m[1][3] = 0;
+                m[2][0] = axisX.z;                                   m[2][1] = axisY.z;                                   m[2][2] = axisZ.z;                                   m[2][3] = 0;
+                m[3][0] = -ma_vec3f_dot(axisX, pListener->position); m[3][1] = -ma_vec3f_dot(axisY, pListener->position); m[3][2] = -ma_vec3f_dot(axisZ, pListener->position); m[3][3] = 1;
             }
             #else
             {
-                m[0][0] = axisX.x; m[1][0] = axisY.x; m[2][0] = -axisZ.x; m[3][0] = -ma_vec3f_dot(axisX, pListener->position);
-                m[0][1] = axisX.y; m[1][1] = axisY.y; m[2][1] = -axisZ.y; m[3][1] = -ma_vec3f_dot(axisY, pListener->position);
-                m[0][2] = axisX.z; m[1][2] = axisY.z; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(axisZ, pListener->position);
-                m[0][3] = 0;       m[1][3] = 0;       m[2][3] = 0;        m[3][3] = 1;
+                m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
+                m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
+                m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+                m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
             }
             #endif
 
@@ -9370,17 +9393,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             origin which makes things simpler.
             */
             v = pSpatializer->position;
-            #if 1
-            {
-                relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
-                relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
-                relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
-            }
-            #else
+            #if 0
             {
                 relativePos.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3] * 1;
                 relativePos.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3] * 1;
                 relativePos.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z + m[2][3] * 1;
+            }
+            #else
+            {
+                relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
+                relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
+                relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
             }
             #endif
 
@@ -9389,9 +9412,19 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             rotation of the listener.
             */
             v = pSpatializer->direction;
-            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            #if 0
+            {
+                relativeDir.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z;
+                relativeDir.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z;
+                relativeDir.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z;
+            }
+            #else
+            {
+                relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+                relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+                relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            }
+            #endif
 
             #if defined(MA_DEBUG_OUTPUT)
             {
@@ -9502,12 +9535,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         be +1 on the X axis. A dot product is performed against the direction vector of the channel and the normalized
         position of the sound.
         */
-        for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+        for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
             channelGainsOut[iChannel] = gain;
         }
 
         /* Convert to our output channel count. */
-        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, (const float*)pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);
+        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, channelsOut, pChannelMapOut, (const float*)pFramesIn, channelsIn, pChannelMapIn, frameCount);
 
         /*
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
@@ -9520,7 +9553,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             unitPos.y *= distanceInv;
             unitPos.z *= distanceInv;
 
-            for (iChannel = 0; iChannel < pSpatializer->config.channelsOut; iChannel += 1) {
+            for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
                 float d = ma_vec3f_dot(unitPos, g_maChannelDirections[pChannelMapOut[iChannel]]);
 
                 /*
@@ -9588,7 +9621,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         }
 
         /* Now we need to apply the volume to each channel. */
-        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, pSpatializer->config.channelsOut, channelGainsOut);
+        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, channelsOut, channelGainsOut);
 
         /*
         Before leaving we'll want to update our doppler pitch so that the caller can apply some
@@ -9597,10 +9630,16 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         source.
         */
         if (pSpatializer->config.dopplerFactor > 0) {
-            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_neg(relativePos), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
+            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(pListener->position, pSpatializer->position), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
         } else {
             pSpatializer->dopplerPitch = 1;
         }
+
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            /*printf("dopplerPitch = %f; relativePos = {%f %f %f}\n", pSpatializer->dopplerPitch, relativePos.x, relativePos.y, relativePos.z);*/
+        }
+        #endif
     }
 
     return MA_SUCCESS;
@@ -9658,6 +9697,24 @@ MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpat
     }
 
     return pSpatializer->config.positioning;
+}
+
+MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rolloff)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.rolloff = rolloff;
+}
+
+MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 0;
+    }
+
+    return pSpatializer->config.rolloff;
 }
 
 MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain)
@@ -9720,7 +9777,7 @@ MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float 
         return;
     }
 
-    pSpatializer->config.minDistance = maxDistance;
+    pSpatializer->config.maxDistance = maxDistance;
 }
 
 MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer)
@@ -9865,8 +9922,10 @@ static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 
     MA_ASSERT(pEngineNode != NULL);
 
-    if (pEngineNode->oldPitch != pEngineNode->pitch) {
-        pEngineNode->oldPitch  = pEngineNode->pitch;
+    float newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
+
+    if (pEngineNode->oldPitch != newPitch) {
+        pEngineNode->oldPitch  = newPitch;
         isUpdateRequired = MA_TRUE;
     }
 
@@ -9885,14 +9944,14 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
     MA_ASSERT(pEngineNode != NULL);
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
-    return !pEngineNode->isPitchDisabled;
+    return !c89atomic_load_explicit_8(&pEngineNode->isPitchDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* pEngineNode)
 {
     MA_ASSERT(pEngineNode != NULL);
 
-    return !pEngineNode->isSpatializationDisabled;
+    return !c89atomic_load_explicit_8(&pEngineNode->isSpatializationDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
@@ -9932,7 +9991,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     isPanningEnabled        = pEngineNode->panner.pan != 0 && channelsOut != 1;
 
     /* Keep going while we've still got data available for processing. */
-    while (totalFramesProcessedIn < frameCountIn && totalFramesProcessedOut < frameCountOut) {
+    while (totalFramesProcessedOut < frameCountOut) {
         /*
         We need to process in a specific order. We always do resampling first because it's likely
         we're going to be increasing the channel count after spatialization. Also, I want to do
@@ -10046,9 +10105,14 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             ma_panner_process_pcm_frames(&pEngineNode->panner, pRunningFramesOut, pRunningFramesOut, framesJustProcessedOut);   /* In-place processing. */
         }
 
-        /* We're done. */
+        /* We're done for this chunk. */
         totalFramesProcessedIn  += framesJustProcessedIn;
         totalFramesProcessedOut += framesJustProcessedOut;
+
+        /* If we didn't process any output frames this iteration it means we've either run out of input data, or run out of room in the output buffer. */
+        if (framesJustProcessedOut == 0) {
+            break;
+        }
     }
 
     /* At this point we're done processing. */
@@ -10281,7 +10345,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     */
 
     /* We'll always do resampling first. */
-    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
+    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
     resamplerConfig.linear.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
     result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
@@ -10736,7 +10800,7 @@ MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uin
     return ma_spatializer_listener_get_position(&pEngine->listeners[listenerIndex]);
 }
 
-MA_API void ma_engine_listener_set_direciton(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+MA_API void ma_engine_listener_set_direction(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
 {
     if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
         return;
@@ -10798,7 +10862,26 @@ MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 list
     ma_spatializer_listener_get_cone(&pEngine->listeners[listenerIndex], pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
+MA_API void ma_engine_listener_set_world_up(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return;
+    }
 
+    ma_spatializer_listener_set_world_up(&pEngine->listeners[listenerIndex], x, y, z);
+}
+
+MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uint32 listenerIndex)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return ma_vec3f_init_3f(0, 1, 0);
+    }
+
+    return ma_spatializer_listener_get_world_up(&pEngine->listeners[listenerIndex]);
+}
+
+
+#ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeInputBusIndex)
 {
     ma_result result = MA_SUCCESS;
@@ -10913,6 +10996,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 {
     return ma_engine_play_sound_ex(pEngine, pFilePath, pGroup, 0);
 }
+#endif
 
 
 static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
@@ -10952,7 +11036,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
     */
     engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound, flags);
 
-    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, NULL);
+    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, &engineNodeConfig.sampleRate);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the channel count. */
     }
@@ -11155,7 +11239,7 @@ MA_API ma_result ma_sound_set_pitch(ma_sound* pSound, float pitch)
         return MA_INVALID_ARGS;
     }
 
-    pSound->engineNode.pitch = pitch;
+    c89atomic_exchange_explicit_f32(&pSound->engineNode.pitch, pitch, c89atomic_memory_order_release);
 
     return MA_SUCCESS;
 }
@@ -11184,7 +11268,7 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
         return;
     }
 
-    pSound->engineNode.isSpatializationDisabled = !enabled;
+    c89atomic_exchange_explicit_8(&pSound->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
 }
 
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
@@ -11193,7 +11277,7 @@ MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listen
         return;
     }
 
-    pSound->engineNode.pinnedListenerIndex = listenerIndex;
+    c89atomic_exchange_explicit_8(&pSound->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
 }
 
 MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
@@ -11202,7 +11286,7 @@ MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
         return (ma_uint8)-1;
     }
 
-    return pSound->engineNode.pinnedListenerIndex;
+    return c89atomic_load_explicit_8(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
@@ -11293,6 +11377,24 @@ MA_API ma_positioning ma_sound_get_positioning(const ma_sound* pSound)
     }
 
     return ma_spatializer_get_positioning(&pSound->engineNode.spatializer);
+}
+
+MA_API void ma_sound_set_rolloff(ma_sound* pSound, float rolloff)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_rolloff(&pSound->engineNode.spatializer, rolloff);
+}
+
+MA_API float ma_sound_get_rolloff(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_rolloff(&pSound->engineNode.spatializer);
 }
 
 MA_API void ma_sound_set_min_gain(ma_sound* pSound, float minGain)
@@ -11732,7 +11834,7 @@ MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma
         return;
     }
 
-    pGroup->engineNode.isSpatializationDisabled = !enabled;
+    c89atomic_exchange_explicit_8(&pGroup->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
 }
 
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
@@ -11741,7 +11843,7 @@ MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_
         return;
     }
 
-    pGroup->engineNode.pinnedListenerIndex = listenerIndex;
+    c89atomic_exchange_explicit_8(&pGroup->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
 }
 
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
@@ -11750,7 +11852,7 @@ MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* p
         return (ma_uint8)-1;
     }
 
-    return pGroup->engineNode.pinnedListenerIndex;
+    return c89atomic_load_explicit_8(&pGroup->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
@@ -11841,6 +11943,24 @@ MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGrou
     }
 
     return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
+}
+
+MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff)
+{
+    if (pGroup == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_rolloff(&pGroup->engineNode.spatializer, rolloff);
+}
+
+MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup)
+{
+    if (pGroup == NULL) {
+        return 0;
+    }
+
+    return ma_spatializer_get_rolloff(&pGroup->engineNode.spatializer);
 }
 
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
