@@ -324,8 +324,34 @@ multiple threads comes into play when loading multiple sounds at the time time.
 extern "C" {
 #endif
 
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
+MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
+
 MA_API size_t ma_get_accumulation_bytes_per_sample(ma_format format);
 MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 channels);
+
+
+typedef struct
+{
+    ma_uint32 channels;
+    ma_uint32 smoothTimeInFrames;
+} ma_gainer_config;
+
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames);
+
+
+typedef struct
+{
+    ma_gainer_config config;
+    ma_uint32 t;
+    float oldGains[MA_MAX_CHANNELS];
+    float newGains[MA_MAX_CHANNELS];
+} ma_gainer;
+
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer);
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
 
 
 /*
@@ -1135,6 +1161,7 @@ typedef struct
         {
             ma_resource_manager_data_buffer* pDataBuffer;
             ma_decoder* pDecoder;
+            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized, but not necessarily fully decoded. */
             ma_async_notification* pCompletedNotification;  /* Signalled when the data buffer has been fully decoded. */
             void* pData;
             size_t dataSizeInBytes;
@@ -1413,9 +1440,8 @@ Within the world there is the concept of a "listener". Each `ma_engine` instance
 if you need more than one listener. In this case you will want to share a resource manager which you can do by initializing one manually and passing it into
 `ma_engine_config`. Using this method will require your application to manage groups and sounds on a per `ma_engine` basis.
 */
-typedef struct ma_engine        ma_engine;
-typedef struct ma_sound         ma_sound;
-typedef struct ma_sound_group   ma_sound_group;
+typedef struct ma_engine ma_engine;
+typedef struct ma_sound  ma_sound;
 
 
 /* Stereo panner. */
@@ -1553,7 +1579,7 @@ typedef struct
     ma_channel channelMapIn[MA_MAX_CHANNELS];
     ma_attenuation_model attenuationModel;
     ma_positioning positioning;
-    ma_handedness handedness;   /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
     float minGain;
     float maxGain;
     float minDistance;
@@ -1562,7 +1588,8 @@ typedef struct
     float coneInnerAngleInRadians;
     float coneOuterAngleInRadians;
     float coneOuterGain;
-    float dopplerFactor;        /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
 MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma_uint32 channelsOut);
@@ -1575,6 +1602,7 @@ typedef struct
     ma_vec3f direction;
     ma_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
+    ma_gainer gainer;   /* For smooth gain transitions. */
 } ma_spatializer;
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
@@ -1632,7 +1660,8 @@ typedef struct
 {
     ma_engine* pEngine;
     ma_engine_node_type type;
-    ma_uint32 channels;                 /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
@@ -1645,23 +1674,38 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;                        /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;                           /* A pointer to the engine. Set based on the value from the config. */
+    ma_node_base baseNode;                          /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                             /* A pointer to the engine. Set based on the value from the config. */
+    ma_uint32 sampleRate;                           /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
     ma_fader fader;
-    ma_resampler resampler;                       /* For pitch shift. May change this to ma_linear_resampler later. */
+    ma_resampler resampler;                         /* For pitch shift. May change this to ma_linear_resampler later. */
     ma_spatializer spatializer;
     ma_panner panner;
     MA_ATOMIC float pitch;
-    float oldPitch;                               /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    float oldDopplerPitch;                        /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    MA_ATOMIC ma_bool8 isPitchDisabled;           /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    MA_ATOMIC ma_bool8 isSpatializationDisabled;  /* Set to false by default. When set to false, will not have spatialisation applied. */
-    MA_ATOMIC ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    float oldPitch;                                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;                          /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
+    MA_ATOMIC ma_bool8 isPitchDisabled;             /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC ma_bool8 isSpatializationDisabled;    /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 
+
+typedef struct
+{
+    const char* pFilePath;                      /* Set this to load from the resource manager. */
+    const wchar_t* pFilePathW;                  /* Set this to load from the resource manager. */
+    ma_data_source* pDataSource;                /* Set this to load from an existing data source. */
+    ma_node* pInitialAttachment;                /* If set, the sound will be attached to an input of this node. This can be set to a ma_sound. If set to NULL, the sound will be attached directly to the endpoint unless MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT is set in `flags`. */
+    ma_uint32 initialAttachmentInputBusIndex;   /* The index of the input bus of pInitialAttachment to attach the sound to. */
+    ma_uint32 channelsIn;                       /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
+    ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. */
+    ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
+} ma_sound_config;
+
+MA_API ma_sound_config ma_sound_config_init(void);
 
 struct ma_sound
 {
@@ -1677,7 +1721,7 @@ struct ma_sound
     sound via the resource manager, which I *think* will be the most common scenario.
     */
 #ifndef MA_NO_RESOURCE_MANAGER
-    ma_resource_manager_data_source resourceManagerDataSource;
+    ma_resource_manager_data_source* pResourceManagerDataSource;
 #endif
 };
 
@@ -1690,10 +1734,11 @@ struct ma_sound_inlined
     ma_sound_inlined* pPrev;
 };
 
-struct ma_sound_group
-{
-    ma_engine_node engineNode;                  /* Must be the first member for compatibility with the ma_node API. */
-};
+/* A sound group is just a sound. */
+typedef ma_sound_config ma_sound_group_config;
+typedef ma_sound        ma_sound_group;
+
+MA_API ma_sound_group_config ma_sound_group_config_init(void);
 
 
 typedef struct
@@ -1706,6 +1751,8 @@ typedef struct
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
     ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
     ma_uint32 periodSizeInMilliseconds;     /* Used if periodSizeInFrames is unset. */
+    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
+    ma_uint32 gainSmoothTimeInMilliseconds; /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
@@ -1728,6 +1775,7 @@ struct ma_engine
     ma_mutex inlinedSoundLock;              /* For synchronizing access so the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC ma_uint32 inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. */
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -1764,6 +1812,7 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
 MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
@@ -1800,8 +1849,6 @@ MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor);
 MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound);
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
-MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_result ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API ma_result ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_result ma_sound_get_current_fade_volume(ma_sound* pSound, float* pVolume);
@@ -1810,14 +1857,17 @@ MA_API ma_result ma_sound_set_start_time_in_milliseconds(ma_sound* pSound, ma_ui
 MA_API ma_result ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API ma_result ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
-MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames);
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
 MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
+MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup);
 MA_API void ma_sound_group_uninit(ma_sound_group* pGroup);
 MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
@@ -1889,6 +1939,136 @@ MA_API size_t ma_get_accumulation_bytes_per_frame(ma_format format, ma_uint32 ch
 {
     return ma_get_accumulation_bytes_per_sample(format) * channels;
 }
+
+
+
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames)
+{
+    ma_gainer_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.channels           = channels;
+    config.smoothTimeInFrames = smoothTimeInFrames;
+
+    return config;
+}
+
+
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pGainer);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS; /* Too many channels. */
+    }
+
+    pGainer->config = *pConfig;
+    pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
+
+    for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+        pGainer->oldGains[iChannel] = 1;
+        pGainer->newGains[iChannel] = 1;
+    }
+    
+    return MA_SUCCESS;
+}
+
+static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint32 channel)
+{
+    float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
+    return ma_mix_f32_fast(pGainer->oldGains[channel], pGainer->newGains[channel], a);
+}
+
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannel;
+    float* pFramesOutF32 = (float*)pFramesOut;
+    const float* pFramesInF32 = (const float*)pFramesIn;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
+        /* Fast path. No gain calculation required. */
+        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->newGains);
+
+        /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
+        if (pGainer->t == (ma_uint32)-1) {
+            pGainer->t = pGainer->config.smoothTimeInFrames;
+        }
+    } else {
+        /* Slow path. Need to interpolate the gain for each channel individually. */
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
+            if (pFramesOut != NULL && pFramesIn != NULL) {
+                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
+                }
+            }
+
+            /* Move interpolation time forward, but don't go beyond our smoothing time. */
+            pGainer->t = ma_min(pGainer->t + 1, pGainer->config.smoothTimeInFrames);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain)
+{
+    float newGains[MA_MAX_CHANNELS];
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGainer->config.channels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        newGains[iChannel] = newGain;
+    }
+
+    return ma_gainer_set_gains(pGainer, newGains);
+}
+
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL || pNewGains == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        pGainer->oldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
+        pGainer->newGains[iChannel] = pNewGains[iChannel];
+    }
+
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
+    if (pGainer->t == (ma_uint32)-1) {
+        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
+    } else {
+        pGainer->t = 0;
+    }
+    
+    return MA_SUCCESS;
+}
+
 
 
 
@@ -2030,7 +2210,9 @@ static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 chan
     ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pChannelMapOut, pFramesIn, ma_format_f32, channelsIn, pChannelMapIn, frameCount, ma_dither_mode_none);
 }
 
-MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+
+
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
 {
     ma_uint64 iFrame;
 
@@ -2041,9 +2223,14 @@ MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 
     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
         ma_uint32 iChannel;
         for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            pFramesOut[iFrame * channels + iChannel] *= pChannelGains[iChannel];
+            pFramesOut[iFrame * channels + iChannel] = pFramesIn[iFrame * channels + iChannel] * pChannelGains[iChannel];
         }
     }
+}
+
+MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+{
+    ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOut, pFramesOut, frameCount, channels, pChannelGains);
 }
 
 
@@ -7957,7 +8144,8 @@ done:
         pageDataBufferJob.pageDataBuffer.decodedFrameCount      = framesRead;
 
         if (totalFrameCount > 0) {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_FALSE;
+            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_FALSE;
+            pageDataBufferJob.pageDataBuffer.pInitNotification = NULL;  /* <-- Clear this notification to NULL to ensure it's not signalled a second time at the end of decoding, which will be done for sounds of unknown length. */
 
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = totalFrameCount;
@@ -7973,7 +8161,8 @@ done:
             /* The sound is of a known length so we can go ahead and initialize the connector now. */
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
         } else {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength = MA_TRUE;
+            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_TRUE;
+            pageDataBufferJob.pageDataBuffer.pInitNotification = pJob->loadDataBuffer.pInitNotification;    /* <-- Set this to the init notification so that the PAGE_DATA_BUFFER job can signal it at the end of decoding. Only needed for sounds of unknown length. */
 
             /*
             These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
@@ -7983,6 +8172,8 @@ done:
             pDataBuffer->pNode->data.decoded.pData             = NULL;
             pDataBuffer->pNode->data.decoded.frameCount        = 0;
             pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
+
+            result = MA_SUCCESS;
         }
 
         if (result == MA_SUCCESS) {
@@ -8084,16 +8275,31 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
     /* We should have the memory set up so now we can decode the next page. */
     if (result == MA_SUCCESS) {
+        ma_uint64 framesToTryReading = pageSizeInFrames;
+
+        /* Can't try reading more than what we originally retrieved when we first initialized the decoder. */
+        if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
+            ma_uint64 framesRemaining = pDataBuffer->pNode->data.decoded.frameCount - pDataBuffer->pNode->data.decoded.decodedFrameCount;
+            if (framesToTryReading > framesRemaining) {
+                framesToTryReading = framesRemaining;
+            }
+        }
+
         pRunningData = ma_offset_ptr(jobCopy.pageDataBuffer.pData, jobCopy.pageDataBuffer.decodedFrameCount * ma_get_bytes_per_frame(jobCopy.pageDataBuffer.pDecoder->outputFormat, jobCopy.pageDataBuffer.pDecoder->outputChannels));
 
-        framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, pageSizeInFrames);
-        if (framesRead < pageSizeInFrames) {
+        framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, framesToTryReading);
+        if (framesRead < framesToTryReading) {
             result = MA_AT_END;
         }
 
         /* If the total length is known we can increment out decoded frame count. Otherwise it needs to be left at 0 until the last page is decoded. */
         if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
             pDataBuffer->pNode->data.decoded.decodedFrameCount += framesRead;
+
+            /* If we've read up to the length reported when we first loaded the file we've reached the end. */
+            if (pDataBuffer->pNode->data.decoded.decodedFrameCount == pDataBuffer->pNode->data.decoded.frameCount) {
+                result = MA_AT_END;
+            }
         }
 
         /*
@@ -8149,7 +8355,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
 
         /* If it was an unknown length, we can finally initialize the connector. For sounds of a known length, the connector was initialized when the first page was decoded in MA_JOB_LOAD_DATA_BUFFER. */
         if (jobCopy.pageDataBuffer.isUnknownLength) {
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, jobCopy.pageDataBuffer.pInitNotification);
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
@@ -9159,10 +9365,11 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.minDistance             = 1;
     config.maxDistance             = MA_FLT_MAX;
     config.rolloff                 = 1;
-    config.coneInnerAngleInRadians = 6.283185f;  /* 360 degrees. */
-    config.coneOuterAngleInRadians = 6.283185f;  /* 360 degress. */
+    config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
+    config.coneOuterAngleInRadians = 6.283185f; /* 360 degress. */
     config.coneOuterGain           = 0.0f;
     config.dopplerFactor           = 1;
+    config.gainSmoothTimeInFrames  = 360;       /* 7.5ms @ 48K. */
 
     if (config.channelsIn >= MA_MIN_CHANNELS && config.channelsOut <= MA_MAX_CHANNELS) {
         ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelsIn, config.channelMapIn);
@@ -9174,6 +9381,9 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
 {
+    ma_result result;
+    ma_gainer_config gainerConfig;
+
     if (pSpatializer == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -9204,6 +9414,13 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
     ma_channel_map_copy_or_default(pSpatializer->config.channelMapIn, pConfig->channelMapIn, pSpatializer->config.channelsIn);
     if (ma_channel_map_blank(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn)) {
         ma_get_default_channel_map_for_spatializer(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn);
+    }
+
+    /* We need a gainer for smoothing gain transitions. */
+    gainerConfig = ma_gainer_config_init(pConfig->channelsOut, pConfig->gainSmoothTimeInFrames);
+    result = ma_gainer_init(&gainerConfig, &pSpatializer->gainer);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     return MA_SUCCESS;
@@ -9620,8 +9837,9 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             /* Assume the sound is right on top of us. Don't do any panning. */
         }
 
-        /* Now we need to apply the volume to each channel. */
-        ma_apply_volume_factor_per_channel_f32((float*)pFramesOut, frameCount, channelsOut, channelGainsOut);
+        /* Now we need to apply the volume to each channel. This needs to run through the gainer to ensure we get a smooth volume transition. */
+        ma_gainer_set_gains(&pSpatializer->gainer, channelGainsOut);
+        ma_gainer_process_pcm_frames(&pSpatializer->gainer, pFramesOut, pFramesOut, frameCount);
 
         /*
         Before leaving we'll want to update our doppler pitch so that the caller can apply some
@@ -9919,10 +10137,11 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
 {
     ma_bool32 isUpdateRequired = MA_FALSE;
+    float newPitch;
 
     MA_ASSERT(pEngineNode != NULL);
 
-    float newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
+    newPitch = c89atomic_load_explicit_f32(&pEngineNode->pitch, c89atomic_memory_order_acquire);
 
     if (pEngineNode->oldPitch != newPitch) {
         pEngineNode->oldPitch  = newPitch;
@@ -9935,7 +10154,8 @@ static void ma_engine_node_update_pitch_if_required(ma_engine_node* pEngineNode)
     }
 
     if (isUpdateRequired) {
-        ma_resampler_set_rate_ratio(&pEngineNode->resampler, pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
+        float basePitch = (float)pEngineNode->sampleRate / ma_engine_get_sample_rate(pEngineNode->pEngine);
+        ma_resampler_set_rate_ratio(&pEngineNode->resampler, basePitch * pEngineNode->oldPitch * pEngineNode->oldDopplerPitch);
     }
 }
 
@@ -10288,6 +10508,8 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     ma_fader_config faderConfig;
     ma_spatializer_config spatializerConfig;
     ma_panner_config pannerConfig;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
 
     if (pEngineNode == NULL) {
         return MA_INVALID_ARGS;
@@ -10307,19 +10529,23 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
         return MA_INVALID_ARGS; /* Invalid listener. */
     }
 
+    /* Assume the engine channel count if no channels were specified. */
+    channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
+    channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
+
     if (pConfig->type == ma_engine_node_type_sound) {
         /* Sound. */
         baseNodeConfig = ma_node_config_init();
         baseNodeConfig.vtable            = &g_ma_engine_node_vtable__sound;
-        baseNodeConfig.inputChannels[0]  = pConfig->channels;   /* Set this even though there's no input channels for this node. It's used later on. */
-        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
+        baseNodeConfig.inputChannels[0]  = channelsIn;
+        baseNodeConfig.outputChannels[0] = channelsOut;
         baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
     } else {
         /* Group. */
         baseNodeConfig = ma_node_config_init();
         baseNodeConfig.vtable            = &g_ma_engine_node_vtable__group;
-        baseNodeConfig.inputChannels[0]  = ma_engine_get_channels(pConfig->pEngine);
-        baseNodeConfig.outputChannels[0] = ma_engine_get_channels(pConfig->pEngine);
+        baseNodeConfig.inputChannels[0]  = channelsIn;
+        baseNodeConfig.outputChannels[0] = channelsOut;
         baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
     }
 
@@ -10329,6 +10555,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     }
 
     pEngineNode->pEngine                  = pConfig->pEngine;
+    pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
     pEngineNode->pitch                    = 1;
     pEngineNode->oldPitch                 = 1;
     pEngineNode->oldDopplerPitch          = 1;
@@ -10345,7 +10572,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     */
 
     /* We'll always do resampling first. */
-    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine), ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
+    resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.inputChannels[0], pEngineNode->sampleRate, ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
     resamplerConfig.linear.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
     result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
@@ -10363,8 +10590,12 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     }
 
 
-    /* Spatialization comes next. Everything after this needs to use the engine's channel count. */
-    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], ma_engine_get_channels(pEngineNode->pEngine));
+    /*
+    Spatialization comes next. We spatialize based ont he node's output channel count. It's up the caller to
+    ensure channels counts link up correctly in the node graph.
+    */
+    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.inputChannels[0], baseNodeConfig.outputChannels[0]);
+    spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
     
     result = ma_spatializer_init(&spatializerConfig, &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
@@ -10374,10 +10605,9 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     /*
     After spatialization comes panning. We need to do this after spatialization because otherwise we wouldn't
-    be able to pan mono sounds. By doing it after spatialization, which converts the number of channels over
-    to the engine's channel count, we can pan mono sounds.
+    be able to pan mono sounds.
     */
-    pannerConfig = ma_panner_config_init(ma_format_f32, ma_engine_get_channels(pEngineNode->pEngine));
+    pannerConfig = ma_panner_config_init(ma_format_f32, baseNodeConfig.outputChannels[0]);
 
     result = ma_panner_init(&pannerConfig, &pEngineNode->panner);
     if (result != MA_SUCCESS) {
@@ -10403,6 +10633,24 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_resampler_uninit(&pEngineNode->resampler);
 }
 
+
+MA_API ma_sound_config ma_sound_config_init(void)
+{
+    ma_sound_config config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
+
+MA_API ma_sound_group_config ma_sound_group_config_init(void)
+{
+    ma_sound_group_config config;
+
+    MA_ZERO_OBJECT(&config);
+
+    return config;
+}
 
 
 MA_API ma_engine_config ma_engine_config_init_default(void)
@@ -10540,6 +10788,18 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         pEngine->listenerCount += 1;
+    }
+
+
+    /* Gain smoothing for spatialized sounds. */
+    pEngine->gainSmoothTimeInFrames = pConfig->gainSmoothTimeInFrames;
+    if (pEngine->gainSmoothTimeInFrames == 0) {
+        ma_uint32 gainSmoothTimeInMilliseconds = pConfig->gainSmoothTimeInMilliseconds;
+        if (gainSmoothTimeInMilliseconds == 0) {
+            gainSmoothTimeInMilliseconds = 8;
+        }
+
+        pEngine->gainSmoothTimeInFrames = (gainSmoothTimeInMilliseconds * ma_engine_get_sample_rate(pEngine)) / 1000;  /* 8ms by default. */
     }
 
 
@@ -11014,36 +11274,49 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
     return MA_SUCCESS;
 }
 
-static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
     ma_engine_node_config engineNodeConfig;
+    ma_engine_node_type type;   /* Will be set to ma_engine_node_type_group if no data source is specified. */
 
     /* Do not clear pSound to zero here - that's done at a higher level with ma_sound_preinit(). */
     MA_ASSERT(pEngine != NULL);
     MA_ASSERT(pSound  != NULL);
 
-    if (pDataSource == NULL) {
+    if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    pSound->pDataSource = pDataSource;
+    pSound->pDataSource = pConfig->pDataSource;
+
+    if (pConfig->pDataSource != NULL) {
+        type = ma_engine_node_type_sound;
+    } else {
+        type = ma_engine_node_type_group;
+    }
 
     /*
     Sounds are engine nodes. Before we can initialize this we need to determine the channel count.
     If we can't do this we need to abort. It's up to the caller to ensure they're using a data
     source that provides this information upfront.
     */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_sound, flags);
+    engineNodeConfig = ma_engine_node_config_init(pEngine, type, pConfig->flags);
+    engineNodeConfig.channelsIn  = pConfig->channelsIn;
+    engineNodeConfig.channelsOut = pConfig->channelsOut;
 
-    result = ma_data_source_get_data_format(pDataSource, NULL, &engineNodeConfig.channels, &engineNodeConfig.sampleRate);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to retrieve the channel count. */
-    }
+    /* If we're loading from a data source the input channel count needs to be the data source's native channel count. */
+    if (pConfig->pDataSource != NULL) {
+        result = ma_data_source_get_data_format(pConfig->pDataSource, NULL, &engineNodeConfig.channelsIn, &engineNodeConfig.sampleRate);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to retrieve the channel count. */
+        }
 
-    if (engineNodeConfig.channels == 0) {
-        return MA_INVALID_OPERATION;    /* Invalid channel count. */
+        if (engineNodeConfig.channelsIn == 0) {
+            return MA_INVALID_OPERATION;    /* Invalid channel count. */
+        }
     }
+    
 
     /* Getting here means we should have a valid channel count and we can initialize the engine node. */
     result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pSound->engineNode);
@@ -11051,15 +11324,15 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
         return result;
     }
 
-    /* If no group is specified, attach the sound straight to the endpoint. */
-    if (pGroup == NULL) {
+    /* If no attachment is specified, attach the sound straight to the endpoint. */
+    if (pConfig->pInitialAttachment == NULL) {
         /* No group. Attach straight to the endpoint by default, unless the caller has requested that do not. */
-        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
+        if ((pConfig->flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
             result = ma_node_attach_output_bus(pSound, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
         }
     } else {
-        /* A group is specified. Attach to it by default. The sound has only a single output bus, and the group has a single input bus which makes attachment trivial. */
-        result = ma_node_attach_output_bus(pSound, 0, pGroup, 0);
+        /* An attachment is specified. Attach to it by default. The sound has only a single output bus, and the config will specify which input bus to attach to. */
+        result = ma_node_attach_output_bus(pSound, 0, pConfig->pInitialAttachment, pConfig->initialAttachmentInputBusIndex);
     }
 
     if (result != MA_SUCCESS) {
@@ -11071,14 +11344,11 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, ma_
 }
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
-
-    result = ma_sound_preinit(pEngine, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    ma_uint32 flags;
+    ma_sound_config config;
 
     /*
     The engine requires knowledge of the channel count of the underlying data source before it can
@@ -11090,23 +11360,35 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
     will get triggered before this function returns. This is OK, so long as the caller is aware of
     it and can avoid accessing the sound from within the notification.
     */
-    flags |= MA_DATA_SOURCE_FLAG_WAIT_INIT;
+    flags = pConfig->flags | MA_DATA_SOURCE_FLAG_WAIT_INIT;
 
-    if (pFilePath != NULL) {
-        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pFilePath, flags, NULL, &pSound->resourceManagerDataSource);
+    pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
+    if (pSound->pResourceManagerDataSource == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    if (pConfig->pFilePath != NULL) {
+        result = ma_resource_manager_data_source_init(pEngine->pResourceManager, pConfig->pFilePath, flags, NULL, pSound->pResourceManagerDataSource);
     } else {
-        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pFilePathW, flags, NULL, &pSound->resourceManagerDataSource);
+        result = ma_resource_manager_data_source_init_w(pEngine->pResourceManager, pConfig->pFilePathW, flags, NULL, pSound->pResourceManagerDataSource);
     }
     
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    pSound->ownsDataSource = MA_TRUE;
+    pSound->ownsDataSource = MA_TRUE;   /* <-- Important. Not setting this will result in the resource manager data source never getting uninitialized. */
 
-    result = ma_sound_init_from_data_source_internal(pEngine, &pSound->resourceManagerDataSource, flags, pGroup, pSound);
+    /* We need to use a slightly customized version of the config so we'll need to make a copy. */
+    config = *pConfig;
+    config.pFilePath   = NULL;
+    config.pFilePathW  = NULL;
+    config.pDataSource = pSound->pResourceManagerDataSource;
+
+    result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
-        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
+        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
+        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
         MA_ZERO_OBJECT(pSound);
         return result;
     }
@@ -11116,16 +11398,33 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const char
 
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, pFilePath, NULL, flags, pGroup, pSound);
+    ma_sound_config config = ma_sound_config_init();
+    config.pFilePath          = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    return ma_sound_init_from_file_internal(pEngine, NULL, pFilePath, flags, pGroup, pSound);
+    ma_sound_config config = ma_sound_config_init();
+    config.pFilePathW         = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
 }
 #endif
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_sound_config config = ma_sound_config_init();
+    config.pDataSource        = pDataSource;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    return ma_sound_init_ex(pEngine, &config, pSound);
+}
+
+MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result;
 
@@ -11134,14 +11433,25 @@ MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_sour
         return result;
     }
 
-    pSound->ownsDataSource = MA_FALSE;
-
-    result = ma_sound_init_from_data_source_internal(pEngine, pDataSource, flags, pGroup, pSound);
-    if (result != MA_SUCCESS) {
-        return result;
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    return MA_SUCCESS;
+    /* We need to load the sound differently depending on whether or not we're loading from a file. */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pConfig->pFilePath != NULL || pConfig->pFilePathW != NULL) {
+        return ma_sound_init_from_file_internal(pEngine, pConfig, pSound);
+    } else
+#endif
+    {
+        /*
+        Getting here means we're not loading from a file. We may be loading from an already-initialized
+        data source, or none at all. If we aren't specifying any data source, we'll be initializing the
+        the equivalent to a group. ma_data_source_init_from_data_source_internal() will deal with this
+        for us, so no special treatment required here.
+        */
+        return ma_sound_init_from_data_source_internal(pEngine, pConfig, pSound);
+    }
 }
 
 MA_API void ma_sound_uninit(ma_sound* pSound)
@@ -11159,7 +11469,8 @@ MA_API void ma_sound_uninit(ma_sound* pSound)
     /* Once the sound is detached from the group we can guarantee that it won't be referenced by the mixer thread which means it's safe for us to destroy the data source. */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pSound->ownsDataSource) {
-        ma_resource_manager_data_source_uninit(&pSound->resourceManagerDataSource);
+        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
+        ma_free(pSound->pResourceManagerDataSource, &pSound->engineNode.pEngine->allocationCallbacks);
         pSound->pDataSource = NULL;
     }
 #else
@@ -11513,38 +11824,6 @@ MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound)
     return ma_spatializer_get_doppler_factor(&pSound->engineNode.spatializer);
 }
 
-MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    c89atomic_exchange_8(&pSound->isLooping, isLooping);
-
-    /*
-    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
-    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
-    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
-    generically.
-    */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(&pSound->resourceManagerDataSource, isLooping);
-    }
-#endif
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
-{
-    if (pSound == NULL) {
-        return MA_FALSE;
-    }
-
-    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
-}
-
 
 MA_API ma_result ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
@@ -11618,15 +11897,6 @@ MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
     return ma_node_get_state_by_time(pSound, ma_engine_get_time(ma_sound_get_engine(pSound))) == ma_node_state_started;
 }
 
-MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
-{
-    if (pSound == NULL) {
-        return MA_FALSE;
-    }
-
-    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
-}
-
 MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint64* pTimeInFrames)
 {
     if (pTimeInFrames == NULL) {
@@ -11644,10 +11914,71 @@ MA_API ma_result ma_sound_get_time_in_pcm_frames(const ma_sound* pSound, ma_uint
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Looping is only a valid concept if the sound is backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    c89atomic_exchange_8(&pSound->isLooping, isLooping);
+
+    /*
+    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
+    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
+    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
+    generically.
+    */
+#ifndef MA_NO_RESOURCE_MANAGER
+    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
+        ma_resource_manager_data_source_set_looping(pSound->pResourceManagerDataSource, isLooping);
+    }
+#endif
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    /* There is no notion of looping for sounds that are not backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
+}
+
+MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    /* There is no notion of an end of a sound if it's not backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
+}
+
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* Seeking is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
     }
 
     /*
@@ -11655,8 +11986,8 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
     thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
     */
 #ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == &pSound->resourceManagerDataSource) {
-        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(&pSound->resourceManagerDataSource, frameIndex);
+    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
+        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(pSound->pResourceManagerDataSource, frameIndex);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -11678,13 +12009,35 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
         return MA_INVALID_ARGS;
     }
 
-    return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+    /* The data format is retrieved directly from the data source if the sound is backed by one. Otherwise we pull it from the node. */
+    if (pSound->pDataSource == NULL) {
+        if (pFormat != NULL) {
+            *pFormat = ma_format_f32;
+        }
+
+        if (pChannels != NULL) {
+            *pChannels = pSound->engineNode.baseNode.inputBuses[0].channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pSound->engineNode.resampler.config.sampleRateIn;
+        }
+
+        return MA_SUCCESS;
+    } else {
+        return ma_data_source_get_data_format(pSound->pDataSource, pFormat, pChannels, pSampleRate);
+    }
 }
 
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor)
 {
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    /* The notion of a cursor is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
     }
 
     return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
@@ -11696,14 +12049,26 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
         return MA_INVALID_ARGS;
     }
 
+    /* The notion of a sound length is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
     return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
 }
 
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
 {
-    ma_result result;
-    ma_engine_node_config engineNodeConfig;
+    ma_sound_group_config config = ma_sound_group_config_init();
+    config.flags              = flags;
+    config.pInitialAttachment = pParentGroup;
+    return ma_sound_group_init_ex(pEngine, &config, pGroup);
+}
+
+MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup)
+{
+    ma_sound_config soundConfig;
 
     if (pGroup == NULL) {
         return MA_INVALID_ARGS;
@@ -11711,9 +12076,15 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
 
     MA_ZERO_OBJECT(pGroup);
 
-    if (pEngine == NULL) {
+    if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    /* A sound group is just a sound without a data source. */
+    soundConfig = *pConfig;
+    soundConfig.pFilePath   = NULL;
+    soundConfig.pFilePathW  = NULL;
+    soundConfig.pDataSource = NULL;
 
     /*
     Groups need to have spatialization disabled by default because I think it'll be pretty rare
@@ -11721,451 +12092,229 @@ MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sou
     disabling this by default feels like the right option. Spatialization can be enabled with a
     call to ma_sound_group_set_spatialization_enabled().
     */
-    flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
+    soundConfig.flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
 
-    /* A sound group is just an engine node. */
-    engineNodeConfig = ma_engine_node_config_init(pEngine, ma_engine_node_type_group, flags);
-    
-    result = ma_engine_node_init(&engineNodeConfig, &pEngine->allocationCallbacks, &pGroup->engineNode);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Attach the engine node to the graph if requested. */
-    if (pParentGroup == NULL) {
-        /* No parent group specified. Attach to the endpoint by default. */
-        if ((flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
-            ma_node_attach_output_bus(pGroup, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
-        }
-    } else {
-        /* Parent group specified. Attach to it's first endpoint. */
-        ma_node_attach_output_bus(pGroup, 0, pParentGroup, 0);
-    }
-
-    return MA_SUCCESS;
+    return ma_sound_init_ex(pEngine, &soundConfig, pGroup);
 }
 
 MA_API void ma_sound_group_uninit(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    /*
-    First thing to do is uninitialize the node. This will wait until the group is completely detached
-    which makes the parts below trivial with respect to thread-safety.
-    */
-    ma_node_uninit(pGroup, &pGroup->engineNode.pEngine->allocationCallbacks);
+    ma_sound_uninit(pGroup);
 }
 
 MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return NULL;
-    }
-
-    return pGroup->engineNode.pEngine;
+    return ma_sound_get_engine(pGroup);
 }
 
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* This won't actually start the group if a start delay has been applied. */
-    ma_node_set_state(pGroup, ma_node_state_started);
-
-    return MA_SUCCESS;
+    return ma_sound_start(pGroup);
 }
 
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* This will stop the group immediately. Use ma_sound_group_set_stop_time() to delay stopping to a specific time. */
-    ma_node_set_state(pGroup, ma_node_state_stopped);
-
-    return MA_SUCCESS;
+    return ma_sound_stop(pGroup);
 }
 
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* The volume is controlled via the output bus on the node. */
-    ma_node_set_output_bus_volume(pGroup, 0, volume);
-
-    return MA_SUCCESS;
+    return ma_sound_set_volume(pGroup, volume);
 }
 
 MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB)
 {
-    return ma_sound_group_set_volume(pGroup, ma_gain_db_to_factor(gainDB));
+    return ma_sound_set_gain_db(pGroup, gainDB);
 }
 
 MA_API ma_result ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_panner_set_pan(&pGroup->engineNode.panner, pan);
+    return ma_sound_set_pan(pGroup, pan);
 }
 
 MA_API ma_result ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pGroup->engineNode.pitch = pitch;
-
-    return MA_SUCCESS;
+    return ma_sound_set_pitch(pGroup, pitch);
 }
 
 MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    c89atomic_exchange_explicit_8(&pGroup->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
+    ma_sound_set_spatialization_enabled(pGroup, enabled);
 }
 
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
 {
-    if (pGroup == NULL || listenerIndex >= ma_engine_get_listener_count(pGroup->engineNode.pEngine)) {
-        return;
-    }
-
-    c89atomic_exchange_explicit_8(&pGroup->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
+    ma_sound_set_pinned_listener_index(pGroup, listenerIndex);
 }
 
 MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return (ma_uint8)-1;
-    }
-
-    return c89atomic_load_explicit_8(&pGroup->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
+    return ma_sound_get_pinned_listener_index(pGroup);
 }
 
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_position(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_position(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_position(&pGroup->engineNode.spatializer);
+    return ma_sound_get_position(pGroup);
 }
 
 MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_direction(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_direction(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_direction(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_direction(&pGroup->engineNode.spatializer);
+    return ma_sound_get_direction(pGroup);
 }
 
 MA_API void ma_sound_group_set_velocity(ma_sound_group* pGroup, float x, float y, float z)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_velocity(&pGroup->engineNode.spatializer, x, y, z);
+    ma_sound_set_velocity(pGroup, x, y, z);
 }
 
 MA_API ma_vec3f ma_sound_group_get_velocity(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_vec3f_init_3f(0, 0, 0);
-    }
-
-    return ma_spatializer_get_velocity(&pGroup->engineNode.spatializer);
+    return ma_sound_get_velocity(pGroup);
 }
 
 MA_API void ma_sound_group_set_attenuation_model(ma_sound_group* pGroup, ma_attenuation_model attenuationModel)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_attenuation_model(&pGroup->engineNode.spatializer, attenuationModel);
+    ma_sound_set_attenuation_model(pGroup, attenuationModel);
 }
 
 MA_API ma_attenuation_model ma_sound_group_get_attenuation_model(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_attenuation_model_none;
-    }
-
-    return ma_spatializer_get_attenuation_model(&pGroup->engineNode.spatializer);
+    return ma_sound_get_attenuation_model(pGroup);
 }
 
 MA_API void ma_sound_group_set_positioning(ma_sound_group* pGroup, ma_positioning positioning)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_positioning(&pGroup->engineNode.spatializer, positioning);
+    ma_sound_set_positioning(pGroup, positioning);
 }
 
 MA_API ma_positioning ma_sound_group_get_positioning(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return ma_positioning_absolute;
-    }
-
-    return ma_spatializer_get_positioning(&pGroup->engineNode.spatializer);
+    return ma_sound_get_positioning(pGroup);
 }
 
 MA_API void ma_sound_group_set_rolloff(ma_sound_group* pGroup, float rolloff)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_rolloff(&pGroup->engineNode.spatializer, rolloff);
+    ma_sound_set_rolloff(pGroup, rolloff);
 }
 
 MA_API float ma_sound_group_get_rolloff(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_rolloff(&pGroup->engineNode.spatializer);
+    return ma_sound_get_rolloff(pGroup);
 }
 
 MA_API void ma_sound_group_set_min_gain(ma_sound_group* pGroup, float minGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_min_gain(&pGroup->engineNode.spatializer, minGain);
+    ma_sound_set_min_gain(pGroup, minGain);
 }
 
 MA_API float ma_sound_group_get_min_gain(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_min_gain(&pGroup->engineNode.spatializer);
+    return ma_sound_get_min_gain(pGroup);
 }
 
 MA_API void ma_sound_group_set_max_gain(ma_sound_group* pGroup, float maxGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_max_gain(&pGroup->engineNode.spatializer, maxGain);
+    ma_sound_set_max_gain(pGroup, maxGain);
 }
 
 MA_API float ma_sound_group_get_max_gain(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_max_gain(&pGroup->engineNode.spatializer);
+    return ma_sound_get_max_gain(pGroup);
 }
 
 MA_API void ma_sound_group_set_min_distance(ma_sound_group* pGroup, float minDistance)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_min_distance(&pGroup->engineNode.spatializer, minDistance);
+    ma_sound_set_min_distance(pGroup, minDistance);
 }
 
 MA_API float ma_sound_group_get_min_distance(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_min_distance(&pGroup->engineNode.spatializer);
+    return ma_sound_get_min_distance(pGroup);
 }
 
 MA_API void ma_sound_group_set_max_distance(ma_sound_group* pGroup, float maxDistance)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_max_distance(&pGroup->engineNode.spatializer, maxDistance);
+    ma_sound_set_max_distance(pGroup, maxDistance);
 }
 
 MA_API float ma_sound_group_get_max_distance(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_max_distance(&pGroup->engineNode.spatializer);
+    return ma_sound_get_max_distance(pGroup);
 }
 
 MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_cone(&pGroup->engineNode.spatializer, innerAngleInRadians, outerAngleInRadians, outerGain);
+    ma_sound_set_cone(pGroup, innerAngleInRadians, outerAngleInRadians, outerGain);
 }
 
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
 {
-    if (pInnerAngleInRadians != NULL) {
-        *pInnerAngleInRadians = 0;
-    }
-
-    if (pOuterAngleInRadians != NULL) {
-        *pOuterAngleInRadians = 0;
-    }
-
-    if (pOuterGain != NULL) {
-        *pOuterGain = 0;
-    }
-
-    ma_spatializer_get_cone(&pGroup->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
+    ma_sound_get_cone(pGroup, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
 MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor)
 {
-    if (pGroup == NULL) {
-        return;
-    }
-
-    ma_spatializer_set_doppler_factor(&pGroup->engineNode.spatializer, dopplerFactor);
+    ma_sound_set_doppler_factor(pGroup, dopplerFactor);
 }
 
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return 0;
-    }
-
-    return ma_spatializer_get_doppler_factor(&pGroup->engineNode.spatializer);
+    return ma_sound_get_doppler_factor(pGroup);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_fader_set_fade(&pGroup->engineNode.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    return ma_sound_set_fade_in_pcm_frames(pGroup, volumeBeg, volumeEnd, fadeLengthInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_fade_in_pcm_frames(pGroup, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pGroup->engineNode.fader.config.sampleRate) / 1000);
+    return ma_sound_set_fade_in_milliseconds(pGroup, volumeBeg, volumeEnd, fadeLengthInMilliseconds);
 }
 
 MA_API ma_result ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup, float* pVolume)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_fader_get_current_volume(&pGroup->engineNode.fader, pVolume);
+    return ma_sound_get_current_fade_volume(pGroup, pVolume);
 }
 
 MA_API ma_result ma_sound_group_set_start_time_in_pcm_frames(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_node_set_state_time(pGroup, ma_node_state_started, absoluteGlobalTimeInFrames);
+    return ma_sound_set_start_time_in_pcm_frames(pGroup, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_start_time_in_milliseconds(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_start_time_in_pcm_frames(pGroup, absoluteGlobalTimeInMilliseconds * ma_engine_get_sample_rate(ma_sound_group_get_engine(pGroup)) / 1000);
+    return ma_sound_set_start_time_in_milliseconds(pGroup, absoluteGlobalTimeInMilliseconds);
 }
 
 MA_API ma_result ma_sound_group_set_stop_time_in_pcm_frames(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInFrames)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_node_set_state_time(pGroup, ma_node_state_stopped, absoluteGlobalTimeInFrames);
+    return ma_sound_set_stop_time_in_pcm_frames(pGroup, absoluteGlobalTimeInFrames);
 }
 
 MA_API ma_result ma_sound_group_set_stop_time_in_milliseconds(ma_sound_group* pGroup, ma_uint64 absoluteGlobalTimeInMilliseconds)
 {
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_sound_group_set_stop_time_in_pcm_frames(pGroup, absoluteGlobalTimeInMilliseconds * ma_engine_get_sample_rate(ma_sound_group_get_engine(pGroup)) / 1000);
+    return ma_sound_set_stop_time_in_milliseconds(pGroup, absoluteGlobalTimeInMilliseconds);
 }
 
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup)
 {
-    if (pGroup == NULL) {
-        return MA_FALSE;
-    }
-
-    return ma_node_get_state(pGroup) == ma_node_state_started;
+    return ma_sound_is_playing(pGroup);
 }
 
 MA_API ma_result ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGroup, ma_uint64* pTimeInFrames)
 {
-    if (pTimeInFrames == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = 0;
-
-    if (pGroup == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pTimeInFrames = ma_node_get_time(pGroup);
-
-    return MA_SUCCESS;
+    return ma_sound_get_time_in_pcm_frames(pGroup, pTimeInFrames);
 }
 
 
