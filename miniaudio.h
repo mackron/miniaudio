@@ -48134,7 +48134,7 @@ MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encod
 
     /* Now open the file. If this fails we don't need to uninitialize the encoder. */
     result = ma_wfopen(&pFile, pFilePath, L"wb", &pEncoder->config.allocationCallbacks);
-    if (pFile != NULL) {
+    if (pFile == NULL) {
         return result;
     }
 
