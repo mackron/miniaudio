@@ -32022,7 +32022,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
     MA_ASSERT(pDevice != NULL);
 
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         if (pDevice->capture.format == ma_format_unknown) {
             pDevice->capture.format = pDevice->capture.internalFormat;
         }
@@ -32065,7 +32065,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     }
 
     if (pDevice->sampleRate == 0) {
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
             pDevice->sampleRate = pDevice->capture.internalSampleRate;
         } else {
             pDevice->sampleRate = pDevice->playback.internalSampleRate;
