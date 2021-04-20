@@ -16030,8 +16030,16 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
 
                 /* Wait for data to become available first. */
                 if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
-                    exitLoop = MA_TRUE;
-                    break;   /* Wait failed. */
+                    /*
+                    For capture we can terminate here because it probably means the microphone just isn't delivering data for whatever reason, but
+                    for loopback is most likely means nothing is actually playing. We want to keep trying in this situation.
+                    */
+                    if (pDevice->type == ma_device_type_loopback) {
+                        continue;   /* Keep waiting in loopback mode. */
+                    } else {
+                        exitLoop = MA_TRUE;
+                        break;      /* Wait failed. */
+                    }
                 }
 
                 /* See how many frames are available. Since we waited at the top, I don't think this should ever return 0. I'm checking for this anyway. */
