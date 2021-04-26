@@ -20689,19 +20689,33 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
 
 static ma_result ma_device_stop__alsa(ma_device* pDevice)
 {
+#if 1
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[ALSA] Dropping capture device... ");
+    #endif
+        ((ma_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
+    #ifdef MA_DEBUG_OUTPUT
+        printf("Done\n");
+    #endif
 
         /* We need to prepare the device again, otherwise we won't be able to restart the device. */
-        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
     #ifdef MA_DEBUG_OUTPUT
-            printf("[ALSA] Failed to prepare capture device after stopping.\n");
+        printf("[ALSA] Preparing capture device... ");
     #endif
+        if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] Failed to prepare capture device after stopping.\n");
+        #endif
+        } else {
+        #ifdef MA_DEBUG_OUTPUT
+            printf("Done\n");
+        #endif
         }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ((ma_snd_pcm_drain_proc)pDevice->pContext->alsa.snd_pcm_drain)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+        ((ma_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
 
         /* We need to prepare the device again, otherwise we won't be able to restart the device. */
         if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
@@ -20710,6 +20724,10 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     #endif
         }
     }
+#else
+    /* Nothing to do. We'll stop the device by simply not reading or writing. */
+    (void)pDevice;
+#endif
 
     return MA_SUCCESS;
 }
@@ -20732,6 +20750,11 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
         if ((pPollDescriptors[0].revents & POLLIN) != 0) {
             ma_uint64 t;
             read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
+
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[ALSA] POLLIN set for wakeupfd\n");
+        #endif
+
             return MA_DEVICE_NOT_STARTED;
         }
 
@@ -20891,6 +20914,10 @@ static ma_result ma_device_data_loop_wakeup__alsa(ma_device* pDevice)
 
     MA_ASSERT(pDevice != NULL);
 
+#ifdef MA_DEBUG_OUTPUT
+    printf("[ALSA] Waking up... ");
+#endif
+
     /* Write to an eventfd to trigger a wakeup from poll() and abort any reading or writing. */
     if (pDevice->alsa.pPollDescriptorsCapture != NULL) {
         write(pDevice->alsa.wakeupfdCapture, &t, sizeof(t));
@@ -20898,6 +20925,10 @@ static ma_result ma_device_data_loop_wakeup__alsa(ma_device* pDevice)
     if (pDevice->alsa.pPollDescriptorsPlayback != NULL) {
         write(pDevice->alsa.wakeupfdPlayback, &t, sizeof(t));
     }
+
+#ifdef MA_DEBUG_OUTPUT
+    printf("Done\n");
+#endif
 
     return MA_SUCCESS;
 }
