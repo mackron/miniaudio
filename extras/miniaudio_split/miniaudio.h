@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.33 - 2021-04-04
+miniaudio - v0.10.34 - 2021-04-26
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 33
+#define MA_VERSION_REVISION 34
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -411,7 +411,7 @@ typedef enum
     ma_standard_sample_rate_32000  = 32000,     /* Lows */
     ma_standard_sample_rate_24000  = 24000,
     ma_standard_sample_rate_22050  = 22050,
-    
+
     ma_standard_sample_rate_88200  = 88200,     /* Highs */
     ma_standard_sample_rate_96000  = 96000,
     ma_standard_sample_rate_176400 = 176400,
@@ -2039,7 +2039,7 @@ easier, some helper callbacks are available. If the backend uses a blocking read
 backend uses a callback for data delivery, that callback must call `ma_device_handle_backend_data_callback()` from within it's callback.
 This allows miniaudio to then process any necessary data conversion and then pass it to the miniaudio data callback.
 
-If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceWorkerThread()` callback
+If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceDataLoop()` callback
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
@@ -2115,7 +2115,7 @@ typedef struct
             ma_device_type deviceType;
             void* pAudioClient;
             void** ppAudioClientService;
-            ma_result result;   /* The result from creating the audio client service. */
+            ma_result* pResult; /* The result from creating the audio client service. */
         } createAudioClient;
         struct
         {
@@ -2236,6 +2236,7 @@ struct ma_context
             ma_proc snd_pcm_start;
             ma_proc snd_pcm_drop;
             ma_proc snd_pcm_drain;
+            ma_proc snd_pcm_reset;
             ma_proc snd_device_name_hint;
             ma_proc snd_device_name_get_hint;
             ma_proc snd_card_get_index;
@@ -2248,9 +2249,13 @@ struct ma_context
             ma_proc snd_pcm_avail;
             ma_proc snd_pcm_avail_update;
             ma_proc snd_pcm_wait;
+            ma_proc snd_pcm_nonblock;
             ma_proc snd_pcm_info;
             ma_proc snd_pcm_info_sizeof;
             ma_proc snd_pcm_info_get_name;
+            ma_proc snd_pcm_poll_descriptors;
+            ma_proc snd_pcm_poll_descriptors_count;
+            ma_proc snd_pcm_poll_descriptors_revents;
             ma_proc snd_config_update_free_global;
 
             ma_mutex internalDeviceEnumLock;
@@ -2659,6 +2664,12 @@ struct ma_device
         {
             /*snd_pcm_t**/ ma_ptr pPCMPlayback;
             /*snd_pcm_t**/ ma_ptr pPCMCapture;
+            /*struct pollfd**/ void* pPollDescriptorsPlayback;
+            /*struct pollfd**/ void* pPollDescriptorsCapture;
+            int pollDescriptorCountPlayback;
+            int pollDescriptorCountCapture;
+            int wakeupfdPlayback;   /* eventfd for waking up from poll() when the playback device is stopped. */
+            int wakeupfdCapture;    /* eventfd for waking up from poll() when the capture device is stopped. */
             ma_bool8 isUsingMMapPlayback;
             ma_bool8 isUsingMMapCapture;
         } alsa;
