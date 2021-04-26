@@ -25406,7 +25406,6 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         /* Formats. */
         {
             ma_format uniqueFormats[ma_format_count];
-            memset(uniqueFormats, 0xFF, sizeof(ma_format) * ma_format_count);
             ma_uint32 uniqueFormatCount = 0;
             ma_uint32 channels;
 
@@ -25448,7 +25447,8 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
                     continue;
                 }
 
-                uniqueFormats[uniqueFormatCount++] = format;
+                uniqueFormats[uniqueFormatCount] = format;
+                uniqueFormatCount += 1;
 
                 /* Sample Rates */
                 result = ma_get_AudioObject_sample_rates(pContext, deviceObjectID, deviceType, &sampleRateRangeCount, &pSampleRateRanges);
