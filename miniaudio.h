@@ -20689,7 +20689,6 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
 
 static ma_result ma_device_stop__alsa(ma_device* pDevice)
 {
-#if 1
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
     #ifdef MA_DEBUG_OUTPUT
         printf("[ALSA] Dropping capture device... ");
@@ -20705,7 +20704,7 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     #endif
         if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) < 0) {
         #ifdef MA_DEBUG_OUTPUT
-            printf("[ALSA] Failed to prepare capture device after stopping.\n");
+            printf("Failed\n");
         #endif
         } else {
         #ifdef MA_DEBUG_OUTPUT
@@ -20715,19 +20714,28 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[ALSA] Dropping playback device... ");
+    #endif
         ((ma_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+    #ifdef MA_DEBUG_OUTPUT
+        printf("Done\n");
+    #endif
 
         /* We need to prepare the device again, otherwise we won't be able to restart the device. */
+    #ifdef MA_DEBUG_OUTPUT
+        printf("[ALSA] Preparing playback device... ");
+    #endif
         if (((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) < 0) {
     #ifdef MA_DEBUG_OUTPUT
-            printf("[ALSA] Failed to prepare playback device after stopping.\n");
+            printf("Failed\n");
     #endif
+        } else {
+        #ifdef MA_DEBUG_OUTPUT
+            printf("Done\n");
+        #endif
         }
     }
-#else
-    /* Nothing to do. We'll stop the device by simply not reading or writing. */
-    (void)pDevice;
-#endif
 
     return MA_SUCCESS;
 }
@@ -20769,7 +20777,6 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
 
         if ((revents & POLLERR) != 0) {
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] POLLERR detected.", ma_result_from_errno(errno));
-            return MA_ERROR;
         }
 
         if ((revents & requiredEvent) == requiredEvent) {
