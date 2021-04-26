@@ -20595,6 +20595,8 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     /* We can now extract the PCM poll descriptors which we place after the wakeup descriptor. */
     pollDescriptorCount = ((ma_snd_pcm_poll_descriptors_proc)pDevice->pContext->alsa.snd_pcm_poll_descriptors)(pPCM, pPollDescriptors + 1, pollDescriptorCount);    /* +1 because we want to place these descriptors after the wakeup descriptor. */
     if (pollDescriptorCount <= 0) {
+        close(wakeupfd);
+        ma_free(pPollDescriptors, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.", MA_ERROR);
     }
