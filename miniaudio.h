@@ -3726,6 +3726,7 @@ struct ma_context
             ma_proc snd_pcm_start;
             ma_proc snd_pcm_drop;
             ma_proc snd_pcm_drain;
+            ma_proc snd_pcm_reset;
             ma_proc snd_device_name_hint;
             ma_proc snd_device_name_get_hint;
             ma_proc snd_card_get_index;
@@ -3738,9 +3739,13 @@ struct ma_context
             ma_proc snd_pcm_avail;
             ma_proc snd_pcm_avail_update;
             ma_proc snd_pcm_wait;
+            ma_proc snd_pcm_nonblock;
             ma_proc snd_pcm_info;
             ma_proc snd_pcm_info_sizeof;
             ma_proc snd_pcm_info_get_name;
+            ma_proc snd_pcm_poll_descriptors;
+            ma_proc snd_pcm_poll_descriptors_count;
+            ma_proc snd_pcm_poll_descriptors_revents;
             ma_proc snd_config_update_free_global;
 
             ma_mutex internalDeviceEnumLock;
@@ -4149,6 +4154,12 @@ struct ma_device
         {
             /*snd_pcm_t**/ ma_ptr pPCMPlayback;
             /*snd_pcm_t**/ ma_ptr pPCMCapture;
+            /*struct pollfd**/ void* pPollDescriptorsPlayback;
+            /*struct pollfd**/ void* pPollDescriptorsCapture;
+            int pollDescriptorCountPlayback;
+            int pollDescriptorCountCapture;
+            int wakeupfdPlayback;   /* eventfd for waking up from poll() when the playback device is stopped. */
+            int wakeupfdCapture;    /* eventfd for waking up from poll() when the capture device is stopped. */
             ma_bool8 isUsingMMapPlayback;
             ma_bool8 isUsingMMapCapture;
         } alsa;
@@ -19113,6 +19124,9 @@ ALSA Backend
 ******************************************************************************/
 #ifdef MA_HAS_ALSA
 
+#include <poll.h>           /* poll(), struct pollfd */
+#include <sys/eventfd.h>    /* eventfd() */
+
 #ifdef MA_NO_RUNTIME_LINKING
 
 /* asoundlib.h marks some functions with "inline" which isn't always supported. Need to emulate it. */
@@ -19371,6 +19385,7 @@ typedef int                  (* ma_snd_pcm_prepare_proc)                       (
 typedef int                  (* ma_snd_pcm_start_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_drop_proc)                          (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_drain_proc)                         (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_reset_proc)                         (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_device_name_hint_proc)                  (int card, const char *iface, void ***hints);
 typedef char *               (* ma_snd_device_name_get_hint_proc)              (const void *hint, const char *id);
 typedef int                  (* ma_snd_card_get_index_proc)                    (const char *name);
@@ -19383,9 +19398,13 @@ typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_writei_proc)                        (
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_proc)                         (ma_snd_pcm_t *pcm);
 typedef ma_snd_pcm_sframes_t (* ma_snd_pcm_avail_update_proc)                  (ma_snd_pcm_t *pcm);
 typedef int                  (* ma_snd_pcm_wait_proc)                          (ma_snd_pcm_t *pcm, int timeout);
+typedef int                  (* ma_snd_pcm_nonblock_proc)                      (ma_snd_pcm_t *pcm, int nonblock);
 typedef int                  (* ma_snd_pcm_info_proc)                          (ma_snd_pcm_t *pcm, ma_snd_pcm_info_t* info);
 typedef size_t               (* ma_snd_pcm_info_sizeof_proc)                   (void);
 typedef const char*          (* ma_snd_pcm_info_get_name_proc)                 (const ma_snd_pcm_info_t* info);
+typedef int                  (* ma_snd_pcm_poll_descriptors_proc)              (ma_snd_pcm_t *pcm, struct pollfd *pfds, unsigned int space);
+typedef int                  (* ma_snd_pcm_poll_descriptors_count_proc)        (ma_snd_pcm_t *pcm);
+typedef int                  (* ma_snd_pcm_poll_descriptors_revents_proc)      (ma_snd_pcm_t *pcm, struct pollfd *pfds, unsigned int nfds, unsigned short *revents);
 typedef int                  (* ma_snd_config_update_free_global_proc)         (void);
 
 /* This array specifies each of the common devices that can be used for both playback and capture. */
@@ -20195,10 +20214,14 @@ static ma_result ma_device_uninit__alsa(ma_device* pDevice)
 
     if ((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture) {
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
+        close(pDevice->alsa.wakeupfdCapture);
+        ma_free(pDevice->alsa.pPollDescriptorsCapture, &pDevice->pContext->allocationCallbacks);
     }
 
     if ((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback) {
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+        close(pDevice->alsa.wakeupfdPlayback);
+        ma_free(pDevice->alsa.pPollDescriptorsPlayback, &pDevice->pContext->allocationCallbacks);
     }
 
     return MA_SUCCESS;
@@ -20221,6 +20244,9 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
     ma_snd_pcm_uframes_t bufferBoundary;
+    int pollDescriptorCount;
+    struct pollfd* pPollDescriptors;
+    int wakeupfd;
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(deviceType != ma_device_type_duplex); /* This function should only be called for playback _or_ capture, never duplex. */
@@ -20533,9 +20559,62 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     }
 
 
+    /*
+    We need to retrieve the poll descriptors so we can use poll() to wait for data to become
+    available for reading or writing. There's no well defined maximum for this so we're just going
+    to allocate this on the heap.
+    */
+    pollDescriptorCount = ((ma_snd_pcm_poll_descriptors_count_proc)pDevice->pContext->alsa.snd_pcm_poll_descriptors_count)(pPCM);
+    if (pollDescriptorCount <= 0) {
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.", MA_ERROR);
+    }
+
+    pPollDescriptors = (struct pollfd*)ma_malloc(sizeof(*pPollDescriptors) * (pollDescriptorCount + 1), &pDevice->pContext->allocationCallbacks/*, MA_ALLOCATION_TYPE_GENERAL*/);   /* +1 because we want room for the wakeup descriptor. */
+    if (pPollDescriptors == NULL) {
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for poll descriptors.", MA_OUT_OF_MEMORY);
+    }
+
+    /*
+    We need an eventfd to wakeup from poll() and avoid a deadlock in situations where the driver
+    never returns from writei() and readi(). This has been observed with the "pulse" device.
+    */
+    wakeupfd = eventfd(0, 0);
+    if (wakeupfd < 0) {
+        ma_free(pPollDescriptors, &pDevice->pContext->allocationCallbacks);
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to create eventfd for poll wakeup.", ma_result_from_errno(errno));
+    }
+
+    /* We'll place the wakeup fd at the start of the buffer. */
+    pPollDescriptors[0].fd      = wakeupfd;
+    pPollDescriptors[0].events  = POLLIN;    /* We only care about waiting to read from the wakeup file descriptor. */
+    pPollDescriptors[0].revents = 0;
+
+    /* We can now extract the PCM poll descriptors which we place after the wakeup descriptor. */
+    pollDescriptorCount = ((ma_snd_pcm_poll_descriptors_proc)pDevice->pContext->alsa.snd_pcm_poll_descriptors)(pPCM, pPollDescriptors + 1, pollDescriptorCount);    /* +1 because we want to place these descriptors after the wakeup descriptor. */
+    if (pollDescriptorCount <= 0) {
+        ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
+        return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors.", MA_ERROR);
+    }
+
+    if (deviceType == ma_device_type_capture) {
+        pDevice->alsa.pollDescriptorCountCapture = pollDescriptorCount;
+        pDevice->alsa.pPollDescriptorsCapture = pPollDescriptors;
+        pDevice->alsa.wakeupfdCapture = wakeupfd;
+    } else {
+        pDevice->alsa.pollDescriptorCountPlayback = pollDescriptorCount;
+        pDevice->alsa.pPollDescriptorsPlayback = pPollDescriptors;
+        pDevice->alsa.wakeupfdPlayback = wakeupfd;
+    }
+
+
     /* We're done. Prepare the device. */
     resultALSA = ((ma_snd_pcm_prepare_proc)pDevice->pContext->alsa.snd_pcm_prepare)(pPCM);
     if (resultALSA < 0) {
+        close(wakeupfd);
+        ma_free(pPollDescriptors, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to prepare device.", ma_result_from_errno(-resultALSA));
     }
@@ -20633,6 +20712,59 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, struct pollfd* pPollDescriptors, int pollDescriptorCount, short requiredEvent)
+{
+    for (;;) {
+        unsigned short revents;
+        int resultALSA;
+        int resultPoll = poll(pPollDescriptors, pollDescriptorCount, -1);
+        if (resultPoll < 0) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.", ma_result_from_errno(errno));
+        }
+
+        /*
+        Before checking the ALSA poll descriptor flag we need to check if the wakeup descriptor
+        has had it's POLLIN flag set. If so, we need to actually read the data and then exit
+        function. The wakeup descriptor will be the first item in the descriptors buffer.
+        */
+        if ((pPollDescriptors[0].revents & POLLIN) != 0) {
+            ma_uint64 t;
+            read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
+            return MA_DEVICE_NOT_STARTED;
+        }
+
+        /*
+        Getting here means that some data should be able to be read. We need to use ALSA to
+        translate the revents flags for us.
+        */
+        resultALSA = ((ma_snd_pcm_poll_descriptors_revents_proc)pDevice->pContext->alsa.snd_pcm_poll_descriptors_revents)(pPCM, pPollDescriptors + 1, pollDescriptorCount - 1, &revents);   /* +1, -1 to ignore the wakeup descriptor. */
+        if (resultALSA < 0) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_poll_descriptors_revents() failed.", ma_result_from_errno(-resultALSA));
+        }
+
+        if ((revents & POLLERR) != 0) {
+            return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] POLLERR detected.", ma_result_from_errno(errno));
+            return MA_ERROR;
+        }
+
+        if ((revents & requiredEvent) == requiredEvent) {
+            break;  /* We're done. Data available for reading or writing. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_wait_read__alsa(ma_device* pDevice)
+{
+    return ma_device_wait__alsa(pDevice, pDevice->alsa.pPCMCapture, (struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, pDevice->alsa.pollDescriptorCountCapture + 1, POLLIN); /* +1 to account for the wakeup descriptor. */
+}
+
+static ma_result ma_device_wait_write__alsa(ma_device* pDevice)
+{
+    return ma_device_wait__alsa(pDevice, pDevice->alsa.pPCMPlayback, (struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, pDevice->alsa.pollDescriptorCountPlayback + 1, POLLOUT); /* +1 to account for the wakeup descriptor. */
+}
+
 static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_snd_pcm_sframes_t resultALSA;
@@ -20645,6 +20777,15 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
     }
 
     for (;;) {
+        ma_result result;
+
+        /* The first thing to do is wait for data to become available for reading. This will return an error code if the device has been stopped. */
+        result = ma_device_wait_read__alsa(pDevice);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        /* Getting here means we should have data available. */
         resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pFramesOut, frameCount);
         if (resultALSA >= 0) {
             break;  /* Success. */
@@ -20695,6 +20836,14 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
     }
 
     for (;;) {
+        ma_result result;
+
+        /* The first thing to do is wait for space to become available for writing. This will return an error code if the device has been stopped. */
+        result = ma_device_wait_write__alsa(pDevice);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
         resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pFrames, frameCount);
         if (resultALSA >= 0) {
             break;  /* Success. */
@@ -20735,6 +20884,23 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = resultALSA;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_data_loop_wakeup__alsa(ma_device* pDevice)
+{
+    ma_uint64 t = 1;
+
+    MA_ASSERT(pDevice != NULL);
+
+    /* Write to an eventfd to trigger a wakeup from poll() and abort any reading or writing. */
+    if (pDevice->alsa.pPollDescriptorsCapture != NULL) {
+        write(pDevice->alsa.wakeupfdCapture, &t, sizeof(t));
+    }
+    if (pDevice->alsa.pPollDescriptorsPlayback != NULL) {
+        write(pDevice->alsa.wakeupfdPlayback, &t, sizeof(t));
     }
 
     return MA_SUCCESS;
@@ -20825,6 +20991,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pContext->alsa.snd_pcm_start                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_start");
     pContext->alsa.snd_pcm_drop                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_drop");
     pContext->alsa.snd_pcm_drain                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_drain");
+    pContext->alsa.snd_pcm_reset                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_reset");
     pContext->alsa.snd_device_name_hint                   = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_device_name_hint");
     pContext->alsa.snd_device_name_get_hint               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_device_name_get_hint");
     pContext->alsa.snd_card_get_index                     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_card_get_index");
@@ -20837,9 +21004,13 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pContext->alsa.snd_pcm_avail                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_avail");
     pContext->alsa.snd_pcm_avail_update                   = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_avail_update");
     pContext->alsa.snd_pcm_wait                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_wait");
+    pContext->alsa.snd_pcm_nonblock                       = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_nonblock");
     pContext->alsa.snd_pcm_info                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info");
     pContext->alsa.snd_pcm_info_sizeof                    = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
     pContext->alsa.snd_pcm_info_get_name                  = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info_get_name");
+    pContext->alsa.snd_pcm_poll_descriptors               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors");
+    pContext->alsa.snd_pcm_poll_descriptors_count         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_count");
+    pContext->alsa.snd_pcm_poll_descriptors_revents       = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_revents");
     pContext->alsa.snd_config_update_free_global          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_config_update_free_global");
 #else
     /* The system below is just for type safety. */
@@ -20888,6 +21059,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_start_proc                          _snd_pcm_start                          = snd_pcm_start;
     ma_snd_pcm_drop_proc                           _snd_pcm_drop                           = snd_pcm_drop;
     ma_snd_pcm_drain_proc                          _snd_pcm_drain                          = snd_pcm_drain;
+    ma_snd_pcm_reset_proc                          _snd_pcm_reset                          = snd_pcm_reset;
     ma_snd_device_name_hint_proc                   _snd_device_name_hint                   = snd_device_name_hint;
     ma_snd_device_name_get_hint_proc               _snd_device_name_get_hint               = snd_device_name_get_hint;
     ma_snd_card_get_index_proc                     _snd_card_get_index                     = snd_card_get_index;
@@ -20900,9 +21072,13 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_avail_proc                          _snd_pcm_avail                          = snd_pcm_avail;
     ma_snd_pcm_avail_update_proc                   _snd_pcm_avail_update                   = snd_pcm_avail_update;
     ma_snd_pcm_wait_proc                           _snd_pcm_wait                           = snd_pcm_wait;
+    ma_snd_pcm_nonblock_proc                       _snd_pcm_nonblock                       = snd_pcm_nonblock;
     ma_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
     ma_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
     ma_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
+    ma_snd_pcm_poll_descriptors                    _snd_pcm_poll_descriptors               = snd_pcm_poll_descriptors;
+    ma_snd_pcm_poll_descriptors_count              _snd_pcm_poll_descriptors_count         = snd_pcm_poll_descriptors_count;
+    ma_snd_pcm_poll_descriptors_revents            _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
     ma_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
     pContext->alsa.snd_pcm_open                           = (ma_proc)_snd_pcm_open;
@@ -20950,6 +21126,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pContext->alsa.snd_pcm_start                          = (ma_proc)_snd_pcm_start;
     pContext->alsa.snd_pcm_drop                           = (ma_proc)_snd_pcm_drop;
     pContext->alsa.snd_pcm_drain                          = (ma_proc)_snd_pcm_drain;
+    pContext->alsa.snd_pcm_reset                          = (ma_proc)_snd_pcm_reset;
     pContext->alsa.snd_device_name_hint                   = (ma_proc)_snd_device_name_hint;
     pContext->alsa.snd_device_name_get_hint               = (ma_proc)_snd_device_name_get_hint;
     pContext->alsa.snd_card_get_index                     = (ma_proc)_snd_card_get_index;
@@ -20962,9 +21139,13 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pContext->alsa.snd_pcm_avail                          = (ma_proc)_snd_pcm_avail;
     pContext->alsa.snd_pcm_avail_update                   = (ma_proc)_snd_pcm_avail_update;
     pContext->alsa.snd_pcm_wait                           = (ma_proc)_snd_pcm_wait;
+    pContext->alsa.snd_pcm_nonblock                       = (ma_proc)_snd_pcm_nonblock;
     pContext->alsa.snd_pcm_info                           = (ma_proc)_snd_pcm_info;
     pContext->alsa.snd_pcm_info_sizeof                    = (ma_proc)_snd_pcm_info_sizeof;
     pContext->alsa.snd_pcm_info_get_name                  = (ma_proc)_snd_pcm_info_get_name;
+    pContext->alsa.snd_pcm_poll_descriptors               = (ma_proc)_snd_pcm_poll_descriptors;
+    pContext->alsa.snd_pcm_poll_descriptors_count         = (ma_proc)_snd_pcm_poll_descriptors_count;
+    pContext->alsa.snd_pcm_poll_descriptors_revents       = (ma_proc)_snd_pcm_poll_descriptors_revents;
     pContext->alsa.snd_config_update_free_global          = (ma_proc)_snd_config_update_free_global;
 #endif
 
@@ -20985,6 +21166,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     pCallbacks->onDeviceRead              = ma_device_read__alsa;
     pCallbacks->onDeviceWrite             = ma_device_write__alsa;
     pCallbacks->onDeviceDataLoop          = NULL;
+    pCallbacks->onDeviceDataLoopWakeup    = ma_device_data_loop_wakeup__alsa;
 
     return MA_SUCCESS;
 }
@@ -64587,6 +64769,7 @@ REVISION HISTORY
 v0.10.34 - TBD
   - WASAPI: Fix a bug where a result code is not getting checked at initialization time.
   - WASAPI: Bug fixes for loopback mode.
+  - ALSA: Fix a possible deadlock when stopping devices.
   - Mark devices as default on the null backend.
 
 v0.10.33 - 2021-04-04
