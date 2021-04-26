@@ -20778,7 +20778,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
         *pFramesRead = 0;
     }
 
-    for (;;) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
         ma_result result;
 
         /* The first thing to do is wait for data to become available for reading. This will return an error code if the device has been stopped. */
@@ -20811,10 +20811,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", ma_result_from_errno((int)-resultALSA));
                 }
 
-                resultALSA = ((ma_snd_pcm_readi_proc)pDevice->pContext->alsa.snd_pcm_readi)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, pFramesOut, frameCount);
-                if (resultALSA < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to read data from the internal device.", ma_result_from_errno((int)-resultALSA));
-                }
+                continue;   /* Try reading again. */
             }
         }
     }
@@ -20837,7 +20834,7 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
         *pFramesWritten = 0;
     }
 
-    for (;;) {
+    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
         ma_result result;
 
         /* The first thing to do is wait for space to become available for writing. This will return an error code if the device has been stopped. */
@@ -20859,8 +20856,8 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
             #endif
 
                 /* Underrun. Recover and try again. If this fails we need to return an error. */
-                resultALSA = ((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, resultALSA, MA_TRUE);
-                if (resultALSA < 0) { /* MA_TRUE=silent (don't print anything on error). */
+                resultALSA = ((ma_snd_pcm_recover_proc)pDevice->pContext->alsa.snd_pcm_recover)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, resultALSA, MA_TRUE);    /* MA_TRUE=silent (don't print anything on error). */
+                if (resultALSA < 0) {
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to recover device after underrun.", ma_result_from_errno((int)-resultALSA));
                 }
 
@@ -20876,10 +20873,7 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
                     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start device after underrun.", ma_result_from_errno((int)-resultALSA));
                 }
 
-                resultALSA = ((ma_snd_pcm_writei_proc)pDevice->pContext->alsa.snd_pcm_writei)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, pFrames, frameCount);
-                if (resultALSA < 0) {
-                    return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to write data to device after underrun.", ma_result_from_errno((int)-resultALSA));
-                }
+                continue;   /* Try writing again. */
             }
         }
     }
