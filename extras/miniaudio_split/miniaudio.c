@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.34 - 2021-04-26
+miniaudio - v0.10.35 - 2021-04-27
 
 David Reid - mackron@gmail.com
 
@@ -14435,12 +14435,12 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
 
 static ma_result ma_device_wait_read__alsa(ma_device* pDevice)
 {
-    return ma_device_wait__alsa(pDevice, pDevice->alsa.pPCMCapture, (struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, pDevice->alsa.pollDescriptorCountCapture + 1, POLLIN); /* +1 to account for the wakeup descriptor. */
+    return ma_device_wait__alsa(pDevice, (ma_snd_pcm_t*)pDevice->alsa.pPCMCapture, (struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, pDevice->alsa.pollDescriptorCountCapture + 1, POLLIN); /* +1 to account for the wakeup descriptor. */
 }
 
 static ma_result ma_device_wait_write__alsa(ma_device* pDevice)
 {
-    return ma_device_wait__alsa(pDevice, pDevice->alsa.pPCMPlayback, (struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, pDevice->alsa.pollDescriptorCountPlayback + 1, POLLOUT); /* +1 to account for the wakeup descriptor. */
+    return ma_device_wait__alsa(pDevice, (ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback, (struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, pDevice->alsa.pollDescriptorCountPlayback + 1, POLLOUT); /* +1 to account for the wakeup descriptor. */
 }
 
 static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
