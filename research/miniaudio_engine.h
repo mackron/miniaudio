@@ -1377,6 +1377,7 @@ MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pRes
 /* Data Buffers. */
 MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pExistingDataBuffer, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64 frameIndex);
@@ -1409,6 +1410,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resourc
 /* Data Sources. */
 MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_source_seek_to_pcm_frame(ma_resource_manager_data_source* pDataSource, ma_uint64 frameIndex);
@@ -1810,6 +1812,7 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 #endif
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
 MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
@@ -6204,7 +6207,6 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     ma_bool32 async;
 
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pFilePath        != NULL || pFilePathW != NULL);
     MA_ASSERT(pDataBuffer      != NULL);
 
     MA_ZERO_OBJECT(pDataBuffer);
@@ -6272,7 +6274,20 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
         }
     } else {
-        /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
+        /*
+        Slow path. The data for this buffer has not yet been initialized. The first thing to do is
+        allocate the new data buffer and insert it into the BST.
+
+        Note that there's a possiblity that we're calling this function because we're wanting to
+        initialize a data buffer from an existing data buffer rather than by a file name. In this
+        case the file path will be NULL. This means the caller has uninitialized the last reference
+        to the underlying node. This is an invalid usage - the caller must ensure the existing data
+        buffer stays valid while cloning.
+        */
+        if (pFilePath == NULL && pFilePathW == NULL) {
+            return MA_INVALID_OPERATION;
+        }
+
         pDataBuffer->pNode = (ma_resource_manager_data_buffer_node*)ma__malloc_from_callbacks(sizeof(*pDataBuffer->pNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
         if (pDataBuffer->pNode == NULL) {
             return MA_OUT_OF_MEMORY;
@@ -6286,6 +6301,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
 
         result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBuffer->pNode, pInsertPoint);
         if (result != MA_SUCCESS) {
+            ma__free_from_callbacks(pDataBuffer->pNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
             return result;  /* Should never happen. Failed to insert the data buffer into the BST. */
         }
 
@@ -6540,6 +6556,31 @@ MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pReso
 MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     return ma_resource_manager_data_buffer_init_internal(pResourceManager, NULL, pFilePath, flags, pNotification, pDataBuffer);
+}
+
+MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pExistingDataBuffer, ma_resource_manager_data_buffer* pDataBuffer)
+{
+    ma_result result = MA_SUCCESS;
+
+    if (pDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pResourceManager == NULL || pExistingDataBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    We need to enter a critical section to ensure the existing data buffer doesn't get uninitialized while we're in the middle of
+    incrementing the reference count.
+    */
+    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
+    {
+        result = ma_resource_manager_data_buffer_init_nolock(pResourceManager, NULL, NULL, pExistingDataBuffer->pNode->hashedName32, pExistingDataBuffer->flags, NULL, pDataBuffer);    /* Flags won't actually be used, but want them to be maintained for copied data buffers. */
+    }
+    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
+
+    return result;
 }
 
 static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_manager_data_buffer* pDataBuffer)
@@ -7770,6 +7811,27 @@ MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pRe
     } else {
         return ma_resource_manager_data_buffer_init_w(pResourceManager, pName, flags, pNotification, &pDataSource->buffer);
     }
+}
+
+MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource)
+{
+    ma_result result;
+
+    if (pExistingDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_resource_manager_data_source_preinit(pResourceManager, pExistingDataSource->flags, pDataSource);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Copying can only be done from data buffers. Streams cannot be copied. */
+    if ((pExistingDataSource->flags & MA_DATA_SOURCE_FLAG_STREAM) != 0) {
+        return MA_INVALID_OPERATION;
+    }
+
+    return ma_resource_manager_data_buffer_init_copy(pResourceManager, &pExistingDataSource->buffer, &pDataSource->buffer);
 }
 
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource)
@@ -11412,6 +11474,51 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     return ma_sound_init_ex(pEngine, &config, pSound);
+}
+
+MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+{
+    ma_result result;
+    ma_sound_config config;
+
+    if (pEngine == NULL || pExistingSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Cloning only works for data buffers (not streams) that are loaded from the resource manager. */
+    if (pExistingSound->pResourceManagerDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    /*
+    We need to make a clone of the data source. If the data source is not a data buffer (i.e. a stream)
+    the this will fail.
+    */
+    pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
+    if (pSound->pResourceManagerDataSource == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_resource_manager_data_source_init_copy(pEngine->pResourceManager, pExistingSound->pResourceManagerDataSource, pSound->pResourceManagerDataSource);
+    if (result != MA_SUCCESS) {
+        ma_free(pSound, &pEngine->allocationCallbacks);
+        return result;
+    }
+
+    config = ma_sound_config_init();
+    config.pDataSource        = pSound->pResourceManagerDataSource;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    
+    result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
+    if (result != MA_SUCCESS) {
+        ma_resource_manager_data_source_uninit(pSound->pResourceManagerDataSource);
+        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
+        MA_ZERO_OBJECT(pSound);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 #endif
 

@@ -35,6 +35,7 @@ int main(int argc, char** argv)
     ma_resource_manager_config resourceManagerConfig;
     ma_engine engine;
     ma_engine_config engineConfig;
+    ma_sound baseSound;
     ma_sound sound;
     ma_sound sound2;
     sound_loaded_notification loadNotification;
@@ -78,12 +79,19 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &group, &sound);
+    result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, &group, &baseSound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
         return -1;
     }
+
+    result = ma_sound_init_copy(&engine, &baseSound, 0, &group, &sound);
+    if (result != MA_SUCCESS) {
+        printf("Failed to copy sound.\n");
+        return -1;
+    }
+
 #if 0
     result = ma_sound_init_from_file(&engine, argv[1], MA_DATA_SOURCE_FLAG_DECODE /*| MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM*/, NULL, &sound2);
     if (result != MA_SUCCESS) {
