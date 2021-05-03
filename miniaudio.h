@@ -5902,11 +5902,6 @@ typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSo
 typedef struct
 {
     const ma_data_source_vtable* vtable;    /* Can be null, which is useful for proxies. */
-    ma_uint64 rangeBegInFrames;
-    ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
-    ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
-    ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
-    ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
 } ma_data_source_config;
 
 MA_API ma_data_source_config ma_data_source_config_init(void);
@@ -5917,12 +5912,12 @@ typedef struct
     ma_data_source_callbacks cb;    /* TODO: Remove this. */
 
     /* Variables below are placeholder and not yet used. */
-    const ma_data_source_vtable* vtable; /* Can be NULL, which might be useful for proxy data sources. */
+    const ma_data_source_vtable* vtable;
     ma_uint64 rangeBegInFrames;
-    ma_uint64 rangeEndInFrames;
-    ma_data_source* pCurrent;
-    ma_data_source* pNext;
-    ma_data_source_get_next_proc onGetNext;
+    ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
+    ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
+    ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
+    ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
 } ma_data_source_base;
 
 MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
@@ -43145,7 +43140,6 @@ MA_API ma_data_source_config ma_data_source_config_init(void)
     ma_data_source_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.rangeEndInFrames = ~((ma_uint64)0);
 
     return config;
 }
@@ -43166,11 +43160,11 @@ MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_da
     }
 
     pDataSourceBase->vtable           = pConfig->vtable;
-    pDataSourceBase->rangeBegInFrames = pConfig->rangeBegInFrames;
-    pDataSourceBase->rangeEndInFrames = pConfig->rangeEndInFrames;
-    pDataSourceBase->pCurrent         = pConfig->pCurrent;
-    pDataSourceBase->pNext            = pConfig->pNext;
-    pDataSourceBase->onGetNext        = pConfig->onGetNext;
+    pDataSourceBase->rangeBegInFrames = 0;
+    pDataSourceBase->rangeEndInFrames = ~((ma_uint64)0);
+    pDataSourceBase->pCurrent         = NULL;
+    pDataSourceBase->pNext            = NULL;
+    pDataSourceBase->onGetNext        = NULL;
 
     /* Compatibility: Need to make a copy of the callbacks. This will be removed in version 0.11. */
     if (pConfig->vtable != NULL) {
