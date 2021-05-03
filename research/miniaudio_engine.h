@@ -1282,7 +1282,7 @@ struct ma_resource_manager_data_buffer_node
 
 struct ma_resource_manager_data_buffer
 {
-    ma_data_source_callbacks ds;                    /* Data source callbacks. A data buffer is a data source. */
+    ma_data_source_base ds;                         /* Base data source. A data buffer is a data source. */
     ma_resource_manager* pResourceManager;          /* A pointer to the resource manager that owns this buffer. */
     ma_uint32 flags;                                /* The flags that were passed used to initialize the buffer. */
     ma_resource_manager_data_buffer_node* pNode;    /* The data node. This is reference counted. */
@@ -1300,7 +1300,7 @@ struct ma_resource_manager_data_buffer
 
 struct ma_resource_manager_data_stream
 {
-    ma_data_source_callbacks ds;            /* Data source callbacks. A data stream is a data source. */
+    ma_data_source_base ds;                 /* Base data source. A data stream is a data source. */
     ma_resource_manager* pResourceManager;  /* A pointer to the resource manager that owns this data stream. */
     ma_uint32 flags;                        /* The flags that were passed used to initialize the stream. */
     ma_decoder decoder;                     /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
@@ -6087,15 +6087,6 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     }
 
     /*
-    We can only do mapping if the data source's backend is an audio buffer. If it's not, clear out the callbacks thereby preventing the mixer from attempting
-    memory map mode, only to fail.
-    */
-    if (pDataBuffer->connectorType != ma_resource_manager_data_buffer_connector_buffer) {
-        pDataBuffer->ds.onMap   = NULL;
-        pDataBuffer->ds.onUnmap = NULL;
-    }
-
-    /*
     Initialization of the connector is when we can fire the MA_NOTIFICATION_COMPLETE notification. This will give the application access to
     the format/channels/rate of the data source.
     */
@@ -6197,9 +6188,21 @@ static ma_result ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_buffer_get_length_in_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pLength);
 }
 
+static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
+{
+    ma_resource_manager_data_buffer_cb__read_pcm_frames,
+    ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
+    ma_resource_manager_data_buffer_cb__map,
+    ma_resource_manager_data_buffer_cb__unmap,
+    ma_resource_manager_data_buffer_cb__get_data_format,
+    ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames,
+    ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames
+};
+
 static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result;
+    ma_data_source_config dataSourceConfig;
     ma_resource_manager_data_buffer_node* pInsertPoint;
     char* pFilePathCopy = NULL;    /* Allocated here, freed in the job thread. */
     wchar_t* pFilePathWCopy = NULL;
@@ -6210,16 +6213,17 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     MA_ASSERT(pDataBuffer      != NULL);
 
     MA_ZERO_OBJECT(pDataBuffer);
-    pDataBuffer->ds.onRead          = ma_resource_manager_data_buffer_cb__read_pcm_frames;
-    pDataBuffer->ds.onSeek          = ma_resource_manager_data_buffer_cb__seek_to_pcm_frame;
-    pDataBuffer->ds.onMap           = ma_resource_manager_data_buffer_cb__map;
-    pDataBuffer->ds.onUnmap         = ma_resource_manager_data_buffer_cb__unmap;
-    pDataBuffer->ds.onGetDataFormat = ma_resource_manager_data_buffer_cb__get_data_format;
-    pDataBuffer->ds.onGetCursor     = ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames;
-    pDataBuffer->ds.onGetLength     = ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames;
 
-    pDataBuffer->pResourceManager   = pResourceManager;
-    pDataBuffer->flags              = flags;
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_resource_manager_data_buffer_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pDataBuffer->ds);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataBuffer->pResourceManager = pResourceManager;
+    pDataBuffer->flags            = flags;
 
     /* The backend type hasn't been determined yet - that happens when it's initialized properly by the job thread. */
     pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_unknown;
@@ -6616,6 +6620,9 @@ static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_man
         }
     }
     ma_resource_manager_data_buffer_bst_unlock(pDataBuffer->pResourceManager);
+
+    /* The base data source needs to be uninitialized as well. */
+    ma_data_source_uninit(&pDataBuffer->ds);
 
     return MA_SUCCESS;
 }
@@ -7152,9 +7159,21 @@ static ma_result ma_resource_manager_data_stream_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_stream_get_length_in_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pLength);
 }
 
+static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
+{
+    ma_resource_manager_data_stream_cb__read_pcm_frames,
+    ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
+    ma_resource_manager_data_stream_cb__map,
+    ma_resource_manager_data_stream_cb__unmap,
+    ma_resource_manager_data_stream_cb__get_data_format,
+    ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames,
+    ma_resource_manager_data_stream_cb__get_length_in_pcm_frames
+};
+
 static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_async_notification* pNotification, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
+    ma_data_source_config dataSourceConfig;
     char* pFilePathCopy = NULL;
     wchar_t* pFilePathWCopy = NULL;
     ma_job job;
@@ -7170,17 +7189,18 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     }
 
     MA_ZERO_OBJECT(pDataStream);
-    pDataStream->ds.onRead          = ma_resource_manager_data_stream_cb__read_pcm_frames;
-    pDataStream->ds.onSeek          = ma_resource_manager_data_stream_cb__seek_to_pcm_frame;
-    pDataStream->ds.onMap           = ma_resource_manager_data_stream_cb__map;
-    pDataStream->ds.onUnmap         = ma_resource_manager_data_stream_cb__unmap;
-    pDataStream->ds.onGetDataFormat = ma_resource_manager_data_stream_cb__get_data_format;
-    pDataStream->ds.onGetCursor     = ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames;
-    pDataStream->ds.onGetLength     = ma_resource_manager_data_stream_cb__get_length_in_pcm_frames;
 
-    pDataStream->pResourceManager   = pResourceManager;
-    pDataStream->flags              = flags;
-    pDataStream->result             = MA_BUSY;
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_resource_manager_data_stream_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pDataStream->ds);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pDataStream->pResourceManager = pResourceManager;
+    pDataStream->flags            = flags;
+    pDataStream->result           = MA_BUSY;
 
     if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL)) {
         if (pNotification != NULL) {
@@ -8534,6 +8554,8 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
         ma__free_from_callbacks(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
         pDataStream->pPageData = NULL;  /* Just in case... */
     }
+
+    ma_data_source_uninit(&pDataStream->ds);
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataStream.pNotification != NULL) {
