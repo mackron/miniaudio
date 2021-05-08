@@ -22629,7 +22629,9 @@ static void ma_device_on_read__pulse(ma_pa_stream* pStream, size_t byteCount, vo
     MA_ASSERT(pDevice != NULL);
 
     bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
-    MA_ASSERT(bpf > 0);
+    if (0 == bpf) {
+        return;
+    }
 
     frameCount = byteCount / bpf;
     framesProcessed = 0;
