@@ -22913,7 +22913,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             cmap = *pActualCMap;
         }
 
-        for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
+        for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
             pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
         }
 
@@ -23005,7 +23005,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             cmap = *pActualCMap;
         }
 
-        for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
+        for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
             pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
         }
 
@@ -65002,6 +65002,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 0.10.36 - TBD
+  - PulseAudio: Fix a bug with channel mapping.
   - Silence some warnings when compiling with MA_DEBUG_OUTPUT
   - Prep work for some upcoming changes to data sources. These changes are still compatible with
     existing code, however code will need to be updated in preparation for version 0.11 which will
