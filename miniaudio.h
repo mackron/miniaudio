@@ -22623,10 +22623,20 @@ static void ma_device_on_read__pulse(ma_pa_stream* pStream, size_t byteCount, vo
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_uint32 bpf;
+    ma_uint32 deviceState;
     ma_uint64 frameCount;
     ma_uint64 framesProcessed;
 
     MA_ASSERT(pDevice != NULL);
+
+    /*
+    Don't do anything if the device isn't initialized yet. Yes, this can happen because PulseAudio
+    can fire this callback before the stream has even started. Ridiculous.
+    */
+    deviceState = ma_device_get_state(pDevice);
+    if (deviceState != MA_STATE_STARTING && deviceState != MA_STATE_STARTED) {
+        return;
+    }
 
     bpf = ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels);
     MA_ASSERT(bpf > 0);
