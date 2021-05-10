@@ -481,6 +481,7 @@ pointer to the processing function and the number of input and output buses. Exa
     static ma_node_vtable my_custom_node_vtable = 
     {
         my_custom_node_process_pcm_frames, // The function that will be called process your custom node. This is where you'd implement your effect processing.
+        NULL,   // Optional. A callback for calculating the number of input frames that are required to process a specified number of output frames.
         2,      // 2 input buses.
         1,      // 1 output bus.
         0       // Default flags.
