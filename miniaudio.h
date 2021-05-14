@@ -10694,7 +10694,7 @@ static void ma_thread_wait(ma_thread* pThread)
 MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
@@ -10723,7 +10723,7 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
 MA_API void ma_mutex_lock(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return;
     }
 
@@ -10738,7 +10738,7 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
 MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 {
     if (pMutex == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return;
 }
 
@@ -10754,7 +10754,7 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
 MA_API ma_result ma_event_init(ma_event* pEvent)
 {
     if (pEvent == NULL) {
-        MA_ASSERT(MA_FALSE);    /* Fire an assert to the caller is aware of this bug. */
+        MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return MA_INVALID_ARGS;
     }
 
