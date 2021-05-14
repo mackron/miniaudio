@@ -10662,18 +10662,70 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 }
 #endif
 
-static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
+typedef struct
 {
+    ma_thread_entry_proc entryProc;
+    void* pData;
+    ma_allocation_callbacks allocationCallbacks;
+} ma_thread_proxy_data;
+
+static ma_thread_result MA_THREADCALL ma_thread_entry_proxy(void* pData)
+{
+    ma_thread_proxy_data* pProxyData = (ma_thread_proxy_data*)pData;
+    ma_thread_entry_proc entryProc;
+    void* pEntryProcData;
+    ma_thread_result result;
+
+    #if defined(MA_ON_THREAD_ENTRY)
+        MA_ON_THREAD_ENTRY
+    #endif
+
+    entryProc = pProxyData->entryProc;
+    pEntryProcData = pProxyData->pData;
+
+    /* Free the proxy data before getting into the real thread entry proc. */
+    ma_free(pProxyData, &pProxyData->allocationCallbacks);
+
+    result = entryProc(pEntryProcData);
+
+    #if defined(MA_ON_THREAD_EXIT)
+        MA_ON_THREAD_EXIT
+    #endif
+
+    return result;
+}
+
+static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_result result;
+    ma_thread_proxy_data* pProxyData;
+
     if (pThread == NULL || entryProc == NULL) {
         return MA_FALSE;
     }
 
+    pProxyData = (ma_thread_proxy_data*)ma_malloc(sizeof(*pProxyData), pAllocationCallbacks);   /* Will be freed by the proxy entry proc. */
+    if (pProxyData == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pProxyData->entryProc = entryProc;
+    pProxyData->pData     = pData;
+    ma_allocation_callbacks_init_copy(&pProxyData->allocationCallbacks, pAllocationCallbacks);
+
 #ifdef MA_WIN32
-    return ma_thread_create__win32(pThread, priority, stackSize, entryProc, pData);
+    result = ma_thread_create__win32(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #endif
 #ifdef MA_POSIX
-    return ma_thread_create__posix(pThread, priority, stackSize, entryProc, pData);
+    result = ma_thread_create__posix(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #endif
+
+    if (result != MA_SUCCESS) {
+        ma_free(pProxyData, pAllocationCallbacks);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 
 static void ma_thread_wait(ma_thread* pThread)
@@ -12543,7 +12595,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
         return result;
     }
 
-    result = ma_thread_create(&pDevice->null_device.deviceThread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice);
+    result = ma_thread_create(&pDevice->null_device.deviceThread, pDevice->pContext->threadPriority, 0, ma_device_thread__null, pDevice, &pDevice->pContext->allocationCallbacks);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -16372,7 +16424,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
             return result;
         }
 
-        result = ma_thread_create(&pContext->wasapi.commandThread, ma_thread_priority_normal, 0, ma_context_command_thread__wasapi, pContext);
+        result = ma_thread_create(&pContext->wasapi.commandThread, ma_thread_priority_normal, 0, ma_context_command_thread__wasapi, pContext, &pContext->allocationCallbacks);
         if (result != MA_SUCCESS) {
             ma_semaphore_uninit(&pContext->wasapi.commandSem);
             ma_mutex_uninit(&pContext->wasapi.commandLock);
@@ -33393,7 +33445,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     /* Some backends don't require the worker thread. */
     if (!ma_context_is_backend_asynchronous(pContext)) {
         /* The worker thread. */
-        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, pContext->threadStackSize, ma_worker_thread, pDevice);
+        result = ma_thread_create(&pDevice->thread, pContext->threadPriority, pContext->threadStackSize, ma_worker_thread, pDevice, &pContext->allocationCallbacks);
         if (result != MA_SUCCESS) {
             ma_device_uninit(pDevice);
             return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "Failed to create worker thread.", result);
