@@ -1819,6 +1819,7 @@ MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_sour
 MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
 MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
+MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
 MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
@@ -11615,6 +11616,15 @@ MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound)
     }
 
     return pSound->engineNode.pEngine;
+}
+
+MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return NULL;
+    }
+
+    return pSound->pDataSource;
 }
 
 MA_API ma_result ma_sound_start(ma_sound* pSound)
