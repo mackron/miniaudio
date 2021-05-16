@@ -192,13 +192,13 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         event is received which means the `result != MA_SUCCESS` logic above will catch it. If you do not check the
         return value of ma_resource_manager_next_job() you will want to check for MA_JOB_QUIT like the code below.
         */
-        if (job.toc.code == MA_JOB_QUIT) {
+        if (job.toc.breakup.code == MA_JOB_QUIT) {
             printf("CUSTOM JOB THREAD TERMINATING VIA MA_JOB_QUIT... ");
             break;
         }
 
         /* Call ma_resource_manager_process_job() to actually do the work to process the job. */
-        printf("PROCESSING IN CUSTOM JOB THREAD: %d\n", job.toc.code);
+        printf("PROCESSING IN CUSTOM JOB THREAD: %d\n", job.toc.breakup.code);
         ma_resource_manager_process_job(pResourceManager, &job);
     }
 
