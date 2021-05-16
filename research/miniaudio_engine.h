@@ -10877,9 +10877,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
 
     /* Gain smoothing for spatialized sounds. */
-    pEngine->gainSmoothTimeInFrames = pConfig->gainSmoothTimeInFrames;
+    pEngine->gainSmoothTimeInFrames = engineConfig.gainSmoothTimeInFrames;
     if (pEngine->gainSmoothTimeInFrames == 0) {
-        ma_uint32 gainSmoothTimeInMilliseconds = pConfig->gainSmoothTimeInMilliseconds;
+        ma_uint32 gainSmoothTimeInMilliseconds = engineConfig.gainSmoothTimeInMilliseconds;
         if (gainSmoothTimeInMilliseconds == 0) {
             gainSmoothTimeInMilliseconds = 8;
         }
