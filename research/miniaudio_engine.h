@@ -8292,7 +8292,6 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     MA_ASSERT(pJob             != NULL);
     MA_ASSERT(pJob->freeDataBuffer.pDataBuffer        != NULL);
     MA_ASSERT(pJob->freeDataBuffer.pDataBuffer->pNode != NULL);
-    MA_ASSERT(ma_resource_manager_data_buffer_node_result(pJob->freeDataBuffer.pDataBuffer->pNode) == MA_UNAVAILABLE);
 
     if (pJob->order != pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
