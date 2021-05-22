@@ -2017,10 +2017,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
         /* Slow path. Need to interpolate the gain for each channel individually. */
 
         /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
-        if (pFramesOut == NULL || pFramesIn == NULL) {
-            /* Fast path. Just update the internal timer. */
-        } else {
-            /* Slow path. Need to interpolate the gain for each channel individually. */
+        if (pFramesOut != NULL && pFramesIn != NULL) {
             float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
             float d = 1.0f / pGainer->config.smoothTimeInFrames;
 
@@ -2033,10 +2030,10 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                 if (a > 1) {
                     a = 1;
                 }
-            }
-
-            pGainer->t = ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
+            }   
         }
+
+        pGainer->t = ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
 
     #if 0
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
