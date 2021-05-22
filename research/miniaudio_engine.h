@@ -2020,10 +2020,13 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
         if (pFramesOut != NULL && pFramesIn != NULL) {
             float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
             float d = 1.0f / pGainer->config.smoothTimeInFrames;
+            ma_uint32 channelCount = pGainer->config.channels;
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_mix_f32_fast(pGainer->oldGains[iChannel], pGainer->newGains[iChannel], a);
+                for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                    pFramesOutF32[0] = pFramesInF32[0] * ma_mix_f32_fast(pGainer->oldGains[iChannel], pGainer->newGains[iChannel], a);
+                    pFramesOutF32 += 1;
+                    pFramesInF32  += 1;
                 }
 
                 a += d;
@@ -2033,7 +2036,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
             }   
         }
 
-        pGainer->t = ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
+        pGainer->t = (ma_uint32)ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
 
     #if 0
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
