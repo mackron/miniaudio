@@ -2024,10 +2024,11 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
-                    pFramesOutF32[0] = pFramesInF32[0] * ma_mix_f32_fast(pGainer->oldGains[iChannel], pGainer->newGains[iChannel], a);
-                    pFramesOutF32 += 1;
-                    pFramesInF32  += 1;
+                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->oldGains[iChannel], pGainer->newGains[iChannel], a);
                 }
+
+                pFramesOutF32 += channelCount;
+                pFramesInF32  += channelCount;
 
                 a += d;
                 if (a > 1) {
