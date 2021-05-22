@@ -2039,7 +2039,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
         pGainer->t = (ma_uint32)ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
 
-    #if 0
+    #if 0   /* Reference implementation. */
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
             /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
             if (pFramesOut != NULL && pFramesIn != NULL) {
