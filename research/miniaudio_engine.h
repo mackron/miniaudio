@@ -48,6 +48,69 @@ useful to be told exactly what it being allocated so you can optimize your alloc
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_STREAM         0x00000012  /* A ma_resource_manager_data_stream object. */
 #define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE         0x00000013  /* A ma_resource_manager_data_source object. */
 
+
+/*
+Paged Audio Buffer
+==================
+A paged audio buffer is made up of a linked list of pages. It's expandable, but not shrinkable. It
+can be used for cases where audio data is streamed in asynchronously while allowing data to be read
+at the same time.
+
+This is lock-free, but not 100% thread safe. You can append a page and read from the buffer across
+simultaneously across different threads, however only one thread at a time can append, and only one
+thread at a time can read and seek.
+*/
+typedef struct ma_paged_audio_buffer_page ma_paged_audio_buffer_page;
+struct ma_paged_audio_buffer_page
+{
+    MA_ATOMIC ma_paged_audio_buffer_page* pNext;
+    ma_uint32 sizeInFrames;
+    ma_uint8 pAudioData[1];
+};
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_paged_audio_buffer_page head;                /* Dummy head for the lock-free algorithm. Always has a size of 0. */
+    MA_ATOMIC ma_paged_audio_buffer_page* pTail;    /* Never null. Initially set to &head. */
+} ma_paged_audio_buffer_data;
+
+MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData);
+MA_API void ma_paged_audio_buffer_data_uninit(ma_paged_audio_buffer_data* pData, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_head(ma_paged_audio_buffer_data* pData);
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_tail(ma_paged_audio_buffer_data* pData);
+MA_API ma_result ma_paged_audio_buffer_data_get_length_in_pcm_frames(ma_paged_audio_buffer_data* pData, ma_uint64* pLength);
+MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks, ma_paged_audio_buffer_page** ppPage);
+MA_API ma_result ma_paged_audio_buffer_data_append_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage);
+MA_API ma_result ma_paged_audio_buffer_data_allocate_and_append_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+typedef struct
+{
+    ma_paged_audio_buffer_data* pData;  /* Must not be null. */
+} ma_paged_audio_buffer_config;
+
+MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_audio_buffer_data* pData);
+
+
+typedef struct
+{
+    ma_data_source_base ds;
+    ma_paged_audio_buffer_data* pData;              /* Audio data is read from here. Cannot be null. */
+    ma_paged_audio_buffer_page* pCurrent;
+    ma_uint64 relativeCursor;                       /* Relative to the current page. */
+    ma_uint64 absoluteCursor;
+} ma_paged_audio_buffer;
+
+MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer);
+MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Returns MA_AT_END if no more pages available. */
+MA_API ma_result ma_paged_audio_buffer_seek_to_pcm_frame(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64 frameIndex);
+MA_API ma_result ma_paged_audio_buffer_get_cursor_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_paged_audio_buffer_get_length_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pLength);
+
+
 /*
 Resource Management
 ===================
@@ -1020,8 +1083,9 @@ typedef enum
 typedef enum
 {
     ma_resource_manager_data_buffer_connector_unknown,
-    ma_resource_manager_data_buffer_connector_decoder,  /* ma_decoder */
-    ma_resource_manager_data_buffer_connector_buffer    /* ma_audio_buffer */
+    ma_resource_manager_data_buffer_connector_decoder,      /* ma_decoder */
+    ma_resource_manager_data_buffer_connector_buffer,       /* ma_audio_buffer */
+    ma_resource_manager_data_buffer_connector_paged_buffer  /* ma_paged_audio_buffer */
 } ma_resource_manager_data_buffer_connector;
 
 
@@ -1167,7 +1231,6 @@ typedef struct
             void* pData;
             size_t dataSizeInBytes;
             ma_uint64 decodedFrameCount;
-            ma_bool32 isUnknownLength;                      /* When set to true does not update the running frame count of the data buffer nor the data pointer until the last page has been decoded. */
         } pageDataBuffer;
 
         struct
@@ -1241,11 +1304,20 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Retur
 #define MA_RESOURCE_MANAGER_FLAG_NO_THREADING   0x00000002
 
 
+typedef enum
+{
+    ma_decoded_data_supplier_unknown,
+    ma_decoded_data_supplier_buffer,
+    ma_decoded_data_supplier_paged
+} ma_decoded_data_supplier;
+
 typedef struct
 {
-    const void* pData;
-    ma_uint64 frameCount;           /* The total number of PCM frames making up the decoded data. */
-    ma_uint64 decodedFrameCount;    /* For async decoding. Keeps track of how many frames are *currently* decoded. */
+    ma_decoded_data_supplier supplier;
+    const void* pData;                      /* Only used if `supplier` is ma_decoded_data_supplier_buffer. */
+    ma_paged_audio_buffer_data pagedData;   /* Only used if `supplier` is ma_decoded_data_supplier_paged. */
+    ma_uint64 frameCount;                   /* The total number of PCM frames making up the decoded data. */
+    ma_uint64 decodedFrameCount;            /* For async decoding. Keeps track of how many frames are *currently* decoded. */
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
@@ -1296,6 +1368,7 @@ struct ma_resource_manager_data_buffer
     {
         ma_decoder decoder;
         ma_audio_buffer buffer;
+        ma_paged_audio_buffer pagedBuffer;
     } connector;
 };
 
@@ -1925,6 +1998,380 @@ MA_API ma_result ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGr
 
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
+
+MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData)
+{
+    if (pData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pData);
+
+    pData->format   = format;
+    pData->channels = channels;
+    pData->pTail    = &pData->head;
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_paged_audio_buffer_data_uninit(ma_paged_audio_buffer_data* pData, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_paged_audio_buffer_page* pPage;
+
+    if (pData == NULL) {
+        return;
+    }
+
+    /* All pages need to be freed. */
+    pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pData->head.pNext);
+    while (pPage != NULL) {
+        ma_paged_audio_buffer_page* pNext = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPage->pNext);
+
+        ma_free(pPage, pAllocationCallbacks);
+        pPage = pNext;
+    }
+}
+
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_head(ma_paged_audio_buffer_data* pData)
+{
+    if (pData == NULL) {
+        return NULL;
+    }
+
+    return &pData->head;
+}
+
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_tail(ma_paged_audio_buffer_data* pData)
+{
+    if (pData == NULL) {
+        return NULL;
+    }
+
+    return pData->pTail;
+}
+
+MA_API ma_result ma_paged_audio_buffer_data_get_length_in_pcm_frames(ma_paged_audio_buffer_data* pData, ma_uint64* pLength)
+{
+    ma_paged_audio_buffer_page* pPage;
+
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    if (pData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Calculate the length from the linked list. */
+    for (pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pData->head.pNext); pPage != NULL; pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPage->pNext)) {
+        *pLength += pPage->sizeInFrames;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks, ma_paged_audio_buffer_page** ppPage)
+{
+    ma_paged_audio_buffer_page* pPage;
+
+    if (ppPage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *ppPage = NULL;
+
+    if (pData == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pPage = (ma_paged_audio_buffer_page*)ma_malloc(sizeof(*pPage) + (pageSizeInFrames * ma_get_bytes_per_frame(pData->format, pData->channels)), pAllocationCallbacks);
+    if (pPage == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    pPage->pNext = NULL;
+    pPage->sizeInFrames = pageSizeInFrames;
+
+    if (pInitialData != NULL) {
+        ma_copy_pcm_frames(pPage->pAudioData, pInitialData, pageSizeInFrames, pData->format, pData->channels);
+    }
+
+    *ppPage = pPage;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_paged_audio_buffer_data_append_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage)
+{
+    if (pData == NULL || pPage == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* This function assumes the page has been filled with audio data by this point. As soon as we append, the page will be available for reading. */
+
+    /* First thing to do is update the tail. */
+    for (;;) {
+        ma_paged_audio_buffer_page* pOldTail = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pData->pTail);
+        ma_paged_audio_buffer_page* pNewTail = pPage;
+
+        if (c89atomic_compare_exchange_weak_ptr((void**)&pData->pTail, (void**)&pOldTail, pNewTail)) {
+            /* Here is where we append the page to the list. After this, the page is attached to the list and ready to be read from. */
+            c89atomic_exchange_ptr(&pOldTail->pNext, pPage);
+            break;  /* Done. */
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_paged_audio_buffer_data_allocate_and_append_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_result result;
+    ma_paged_audio_buffer_page* pPage;
+
+    result = ma_paged_audio_buffer_data_allocate_page(pData, pageSizeInFrames, pInitialData, pAllocationCallbacks, &pPage);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return ma_paged_audio_buffer_data_append_page(pData, pPage);    /* <-- Should never fail. */
+}
+
+
+MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_audio_buffer_data* pData)
+{
+    ma_paged_audio_buffer_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.pData = pData;
+
+    return config;
+}
+
+
+static ma_result ma_paged_audio_buffer__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_paged_audio_buffer_read_pcm_frames((ma_paged_audio_buffer*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_paged_audio_buffer__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_paged_audio_buffer_seek_to_pcm_frame((ma_paged_audio_buffer*)pDataSource, frameIndex);
+}
+
+static ma_result ma_paged_audio_buffer__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    ma_paged_audio_buffer* pPagedAudioBuffer = (ma_paged_audio_buffer*)pDataSource;
+
+    *pFormat     = pPagedAudioBuffer->pData->format;
+    *pChannels   = pPagedAudioBuffer->pData->channels;
+    *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_paged_audio_buffer__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_paged_audio_buffer_get_cursor_in_pcm_frames((ma_paged_audio_buffer*)pDataSource, pCursor);
+}
+
+static ma_result ma_paged_audio_buffer__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_paged_audio_buffer_get_length_in_pcm_frames((ma_paged_audio_buffer*)pDataSource, pLength);
+}
+
+static ma_data_source_vtable g_ma_paged_audio_buffer_data_source_vtable =
+{
+    ma_paged_audio_buffer__data_source_on_read,
+    ma_paged_audio_buffer__data_source_on_seek,
+    NULL,   /* onMap */
+    NULL,   /* onUnmap */
+    ma_paged_audio_buffer__data_source_on_get_data_format,
+    ma_paged_audio_buffer__data_source_on_get_cursor,
+    ma_paged_audio_buffer__data_source_on_get_length
+};
+
+MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer)
+{
+    ma_result result;
+    ma_data_source_config dataSourceConfig;
+
+    if (pPagedAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pPagedAudioBuffer);
+
+    /* A config is required for the format and channel count. */
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->pData == NULL) {
+        return MA_INVALID_ARGS; /* No underlying data specified. */
+    }
+
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_paged_audio_buffer_data_source_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pPagedAudioBuffer->ds);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pPagedAudioBuffer->pData          = pConfig->pData;
+    pPagedAudioBuffer->pCurrent       = ma_paged_audio_buffer_data_get_head(pConfig->pData);
+    pPagedAudioBuffer->relativeCursor = 0;
+    pPagedAudioBuffer->absoluteCursor = 0;
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_paged_audio_buffer_page* pPage;
+
+    if (pPagedAudioBuffer == NULL) {
+        return;
+    }
+
+    /* All pages need to be freed. */
+    pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&ma_paged_audio_buffer_data_get_head(pPagedAudioBuffer->pData)->pNext);
+    while (pPage != NULL) {
+        ma_paged_audio_buffer_page* pNext = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPage->pNext);
+
+        ma_free(pPage, pAllocationCallbacks);
+        pPage = pNext;
+    }
+}
+
+MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_result result = MA_SUCCESS;
+    ma_uint64 totalFramesRead = 0;
+    ma_format format;
+    ma_uint32 channels;
+
+    if (pPagedAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    format   = pPagedAudioBuffer->pData->format;
+    channels = pPagedAudioBuffer->pData->channels;
+
+    while (totalFramesRead < frameCount) {
+        /* Read from the current page. The buffer should never be in a state where this is NULL. */
+        ma_uint64 framesRemainingInCurrentPage;
+        ma_uint64 framesRemainingToRead = frameCount - totalFramesRead;
+        ma_uint64 framesToReadThisIteration;
+
+        MA_ASSERT(pPagedAudioBuffer->pCurrent != NULL);
+        
+        framesRemainingInCurrentPage = pPagedAudioBuffer->pCurrent->sizeInFrames - pPagedAudioBuffer->relativeCursor;
+        
+        framesToReadThisIteration = ma_min(framesRemainingInCurrentPage, framesRemainingToRead);
+        ma_copy_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), ma_offset_pcm_frames_ptr(pPagedAudioBuffer->pCurrent->pAudioData, pPagedAudioBuffer->relativeCursor, format, channels), framesToReadThisIteration, format, channels);
+        totalFramesRead += framesToReadThisIteration;
+
+        pPagedAudioBuffer->absoluteCursor += framesToReadThisIteration;
+        pPagedAudioBuffer->relativeCursor += framesToReadThisIteration;
+
+        /* Move to the next page if necessary. If there's no more pages, we need to return MA_AT_END. */
+        MA_ASSERT(pPagedAudioBuffer->relativeCursor <= pPagedAudioBuffer->pCurrent->sizeInFrames);
+
+        if (pPagedAudioBuffer->relativeCursor == pPagedAudioBuffer->pCurrent->sizeInFrames) {
+            /* We reached the end of the page. Need to move to the next. If there's no more pages, we're done. */
+            ma_paged_audio_buffer_page* pNext = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPagedAudioBuffer->pCurrent->pNext);
+            if (pNext == NULL) {
+                result = MA_AT_END;
+                break;  /* We've reached the end. */
+            } else {
+                pPagedAudioBuffer->pCurrent       = pNext;
+                pPagedAudioBuffer->relativeCursor = 0;
+            }
+        }
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_paged_audio_buffer_seek_to_pcm_frame(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64 frameIndex)
+{
+    if (pPagedAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (frameIndex == pPagedAudioBuffer->absoluteCursor) {
+        return MA_SUCCESS;  /* Nothing to do. */
+    }
+
+    if (frameIndex < pPagedAudioBuffer->absoluteCursor) {
+        /* Moving backwards. Need to move the cursor back to the start, and then move forward. */
+        pPagedAudioBuffer->pCurrent       = ma_paged_audio_buffer_data_get_head(pPagedAudioBuffer->pData);
+        pPagedAudioBuffer->absoluteCursor = 0;
+        pPagedAudioBuffer->relativeCursor = 0;
+
+        /* Fall through to the forward seeking section below. */
+    }
+
+    if (frameIndex > pPagedAudioBuffer->absoluteCursor) {
+        /* Moving forward. */
+        ma_paged_audio_buffer_page* pPage;
+        ma_uint64 runningCursor = 0;
+
+        for (pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&ma_paged_audio_buffer_data_get_head(pPagedAudioBuffer->pData)->pNext); pPage != NULL; pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPage->pNext)) {
+            ma_uint64 pageRangeBeg = runningCursor;
+            ma_uint64 pageRangeEnd = pageRangeBeg + pPage->sizeInFrames;
+
+            if (frameIndex >= pageRangeBeg) {
+                if (frameIndex < pageRangeEnd || (frameIndex == pageRangeEnd && pPage == (ma_paged_audio_buffer_page*)c89atomic_load_ptr(ma_paged_audio_buffer_data_get_tail(pPagedAudioBuffer->pData)))) {  /* A small edge case - allow seeking to the very end of the buffer. */
+                    /* We found the page. */
+                    pPagedAudioBuffer->pCurrent       = pPage;
+                    pPagedAudioBuffer->absoluteCursor = frameIndex;
+                    pPagedAudioBuffer->relativeCursor = frameIndex - pageRangeBeg;
+                    return MA_SUCCESS;
+                }
+            }
+
+            runningCursor = pageRangeEnd;
+        }
+
+        /* Getting here means we tried seeking too far forward. Don't change any state. */
+        return MA_BAD_SEEK;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_paged_audio_buffer_get_cursor_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;   /* Safety. */
+
+    if (pPagedAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = pPagedAudioBuffer->absoluteCursor;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_paged_audio_buffer_get_length_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pLength)
+{
+    return ma_paged_audio_buffer_data_get_length_in_pcm_frames(pPagedAudioBuffer->pData, pLength);
+}
+
+
 
 MA_API size_t ma_get_accumulation_bytes_per_sample(ma_format format)
 {
@@ -6072,7 +6519,14 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     an ma_audio_buffer. This enables us to use memory mapping when mixing which saves us a bit of data movement overhead.
     */
     if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-        pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_buffer;
+        /* If the source is of an unknown length we need to use a paged buffer. Otherwise we'll use a regular buffer which is a bit more efficient. */
+        if (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_buffer) {
+            pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_buffer;
+        } else if (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_paged) {
+            pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_paged_buffer;
+        } else {
+            return MA_INVALID_ARGS; /* Unknown decoded data backend. */
+        }
     } else {
         pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_decoder;
     }
@@ -6083,6 +6537,12 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         result = ma_audio_buffer_init(&config, &pDataBuffer->connector.buffer);
 
         pDataBuffer->lengthInPCMFrames = pDataBuffer->connector.buffer.ref.sizeInFrames;
+    } else if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
+        ma_paged_audio_buffer_config config;
+        config = ma_paged_audio_buffer_config_init(&pDataBuffer->pNode->data.decoded.pagedData);
+        result = ma_paged_audio_buffer_init(&config, &pDataBuffer->connector.pagedBuffer);
+
+        pDataBuffer->lengthInPCMFrames = 0; /* Length is unknown so far. */
     } else {
         ma_decoder_config configOut;
         configOut = ma_decoder_config_init(pDataBuffer->pResourceManager->config.decodedFormat, pDataBuffer->pResourceManager->config.decodedChannels, pDataBuffer->pResourceManager->config.decodedSampleRate);
@@ -6115,7 +6575,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     }
 
     /*
-    Initialization of the connector is when we can fire the MA_NOTIFICATION_COMPLETE notification. This will give the application access to
+    Initialization of the connector is when we can fire the init notification. This will give the application access to
     the format/channels/rate of the data source.
     */
     if (result == MA_SUCCESS) {
@@ -6135,6 +6595,8 @@ static ma_result ma_resource_manager_data_buffer_uninit_connector(ma_resource_ma
 
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_decoder) {
         ma_decoder_uninit(&pDataBuffer->connector.decoder);
+    } else if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
+        ma_paged_audio_buffer_uninit(&pDataBuffer->connector.pagedBuffer, &pResourceManager->config.allocationCallbacks);
     } else {
         ma_audio_buffer_uninit(&pDataBuffer->connector.buffer);
     }
@@ -6175,6 +6637,8 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
 {
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
         return &pDataBuffer->connector.buffer;
+    } else if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
+        return &pDataBuffer->connector.pagedBuffer;
     } else {
         return &pDataBuffer->connector.decoder;
     }
@@ -6507,10 +6971,12 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                     }
 
                     if (result == MA_SUCCESS) {
+                        pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_buffer;
                         pDataBuffer->pNode->data.decoded.pData             = pData;
                         pDataBuffer->pNode->data.decoded.frameCount        = totalFrameCount;
                         pDataBuffer->pNode->data.decoded.decodedFrameCount = totalFrameCount;  /* We've decoded everything. */
                     } else {
+                        pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_unknown;
                         pDataBuffer->pNode->data.decoded.pData             = NULL;
                         pDataBuffer->pNode->data.decoded.frameCount        = 0;
                         pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
@@ -6744,6 +7210,16 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
     pDataBuffer->cursorInPCMFrames += framesRead;
 
+    /*
+    If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
+    as at the end and terminate decoding.
+    */
+    if (result == MA_AT_END) {
+        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+            result = MA_BUSY;
+        }
+    }
+
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
     }
@@ -6833,7 +7309,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
         return MA_BUSY; /* Still loading. */
     }
 
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer || pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
         MA_ASSERT(pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded);
 
         *pFormat     = pDataBuffer->pNode->data.decoded.format;
@@ -6938,7 +7414,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
         }
     }
 
-    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+    if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer || pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
         /* Retrieve the available frames based on how many frames we've currently decoded, and *not* the total capacity of the audio buffer. */
         if (pDataBuffer->pNode->data.decoded.decodedFrameCount > pDataBuffer->cursorInPCMFrames) {
             *pAvailableFrames = pDataBuffer->pNode->data.decoded.decodedFrameCount - pDataBuffer->cursorInPCMFrames;
@@ -8188,6 +8664,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
         framesRead = ma_decoder_read_pcm_frames(pDecoder, pData, pageSizeInFrames);
         if (framesRead < pageSizeInFrames) {
             /* We've read the entire sound. This is the simple case. We just need to set the result to MA_SUCCESS. */
+            pDataBuffer->pNode->data.decoded.supplier   = ma_decoded_data_supplier_buffer;
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = framesRead;
 
@@ -8208,15 +8685,6 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             /* We've still got more to decode. We just set the result to MA_BUSY which will tell the next section below to post a paging event. */
             result = MA_BUSY;
         }
-
-    #if 0
-        /* If we successfully initialized and the sound is of a known length we can start initialize the connector. */
-        if (result == MA_SUCCESS || result == MA_BUSY) {
-            if (pDataBuffer->pNode->data.decoded.decodedFrameCount > 0) {
-                result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
-            }
-        }
-    #endif
     }
 
 done:
@@ -8254,9 +8722,10 @@ done:
         pageDataBufferJob.pageDataBuffer.decodedFrameCount      = framesRead;
 
         if (totalFrameCount > 0) {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_FALSE;
+            /* The length is known. Use a simple buffer. */
             pageDataBufferJob.pageDataBuffer.pInitNotification = NULL;  /* <-- Clear this notification to NULL to ensure it's not signalled a second time at the end of decoding, which will be done for sounds of unknown length. */
 
+            pDataBuffer->pNode->data.decoded.supplier   = ma_decoded_data_supplier_buffer;
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = totalFrameCount;
 
@@ -8271,19 +8740,24 @@ done:
             /* The sound is of a known length so we can go ahead and initialize the connector now. */
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
         } else {
-            pageDataBufferJob.pageDataBuffer.isUnknownLength   = MA_TRUE;
-            pageDataBufferJob.pageDataBuffer.pInitNotification = pJob->loadDataBuffer.pInitNotification;    /* <-- Set this to the init notification so that the PAGE_DATA_BUFFER job can signal it at the end of decoding. Only needed for sounds of unknown length. */
+            /* The length is unknown. Need to use a paged buffer. */
+            pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_paged;
+            pDataBuffer->pNode->data.decoded.pData             = NULL;  /* <-- Not used for paged buffers. Set to NULL for safety. */
+            pDataBuffer->pNode->data.decoded.frameCount        = 0;     /* <-- Will be set at the end of decoding. */
+            pDataBuffer->pNode->data.decoded.decodedFrameCount = framesRead;
 
-            /*
-            These members are all set after the last page has been decoded. The reason for this is that the application should not be attempting to
-            read any data until the sound is fully decoded because we're going to be dynamically expanding pData and we'll be introducing complications
-            by letting the application get access to it.
-            */
-            pDataBuffer->pNode->data.decoded.pData             = NULL;
-            pDataBuffer->pNode->data.decoded.frameCount        = 0;
-            pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
+            /* For a paged data buffer need to initialize the data structure for the paged data before initializing the connector. */
+            result = ma_paged_audio_buffer_data_init(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels, &pDataBuffer->pNode->data.decoded.pagedData);
+            if (result == MA_SUCCESS) {
+                /* A page needs to be allocated and appended for the initial data. Not doing this will result in the first page being missing. */
+                result = ma_paged_audio_buffer_data_allocate_and_append_page(&pDataBuffer->pNode->data.decoded.pagedData, (ma_uint32)framesRead, pData, &pResourceManager->config.allocationCallbacks);
+                if (result == MA_SUCCESS) {
+                    result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
+                }
+            }
 
-            result = MA_SUCCESS;
+            /* The pData pointer is no longer needed for the paged audio buffers (it's only used for regular buffers). */
+            ma_free(pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
         }
 
         if (result == MA_SUCCESS) {
@@ -8337,7 +8811,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
 static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_manager* pResourceManager, ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
-    ma_uint64 pageSizeInFrames;
+    ma_uint32 pageSizeInFrames;
     ma_uint64 framesRead;
     void* pRunningData;
     ma_job jobCopy;
@@ -8363,52 +8837,60 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
     /* We need to know the size of a page in frames to know how many frames to decode. */
     pageSizeInFrames = MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS * (jobCopy.pageDataBuffer.pDecoder->outputSampleRate/1000);
 
-    /* If the total length is unknown we may need to expand the size of the buffer. */
-    if (jobCopy.pageDataBuffer.isUnknownLength == MA_TRUE) {
-        ma_uint64 requiredSize = (jobCopy.pageDataBuffer.decodedFrameCount + pageSizeInFrames) * ma_get_bytes_per_frame(jobCopy.pageDataBuffer.pDecoder->outputFormat, jobCopy.pageDataBuffer.pDecoder->outputChannels);
-        if (requiredSize <= MA_SIZE_MAX) {
-            if (requiredSize > jobCopy.pageDataBuffer.dataSizeInBytes) {
-                size_t newSize = (size_t)ma_max(requiredSize, jobCopy.pageDataBuffer.dataSizeInBytes * 2);
-                void *pNewData = ma__realloc_from_callbacks(jobCopy.pageDataBuffer.pData, newSize, jobCopy.pageDataBuffer.dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-                if (pNewData != NULL) {
-                    jobCopy.pageDataBuffer.pData           = pNewData;
-                    jobCopy.pageDataBuffer.dataSizeInBytes = newSize;
-                } else {
-                    result = MA_OUT_OF_MEMORY;
-                }
-            }
-        } else {
-            result = MA_TOO_BIG;
-        }
-    }
-
     /* We should have the memory set up so now we can decode the next page. */
     if (result == MA_SUCCESS) {
         ma_uint64 framesToTryReading = pageSizeInFrames;
+        ma_paged_audio_buffer_page* pPage = NULL;   /* <-- Only used for sounds using a paged data buffer. */
 
         /* Can't try reading more than what we originally retrieved when we first initialized the decoder. */
-        if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
+        if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+            /* Using a regular buffer. Don't read more than we originally retrieved when we first initialized the decoder. */
             ma_uint64 framesRemaining = pDataBuffer->pNode->data.decoded.frameCount - pDataBuffer->pNode->data.decoded.decodedFrameCount;
             if (framesToTryReading > framesRemaining) {
                 framesToTryReading = framesRemaining;
             }
+
+            pRunningData = ma_offset_ptr(jobCopy.pageDataBuffer.pData, jobCopy.pageDataBuffer.decodedFrameCount * ma_get_bytes_per_frame(jobCopy.pageDataBuffer.pDecoder->outputFormat, jobCopy.pageDataBuffer.pDecoder->outputChannels));
+        } else {
+            /* Using a paged buffer which means we don't know the length. Allocate a page and read as much as we can. This will be appended to the decoder. */
+            ma_paged_audio_buffer_data_allocate_page(&pDataBuffer->pNode->data.decoded.pagedData, pageSizeInFrames, NULL, &pResourceManager->config.allocationCallbacks, &pPage);
+            if (result == MA_SUCCESS) {
+                pPage->sizeInFrames = 0;    /* <-- For safety just in case we get an error later on. We'll update this to it's proper value later. */
+                pRunningData = pPage->pAudioData;
+            } else {
+                pRunningData = NULL;
+            }
         }
 
-        pRunningData = ma_offset_ptr(jobCopy.pageDataBuffer.pData, jobCopy.pageDataBuffer.decodedFrameCount * ma_get_bytes_per_frame(jobCopy.pageDataBuffer.pDecoder->outputFormat, jobCopy.pageDataBuffer.pDecoder->outputChannels));
+        if (pRunningData != NULL) {
+            framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, framesToTryReading);
+            if (framesRead < framesToTryReading) {
+                result = MA_AT_END;
+            }
 
-        framesRead = ma_decoder_read_pcm_frames(jobCopy.pageDataBuffer.pDecoder, pRunningData, framesToTryReading);
-        if (framesRead < framesToTryReading) {
-            result = MA_AT_END;
+            if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
+                pPage->sizeInFrames = (ma_uint32)framesRead;    /* Safe cast. */
+            }
+        } else {
+            framesRead = 0;
+            result = MA_AT_END; /* We don't have a destination buffer which means we probably ran out of memory in ma_paged_audio_buffer_allocate_page(). Just terminate decoding by pretending we're at the end. */
+        }
+        
+        /* Make sure the page is attached to the buffer if we're running a paged audio buffer. */
+        if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
+            ma_paged_audio_buffer_data_append_page(&pDataBuffer->pNode->data.decoded.pagedData, pPage);
         }
 
-        /* If the total length is known we can increment out decoded frame count. Otherwise it needs to be left at 0 until the last page is decoded. */
-        if (jobCopy.pageDataBuffer.isUnknownLength == MA_FALSE) {
-            pDataBuffer->pNode->data.decoded.decodedFrameCount += framesRead;
+        pDataBuffer->pNode->data.decoded.decodedFrameCount += framesRead;
 
-            /* If we've read up to the length reported when we first loaded the file we've reached the end. */
+        /* If we've read up to the length reported when we first loaded the file we've reached the end. */
+        if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
             if (pDataBuffer->pNode->data.decoded.decodedFrameCount == pDataBuffer->pNode->data.decoded.frameCount) {
                 result = MA_AT_END;
             }
+        } else {
+            /* The length of a paged buffer needs to be dynamically expanded as we decode as we don't know the length until it's been fully decoded. */
+            pDataBuffer->lengthInPCMFrames += framesRead;
         }
 
         /*
@@ -8431,21 +8913,16 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
         ma_decoder_uninit(jobCopy.pageDataBuffer.pDecoder);
         ma__free_from_callbacks(jobCopy.pageDataBuffer.pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
 
-        /* When the length is unknown we were doubling the size of the buffer each time we needed more data. Let's try reducing this by doing a final realloc(). */
-        if (jobCopy.pageDataBuffer.isUnknownLength) {
-            ma_uint64 newSizeInBytes = jobCopy.pageDataBuffer.decodedFrameCount * ma_get_bytes_per_frame(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels);
-            void* pNewData = ma__realloc_from_callbacks(jobCopy.pageDataBuffer.pData, (size_t)newSizeInBytes, jobCopy.pageDataBuffer.dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
-            if (pNewData != NULL) {
-                jobCopy.pageDataBuffer.pData = pNewData;
-                jobCopy.pageDataBuffer.dataSizeInBytes = (size_t)newSizeInBytes;    /* <-- Don't really need to set this, but I think it's good practice. */
-            }
-        }
-
         /*
         We can now set the frame counts appropriately. We want to set the frame count regardless of whether or not it had a known length just in case we have
         a weird situation where the frame count an opening time was different to the final count we got after reading.
         */
-        pDataBuffer->pNode->data.decoded.pData      = jobCopy.pageDataBuffer.pData;
+        if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
+            pDataBuffer->pNode->data.decoded.pData = jobCopy.pageDataBuffer.pData;
+        } else {
+            pDataBuffer->pNode->data.decoded.pData = NULL;  /* Must be null when a paged data buffer is being used. */
+        }
+        
         pDataBuffer->pNode->data.decoded.frameCount = jobCopy.pageDataBuffer.decodedFrameCount;
 
         /*
@@ -8460,11 +8937,6 @@ static ma_result ma_resource_manager_process_job__page_data_buffer(ma_resource_m
         /* If we reached the end we need to treat it as successful. */
         if (result == MA_AT_END) {
             result  = MA_SUCCESS;
-        }
-
-        /* If it was an unknown length, we can finally initialize the connector. For sounds of a known length, the connector was initialized when the first page was decoded in MA_JOB_LOAD_DATA_BUFFER. */
-        if (jobCopy.pageDataBuffer.isUnknownLength) {
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, jobCopy.pageDataBuffer.pInitNotification);
         }
 
         /* We need to set the status of the page so other things can know about it. We can only change the status away from MA_BUSY. If it's anything else it cannot be changed. */
