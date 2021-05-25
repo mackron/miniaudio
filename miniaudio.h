@@ -43217,7 +43217,7 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
             pCurrentDataSource = (ma_data_source_base*)pDataSource; /* Not being used in a chain. Make sure we just always read from the data source itself at all times. */
         }
     } else {
-        pCurrentDataSource = pCurrentDataSource->pCurrent;
+        pCurrentDataSource = (ma_data_source_base*)pCurrentDataSource->pCurrent;
     }
 
     *ppCurrentDataSource = pCurrentDataSource;
@@ -43279,6 +43279,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     ma_uint64 totalFramesProcessed = 0;
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 emptyLoopCounter = 0; /* Keeps track of how many times 0 frames have been read. For infinite loop detection of sounds with no audio data. */
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -43343,6 +43344,15 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             if so, switch to it.
             */
             if (loop) {
+                if (framesProcessed == 0) {
+                    emptyLoopCounter += 1;
+                    if (emptyLoopCounter > 1) {
+                        break;  /* Infinite loop detected. Get out. */
+                    }
+                } else {
+                    emptyLoopCounter = 0;
+                }
+
                 if (ma_data_source_seek_to_pcm_frame(pCurrentDataSource, 0) != MA_SUCCESS) {
                     break;  /* Failed to loop. Abort. */
                 }
