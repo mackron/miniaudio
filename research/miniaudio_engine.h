@@ -6532,7 +6532,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
 
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_buffer) {
         ma_audio_buffer_config config;
-        config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels, pDataBuffer->pNode->data.decoded.frameCount, pDataBuffer->pNode->data.encoded.pData, NULL);
+        config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.decoded.format, pDataBuffer->pNode->data.decoded.channels, pDataBuffer->pNode->data.decoded.frameCount, pDataBuffer->pNode->data.decoded.pData, NULL);
         result = ma_audio_buffer_init(&config, &pDataBuffer->connector.buffer);
 
         pDataBuffer->lengthInPCMFrames = pDataBuffer->connector.buffer.ref.sizeInFrames;
