@@ -28,6 +28,12 @@ details on this.
 
 The best resource to use when understanding the API is the function declarations for `ma_engine`. I expect you should be able to figure it out! :)
 */
+#ifndef miniaudio_engine_h
+#define miniaudio_engine_h
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
 Memory Allocation Types
@@ -380,13 +386,6 @@ job will be posted back onto the job queue for later processing. When the job fi
 system means the no matter how many job threads are executing, decoding of an individual sound will always get processed serially. The advantage to having
 multiple threads comes into play when loading multiple sounds at the time time.
 */
-#ifndef miniaudio_engine_h
-#define miniaudio_engine_h
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
 MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
 
