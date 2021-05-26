@@ -6743,25 +6743,41 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
 
-        /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
-        if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
-            /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
-            if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-                /* For the decoded case we need only wait for the data supplier to be initialized. */
-                while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
-                    ma_yield();
+        /*
+        The existing node may be in the middle of loading. We need to wait for the node to finish
+        loading before going any further or else we won't be able to initialize the connector. The
+        alternative to this could be to initialize the connector via the job queue when the data
+        source is being loaded asynchronously.
+        */
+        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+            if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+                if (async) {
+                    /* Loading asynchronously. */
+
+                    /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
+                    if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
+                        /* For the decoded case we need only wait for the data supplier to be initialized. */
+                        while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
+                            ma_yield();
+                        }
+                    } else {
+                        while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                            ma_yield();
+                        }
+                    }
+                } else {
+                    /* Loading synchronously. Wait for the initial sound to be fully decoded. */
+                    while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                        ma_yield();
+                    }
                 }
             } else {
+                /* Threading is not enabled. We need to spin and call ma_resource_manager_process_next_job(). */
                 while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-                    ma_yield();
-                }
-            }
-        } else {
-            /* Threading is not enabled. We need to spin and call ma_resource_manager_process_next_job(). */
-            while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-                result = ma_resource_manager_process_next_job(pResourceManager);
-                if (result == MA_NO_DATA_AVAILABLE || result == MA_JOB_QUIT) {
-                    break;
+                    result = ma_resource_manager_process_next_job(pResourceManager);
+                    if (result == MA_NO_DATA_AVAILABLE || result == MA_JOB_QUIT) {
+                        break;
+                    }
                 }
             }
         }
@@ -12028,7 +12044,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     result = ma_resource_manager_data_source_init_copy(pEngine->pResourceManager, pExistingSound->pResourceManagerDataSource, pSound->pResourceManagerDataSource);
     if (result != MA_SUCCESS) {
-        ma_free(pSound, &pEngine->allocationCallbacks);
+        ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
         return result;
     }
 
