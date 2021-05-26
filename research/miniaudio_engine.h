@@ -6749,35 +6749,32 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         alternative to this could be to initialize the connector via the job queue when the data
         source is being loaded asynchronously.
         */
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-            if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
-                if (async) {
-                    /* Loading asynchronously. */
+        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY && ma_resource_manager_is_threading_enabled(pResourceManager) && async) {
+            /* Loading asynchronously. */
 
-                    /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
-                    if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
-                        /* For the decoded case we need only wait for the data supplier to be initialized. */
-                        while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
-                            ma_yield();
-                        }
-                    } else {
-                        while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-                            ma_yield();
-                        }
-                    }
-                } else {
-                    /* Loading synchronously. Wait for the initial sound to be fully decoded. */
-                    while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-                        ma_yield();
-                    }
+            /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
+            if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
+                /* For the decoded case we need only wait for the data supplier to be initialized. */
+                while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
+                    ma_yield();
                 }
             } else {
-                /* Threading is not enabled. We need to spin and call ma_resource_manager_process_next_job(). */
                 while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                    ma_yield();
+                }
+            }
+        } else {
+            /* Not loading asychronously. We need to wait for the sound to be fully decoded so we can initialize a connector. */
+            while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
+                    /* We're not threading, so process the next job if there are any. */
                     result = ma_resource_manager_process_next_job(pResourceManager);
                     if (result == MA_NO_DATA_AVAILABLE || result == MA_JOB_QUIT) {
                         break;
                     }
+                } else {
+                    /* We're threading, so just keep spinning until some other thread finishes decoding of the original sound. */
+                    ma_yield();
                 }
             }
         }
