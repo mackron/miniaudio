@@ -6746,8 +6746,15 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
         /* The existing node may be in the middle of loading. We need to wait for the node to finish loading before going any further. */
         if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
             /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
-            while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
-                ma_yield();
+            if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
+                /* For the decoded case we need only wait for the data supplier to be initialized. */
+                while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
+                    ma_yield();
+                }
+            } else {
+                while (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                    ma_yield();
+                }
             }
         } else {
             /* Threading is not enabled. We need to spin and call ma_resource_manager_process_next_job(). */
