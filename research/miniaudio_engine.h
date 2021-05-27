@@ -2236,14 +2236,7 @@ MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffe
         return;
     }
 
-    /* All pages need to be freed. */
-    pPage = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&ma_paged_audio_buffer_data_get_head(pPagedAudioBuffer->pData)->pNext);
-    while (pPage != NULL) {
-        ma_paged_audio_buffer_page* pNext = (ma_paged_audio_buffer_page*)c89atomic_load_ptr(&pPage->pNext);
-
-        ma_free(pPage, pAllocationCallbacks);
-        pPage = pNext;
-    }
+    /* Nothing to do. The data needs to be deleted separately. */
 }
 
 MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
