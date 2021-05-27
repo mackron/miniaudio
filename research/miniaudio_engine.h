@@ -6203,9 +6203,17 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
             pDataBufferNode->data.encoded.pData       = NULL;
             pDataBufferNode->data.encoded.sizeInBytes = 0;
         } else {
-            ma__free_from_callbacks((void*)pDataBufferNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
-            pDataBufferNode->data.decoded.pData       = NULL;
-            pDataBufferNode->data.decoded.frameCount  = 0;
+            if (pDataBufferNode->data.decoded.supplier == ma_decoded_data_supplier_buffer) {
+                ma__free_from_callbacks((void*)pDataBufferNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+                pDataBufferNode->data.decoded.pData = NULL;
+            } else if (pDataBufferNode->data.decoded.supplier == ma_decoded_data_supplier_paged) {
+                ma_paged_audio_buffer_data_uninit(&pDataBufferNode->data.decoded.pagedData, &pResourceManager->config.allocationCallbacks);
+            } else {
+                /* Should never hit this. */
+                MA_ASSERT(MA_FALSE);
+            }
+
+            pDataBufferNode->data.decoded.frameCount = 0;
         }
     }
 
