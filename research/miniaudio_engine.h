@@ -110,7 +110,7 @@ typedef struct
 } ma_paged_audio_buffer;
 
 MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer);
-MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer);
 MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Returns MA_AT_END if no more pages available. */
 MA_API ma_result ma_paged_audio_buffer_seek_to_pcm_frame(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_paged_audio_buffer_get_cursor_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pCursor);
@@ -2228,10 +2228,8 @@ MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* 
     return MA_SUCCESS;
 }
 
-MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer)
 {
-    ma_paged_audio_buffer_page* pPage;
-
     if (pPagedAudioBuffer == NULL) {
         return;
     }
@@ -6588,7 +6586,7 @@ static ma_result ma_resource_manager_data_buffer_uninit_connector(ma_resource_ma
     if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_decoder) {
         ma_decoder_uninit(&pDataBuffer->connector.decoder);
     } else if (pDataBuffer->connectorType == ma_resource_manager_data_buffer_connector_paged_buffer) {
-        ma_paged_audio_buffer_uninit(&pDataBuffer->connector.pagedBuffer, &pResourceManager->config.allocationCallbacks);
+        ma_paged_audio_buffer_uninit(&pDataBuffer->connector.pagedBuffer);
     } else {
         ma_audio_buffer_uninit(&pDataBuffer->connector.buffer);
     }
