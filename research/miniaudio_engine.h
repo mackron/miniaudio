@@ -8836,7 +8836,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
         ma_async_notification_signal(pJob->freeDataBuffer.pNotification, MA_NOTIFICATION_COMPLETE);
     }
 
-    /*c89atomic_fetch_add_32(&pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer, 1);*/
+    c89atomic_fetch_add_32(&pJob->freeDataBuffer.pDataBuffer->pNode->executionPointer, 1);
     return MA_SUCCESS;
 }
 
