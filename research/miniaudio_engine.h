@@ -1312,7 +1312,7 @@ typedef enum
 
 typedef struct
 {
-    ma_decoded_data_supplier supplier;
+    MA_ATOMIC ma_decoded_data_supplier supplier;      /* Read and written from different threads so needs to be accessed atomically. */
     const void* pData;                      /* Only used if `supplier` is ma_decoded_data_supplier_buffer. */
     ma_paged_audio_buffer_data pagedData;   /* Only used if `supplier` is ma_decoded_data_supplier_paged. */
     ma_uint64 frameCount;                   /* The total number of PCM frames making up the decoded data. */
@@ -6156,6 +6156,16 @@ static ma_result ma_resource_manager_data_buffer_node_remove_by_key(ma_resource_
 }
 #endif
 
+static ma_decoded_data_supplier ma_resource_manager_data_buffer_node_get_decoded_data_supplier(ma_resource_manager_data_buffer_node* pDataBufferNode)
+{
+    return (ma_decoded_data_supplier)c89atomic_load_i32(&pDataBufferNode->data.decoded.supplier);
+}
+
+static void ma_resource_manager_data_buffer_node_set_decoded_data_supplier(ma_resource_manager_data_buffer_node* pDataBufferNode, ma_decoded_data_supplier supplier)
+{
+    c89atomic_exchange_i32(&pDataBufferNode->data.decoded.supplier, supplier);
+}
+
 static ma_result ma_resource_manager_data_buffer_node_increment_ref(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, ma_uint32* pNewRefCount)
 {
     ma_uint32 refCount;
@@ -6203,10 +6213,10 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
             pDataBufferNode->data.encoded.pData       = NULL;
             pDataBufferNode->data.encoded.sizeInBytes = 0;
         } else {
-            if (pDataBufferNode->data.decoded.supplier == ma_decoded_data_supplier_buffer) {
+            if (ma_resource_manager_data_buffer_node_get_decoded_data_supplier(pDataBufferNode) == ma_decoded_data_supplier_buffer) {
                 ma__free_from_callbacks((void*)pDataBufferNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
                 pDataBufferNode->data.decoded.pData = NULL;
-            } else if (pDataBufferNode->data.decoded.supplier == ma_decoded_data_supplier_paged) {
+            } else if (ma_resource_manager_data_buffer_node_get_decoded_data_supplier(pDataBufferNode) == ma_decoded_data_supplier_paged) {
                 ma_paged_audio_buffer_data_uninit(&pDataBufferNode->data.decoded.pagedData, &pResourceManager->config.allocationCallbacks);
             } else {
                 /* Should never hit this. */
@@ -6518,12 +6528,12 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     */
     if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
         /* If the source is of an unknown length we need to use a paged buffer. Otherwise we'll use a regular buffer which is a bit more efficient. */
-        if (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_buffer) {
+        if (ma_resource_manager_data_buffer_node_get_decoded_data_supplier(pDataBuffer->pNode) == ma_decoded_data_supplier_buffer) {
             pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_buffer;
-        } else if (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_paged) {
+        } else if (ma_resource_manager_data_buffer_node_get_decoded_data_supplier(pDataBuffer->pNode) == ma_decoded_data_supplier_paged) {
             pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_paged_buffer;
         } else {
-            return MA_INVALID_ARGS; /* Unknown decoded data backend. */
+            return MA_INVALID_ARGS; /* Unknown decoded data supplier. */
         }
     } else {
         pDataBuffer->connectorType = ma_resource_manager_data_buffer_connector_decoder;
@@ -6754,7 +6764,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
             /* TODO: This needs to be improved so that when loading asynchronously we post a message to the job queue instead of just waiting. */
             if (pDataBuffer->pNode->data.type == ma_resource_manager_data_buffer_encoding_decoded) {
                 /* For the decoded case we need only wait for the data supplier to be initialized. */
-                while (pDataBuffer->pNode->data.decoded.supplier == ma_decoded_data_supplier_unknown) {
+                while (ma_resource_manager_data_buffer_node_get_decoded_data_supplier(pDataBuffer->pNode) == ma_decoded_data_supplier_unknown) {
                     ma_yield();
                 }
             } else {
@@ -6989,12 +6999,12 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
                     }
 
                     if (result == MA_SUCCESS) {
-                        pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_buffer;
+                        ma_resource_manager_data_buffer_node_set_decoded_data_supplier(pDataBuffer->pNode, ma_decoded_data_supplier_buffer);
                         pDataBuffer->pNode->data.decoded.pData             = pData;
                         pDataBuffer->pNode->data.decoded.frameCount        = totalFrameCount;
                         pDataBuffer->pNode->data.decoded.decodedFrameCount = totalFrameCount;  /* We've decoded everything. */
                     } else {
-                        pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_unknown;
+                        ma_resource_manager_data_buffer_node_set_decoded_data_supplier(pDataBuffer->pNode, ma_decoded_data_supplier_unknown);
                         pDataBuffer->pNode->data.decoded.pData             = NULL;
                         pDataBuffer->pNode->data.decoded.frameCount        = 0;
                         pDataBuffer->pNode->data.decoded.decodedFrameCount = 0;
@@ -7333,6 +7343,10 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
         *pFormat     = pDataBuffer->pNode->data.decoded.format;
         *pChannels   = pDataBuffer->pNode->data.decoded.channels;
         *pSampleRate = pDataBuffer->pNode->data.decoded.sampleRate;
+
+        if (*pFormat == ma_format_unknown || *pChannels == 0) {
+            printf("format = %d; channels = %d; sampleRate = %d\n", *pFormat, *pChannels, *pSampleRate);
+        }
 
         return MA_SUCCESS;
     } else {
@@ -8682,7 +8696,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
         framesRead = ma_decoder_read_pcm_frames(pDecoder, pData, pageSizeInFrames);
         if (framesRead < pageSizeInFrames) {
             /* We've read the entire sound. This is the simple case. We just need to set the result to MA_SUCCESS. */
-            pDataBuffer->pNode->data.decoded.supplier   = ma_decoded_data_supplier_buffer;
+            ma_resource_manager_data_buffer_node_set_decoded_data_supplier(pDataBuffer->pNode, ma_decoded_data_supplier_buffer);
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = framesRead;
 
@@ -8743,7 +8757,7 @@ done:
             /* The length is known. Use a simple buffer. */
             pageDataBufferJob.pageDataBuffer.pInitNotification = NULL;  /* <-- Clear this notification to NULL to ensure it's not signalled a second time at the end of decoding, which will be done for sounds of unknown length. */
 
-            pDataBuffer->pNode->data.decoded.supplier   = ma_decoded_data_supplier_buffer;
+            ma_resource_manager_data_buffer_node_set_decoded_data_supplier(pDataBuffer->pNode, ma_decoded_data_supplier_buffer);
             pDataBuffer->pNode->data.decoded.pData      = pData;
             pDataBuffer->pNode->data.decoded.frameCount = totalFrameCount;
 
@@ -8759,7 +8773,7 @@ done:
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->loadDataBuffer.pInitNotification);
         } else {
             /* The length is unknown. Need to use a paged buffer. */
-            pDataBuffer->pNode->data.decoded.supplier          = ma_decoded_data_supplier_paged;
+            ma_resource_manager_data_buffer_node_set_decoded_data_supplier(pDataBuffer->pNode, ma_decoded_data_supplier_paged);
             pDataBuffer->pNode->data.decoded.pData             = NULL;  /* <-- Not used for paged buffers. Set to NULL for safety. */
             pDataBuffer->pNode->data.decoded.frameCount        = 0;     /* <-- Will be set at the end of decoding. */
             pDataBuffer->pNode->data.decoded.decodedFrameCount = framesRead;
