@@ -12601,7 +12601,7 @@ MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_32((ma_bool32*)&pSound->isLooping);
+    return c89atomic_load_8(&pSound->isLooping);
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
@@ -12615,7 +12615,7 @@ MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_8((ma_bool8*)&pSound->atEnd);
+    return c89atomic_load_8(&pSound->atEnd);
 }
 
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
