@@ -11026,7 +11026,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 framesToRead = tempCapInFrames;
             }
 
-            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, pSound->isLooping);
+            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, ma_sound_is_looping(pSound));
 
             /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
             if (result == MA_AT_END) {
