@@ -923,7 +923,7 @@ struct ma_node_output_bus
     MA_ATOMIC ma_uint16 refCount;               /* Reference count for some thread-safety when detaching. */
     MA_ATOMIC ma_bool8 isAttached;              /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
     MA_ATOMIC ma_spinlock lock;                 /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
-    MA_ATOMIC float volume;                     /* Linear 0..1 */
+    MA_ATOMIC float volume;                     /* Linear. */
     MA_ATOMIC ma_node_output_bus* pNext;        /* If null, it's the tail node or detached. */
     MA_ATOMIC ma_node_output_bus* pPrev;        /* If null, it's the head node or detached. */
     MA_ATOMIC ma_node* pInputNode;              /* The node that this output bus is attached to. Required for detaching. */    
@@ -6801,7 +6801,7 @@ static ma_result ma_resource_manager_data_buffer_init_nolock(ma_resource_manager
     } else {
         /*
         Slow path. The data for this buffer has not yet been initialized. The first thing to do is
-        allocate the new data buffer and insert it into the BST.
+        allocate the new data buffer node and insert it into the BST.
 
         Note that there's a possiblity that we're calling this function because we're wanting to
         initialize a data buffer from an existing data buffer rather than by a file name. In this
