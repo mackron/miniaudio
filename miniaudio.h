@@ -5915,6 +5915,8 @@ typedef struct
     const ma_data_source_vtable* vtable;
     ma_uint64 rangeBegInFrames;
     ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
+    ma_uint64 loopBegInFrames;              /* Relative to rangeBegInFrames. */
+    ma_uint64 loopEndInFrames;              /* Relative to rangeBegInFrames. Set to -1 for the end of the range. */
     ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
     ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
     ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
@@ -5931,10 +5933,16 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
 #if defined(MA_EXPERIMENTAL__DATA_LOOPING_AND_CHAINING)
-MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBeg, ma_uint64 rangeEnd);
+MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
+MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
+MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
+MA_API void ma_data_source_get_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
 MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource);
+MA_API ma_data_source* ma_data_source_get_current(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource);
+MA_API ma_data_source* ma_data_source_get_next(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext);
+MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(ma_data_source* pDataSource);
 #endif
 
 
@@ -43174,6 +43182,8 @@ MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_da
     pDataSourceBase->vtable           = pConfig->vtable;
     pDataSourceBase->rangeBegInFrames = 0;
     pDataSourceBase->rangeEndInFrames = ~((ma_uint64)0);
+    pDataSourceBase->loopBegInFrames  = 0;
+    pDataSourceBase->loopEndInFrames  = ~((ma_uint64)0);
     pDataSourceBase->pCurrent         = pDataSource;    /* Always read from ourself by default. */
     pDataSourceBase->pNext            = NULL;
     pDataSourceBase->onGetNext        = NULL;
@@ -43225,7 +43235,7 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     
@@ -43233,7 +43243,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         return MA_AT_END;
     }
 
-    if (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0)) {
+    if (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE)) {
         /* No range is set - just read like normal. The data source itself will tell us when the end is reached. */
         return pDataSourceBase->cb.onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
     } else {
@@ -43241,16 +43251,26 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         ma_result result;
         ma_uint64 cursor;
         ma_uint64 framesRead = 0;
+        ma_uint64 rangeEnd;
 
         result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &cursor);
         if (result != MA_SUCCESS) {
-            /* Failed to retrieve the cursor. Cannot read within a range. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
+            /* Failed to retrieve the cursor. Cannot read within a range or loop points. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
             return pDataSourceBase->cb.onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
         }
 
         /* We have the cursor. We need to make sure we don't read beyond our range. */
-        if (frameCount > (pDataSourceBase->rangeEndInFrames - cursor)) {
-            frameCount = (pDataSourceBase->rangeEndInFrames - cursor);
+        rangeEnd = pDataSourceBase->rangeEndInFrames;
+
+        /* If looping, make sure we're within range. */
+        if (loop) {
+            if (pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) {
+                rangeEnd = ma_min(rangeEnd, pDataSourceBase->rangeBegInFrames + pDataSourceBase->loopEndInFrames);
+            }
+        }
+
+        if (frameCount > (rangeEnd - cursor) && rangeEnd != ~((ma_uint64)0)) {
+            frameCount = (rangeEnd - cursor);
         }
 
         result = pDataSourceBase->cb.onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
@@ -43260,7 +43280,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         }
 
         /* We need to make sure MA_AT_END is returned if we hit the end of the range. */
-        if (result != MA_AT_END && (cursor + framesRead) == pDataSourceBase->rangeEndInFrames) {
+        if (result != MA_AT_END && (cursor + framesRead) == rangeEnd) {
             result  = MA_AT_END;
         }
 
@@ -43299,7 +43319,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             return result;
         }
 
-        return ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pFramesOut, frameCount, pFramesRead);
+        return ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pFramesOut, frameCount, pFramesRead, loop);
     }
 
     /*
@@ -43322,7 +43342,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             break;
         }
 
-        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed);
+        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed, loop);
         totalFramesProcessed += framesProcessed;
 
         /*
@@ -43353,7 +43373,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                     emptyLoopCounter = 0;
                 }
 
-                if (ma_data_source_seek_to_pcm_frame(pCurrentDataSource, 0) != MA_SUCCESS) {
+                if (ma_data_source_seek_to_pcm_frame(pCurrentDataSource, pCurrentDataSource->loopBegInFrames) != MA_SUCCESS) {
                     break;  /* Failed to loop. Abort. */
                 }
             } else {
@@ -43685,37 +43705,132 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
 
 
 #if defined(MA_EXPERIMENTAL__DATA_LOOPING_AND_CHAINING)
-MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBeg, ma_uint64 rangeEnd)
+MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_result result;
     ma_uint64 cursor;
+    ma_uint64 loopBegAbsolute;
+    ma_uint64 loopEndAbsolute;
 
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (rangeEnd < rangeBeg) {
+    if (rangeEndInFrames < rangeBegInFrames) {
         return MA_INVALID_ARGS; /* The end of the range must come after the beginning. */
     }
 
-    pDataSourceBase->rangeBegInFrames = rangeBeg;
-    pDataSourceBase->rangeEndInFrames = rangeEnd;
+    /*
+    The loop points need to be updated. We'll be storing the loop points relative to the range. We'll update
+    these so that they maintain their absolute positioning. The loop points will then be clamped to the range.
+    */
+    loopBegAbsolute = pDataSourceBase->loopBegInFrames + pDataSourceBase->rangeBegInFrames;
+    loopEndAbsolute = pDataSourceBase->loopEndInFrames + ((pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) ? pDataSourceBase->rangeBegInFrames : 0);
+
+    pDataSourceBase->rangeBegInFrames = rangeBegInFrames;
+    pDataSourceBase->rangeEndInFrames = rangeEndInFrames;
+
+    /* Make the loop points relative again, and make sure they're clamped to within the range. */
+    if (loopBegAbsolute > pDataSourceBase->rangeBegInFrames) {
+        pDataSourceBase->loopBegInFrames = loopBegAbsolute - pDataSourceBase->rangeBegInFrames;
+    } else {
+        pDataSourceBase->loopBegInFrames = 0;
+    }
+
+    if (pDataSourceBase->loopBegInFrames > pDataSourceBase->rangeEndInFrames) {
+        pDataSourceBase->loopBegInFrames = pDataSourceBase->rangeEndInFrames;
+    }
+
+    /* Only need to update the loop end point if it's not -1. */
+    if (loopEndAbsolute != ~((ma_uint64)0)) {
+        if (loopEndAbsolute > pDataSourceBase->rangeBegInFrames) {
+            pDataSourceBase->loopEndInFrames = loopEndAbsolute - pDataSourceBase->rangeBegInFrames;
+        } else {
+            pDataSourceBase->loopEndInFrames = 0;
+        }
+        
+        if (pDataSourceBase->loopEndInFrames > pDataSourceBase->rangeEndInFrames && pDataSourceBase->loopEndInFrames) {
+            pDataSourceBase->loopEndInFrames = pDataSourceBase->rangeEndInFrames;
+        }
+    }
+    
 
     /* If the new range is past the current cursor position we need to seek to it. */
     result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &cursor);
     if (result == MA_SUCCESS) {
         /* Seek to within range. Note that our seek positions here are relative to the new range. */
-        if (cursor < rangeBeg) {
+        if (cursor < rangeBegInFrames) {
             ma_data_source_seek_to_pcm_frame(pDataSource, 0);
-        } else if (cursor > rangeEnd) {
-            ma_data_source_seek_to_pcm_frame(pDataSource, rangeEnd - rangeBeg);
+        } else if (cursor > rangeEndInFrames) {
+            ma_data_source_seek_to_pcm_frame(pDataSource, rangeEndInFrames - rangeBegInFrames);
         }
     } else {
         /* We failed to get the cursor position. Probably means the data source has no notion of a cursor such a noise data source. Just pretend the seeking worked. */
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return;
+    }
+
+    if (pRangeBegInFrames != NULL) {
+        *pRangeBegInFrames = pDataSourceBase->rangeBegInFrames;
+    }
+
+    if (pRangeEndInFrames != NULL) {
+        *pRangeEndInFrames = pDataSourceBase->rangeEndInFrames;
+    }
+}
+
+MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (loopEndInFrames < loopBegInFrames) {
+        return MA_INVALID_ARGS; /* The end of the loop point must come after the beginning. */
+    }
+
+    if (loopEndInFrames > pDataSourceBase->rangeEndInFrames && loopEndInFrames != ~((ma_uint64)0)) {
+        return MA_INVALID_ARGS; /* The end of the loop point must not go beyond the range. */
+    }
+
+    pDataSourceBase->loopBegInFrames = loopBegInFrames;
+    pDataSourceBase->loopEndInFrames = loopEndInFrames;
+
+    /* The end cannot exceed the range. */
+    if (pDataSourceBase->loopEndInFrames > (pDataSourceBase->rangeEndInFrames - pDataSourceBase->rangeBegInFrames) && pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) {
+        pDataSourceBase->loopEndInFrames = (pDataSourceBase->rangeEndInFrames - pDataSourceBase->rangeBegInFrames);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_data_source_get_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return;
+    }
+
+    if (pLoopBegInFrames != NULL) {
+        *pLoopBegInFrames = pDataSourceBase->loopBegInFrames;
+    }
+
+    if (pLoopEndInFrames != NULL) {
+        *pLoopEndInFrames = pDataSourceBase->loopEndInFrames;
+    }
 }
 
 MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource)
@@ -43731,6 +43846,17 @@ MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data
     return MA_SUCCESS;
 }
 
+MA_API ma_data_source* ma_data_source_get_current(ma_data_source* pDataSource)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return NULL;
+    }
+
+    return pDataSourceBase->pCurrent;
+}
+
 MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -43744,6 +43870,17 @@ MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_so
     return MA_SUCCESS;
 }
 
+MA_API ma_data_source* ma_data_source_get_next(ma_data_source* pDataSource)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return NULL;
+    }
+
+    return pDataSourceBase->pNext;
+}
+
 MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -43755,6 +43892,17 @@ MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, m
     pDataSourceBase->onGetNext = onGetNext;
 
     return MA_SUCCESS;
+}
+
+MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(ma_data_source* pDataSource)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return NULL;
+    }
+
+    return pDataSourceBase->onGetNext;
 }
 #endif
 
