@@ -6410,7 +6410,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         /* Create the job threads last to ensure the threads has access to valid data. */
         for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
-            result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, &pResourceManager->config.allocationCallbacks);
+            result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager, &pResourceManager->config.allocationCallbacks);
             if (result != MA_SUCCESS) {
                 ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
                 ma_job_queue_uninit(&pResourceManager->jobQueue);
