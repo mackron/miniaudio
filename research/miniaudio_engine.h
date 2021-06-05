@@ -7565,12 +7565,24 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
         /* Loading synchronously or the data has already been fully loaded. We can just initialize the connector from here without a job. */
         result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL);
         c89atomic_exchange_i32(&pDataBuffer->result, result);
+
+        if (pNotification != NULL) {
+            ma_async_notification_signal(pNotification, (result == MA_SUCCESS) ? MA_NOTIFICATION_COMPLETE : MA_NOTIFICATION_FAILED);
+        }
     } else {
         /* The node's data supply isn't initialized yet. The caller has requested that we load asynchronously so we need to post a job to do this. */
-        ma_job job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
+        ma_job job;
+        ma_resource_manager_inline_notification initNotification;   /* Used when the WAIT_INIT flag is set. */
+
+        if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+            ma_resource_manager_inline_notification_init(pResourceManager, &initNotification);
+        }
+
+        job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
         job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
         job.loadDataBuffer.pDataBuffer            = pDataBuffer;
         job.loadDataBuffer.pCompletedNotification = pNotification;
+        job.loadDataBuffer.pInitNotification      = ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? &initNotification : NULL;
 
         result = ma_resource_manager_post_job(pResourceManager, &job);
         if (result != MA_SUCCESS) {
@@ -7580,6 +7592,10 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
         } else {
             /* The job has been posted, so make sure the buffer's status is set to busy. The worker thread will  */
             c89atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
+
+            if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                ma_resource_manager_inline_notification_wait_and_uninit(&initNotification);
+            }
         }
     }
 
