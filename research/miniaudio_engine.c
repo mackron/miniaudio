@@ -1,6 +1,7 @@
 #define STB_VORBIS_HEADER_ONLY
 #include "../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
 
+#define MA_EXPERIMENTAL__DATA_LOOPING_AND_CHAINING
 #define MA_DEBUG_OUTPUT
 #define MA_IMPLEMENTATION
 #include "../miniaudio.h"
