@@ -6840,7 +6840,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
         };
     }
 
-    if (result == MA_SUCCESS && framesRead < framesToTryReading) {
+    if (result == MA_SUCCESS && (framesRead < framesToTryReading || framesRead == 0)) {
         result = MA_AT_END;
     }
 
