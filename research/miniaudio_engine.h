@@ -6239,8 +6239,8 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
         } else if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBufferNode) == ma_resource_manager_data_supply_type_decoded_paged) {
             ma_paged_audio_buffer_data_uninit(&pDataBufferNode->data.decodedPaged.data, &pResourceManager->config.allocationCallbacks);
         } else {
-            /* Should never hit this. TODO: Post a log message if this is hit. */
-            MA_ASSERT(MA_FALSE);
+            /* Should never hit this if the node was successfully initialized. */
+            MA_ASSERT(pDataBufferNode->result != MA_SUCCESS);
         }
     }
 
