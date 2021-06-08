@@ -7597,6 +7597,12 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
 
             if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                 ma_resource_manager_inline_notification_wait_and_uninit(&initNotification);
+
+				/* Make sure we return an error if initialization failed on the async thread. */
+				result = ma_resource_manager_data_buffer_result(pDataBuffer);
+				if (result == MA_BUSY) {
+					result  = MA_SUCCESS;
+				}
             }
         }
     }
@@ -9332,7 +9338,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 
     /*
     First thing we need to do is check whether or not the data buffer is getting deleted. If so we
-    just abort, but making sure we increment the execution pointer .
+    just abort, but making sure we increment the execution pointer.
     */
     if (ma_resource_manager_data_buffer_result(pJob->loadDataBuffer.pDataBuffer) != MA_BUSY) {
         result = MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
@@ -9373,6 +9379,18 @@ done:
             ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification, MA_NOTIFICATION_FAILED);
         }
     }
+
+	/*
+	If at this point the data buffer has not had it's connector initialized, it means the
+	notification event was never signalled which means we need to signal it here.
+	*/
+	if (pJob->loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE) {
+		if (pJob->loadDataBuffer.pInitNotification != NULL) {
+			if (result != MA_SUCCESS) {	
+				ma_async_notification_signal(pJob->loadDataBuffer.pInitNotification, MA_NOTIFICATION_FAILED);
+			}
+		}
+	}
 
     c89atomic_fetch_add_32(&pJob->loadDataBuffer.pDataBuffer->executionPointer, 1);
     return result;
