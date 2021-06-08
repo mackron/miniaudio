@@ -7085,9 +7085,6 @@ static ma_result ma_resource_manager_data_buffer_node_unacquire(ma_resource_mana
             if (result != MA_SUCCESS) {
                 goto stage2;  /* An error occurred when trying to remove the data buffer. This should never happen. */
             }
-
-            /* Mark the node as unavailable just to be safe. */
-            c89atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
         }
     }
     ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
@@ -7104,7 +7101,12 @@ stage2:
     if (refCount == 0) {
         if (ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_BUSY) {
             /* The sound is still loading. We need to delay the freeing of the node to a safe time. */
-            ma_job job = ma_job_init(MA_JOB_FREE_DATA_BUFFER_NODE);
+            ma_job job;
+
+			/* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
+			c89atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
+
+			job = ma_job_init(MA_JOB_FREE_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
             job.freeDataBufferNode.pDataBufferNode = pDataBufferNode;
 
@@ -9255,7 +9257,8 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
 
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
     if (ma_resource_manager_data_buffer_node_result(pJob->pageDataBufferNode.pDataBufferNode) != MA_BUSY) {
-        return MA_INVALID_OPERATION;
+        result = MA_UNAVAILABLE;
+		goto done;
     }
 
     if (pJob->order != pJob->pageDataBufferNode.pDataBufferNode->executionPointer) {
@@ -9282,6 +9285,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
         }
     }
 
+done:
     /* If there's still more to decode the result will be set to MA_BUSY. Otherwise we can free the decoder. */
     if (result != MA_BUSY) {
         ma_decoder_uninit(pJob->pageDataBufferNode.pDecoder);
