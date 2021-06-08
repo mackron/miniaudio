@@ -7040,7 +7040,7 @@ early_exit:
         } else {
             /* Loading asynchronously. We may need to wait for initialization. */
             if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                ma_resource_manager_inline_notification_wait_and_uninit(&initNotification);
+                ma_resource_manager_inline_notification_wait(&initNotification);
             }
         }
     }
@@ -7052,6 +7052,10 @@ done:
             ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
             ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
         }
+    }
+
+    if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+        ma_resource_manager_inline_notification_uninit(&initNotification);
     }
 
     *ppDataBufferNode = pDataBufferNode;
