@@ -7054,8 +7054,14 @@ done:
         }
     }
 
-    if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-        ma_resource_manager_inline_notification_uninit(&initNotification);
+    /*
+    The init notification needs to be uninitialized. This will be used if the node does not already
+    exist, and we've specified ASYNC | WAIT_INIT.
+    */
+    if (nodeAlreadyExists == MA_FALSE) {
+        if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0 && (flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+            ma_resource_manager_inline_notification_uninit(&initNotification);
+        }
     }
 
     *ppDataBufferNode = pDataBufferNode;
