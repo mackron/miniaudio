@@ -1449,10 +1449,14 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
 
 /* Registration. */
+MA_API ma_result ma_resource_manager_register_file(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags);
+MA_API ma_result ma_resource_manager_register_file_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags);
 MA_API ma_result ma_resource_manager_register_decoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);  /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_register_decoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
 MA_API ma_result ma_resource_manager_register_encoded_data(ma_resource_manager* pResourceManager, const char* pName, const void* pData, size_t sizeInBytes);    /* Does not copy. Increments the reference count if already exists and returns MA_SUCCESS. */
 MA_API ma_result ma_resource_manager_register_encoded_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName, const void* pData, size_t sizeInBytes);
+MA_API ma_result ma_resource_manager_unregister_file(ma_resource_manager* pResourceManager, const char* pFilePath);
+MA_API ma_result ma_resource_manager_unregister_file_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath);
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName);
 MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName);
 
@@ -6847,20 +6851,23 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
     return result;
 }
 
-static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_resource_manager_data_buffer_node** ppDataBufferNode)
+static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_data_supply* pExistingData, ma_resource_manager_data_buffer_node** ppDataBufferNode)
 {
     ma_result result = MA_SUCCESS;
     ma_bool32 nodeAlreadyExists = MA_FALSE;
     ma_resource_manager_data_buffer_node* pDataBufferNode = NULL;
     ma_resource_manager_inline_notification initNotification;   /* Used when the WAIT_INIT flag is set. */
 
-    if (ppDataBufferNode == NULL) {
+    if (ppDataBufferNode != NULL) {
+        *ppDataBufferNode = NULL;   /* Safety. */
+    }
+
+    if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL && hashedName32 == 0)) {
         return MA_INVALID_ARGS;
     }
 
-    *ppDataBufferNode = NULL;   /* Safety. */
-
-    if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL && hashedName32 == 0)) {
+    /* If we're specifying existing data, it must be valid. */
+    if (pExistingData != NULL && pExistingData->type == ma_resource_manager_data_supply_type_unknown) {
         return MA_INVALID_ARGS;
     }
 
@@ -6914,9 +6921,16 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
             MA_ZERO_OBJECT(pDataBufferNode);
             pDataBufferNode->hashedName32 = hashedName32;
             pDataBufferNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
-            pDataBufferNode->data.type    = ma_resource_manager_data_supply_type_unknown;    /* <-- We won't know this until we start decoding. */
-            pDataBufferNode->result       = MA_BUSY;  /* Must be set to MA_BUSY before we leave the critical section, so might as well do it now. */
-            pDataBufferNode->isDataOwnedByResourceManager = MA_TRUE;
+
+            if (pExistingData == NULL) {
+                pDataBufferNode->data.type    = ma_resource_manager_data_supply_type_unknown;    /* <-- We won't know this until we start decoding. */
+                pDataBufferNode->result       = MA_BUSY;  /* Must be set to MA_BUSY before we leave the critical section, so might as well do it now. */
+                pDataBufferNode->isDataOwnedByResourceManager = MA_TRUE;
+            } else {
+                pDataBufferNode->data         = *pExistingData;
+                pDataBufferNode->result       = MA_SUCCESS;   /* Not loading asynchronously, so just set the status */
+                pDataBufferNode->isDataOwnedByResourceManager = MA_FALSE;
+            }
 
             result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBufferNode, pInsertPoint);
             if (result != MA_SUCCESS) {
@@ -6929,7 +6943,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
             loading synchronously we'll defer loading to a later stage, outside of the critical
             section.
             */
-            if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0) {
+            if (pDataBufferNode->isDataOwnedByResourceManager && (flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0) {
                 /* Loading asynchronously. Post the job. */
                 ma_job job;
                 char* pFilePathCopy = NULL;
@@ -6997,51 +7011,56 @@ early_exit:
             goto done;
         }
 
-        if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
-            /* Loading synchronously. Load the sound in it's entirety here. */
-            if ((flags & MA_DATA_SOURCE_FLAG_DECODE) == 0) {
-                /* No decoding. This is the simple case - just store the file contents in memory. */
-                result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW);
-                if (result != MA_SUCCESS) {
-                    goto done;
-                }
-            } else {
-                /* Decoding. We do this the same way as we do when loading asynchronously. */
-                ma_decoder* pDecoder;
-                result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW, &pDecoder);
-                if (result != MA_SUCCESS) {
-                    goto done;
-                }
-
-                /* We have the decoder, now decode page by page just like we do when loading asynchronously. */
-                for (;;) {
-                    /* Decode next page. */
-                    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pDecoder);
+        if (pDataBufferNode->isDataOwnedByResourceManager) {
+            if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) == 0) {
+                /* Loading synchronously. Load the sound in it's entirety here. */
+                if ((flags & MA_DATA_SOURCE_FLAG_DECODE) == 0) {
+                    /* No decoding. This is the simple case - just store the file contents in memory. */
+                    result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW);
                     if (result != MA_SUCCESS) {
-                        break;  /* Will return MA_AT_END when the last page has been decoded. */
+                        goto done;
                     }
+                } else {
+                    /* Decoding. We do this the same way as we do when loading asynchronously. */
+                    ma_decoder* pDecoder;
+                    result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW, &pDecoder);
+                    if (result != MA_SUCCESS) {
+                        goto done;
+                    }
+
+                    /* We have the decoder, now decode page by page just like we do when loading asynchronously. */
+                    for (;;) {
+                        /* Decode next page. */
+                        result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pDecoder);
+                        if (result != MA_SUCCESS) {
+                            break;  /* Will return MA_AT_END when the last page has been decoded. */
+                        }
+                    }
+
+                    /* Reaching the end needs to be considered successful. */
+                    if (result == MA_AT_END) {
+                        result  = MA_SUCCESS;
+                    }
+
+                    /*
+                    At this point the data buffer is either fully decoded or some error occurred. Either
+                    way, the decoder is no longer necessary.
+                    */
+                    ma_decoder_uninit(pDecoder);
+                    ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
                 }
 
-                /* Reaching the end needs to be considered successful. */
-                if (result == MA_AT_END) {
-                    result  = MA_SUCCESS;
+                /* Getting here means we were successful. Make sure the status of the node is updated accordingly. */
+                c89atomic_exchange_i32(&pDataBufferNode->result, result);
+            } else {
+                /* Loading asynchronously. We may need to wait for initialization. */
+                if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                    ma_resource_manager_inline_notification_wait(&initNotification);
                 }
-
-                /*
-                At this point the data buffer is either fully decoded or some error occurred. Either
-                way, the decoder is no longer necessary.
-                */
-                ma_decoder_uninit(pDecoder);
-                ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
             }
-
-            /* Getting here means we were successful. Make sure the status of the node is updated accordingly. */
-            c89atomic_exchange_i32(&pDataBufferNode->result, result);
         } else {
-            /* Loading asynchronously. We may need to wait for initialization. */
-            if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                ma_resource_manager_inline_notification_wait(&initNotification);
-            }
+            /* The data is not managed by the resource manager so there's nothing else to do. */
+            MA_ASSERT(pExistingData != NULL);
         }
     }
 
@@ -7058,24 +7077,39 @@ done:
     The init notification needs to be uninitialized. This will be used if the node does not already
     exist, and we've specified ASYNC | WAIT_INIT.
     */
-    if (nodeAlreadyExists == MA_FALSE) {
+    if (nodeAlreadyExists == MA_FALSE && pDataBufferNode->isDataOwnedByResourceManager) {
         if ((flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0 && (flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
             ma_resource_manager_inline_notification_uninit(&initNotification);
         }
     }
 
-    *ppDataBufferNode = pDataBufferNode;
+    if (ppDataBufferNode != NULL) {
+        *ppDataBufferNode = pDataBufferNode;
+    }
 
     return result;
 }
 
-static ma_result ma_resource_manager_data_buffer_node_unacquire(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode)
+static ma_result ma_resource_manager_data_buffer_node_unacquire(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pName, const wchar_t* pNameW)
 {
     ma_result result = MA_SUCCESS;
-    ma_uint32 refCount; /* The new reference count of the node after decrementing. */
+    ma_uint32 refCount = 0xFFFFFFFF; /* The new reference count of the node after decrementing. Initialize to non-0 to be safe we don't fall into the freeing path. */
+    ma_uint32 hashedName32 = 0;
 
-    if (pResourceManager == NULL || pDataBufferNode == NULL) {
+    if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
+    }
+
+    if (pDataBufferNode == NULL) {
+        if (pName == NULL && pNameW == NULL) {
+            return MA_INVALID_ARGS;
+        }
+
+        if (pName != NULL) {
+            hashedName32 = ma_hash_string_32(pName);
+        } else {
+            hashedName32 = ma_hash_string_w_32(pNameW);
+        }
     }
 
     /*
@@ -7085,6 +7119,14 @@ static ma_result ma_resource_manager_data_buffer_node_unacquire(ma_resource_mana
     */
     ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
+        /* Might need to find the node. Must be done inside the critical section. */
+        if (pDataBufferNode == NULL) {
+            result = ma_resource_manager_data_buffer_node_search(pResourceManager, hashedName32, &pDataBufferNode);
+            if (result != MA_SUCCESS) {
+                goto stage2;    /* Couldn't find the node. */
+            }
+        }
+
         result = ma_resource_manager_data_buffer_node_decrement_ref(pResourceManager, pDataBufferNode, &refCount);
         if (result != MA_SUCCESS) {
             goto stage2;    /* Should never happen. */
@@ -7212,7 +7254,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
     async = (flags & MA_DATA_SOURCE_FLAG_ASYNC) != 0;
 
     /* We first need to acquire a node. If ASYNC is not set, this will not return until the entire sound has been loaded. */
-    result = ma_resource_manager_data_buffer_node_acquire(pResourceManager, pFilePath, pFilePathW, hashedName32, flags, &pDataBufferNode);
+    result = ma_resource_manager_data_buffer_node_acquire(pResourceManager, pFilePath, pFilePathW, hashedName32, flags, NULL, &pDataBufferNode);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -7222,7 +7264,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
 
     result = ma_data_source_init(&dataSourceConfig, &pDataBuffer->ds);
     if (result != MA_SUCCESS) {
-        ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode);
+        ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode, NULL, NULL);
         return result;
     }
 
@@ -7264,7 +7306,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             c89atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
 
             if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                ma_resource_manager_inline_notification_wait_and_uninit(&initNotification);
+                ma_resource_manager_inline_notification_wait(&initNotification);
 
 				/* Make sure we return an error if initialization failed on the async thread. */
 				result = ma_resource_manager_data_buffer_result(pDataBuffer);
@@ -7273,10 +7315,14 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
 				}
             }
         }
+
+        if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+            ma_resource_manager_inline_notification_uninit(&initNotification);
+        }
     }
 
     if (result != MA_SUCCESS) {
-        ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode);
+        ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode, NULL, NULL);
         return result;
     }
 
@@ -7312,7 +7358,7 @@ static ma_result ma_resource_manager_data_buffer_uninit_internal(ma_resource_man
     ma_resource_manager_data_buffer_uninit_connector(pDataBuffer->pResourceManager, pDataBuffer);
 
     /* With the connector uninitialized we can unacquire the node. */
-    ma_resource_manager_data_buffer_node_unacquire(pDataBuffer->pResourceManager, pDataBuffer->pNode);
+    ma_resource_manager_data_buffer_node_unacquire(pDataBuffer->pResourceManager, pDataBuffer->pNode, NULL, NULL);
 
     /* The base data source needs to be uninitialized as well. */
     ma_data_source_uninit(&pDataBuffer->ds);
@@ -7635,68 +7681,20 @@ MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resourc
     }
 }
 
-
-static ma_result ma_resource_manager_register_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32, ma_resource_manager_data_supply* pExistingData)
+MA_API ma_result ma_resource_manager_register_file(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags)
 {
-    ma_result result;
-    ma_resource_manager_data_buffer_node* pInsertPoint;
-    ma_resource_manager_data_buffer_node* pNode;
-
-    result = ma_resource_manager_data_buffer_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
-    if (result == MA_ALREADY_EXISTS) {
-        /* Fast path. The data buffer already exists. We just need to increment the reference counter and signal the event, if any. */
-        pNode = pInsertPoint;
-
-        result = ma_resource_manager_data_buffer_node_increment_ref(pResourceManager, pNode, NULL);
-        if (result != MA_SUCCESS) {
-            return result;  /* Should never happen. Failed to increment the reference count. */
-        }
-    } else {
-        /* Slow path. The data for this buffer has not yet been initialized. The first thing to do is allocate the new data buffer and insert it into the BST. */
-        pNode = (ma_resource_manager_data_buffer_node*)ma__malloc_from_callbacks(sizeof(*pNode), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
-        if (pNode == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        MA_ZERO_OBJECT(pNode);
-        pNode->hashedName32 = hashedName32;
-        pNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
-        pNode->result       = MA_SUCCESS;
-
-        result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pNode, pInsertPoint);
-        if (result != MA_SUCCESS) {
-            return result;  /* Should never happen. Failed to insert the data buffer into the BST. */
-        }
-
-        pNode->isDataOwnedByResourceManager = MA_FALSE;
-        pNode->data = *pExistingData;
-    }
-
-    return MA_SUCCESS;
+    return ma_resource_manager_data_buffer_node_acquire(pResourceManager, pFilePath, NULL, 0, flags, NULL, NULL);
 }
+
+MA_API ma_result ma_resource_manager_register_file_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags)
+{
+    return ma_resource_manager_data_buffer_node_acquire(pResourceManager, NULL, pFilePath, 0, flags, NULL, NULL);
+}
+
 
 static ma_result ma_resource_manager_register_data(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW, ma_resource_manager_data_supply* pExistingData)
 {
-    ma_result result = MA_SUCCESS;
-    ma_uint32 hashedName32;
-
-    if (pResourceManager == NULL || (pName == NULL && pNameW == NULL)) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pName != NULL) {
-        hashedName32 = ma_hash_string_32(pName);
-    } else {
-        hashedName32 = ma_hash_string_w_32(pNameW);
-    }
-
-    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
-    {
-        result = ma_resource_manager_register_data_nolock(pResourceManager, hashedName32, pExistingData);
-    }
-    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
-
-    return result;
+    return ma_resource_manager_data_buffer_node_acquire(pResourceManager, pName, pNameW, 0, 0, pExistingData, NULL);
 }
 
 static ma_result ma_resource_manager_register_decoded_data_internal(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW, const void* pData, ma_uint64 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
@@ -7744,74 +7742,24 @@ MA_API ma_result ma_resource_manager_register_encoded_data_w(ma_resource_manager
 }
 
 
-
-static ma_result ma_resource_manager_unregister_data_nolock(ma_resource_manager* pResourceManager, ma_uint32 hashedName32)
+MA_API ma_result ma_resource_manager_unregister_file(ma_resource_manager* pResourceManager, const char* pFilePath)
 {
-    ma_result result;
-    ma_resource_manager_data_buffer_node* pDataBufferNode;
-    ma_uint32 refCount;
-
-    result = ma_resource_manager_data_buffer_node_search(pResourceManager, hashedName32, &pDataBufferNode);
-    if (result != MA_SUCCESS) {
-        return result;  /* Couldn't find the node. */
-    }
-
-    result = ma_resource_manager_data_buffer_node_decrement_ref(pResourceManager, pDataBufferNode, &refCount);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* If the reference count has hit zero it means we can remove it from the BST. */
-    if (refCount == 0) {
-        result = ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
-        if (result != MA_SUCCESS) {
-            return result;  /* An error occurred when trying to remove the data buffer. This should never happen. */
-        }
-    }
-
-    /* Finally we need to free the node. */
-    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
-
-    return MA_SUCCESS;
+    return ma_resource_manager_unregister_data(pResourceManager, pFilePath);
 }
 
-static ma_result ma_resource_manager_unregister_data_internal(ma_resource_manager* pResourceManager, const char* pName, const wchar_t* pNameW)
+MA_API ma_result ma_resource_manager_unregister_file_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath)
 {
-    ma_result result;
-    ma_uint32 hashedName32;
-
-    if (pResourceManager == NULL || (pName == NULL && pNameW == NULL)) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pName != NULL) {
-        hashedName32 = ma_hash_string_32(pName);
-    } else {
-        hashedName32 = ma_hash_string_w_32(pNameW);
-    }
-    
-
-    /*
-    It's assumed that the data specified by pName was registered with a prior call to ma_resource_manager_register_encoded/decoded_data(). To unregister it, all
-    we need to do is delete the data buffer by it's name.
-    */
-    ma_resource_manager_data_buffer_bst_lock(pResourceManager);
-    {
-        result = ma_resource_manager_unregister_data_nolock(pResourceManager, hashedName32);
-    }
-    ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
-
-    return result;
+    return ma_resource_manager_unregister_data_w(pResourceManager, pFilePath);
 }
 
 MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResourceManager, const char* pName)
 {
-    return ma_resource_manager_unregister_data_internal(pResourceManager, pName, NULL);
+    return ma_resource_manager_data_buffer_node_unacquire(pResourceManager, NULL, pName, NULL);
 }
 
 MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName)
 {
-    return ma_resource_manager_unregister_data_internal(pResourceManager, NULL, pName);
+    return ma_resource_manager_data_buffer_node_unacquire(pResourceManager, NULL, NULL, pName);
 }
 
 
