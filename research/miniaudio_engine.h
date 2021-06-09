@@ -7474,11 +7474,6 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
-    /* If we haven't yet got a connector we need to abort. */
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
-        return MA_BUSY; /* Still loading. */
-    }
-
     switch (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode))
     {
         case ma_resource_manager_data_supply_type_encoded:
