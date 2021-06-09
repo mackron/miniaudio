@@ -7269,8 +7269,9 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
     }
 
     pDataBuffer->pResourceManager = pResourceManager;
-    pDataBuffer->pNode = pDataBufferNode;
-    pDataBuffer->flags = flags;
+    pDataBuffer->pNode  = pDataBufferNode;
+    pDataBuffer->flags  = flags;
+    pDataBuffer->result = MA_BUSY;  /* Always default to MA_BUSY for safety. It'll be overwritten when loading completes or an error occurs. */
 
     /* If we're loading asynchronously we need to post a job to the job queue to initialize the connector. */
     if (async == MA_FALSE || ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_SUCCESS) {
@@ -7290,6 +7291,13 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             ma_resource_manager_inline_notification_init(pResourceManager, &initNotification);
         }
 
+        /*
+        The status of the data buffer needs to be set to MA_BUSY before posting the job so that the
+        worker thread is aware of it's busy state. If the LOAD_DATA_BUFFER job sees a status other
+        than MA_BUSY, it'll assume an error and fall through to an early exit.
+        */
+        c89atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
+
         job = ma_job_init(MA_JOB_LOAD_DATA_BUFFER);
         job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
         job.loadDataBuffer.pDataBuffer            = pDataBuffer;
@@ -7302,9 +7310,6 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             /* TODO: Post an error here. */
             c89atomic_exchange_i32(&pDataBuffer->result, result);
         } else {
-            /* The job has been posted, so make sure the buffer's status is set to busy. The worker thread will  */
-            c89atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
-
             if ((flags & MA_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                 ma_resource_manager_inline_notification_wait(&initNotification);
 
@@ -8717,7 +8722,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
 
     /* First thing we need to do is check whether or not the data buffer is getting deleted. If so we just abort. */
     if (ma_resource_manager_data_buffer_node_result(pJob->loadDataBufferNode.pDataBufferNode) != MA_BUSY) {
-        result = MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
+        result = ma_resource_manager_data_buffer_node_result(pJob->loadDataBufferNode.pDataBufferNode);    /* The data buffer may be getting deleted before it's even been loaded. */
         goto done;
     }
 
@@ -8874,7 +8879,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
 
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
     if (ma_resource_manager_data_buffer_node_result(pJob->pageDataBufferNode.pDataBufferNode) != MA_BUSY) {
-        result = MA_UNAVAILABLE;
+        result = ma_resource_manager_data_buffer_node_result(pJob->pageDataBufferNode.pDataBufferNode);
 		goto done;
     }
 
@@ -8952,7 +8957,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     just abort, but making sure we increment the execution pointer.
     */
     if (ma_resource_manager_data_buffer_result(pJob->loadDataBuffer.pDataBuffer) != MA_BUSY) {
-        result = MA_INVALID_OPERATION;    /* The data buffer may be getting deleted before it's even been loaded. */
+        result = ma_resource_manager_data_buffer_result(pJob->loadDataBuffer.pDataBuffer);    /* The data buffer may be getting deleted before it's even been loaded. */
         goto done;
     }
 
