@@ -48127,7 +48127,10 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        if (pDecoder->backend.vfs.file != NULL) {   /* <-- Will be reset to NULL if ma_decoder_uninit() is called in one of the steps above which allows us to avoid a double close of the file. */
+            ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        }
+
         return result;
     }
 
@@ -48528,6 +48531,7 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
 
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
         ma_vfs_or_default_close(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file);
+        pDecoder->backend.vfs.file = NULL;
     }
 
     ma_data_converter_uninit(&pDecoder->converter);
