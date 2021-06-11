@@ -1,6 +1,6 @@
 /*
 WAV audio loader and writer. Choice of public domain or MIT-0. See license statements at the end of this file.
-dr_wav - v0.12.19 - 2021-02-21
+dr_wav - v0.12.20 - 2021-06-11
 
 David Reid - mackron@gmail.com
 
@@ -144,7 +144,7 @@ extern "C" {
 
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  19
+#define DRWAV_VERSION_REVISION  20
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 
 #include <stddef.h> /* For size_t. */
@@ -5771,17 +5771,17 @@ DRWAV_API void drwav_free(void* p, const drwav_allocation_callbacks* pAllocation
 
 DRWAV_API drwav_uint16 drwav_bytes_to_u16(const drwav_uint8* data)
 {
-    return (data[0] << 0) | (data[1] << 8);
+    return ((drwav_uint16)data[0] << 0) | ((drwav_uint16)data[1] << 8);
 }
 
 DRWAV_API drwav_int16 drwav_bytes_to_s16(const drwav_uint8* data)
 {
-    return (short)drwav_bytes_to_u16(data);
+    return (drwav_int16)drwav_bytes_to_u16(data);
 }
 
 DRWAV_API drwav_uint32 drwav_bytes_to_u32(const drwav_uint8* data)
 {
-    return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+    return ((drwav_uint32)data[0] << 0) | ((drwav_uint32)data[1] << 8) | ((drwav_uint32)data[2] << 16) | ((drwav_uint32)data[3] << 24);
 }
 
 DRWAV_API drwav_int32 drwav_bytes_to_s32(const drwav_uint8* data)
@@ -6014,6 +6014,9 @@ two different ways to initialize a drwav object.
 /*
 REVISION HISTORY
 ================
+v0.12.20 - 2021-06-11
+  - Fix some undefined behavior.
+
 v0.12.19 - 2021-02-21
   - Fix a warning due to referencing _MSC_VER when it is undefined.
   - Minor improvements to the management of some internal state concerning the data chunk cursor.

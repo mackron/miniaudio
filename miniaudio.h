@@ -45374,7 +45374,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     12
-#define DRWAV_VERSION_REVISION  19
+#define DRWAV_VERSION_REVISION  20
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -53739,15 +53739,15 @@ DRWAV_API void drwav_free(void* p, const drwav_allocation_callbacks* pAllocation
 }
 DRWAV_API drwav_uint16 drwav_bytes_to_u16(const drwav_uint8* data)
 {
-    return (data[0] << 0) | (data[1] << 8);
+    return ((drwav_uint16)data[0] << 0) | ((drwav_uint16)data[1] << 8);
 }
 DRWAV_API drwav_int16 drwav_bytes_to_s16(const drwav_uint8* data)
 {
-    return (short)drwav_bytes_to_u16(data);
+    return (drwav_int16)drwav_bytes_to_u16(data);
 }
 DRWAV_API drwav_uint32 drwav_bytes_to_u32(const drwav_uint8* data)
 {
-    return (data[0] << 0) | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+    return ((drwav_uint32)data[0] << 0) | ((drwav_uint32)data[1] << 8) | ((drwav_uint32)data[2] << 16) | ((drwav_uint32)data[3] << 24);
 }
 DRWAV_API drwav_int32 drwav_bytes_to_s32(const drwav_uint8* data)
 {
