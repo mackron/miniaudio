@@ -43961,13 +43961,14 @@ MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(ma_data_sou
 
 static ma_result ma_audio_buffer_ref__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_uint64 framesRead = ma_audio_buffer_ref_read_pcm_frames((ma_audio_buffer_ref*)pDataSource, pFramesOut, frameCount, MA_FALSE);
+    ma_audio_buffer_ref* pAudioBufferRef = (ma_audio_buffer_ref*)pDataSource;
+    ma_uint64 framesRead = ma_audio_buffer_ref_read_pcm_frames(pAudioBufferRef, pFramesOut, frameCount, MA_FALSE);
 
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
     }
 
-    if (framesRead < frameCount) {
+    if (framesRead < frameCount || (framesRead == frameCount && pAudioBufferRef->cursor == pAudioBufferRef->sizeInFrames)) {
         return MA_AT_END;
     }
 
