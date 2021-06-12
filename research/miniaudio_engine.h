@@ -7421,7 +7421,7 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
 
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     ma_uint64 framesRead;
     ma_bool32 isLooping;
     ma_bool32 isDecodedBufferBusy = MA_FALSE;
@@ -7461,35 +7461,41 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
             /* Don't try reading more than the available frame count. */
             if (frameCount > availableFrames) {
                 frameCount = availableFrames;
-                isDecodedBufferBusy = MA_TRUE;
+                isDecodedBufferBusy = (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY);
+
+                if (!isDecodedBufferBusy && availableFrames == 0) {
+                    result = MA_AT_END;
+                }
             }
         }
     }
 
-    result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    if (result == MA_SUCCESS) {
+        result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
 
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
-    pDataBuffer->cursorInPCMFrames += framesRead;
+        result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
+        pDataBuffer->cursorInPCMFrames += framesRead;
 
-    /*
-    If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
-    as at the end and terminate decoding.
-    */
-    if (result == MA_AT_END) {
-        if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+        /*
+        If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
+        as at the end and terminate decoding.
+        */
+        if (result == MA_AT_END) {
+            if (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY) {
+                result = MA_BUSY;
+            }
+        }
+
+        if (isDecodedBufferBusy) {
             result = MA_BUSY;
         }
-    }
 
-    if (isDecodedBufferBusy) {
-        result = MA_BUSY;
-    }
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
+        if (pFramesRead != NULL) {
+            *pFramesRead = framesRead;
+        }
     }
 
     return result;
@@ -10261,6 +10267,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             }
             #endif
 
+            //Com_Printf("listenerpos = %f %f %f\n", pListener->position.x, pListener->position.y, pListener->position.z);
+
             /*
             Multiply the lookat matrix by the spatializer position to transform it to listener
             space. This allows calculations to work based on the sound being relative to the
@@ -10280,6 +10288,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
             }
             #endif
+
+            //Com_Printf("relativePos = %f %f %f\n", relativePos.x, relativePos.y, relativePos.z);
 
             /*
             The direction of the sound needs to also be transformed so that it's relative to the
