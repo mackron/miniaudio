@@ -5963,8 +5963,10 @@ MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudio
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_audio_buffer_ref_at_end(ma_audio_buffer_ref* pAudioBufferRef);
-MA_API ma_result ma_audio_buffer_ref_get_available_frames(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
+MA_API ma_bool32 ma_audio_buffer_ref_at_end(const ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_get_cursor_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_ref_get_length_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
 
 
 
@@ -5996,8 +5998,10 @@ MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, 
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
+MA_API ma_bool32 ma_audio_buffer_at_end(const ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_get_cursor_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_get_length_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_get_available_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
 
 
 
@@ -43428,6 +43432,9 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 if (ma_data_source_seek_to_pcm_frame(pCurrentDataSource, pCurrentDataSource->loopBegInFrames) != MA_SUCCESS) {
                     break;  /* Failed to loop. Abort. */
                 }
+
+                /* Don't return MA_AT_END for looping sounds. */
+                result = MA_SUCCESS;
             } else {
                 if (pCurrentDataSource->pNext != NULL) {
                     pDataSourceBase->pCurrent = pCurrentDataSource->pNext;
@@ -44189,7 +44196,7 @@ MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef,
     }
 }
 
-MA_API ma_result ma_audio_buffer_ref_at_end(ma_audio_buffer_ref* pAudioBufferRef)
+MA_API ma_bool32 ma_audio_buffer_ref_at_end(const ma_audio_buffer_ref* pAudioBufferRef)
 {
     if (pAudioBufferRef == NULL) {
         return MA_FALSE;
@@ -44198,7 +44205,41 @@ MA_API ma_result ma_audio_buffer_ref_at_end(ma_audio_buffer_ref* pAudioBufferRef
     return pAudioBufferRef->cursor == pAudioBufferRef->sizeInFrames;
 }
 
-MA_API ma_result ma_audio_buffer_ref_get_available_frames(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames)
+MA_API ma_result ma_audio_buffer_ref_get_cursor_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pAudioBufferRef == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = pAudioBufferRef->cursor;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_audio_buffer_ref_get_length_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    if (pAudioBufferRef == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = pAudioBufferRef->sizeInFrames;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames)
 {
     if (pAvailableFrames == NULL) {
         return MA_INVALID_ARGS;
@@ -44421,7 +44462,7 @@ MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 
     return ma_audio_buffer_ref_unmap(&pAudioBuffer->ref, frameCount);
 }
 
-MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
+MA_API ma_bool32 ma_audio_buffer_at_end(const ma_audio_buffer* pAudioBuffer)
 {
     if (pAudioBuffer == NULL) {
         return MA_FALSE;
@@ -44430,7 +44471,25 @@ MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer)
     return ma_audio_buffer_ref_at_end(&pAudioBuffer->ref);
 }
 
-MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames)
+MA_API ma_result ma_audio_buffer_get_cursor_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pCursor)
+{
+    if (pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_audio_buffer_ref_get_cursor_in_pcm_frames(&pAudioBuffer->ref, pCursor);
+}
+
+MA_API ma_result ma_audio_buffer_get_length_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pLength)
+{
+    if (pAudioBuffer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_audio_buffer_ref_get_length_in_pcm_frames(&pAudioBuffer->ref, pLength);
+}
+
+MA_API ma_result ma_audio_buffer_get_available_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames)
 {
     if (pAvailableFrames == NULL) {
         return MA_INVALID_ARGS;
