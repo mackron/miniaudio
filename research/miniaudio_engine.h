@@ -12261,7 +12261,7 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
     /* If the sound is at the end it means we want to start from the start again. */
     if (ma_sound_at_end(pSound)) {
         ma_result result = ma_data_source_seek_to_pcm_frame(pSound->pDataSource, 0);
-        if (result != MA_SUCCESS) {
+        if (result != MA_SUCCESS && result != MA_NOT_IMPLEMENTED) {
             return result;  /* Failed to seek back to the start. */
         }
 
