@@ -7422,7 +7422,7 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
-    ma_uint64 framesRead;
+    ma_uint64 framesRead = 0;
     ma_bool32 isLooping;
     ma_bool32 isDecodedBufferBusy = MA_FALSE;
 
@@ -7451,6 +7451,11 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         }
     }
 
+    result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
     /*
     For decoded buffers (not paged) we need to check beforehand how many frames we have available. We cannot
     exceed this amount. We'll read as much as we can, and then return MA_BUSY.
@@ -7464,18 +7469,27 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
             /* Don't try reading more than the available frame count. */
             if (frameCount > availableFrames) {
                 frameCount = availableFrames;
+    
+                /*
+                If there's no frames available we want to set the status to MA_AT_END. The logic below
+                will check if the node is busy, and if so, change it to MA_BUSY. The reason we do this
+                is because we don't want to call `ma_data_source_read_pcm_frames()` if the frame count
+                is 0 because that'll result in a situation where it's possible MA_AT_END won't get
+                returned.
+                */
+                if (frameCount == 0) {
+                    result = MA_AT_END;
+                }
             } else {
                 isDecodedBufferBusy = MA_FALSE; /* We have enough frames available in the buffer to avoid a MA_BUSY status. */
             }
         }
     }
 
-    result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
-    if (result != MA_SUCCESS) {
-        return result;
+    /* Don't attempt to read anything if we've got no frames available. */
+    if (frameCount > 0) {
+        result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
     }
-
-    result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
 
     /*
     If we returned MA_AT_END, but the node is still loading, we don't want to return that code or else the caller will interpret the sound
