@@ -11967,6 +11967,7 @@ static ma_result ma_sound_preinit(ma_engine* pEngine, ma_sound* pSound)
     }
 
     MA_ZERO_OBJECT(pSound);
+    pSound->seekTarget = MA_SEEK_TARGET_NONE;
 
     if (pEngine == NULL) {
         return MA_INVALID_ARGS;
