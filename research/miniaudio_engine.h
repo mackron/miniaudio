@@ -2087,6 +2087,7 @@ MA_API ma_result ma_paged_audio_buffer_data_get_length_in_pcm_frames(ma_paged_au
 MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_data* pData, ma_uint64 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks, ma_paged_audio_buffer_page** ppPage)
 {
     ma_paged_audio_buffer_page* pPage;
+    ma_uint64 allocationSize;
 
     if (ppPage == NULL) {
         return MA_INVALID_ARGS;
@@ -2098,7 +2099,12 @@ MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_
         return MA_INVALID_ARGS;
     }
 
-    pPage = (ma_paged_audio_buffer_page*)ma_malloc(sizeof(*pPage) + (pageSizeInFrames * ma_get_bytes_per_frame(pData->format, pData->channels)), pAllocationCallbacks);
+    allocationSize = sizeof(*pPage) + (pageSizeInFrames * ma_get_bytes_per_frame(pData->format, pData->channels));
+    if (allocationSize > MA_SIZE_MAX) {
+        return MA_OUT_OF_MEMORY;    /* Too big. */
+    }
+
+    pPage = (ma_paged_audio_buffer_page*)ma_malloc((size_t)allocationSize, pAllocationCallbacks);	/* Safe cast to size_t. */
     if (pPage == NULL) {
         return MA_OUT_OF_MEMORY;
     }
