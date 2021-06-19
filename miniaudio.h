@@ -26369,6 +26369,8 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     printf("[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
 #endif
 
+    /* Temporarily disabling this section of code because it appears to be causing errors. */
+#if 0
     ma_uint32 previousState = ma_device_get_state(m_pDevice);
 
     if (previousState == MA_STATE_STARTED) {
@@ -26389,6 +26391,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     if (previousState == MA_STATE_STARTED) {
         ma_device_start(m_pDevice);
     }
+#endif
 }
 @end
 #endif
