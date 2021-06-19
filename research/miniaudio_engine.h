@@ -1869,6 +1869,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine);
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
+MA_API ma_uint64 ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine);
 MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 
@@ -11639,6 +11640,11 @@ MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
 MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
 {
     return ma_node_graph_get_time(&pEngine->nodeGraph);
+}
+
+MA_API ma_uint64 ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime)
+{
+    return ma_node_graph_set_time(&pEngine->nodeGraph, globalTime);
 }
 
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine)
