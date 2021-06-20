@@ -2003,6 +2003,119 @@ MA_API void ma_sound_group_set_stop_time_in_milliseconds(ma_sound_group* pGroup,
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup);
 MA_API ma_uint64 ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGroup);
 
+
+
+/*
+Biquad Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_biquad biquad;
+} ma_biquad_node;
+
+MA_API ma_result ma_biquad_node_init(ma_node_graph* pNodeGraph, const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad_node* pNode);
+MA_API ma_result ma_biquad_node_reinit(const ma_biquad_config* pConfig, ma_biquad_node* pNode);
+MA_API void ma_biquad_node_uninit(ma_biquad_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+Low Pass Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_lpf lpf;
+} ma_lpf_node;
+
+MA_API ma_result ma_lpf_node_init(ma_node_graph* pNodeGraph, const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf_node* pNode);
+MA_API ma_result ma_lpf_node_reinit(const ma_lpf_config* pConfig, ma_lpf_node* pNode);
+MA_API void ma_lpf_node_uninit(ma_lpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+High Pass Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_hpf hpf;
+} ma_hpf_node;
+
+MA_API ma_result ma_hpf_node_init(ma_node_graph* pNodeGraph, const ma_hpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf_node* pNode);
+MA_API ma_result ma_hpf_node_reinit(const ma_hpf_config* pConfig, ma_hpf_node* pNode);
+MA_API void ma_hpf_node_uninit(ma_hpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+Band Pass Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_bpf bpf;
+} ma_bpf_node;
+
+MA_API ma_result ma_bpf_node_init(ma_node_graph* pNodeGraph, const ma_bpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf_node* pNode);
+MA_API ma_result ma_bpf_node_reinit(const ma_bpf_config* pConfig, ma_bpf_node* pNode);
+MA_API void ma_bpf_node_uninit(ma_bpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+Notching Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_notch2 notch;
+} ma_notch_node;
+
+MA_API ma_result ma_notch_node_init(ma_node_graph* pNodeGraph, const ma_notch_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch_node* pNode);
+MA_API ma_result ma_notch_node_reinit(const ma_notch_config* pConfig, ma_notch_node* pNode);
+MA_API void ma_notch_node_uninit(ma_notch_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+Peaking Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_peak2 peak;
+} ma_peak_node;
+
+MA_API ma_result ma_peak_node_init(ma_node_graph* pNodeGraph, const ma_peak_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak_node* pNode);
+MA_API ma_result ma_peak_node_reinit(const ma_peak_config* pConfig, ma_peak_node* pNode);
+MA_API void ma_peak_node_uninit(ma_peak_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+Low Shelf Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_loshelf2 loshelf;
+} ma_loshelf_node;
+
+MA_API ma_result ma_loshelf_node_init(ma_node_graph* pNodeGraph, const ma_loshelf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf_node* pNode);
+MA_API ma_result ma_loshelf_node_reinit(const ma_loshelf_config* pConfig, ma_loshelf_node* pNode);
+MA_API void ma_loshelf_node_uninit(ma_loshelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+/*
+High Shelf Filter Node
+*/
+typedef struct
+{
+    ma_node_base baseNode;
+    ma_hishelf2 hishelf;
+} ma_hishelf_node;
+
+MA_API ma_result ma_hishelf_node_init(ma_node_graph* pNodeGraph, const ma_hishelf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf_node* pNode);
+MA_API ma_result ma_hishelf_node_reinit(const ma_hishelf_config* pConfig, ma_hishelf_node* pNode);
+MA_API void ma_hishelf_node_uninit(ma_hishelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
+
 #ifdef __cplusplus
 }
 #endif
@@ -13083,5 +13196,614 @@ MA_API ma_uint64 ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGr
     return ma_sound_get_time_in_pcm_frames(pGroup);
 }
 
+
+
+
+/*
+Biquad Node
+*/
+static void ma_biquad_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_biquad_node* pLPFNode = (ma_biquad_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_biquad_process_pcm_frames(&pLPFNode->biquad, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_biquad_node_vtable
+{
+    ma_biquad_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_biquad_node_init(ma_node_graph* pNodeGraph, const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_biquad_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_biquad_init(pConfig, &pNode->biquad);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_biquad_node_reinit(const ma_biquad_config* pConfig, ma_biquad_node* pNode)
+{
+    ma_biquad_node* pLPFNode = (ma_biquad_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_biquad_reinit(pConfig, &pLPFNode->biquad);
+}
+
+MA_API void ma_biquad_node_uninit(ma_biquad_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+Low Pass Filter Node
+*/
+static void ma_lpf_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_lpf_node* pLPFNode = (ma_lpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_lpf_process_pcm_frames(&pLPFNode->lpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_lpf_node_vtable
+{
+    ma_lpf_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_lpf_node_init(ma_node_graph* pNodeGraph, const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_lpf_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_lpf_init(pConfig, &pNode->lpf);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_lpf_node_reinit(const ma_lpf_config* pConfig, ma_lpf_node* pNode)
+{
+    ma_lpf_node* pLPFNode = (ma_lpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_lpf_reinit(pConfig, &pLPFNode->lpf);
+}
+
+MA_API void ma_lpf_node_uninit(ma_lpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+High Pass Filter Node
+*/
+static void ma_hpf_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_hpf_node* pHPFNode = (ma_hpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_hpf_process_pcm_frames(&pHPFNode->hpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_hpf_node_vtable
+{
+    ma_hpf_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_hpf_node_init(ma_node_graph* pNodeGraph, const ma_hpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_hpf_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_hpf_init(pConfig, &pNode->hpf);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_hpf_node_reinit(const ma_hpf_config* pConfig, ma_hpf_node* pNode)
+{
+    ma_hpf_node* pHPFNode = (ma_hpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_hpf_reinit(pConfig, &pHPFNode->hpf);
+}
+
+MA_API void ma_hpf_node_uninit(ma_hpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+
+/*
+Band Pass Filter Node
+*/
+static void ma_bpf_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_bpf_node* pBPFNode = (ma_bpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_bpf_process_pcm_frames(&pBPFNode->bpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_bpf_node_vtable
+{
+    ma_bpf_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_bpf_node_init(ma_node_graph* pNodeGraph, const ma_bpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_bpf_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_bpf_init(pConfig, &pNode->bpf);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_bpf_node_reinit(const ma_bpf_config* pConfig, ma_bpf_node* pNode)
+{
+    ma_bpf_node* pBPFNode = (ma_bpf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_bpf_reinit(pConfig, &pBPFNode->bpf);
+}
+
+MA_API void ma_bpf_node_uninit(ma_bpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+Notching Filter Node
+*/
+static void ma_notch_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_notch_node* pBPFNode = (ma_notch_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_notch2_process_pcm_frames(&pBPFNode->notch, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_notch_node_vtable
+{
+    ma_notch_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_notch_node_init(ma_node_graph* pNodeGraph, const ma_notch_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_notch_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_notch2_init(pConfig, &pNode->notch);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_notch_node_reinit(const ma_notch_config* pConfig, ma_notch_node* pNode)
+{
+    ma_notch_node* pBPFNode = (ma_notch_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_notch2_reinit(pConfig, &pBPFNode->notch);
+}
+
+MA_API void ma_notch_node_uninit(ma_notch_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+Peaking Filter Node
+*/
+static void ma_peak_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_peak_node* pBPFNode = (ma_peak_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_peak2_process_pcm_frames(&pBPFNode->peak, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_peak_node_vtable
+{
+    ma_peak_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_peak_node_init(ma_node_graph* pNodeGraph, const ma_peak_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_peak_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_peak2_init(pConfig, &pNode->peak);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_peak_node_reinit(const ma_peak_config* pConfig, ma_peak_node* pNode)
+{
+    ma_peak_node* pBPFNode = (ma_peak_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_peak2_reinit(pConfig, &pBPFNode->peak);
+}
+
+MA_API void ma_peak_node_uninit(ma_peak_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+Low Shelf Filter Node
+*/
+static void ma_loshelf_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_loshelf_node* pBPFNode = (ma_loshelf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_loshelf2_process_pcm_frames(&pBPFNode->loshelf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_loshelf_node_vtable
+{
+    ma_loshelf_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_loshelf_node_init(ma_node_graph* pNodeGraph, const ma_loshelf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_loshelf_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_loshelf2_init(pConfig, &pNode->loshelf);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_loshelf_node_reinit(const ma_loshelf_config* pConfig, ma_loshelf_node* pNode)
+{
+    ma_loshelf_node* pBPFNode = (ma_loshelf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_loshelf2_reinit(pConfig, &pBPFNode->loshelf);
+}
+
+MA_API void ma_loshelf_node_uninit(ma_loshelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
+
+
+
+/*
+High Shelf Filter Node
+*/
+static void ma_hishelf_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_hishelf_node* pBPFNode = (ma_hishelf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+    (void)pFrameCountIn;
+
+    ma_hishelf2_process_pcm_frames(&pBPFNode->hishelf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
+}
+
+static ma_node_vtable g_ma_hishelf_node_vtable
+{
+    ma_hishelf_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    1,      /* One input. */
+    1,      /* One output. */
+    0       /* Default flags. */
+};
+
+MA_API ma_result ma_hishelf_node_init(ma_node_graph* pNodeGraph, const ma_hishelf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf_node* pNode)
+{
+    ma_result result;
+    ma_node_config baseNodeConfig;
+
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNode);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->format != ma_format_f32) {
+        return MA_INVALID_ARGS; /* The format must be f32. */
+    }
+
+    baseNodeConfig = ma_node_config_init();
+    baseNodeConfig.vtable            = &g_ma_hishelf_node_vtable;
+    baseNodeConfig.inputChannels[0]  = pConfig->channels;
+    baseNodeConfig.outputChannels[0] = pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseNodeConfig, pAllocationCallbacks, pNode);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_hishelf2_init(pConfig, &pNode->hishelf);
+    if (result != MA_SUCCESS) {
+        ma_node_uninit(pNode, pAllocationCallbacks);
+        return result;
+    }
+
+    return result;
+}
+
+MA_API ma_result ma_hishelf_node_reinit(const ma_hishelf_config* pConfig, ma_hishelf_node* pNode)
+{
+    ma_hishelf_node* pBPFNode = (ma_hishelf_node*)pNode;
+
+    MA_ASSERT(pNode != NULL);
+
+    return ma_hishelf2_reinit(pConfig, &pBPFNode->hishelf);
+}
+
+MA_API void ma_hishelf_node_uninit(ma_hishelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_node_uninit(pNode, pAllocationCallbacks);
+}
 
 #endif
