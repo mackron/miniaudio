@@ -2286,7 +2286,7 @@ typedef struct
     ma_uint32 sampleRate;
     double q;
     double frequency;
-} ma_notch2_config;
+} ma_notch2_config, ma_notch_config;
 
 MA_API ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency);
 
@@ -2314,7 +2314,7 @@ typedef struct
     double gainDB;
     double q;
     double frequency;
-} ma_peak2_config;
+} ma_peak2_config, ma_peak_config;
 
 MA_API ma_peak2_config ma_peak2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double q, double frequency);
 
@@ -2342,7 +2342,7 @@ typedef struct
     double gainDB;
     double shelfSlope;
     double frequency;
-} ma_loshelf2_config;
+} ma_loshelf2_config, ma_loshelf_config;
 
 MA_API ma_loshelf2_config ma_loshelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency);
 
@@ -2370,7 +2370,7 @@ typedef struct
     double gainDB;
     double shelfSlope;
     double frequency;
-} ma_hishelf2_config;
+} ma_hishelf2_config, ma_hishelf_config;
 
 MA_API ma_hishelf2_config ma_hishelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency);
 
