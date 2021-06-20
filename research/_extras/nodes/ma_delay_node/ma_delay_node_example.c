@@ -65,7 +65,7 @@ int main(int argc, char** argv)
     }
 
 
-    /* Reverb. Attached straight to the endpoint. */
+    /* Delay. Attached straight to the endpoint. */
     delayNodeConfig = ma_delay_node_config_init(device.capture.channels, device.sampleRate, (100 * device.sampleRate) / 1000, 0.5f);
 
     result = ma_delay_node_init(&g_nodeGraph, &delayNodeConfig, NULL, &g_delayNode);
