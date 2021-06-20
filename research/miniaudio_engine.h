@@ -13212,7 +13212,7 @@ static void ma_biquad_node_process_pcm_frames(ma_node* pNode, const float** ppFr
     ma_biquad_process_pcm_frames(&pLPFNode->biquad, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_biquad_node_vtable
+static ma_node_vtable g_ma_biquad_node_vtable =
 {
     ma_biquad_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13288,7 +13288,7 @@ static void ma_lpf_node_process_pcm_frames(ma_node* pNode, const float** ppFrame
     ma_lpf_process_pcm_frames(&pLPFNode->lpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_lpf_node_vtable
+static ma_node_vtable g_ma_lpf_node_vtable =
 {
     ma_lpf_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13364,7 +13364,7 @@ static void ma_hpf_node_process_pcm_frames(ma_node* pNode, const float** ppFrame
     ma_hpf_process_pcm_frames(&pHPFNode->hpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_hpf_node_vtable
+static ma_node_vtable g_ma_hpf_node_vtable =
 {
     ma_hpf_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13441,7 +13441,7 @@ static void ma_bpf_node_process_pcm_frames(ma_node* pNode, const float** ppFrame
     ma_bpf_process_pcm_frames(&pBPFNode->bpf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_bpf_node_vtable
+static ma_node_vtable g_ma_bpf_node_vtable =
 {
     ma_bpf_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13517,7 +13517,7 @@ static void ma_notch_node_process_pcm_frames(ma_node* pNode, const float** ppFra
     ma_notch2_process_pcm_frames(&pBPFNode->notch, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_notch_node_vtable
+static ma_node_vtable g_ma_notch_node_vtable =
 {
     ma_notch_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13593,7 +13593,7 @@ static void ma_peak_node_process_pcm_frames(ma_node* pNode, const float** ppFram
     ma_peak2_process_pcm_frames(&pBPFNode->peak, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_peak_node_vtable
+static ma_node_vtable g_ma_peak_node_vtable =
 {
     ma_peak_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13669,7 +13669,7 @@ static void ma_loshelf_node_process_pcm_frames(ma_node* pNode, const float** ppF
     ma_loshelf2_process_pcm_frames(&pBPFNode->loshelf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_loshelf_node_vtable
+static ma_node_vtable g_ma_loshelf_node_vtable =
 {
     ma_loshelf_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
@@ -13745,7 +13745,7 @@ static void ma_hishelf_node_process_pcm_frames(ma_node* pNode, const float** ppF
     ma_hishelf2_process_pcm_frames(&pBPFNode->hishelf, ppFramesOut[0], ppFramesIn[0], *pFrameCountOut);
 }
 
-static ma_node_vtable g_ma_hishelf_node_vtable
+static ma_node_vtable g_ma_hishelf_node_vtable =
 {
     ma_hishelf_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
