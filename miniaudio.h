@@ -23015,6 +23015,29 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
 
+        if (ss.format == MA_PA_SAMPLE_INVALID) {
+            if (ma_is_little_endian()) {
+                ss.format = MA_PA_SAMPLE_FLOAT32LE;
+            } else {
+                ss.format = MA_PA_SAMPLE_FLOAT32BE;
+            }
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.format = PA_SAMPLE_INVALID. Defaulting to PA_SAMPLE_RATE_FLOAT32\n");
+        #endif
+        }
+        if (ss.rate == 0) {
+            ss.rate = MA_DEFAULT_SAMPLE_RATE;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.rate = 0. Defaulting to %d\n", ss.rate);
+        #endif
+        }
+        if (ss.channels == 0) {
+            ss.channels = MA_DEFAULT_CHANNELS;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.channels = 0. Defaulting to %d\n", ss.channels);
+        #endif
+        }
+
         /* We now have enough information to calculate the actual buffer size in frames. */
         pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, ss.rate, pConfig->performanceProfile);
 
@@ -23085,7 +23108,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         pDescriptorPlayback->periodCount        = attr.maxlength / attr.tlength;
         pDescriptorPlayback->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) / pDescriptorPlayback->periodCount;
     #ifdef MA_DEBUG_OUTPUT
-        printf("[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDevice->playback.internalPeriodSizeInFrames);
+        printf("[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
     #endif
 
 
