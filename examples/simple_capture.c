@@ -33,7 +33,7 @@ int main(int argc, char** argv)
     ma_device device;
 
     if (argc < 2) {
-        printf("No input file.\n");
+        printf("No output file.\n");
         return -1;
     }
 
