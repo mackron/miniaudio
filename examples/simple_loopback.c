@@ -40,7 +40,7 @@ int main(int argc, char** argv)
     };
 
     if (argc < 2) {
-        printf("No input file.\n");
+        printf("No output file.\n");
         return -1;
     }
 
