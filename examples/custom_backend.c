@@ -37,9 +37,12 @@ void main_loop__em()
 /* Support SDL on everything. */
 #define MA_SUPPORT_SDL
 
-/* Only enable SDL if it's hasn't been explicitly disabled (MA_NO_SDL) and it's supported at compile time (MA_SUPPORT_SDL). */
-#if !defined(MA_NO_SDL) && defined(MA_SUPPORT_SDL)
-    #define MA_ENABLE_SDL
+/*
+Only enable SDL if it's hasn't been explicitly disabled (MA_NO_SDL) or enabled (MA_ENABLE_SDL with
+MA_ENABLE_ONLY_SPECIFIC_BACKENDS) and it's supported at compile time (MA_SUPPORT_SDL).
+*/
+#if defined(MA_SUPPORT_SDL) && !defined(MA_NO_SDL) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SDL))
+    #define MA_HAS_SDL
 #endif
 
 
@@ -75,9 +78,7 @@ typedef struct
 
 
 
-#if defined(MA_ENABLE_SDL)
-    #define MA_HAS_SDL
-
+#if defined(MA_HAS_SDL)
     /* SDL headers are necessary if using compile-time linking. */
     #ifdef MA_NO_RUNTIME_LINKING
         #ifdef __has_include
@@ -331,7 +332,7 @@ void ma_audio_callback_playback__sdl(void* pUserData, ma_uint8* pBuffer, int buf
 
     MA_ASSERT(pDeviceEx != NULL);
 
-    ma_device_handle_backend_data_callback((ma_device*)pDeviceEx, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx->device.capture.internalFormat, pDeviceEx->device.capture.internalChannels));
+    ma_device_handle_backend_data_callback((ma_device*)pDeviceEx, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx->device.playback.internalFormat, pDeviceEx->device.playback.internalChannels));
 }
 
 static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_device_config* pConfig, ma_device_descriptor* pDescriptor)
