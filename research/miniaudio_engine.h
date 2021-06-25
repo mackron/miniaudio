@@ -1154,12 +1154,6 @@ MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to r
 
 
 
-
-/* Notification codes for ma_async_notification. Used to allow some granularity for notification callbacks. */
-#define MA_NOTIFICATION_COMPLETE    0   /* Operation has fully completed. */
-#define MA_NOTIFICATION_FAILED      1   /* Failed to initialize. */
-
-
 /*
 Notification callback for asynchronous operations.
 */
@@ -1167,10 +1161,10 @@ typedef void ma_async_notification;
 
 typedef struct
 {
-    void (* onSignal)(ma_async_notification* pNotification, int code);
+    void (* onSignal)(ma_async_notification* pNotification);
 } ma_async_notification_callbacks;
 
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification, int code);
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
 
 
 /*
@@ -5904,7 +5898,7 @@ MA_API ma_result ma_fence_wait(ma_fence* pFence)
 
 
 
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification, int code)
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification)
 {
     ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification_callbacks*)pNotification;
 
@@ -5916,14 +5910,13 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
         return MA_NOT_IMPLEMENTED;
     }
 
-    pNotificationCallbacks->onSignal(pNotification, code);
+    pNotificationCallbacks->onSignal(pNotification);
     return MA_INVALID_ARGS;
 }
 
 
-static void ma_async_notification_poll__on_signal(ma_async_notification* pNotification, int code)
+static void ma_async_notification_poll__on_signal(ma_async_notification* pNotification)
 {
-    (void)code;
     ((ma_async_notification_poll*)pNotification)->signalled = MA_TRUE;
 }
 
@@ -5949,9 +5942,8 @@ MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notifica
 }
 
 
-static void ma_async_notification_event__on_signal(ma_async_notification* pNotification, int code)
+static void ma_async_notification_event__on_signal(ma_async_notification* pNotification)
 {
-    (void)code;
     ma_async_notification_event_signal((ma_async_notification_event*)pNotification);
 }
 
@@ -7001,7 +6993,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         pDataBuffer->isConnectorInitialized = MA_TRUE;
 
         if (pInitNotification != NULL) {
-            ma_async_notification_signal(pInitNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pInitNotification);
         }
     }
     
@@ -7687,7 +7679,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
         c89atomic_exchange_i32(&pDataBuffer->result, result);
 
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, (result == MA_SUCCESS) ? MA_NOTIFICATION_COMPLETE : MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pNotification);
         }
     } else {
         /* The node's data supply isn't initialized yet. The caller has requested that we load asynchronously so we need to post a job to do this. */
@@ -8292,7 +8284,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
 
     if (pDataStream == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_INVALID_ARGS;
@@ -8314,7 +8306,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
 
     if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL)) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_INVALID_ARGS;
@@ -8331,7 +8323,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
 
     if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pNotification);
         }
 
         return MA_OUT_OF_MEMORY;
@@ -8356,7 +8348,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pNotification);
         }
 
         if (waitBeforeReturning) {
@@ -8374,7 +8366,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
         ma_resource_manager_inline_notification_uninit(&waitNotification);
 
         if (pNotification != NULL) {
-            ma_async_notification_signal(pNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pNotification);
         }
     }
 
@@ -9274,9 +9266,9 @@ done:
     /* At this point initialization is complete and we can signal the notification if any. */
     if (pJob->loadDataBufferNode.pInitNotification != NULL) {
         if (result == MA_SUCCESS || result == MA_BUSY) {
-            ma_async_notification_signal(pJob->loadDataBufferNode.pInitNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pJob->loadDataBufferNode.pInitNotification);
         } else {
-            ma_async_notification_signal(pJob->loadDataBufferNode.pInitNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pJob->loadDataBufferNode.pInitNotification);
         }
     }
 
@@ -9284,9 +9276,9 @@ done:
     if (pJob->loadDataBufferNode.pCompletedNotification != NULL) {
         if (result != MA_BUSY) {
             if (result == MA_SUCCESS) {
-                ma_async_notification_signal(pJob->loadDataBufferNode.pCompletedNotification, MA_NOTIFICATION_COMPLETE);
+                ma_async_notification_signal(pJob->loadDataBufferNode.pCompletedNotification);
             } else {
-                ma_async_notification_signal(pJob->loadDataBufferNode.pCompletedNotification, MA_NOTIFICATION_FAILED);
+                ma_async_notification_signal(pJob->loadDataBufferNode.pCompletedNotification);
             }
         }
     }
@@ -9310,7 +9302,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataBuffer.pNotification != NULL) {
-        ma_async_notification_signal(pJob->freeDataBufferNode.pNotification, MA_NOTIFICATION_COMPLETE);
+        ma_async_notification_signal(pJob->freeDataBufferNode.pNotification);
     }
 
     c89atomic_fetch_add_32(&pJob->freeDataBufferNode.pDataBufferNode->executionPointer, 1);
@@ -9372,9 +9364,9 @@ done:
     /* Signal the notification after setting the result in case the notification callback wants to inspect the result code. */
     if (pJob->pageDataBufferNode.pCompletedNotification != NULL && result != MA_BUSY) {
         if (result == MA_SUCCESS) {
-            ma_async_notification_signal(pJob->pageDataBuffer.pCompletedNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pJob->pageDataBuffer.pCompletedNotification);
         } else {
-            ma_async_notification_signal(pJob->pageDataBuffer.pCompletedNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pJob->pageDataBuffer.pCompletedNotification);
         }
     }
 
@@ -9437,9 +9429,9 @@ done:
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataBuffer.pCompletedNotification != NULL) {
         if (result == MA_SUCCESS) {
-            ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification, MA_NOTIFICATION_COMPLETE);
+            ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification);
         } else {
-            ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification, MA_NOTIFICATION_FAILED);
+            ma_async_notification_signal(pJob->loadDataBuffer.pCompletedNotification);
         }
     }
 
@@ -9450,7 +9442,7 @@ done:
 	if (pJob->loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE) {
 		if (pJob->loadDataBuffer.pInitNotification != NULL) {
 			if (result != MA_SUCCESS) {	
-				ma_async_notification_signal(pJob->loadDataBuffer.pInitNotification, MA_NOTIFICATION_FAILED);
+				ma_async_notification_signal(pJob->loadDataBuffer.pInitNotification);
 			}
 		}
 	}
@@ -9473,7 +9465,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataBuffer.pNotification != NULL) {
-        ma_async_notification_signal(pJob->freeDataBuffer.pNotification, MA_NOTIFICATION_COMPLETE);
+        ma_async_notification_signal(pJob->freeDataBuffer.pNotification);
     }
 
     c89atomic_fetch_add_32(&pJob->freeDataBuffer.pDataBuffer->executionPointer, 1);
@@ -9548,7 +9540,7 @@ done:
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->loadDataStream.pNotification != NULL) {
-        ma_async_notification_signal(pJob->loadDataStream.pNotification, MA_NOTIFICATION_COMPLETE);
+        ma_async_notification_signal(pJob->loadDataStream.pNotification);
     }
 
     c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -9585,7 +9577,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
 
     /* The event needs to be signalled last. */
     if (pJob->freeDataStream.pNotification != NULL) {
-        ma_async_notification_signal(pJob->freeDataStream.pNotification, MA_NOTIFICATION_COMPLETE);
+        ma_async_notification_signal(pJob->freeDataStream.pNotification);
     }
 
     /*c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);*/

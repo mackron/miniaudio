@@ -13,13 +13,12 @@ typedef struct
     ma_sound* pSound;
 } sound_loaded_notification;
 
-void on_sound_loaded(ma_async_notification* pNotification, int code)
+void on_sound_loaded(ma_async_notification* pNotification)
 {
     //sound_loaded_notification* pLoadedNotification = (sound_loaded_notification*)pNotification;
     //ma_uint64 lengthInPCMFrames;
 
     (void)pNotification;
-    (void)code;
 
     /*
     This will be fired when the sound has finished loading. We should be able to retrieve the length of the sound at this point. Here we'll just set
