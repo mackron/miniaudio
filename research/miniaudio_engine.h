@@ -9333,6 +9333,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         }
 
         if (result != MA_SUCCESS) {
+            /* TODO: Post a log message here. */
             goto done;
         }
 
@@ -9546,7 +9547,8 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     If the data node is still loading, we need to repost the job and *not* increment the execution
     pointer (i.e. we need to not fall through to the "done" label).
     */
-    if (ma_resource_manager_data_buffer_node_result(pJob->loadDataBuffer.pDataBuffer->pNode) == MA_BUSY) {
+    result = ma_resource_manager_data_buffer_node_result(pJob->loadDataBuffer.pDataBuffer->pNode);
+    if (result == MA_BUSY) {
         return ma_resource_manager_post_job(pResourceManager, pJob);
     }
 
@@ -10838,8 +10840,6 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             }
             #endif
 
-            //Com_Printf("listenerpos = %f %f %f\n", pListener->position.x, pListener->position.y, pListener->position.z);
-
             /*
             Multiply the lookat matrix by the spatializer position to transform it to listener
             space. This allows calculations to work based on the sound being relative to the
@@ -10859,8 +10859,6 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
             }
             #endif
-
-            //Com_Printf("relativePos = %f %f %f\n", relativePos.x, relativePos.y, relativePos.z);
 
             /*
             The direction of the sound needs to also be transformed so that it's relative to the
