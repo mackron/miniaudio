@@ -6064,6 +6064,11 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 
 
 
+typedef ma_result (* ma_read_proc)(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);
+typedef ma_result (* ma_seek_proc)(void* pUserData, ma_int64 offset, ma_seek_origin origin);
+typedef ma_result (* ma_tell_proc)(void* pUserData, ma_int64* pCursor);
+
+
 
 #if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
 typedef enum
@@ -6084,9 +6089,33 @@ you do your own synchronization.
 #ifndef MA_NO_DECODING
 typedef struct ma_decoder ma_decoder;
 
-typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);     /* Returns the number of bytes read. */
-typedef ma_bool32 (* ma_decoder_seek_proc)                    (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);    /* Origin will never be ma_seek_origin_end. */
-typedef ma_uint64 (* ma_decoder_read_pcm_frames_proc)         (ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);   /* Returns the number of frames read. Output data is in internal format. */
+
+typedef struct
+{
+    ma_format preferredFormat;
+} ma_decoding_backend_config;
+
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat);
+
+
+typedef struct
+{
+    ma_result (* onInit         )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
+    ma_result (* onInitFile     )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
+    ma_result (* onInitFileW    )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
+    ma_result (* onInitMemory   )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
+    void      (* onUninit       )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onGetChannelMap)(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap);
+} ma_decoding_backend_vtable;
+
+
+/* TODO: Convert read and seek to be consistent with the VFS API (ma_result return value, bytes read moved to an output parameter). */
+typedef size_t    (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);         /* Returns the number of bytes read. */
+typedef ma_bool32 (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
+
+/* TODO: Remove these when internal decoders are transferred over to the new backend system. */
+typedef ma_uint64 (* ma_decoder_read_pcm_frames_proc)         (ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);       /* Returns the number of frames read. Output data is in internal format. */
 typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDecoder, ma_uint64 frameIndex);
 typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
 typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
@@ -6112,15 +6141,21 @@ typedef struct
         } speex;
     } resampling;
     ma_allocation_callbacks allocationCallbacks;
+    ma_decoding_backend_vtable** ppCustomBackendVTables;
+    ma_uint32 customBackendVTableCount;
+    void* pCustomBackendUserData;
 } ma_decoder_config;
 
 struct ma_decoder
 {
     ma_data_source_base ds;
+    ma_data_source* pBackend;                   /* The decoding backend we'll be pulling data from. */
+    const ma_decoding_backend_vtable* pBackendVTable; /* The vtable for the decoding backend. This needs to be stored so we can access the onUninit() callback. */
+    void* pBackendUserData;
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
+    ma_decoder_tell_proc onTell;
     void* pUserData;
-    ma_uint64  readPointerInBytes;          /* In internal encoded data. */
     ma_uint64  readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
     ma_format  internalFormat;
     ma_uint32  internalChannels;
@@ -6150,10 +6185,11 @@ struct ma_decoder
             size_t dataSize;
             size_t currentReadPos;
         } memory;               /* Only used for decoders that were opened against a block of memory. */
-    } backend;
+    } data;
 };
 
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
+MA_API ma_decoder_config ma_decoder_config_init_default();
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
@@ -44776,7 +44812,7 @@ MA_API ma_result ma_vfs_open_and_read_file_w(ma_vfs* pVFS, const wchar_t* pFileP
 }
 
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
 static void ma_default_vfs__get_open_settings_win32(ma_uint32 openMode, DWORD* pDesiredAccess, DWORD* pShareMode, DWORD* pCreationDisposition)
 {
     *pDesiredAccess = 0;
@@ -45142,24 +45178,33 @@ static ma_result ma_default_vfs_write__stdio(ma_vfs* pVFS, ma_vfs_file file, con
 static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
 {
     int result;
+    int whence;
 
     MA_ASSERT(file != NULL);
 
     (void)pVFS;
 
+    if (origin == ma_seek_origin_start) {
+        whence = SEEK_SET;
+    } else if (origin == ma_seek_origin_end) {
+        whence = SEEK_END;
+    } else {
+        whence = SEEK_CUR;
+    }
+
 #if defined(_WIN32)
     #if defined(_MSC_VER) && _MSC_VER > 1200
-        result = _fseeki64((FILE*)file, offset, origin);
+        result = _fseeki64((FILE*)file, offset, whence);
     #else
         /* No _fseeki64() so restrict to 31 bits. */
         if (origin > 0x7FFFFFFF) {
             return MA_OUT_OF_RANGE;
         }
 
-        result = fseek((FILE*)file, (int)offset, origin);
+        result = fseek((FILE*)file, (int)offset, whence);
     #endif
 #else
-    result = fseek((FILE*)file, (long int)offset, origin);
+    result = fseek((FILE*)file, (long int)offset, whence);
 #endif
     if (result != 0) {
         return MA_ERROR;
@@ -45235,7 +45280,7 @@ static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uin
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_open__win32(pVFS, pFilePath, openMode, pFile);
 #else
     return ma_default_vfs_open__stdio(pVFS, pFilePath, openMode, pFile);
@@ -45254,7 +45299,7 @@ static ma_result ma_default_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, m
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_open_w__win32(pVFS, pFilePath, openMode, pFile);
 #else
     return ma_default_vfs_open_w__stdio(pVFS, pFilePath, openMode, pFile);
@@ -45267,7 +45312,7 @@ static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_close__win32(pVFS, file);
 #else
     return ma_default_vfs_close__stdio(pVFS, file);
@@ -45284,7 +45329,7 @@ static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst,
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_read__win32(pVFS, file, pDst, sizeInBytes, pBytesRead);
 #else
     return ma_default_vfs_read__stdio(pVFS, file, pDst, sizeInBytes, pBytesRead);
@@ -45301,7 +45346,7 @@ static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_write__win32(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
 #else
     return ma_default_vfs_write__stdio(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
@@ -45314,7 +45359,7 @@ static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 of
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_seek__win32(pVFS, file, offset, origin);
 #else
     return ma_default_vfs_seek__stdio(pVFS, file, offset, origin);
@@ -45333,7 +45378,7 @@ static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* p
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_tell__win32(pVFS, file, pCursor);
 #else
     return ma_default_vfs_tell__stdio(pVFS, file, pCursor);
@@ -45352,7 +45397,7 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
     return ma_default_vfs_info__win32(pVFS, file, pInfo);
 #else
     return ma_default_vfs_info__stdio(pVFS, file, pInfo);
@@ -46449,20 +46494,23 @@ Decoding
 **************************************************************************************************************************************************************/
 #ifndef MA_NO_DECODING
 
-static size_t ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
     size_t bytesRead;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pBufferOut != NULL);
 
     bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
-    pDecoder->readPointerInBytes += bytesRead;
 
-    return bytesRead;
+    if (pBytesRead != NULL) {
+        *pBytesRead = bytesRead;
+    }
+
+    return MA_SUCCESS;
 }
 
-static ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin)
+static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
     ma_bool32 wasSuccessful;
 
@@ -46470,14 +46518,32 @@ static ma_bool32 ma_decoder_seek_bytes(ma_decoder* pDecoder, int byteOffset, ma_
 
     wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
     if (wasSuccessful) {
-        if (origin == ma_seek_origin_start) {
-            pDecoder->readPointerInBytes = (ma_uint64)byteOffset;
-        } else {
-            pDecoder->readPointerInBytes += byteOffset;
-        }
+        return MA_SUCCESS;
+    } else {
+        return MA_ERROR;
+    }
+}
+
+static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
+{
+    MA_ASSERT(pDecoder != NULL);
+    
+    if (pDecoder->onTell == NULL) {
+        return MA_NOT_IMPLEMENTED;
     }
 
-    return wasSuccessful;
+    return pDecoder->onTell(pDecoder, pCursor);
+}
+
+
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat)
+{
+    ma_decoding_backend_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.preferredFormat = preferredFormat;
+
+    return config;
 }
 
 
@@ -46495,6 +46561,11 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
     /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
 
     return config;
+}
+
+MA_API ma_decoder_config ma_decoder_config_init_default()
+{
+    return ma_decoder_config_init(ma_format_unknown, 0, 0);
 }
 
 MA_API ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
@@ -46570,6 +46641,88 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
 }
 
+
+/* Custom decoders. */
+static ma_result ma_decoder_internal_on_read__custom(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, pBytesRead);
+}
+
+static ma_result ma_decoder_internal_on_seek__custom(void* pUserData, ma_int64 offset, ma_seek_origin origin)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_seek_bytes(pDecoder, offset, origin);
+}
+
+static ma_result ma_decoder_internal_on_tell__custom(void* pUserData, ma_int64* pCursor)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_tell_bytes(pDecoder, pCursor);
+}
+
+static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result = MA_NO_BACKEND;
+    ma_data_source* pBackend;
+    ma_decoding_backend_config backendConfig;
+    size_t ivtable;
+
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    (void)pConfig;
+
+    if (pConfig->ppCustomBackendVTables == NULL) {
+        return MA_NO_BACKEND;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format);
+
+    /* The order each backend is listed is what defines the priority. */
+    for (ivtable = 0; ivtable < pConfig->customBackendVTableCount; ivtable += 1) {
+        const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
+        if (pVTable != NULL && pVTable->onInit != NULL) {
+            result = pVTable->onInit(pConfig->pCustomBackendUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+            if (result == MA_SUCCESS) {
+                /* We found our decoding backend. Now we just need to set up some stuff in the decoder. */
+                pDecoder->pBackend         = pBackend;
+                pDecoder->pBackendVTable   = pVTable;
+                pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+
+                /* Internal format/channels/rate. */
+                ma_data_source_get_data_format(pDecoder->pBackend, &pDecoder->internalFormat, &pDecoder->internalChannels, &pDecoder->internalSampleRate);
+
+                /* Internal channel map. For now we need to use a separate vtable API for this, but later on we'll add this to ma_data_source_get_data_format(). */
+                if (pVTable->onGetChannelMap == NULL || pVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, pDecoder->internalChannelMap, ma_countof(pDecoder->internalChannelMap)) != MA_SUCCESS) {
+                    /* Failed to retrieve the channel map. Assume default. */
+                    ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(pDecoder->internalChannels, ma_countof(pDecoder->internalChannelMap)), pDecoder->internalChannelMap);
+                }
+
+                return MA_SUCCESS;
+            } else {
+                /* Initialization failed. Move on to the next one, but seek back to the start. */
+                result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
+                if (result != MA_SUCCESS) {
+                    return result;  /* Failed to seek back to the start. */
+                }
+            }
+        } else {
+            /* No onInit callback. */
+        }
+    }
+
+    /* Getting here means we couldn't find a backend. */
+    return MA_NO_BACKEND;
+}
+
+
 /* WAV */
 #ifdef dr_wav_h
 #define MA_HAS_WAV
@@ -46577,17 +46730,30 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 static size_t ma_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+    size_t bytesRead;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
+    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    (void)result;
+
+    return bytesRead;
 }
 
 static drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
 }
 
 static ma_uint64 ma_decoder_internal_on_read_pcm_frames__wav(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
@@ -46722,17 +46888,30 @@ static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig,
 static size_t ma_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+    size_t bytesRead;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
+    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    (void)result;
+
+    return bytesRead;
 }
 
 static drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
 }
 
 static ma_uint64 ma_decoder_internal_on_read_pcm_frames__flac(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
@@ -46843,17 +47022,30 @@ static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig
 static size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+    size_t bytesRead;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead);
+    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    (void)result;
+
+    return bytesRead;
 }
 
 static drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_result result;
+
     MA_ASSERT(pDecoder != NULL);
 
-    return ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
 }
 
 static ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
@@ -46975,6 +47167,7 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
 {
     float* pFramesOutF;
     ma_uint64 totalFramesRead;
+    ma_result result;
 
     MA_ASSERT(pVorbis  != NULL);
     MA_ASSERT(pDecoder != NULL);
@@ -47050,12 +47243,12 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
                 }
 
                 /* Fill in a chunk. */
-                bytesRead = ma_decoder_read_bytes(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize));
-                if (bytesRead == 0) {
+                result = ma_decoder_read_bytes(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize), &bytesRead);
+                pVorbis->dataSize += bytesRead;
+
+                if (result != MA_SUCCESS) {
                     return totalFramesRead; /* Error reading more data. */
                 }
-
-                pVorbis->dataSize += bytesRead;
             }
         } while (MA_TRUE);
     }
@@ -47066,6 +47259,7 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
 static ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, ma_uint64 frameIndex)
 {
     float buffer[4096];
+    ma_result result;
 
     MA_ASSERT(pVorbis != NULL);
     MA_ASSERT(pDecoder != NULL);
@@ -47077,8 +47271,9 @@ static ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis,
 
     TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
     */
-    if (!ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start)) {
-        return MA_ERROR;
+    result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     stb_vorbis_flush_pushdata(pVorbis->pInternalVorbis);
@@ -47148,6 +47343,7 @@ static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__vorbis(ma_deco
 
 static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
+    ma_result result;
     stb_vorbis* pInternalVorbis = NULL;
     size_t dataSize = 0;
     size_t dataCapacity = 0;
@@ -47179,12 +47375,13 @@ static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConf
         pData = pNewData;
 
         /* Fill in a chunk. */
-        bytesRead = ma_decoder_read_bytes(pDecoder, pData + dataSize, (dataCapacity - dataSize));
-        if (bytesRead == 0) {
-            return MA_ERROR;
+        result = ma_decoder_read_bytes(pDecoder, pData + dataSize, (dataCapacity - dataSize), &bytesRead);
+        dataSize += bytesRead;
+
+        if (result != MA_SUCCESS) {
+            return result;
         }
 
-        dataSize += bytesRead;
         if (dataSize > INT_MAX) {
             return MA_ERROR;   /* Too big. */
         }
@@ -47256,6 +47453,7 @@ static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConf
 /* Raw */
 static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
 {
+    ma_result result;
     ma_uint32 bpf;
     ma_uint64 totalFramesRead;
     void* pRunningFramesOut;
@@ -47276,11 +47474,12 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
         }
 
         if (pFramesOut != NULL) {
-            framesReadThisIteration = ma_decoder_read_bytes(pDecoder, pRunningFramesOut, (size_t)framesToReadThisIteration * bpf) / bpf;    /* Safe cast to size_t. */
+            result = ma_decoder_read_bytes(pDecoder, pRunningFramesOut, (size_t)framesToReadThisIteration * bpf, &framesReadThisIteration); /* Safe cast to size_t. */
+            framesReadThisIteration /= bpf;
             pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIteration * bpf);
         } else {
             /* We'll first try seeking. If this fails it means the end was reached and we'll to do a read-and-discard slow path to get the exact amount. */
-            if (ma_decoder_seek_bytes(pDecoder, (int)framesToReadThisIteration, ma_seek_origin_current)) {
+            if (ma_decoder_seek_bytes(pDecoder, (int)framesToReadThisIteration, ma_seek_origin_current) == MA_SUCCESS) {
                 framesReadThisIteration = framesToReadThisIteration;
             } else {
                 /* Slow path. Need to fall back to a read-and-discard. This is required so we can get the exact number of remaining. */
@@ -47295,10 +47494,11 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
                         framesToReadNow = bufferCap;
                     }
 
-                    framesReadNow = ma_decoder_read_bytes(pDecoder, buffer, (size_t)(framesToReadNow * bpf)) / bpf; /* Safe cast. */
+                    result = ma_decoder_read_bytes(pDecoder, buffer, (size_t)(framesToReadNow * bpf), &framesReadNow); /* Safe cast. */
+                    framesReadNow /= bpf;
                     framesReadThisIteration += framesReadNow;
 
-                    if (framesReadNow < framesToReadNow) {
+                    if (result != MA_SUCCESS || framesReadNow < framesToReadNow) {
                         break;  /* The end has been reached. */
                     }
                 }
@@ -47317,7 +47517,7 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
 
 static ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDecoder, ma_uint64 frameIndex)
 {
-    ma_bool32 result = MA_FALSE;
+    ma_result result = MA_ERROR;
     ma_uint64 totalBytesToSeek;
 
     MA_ASSERT(pDecoder != NULL);
@@ -47334,7 +47534,7 @@ static ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDeco
     } else {
         /* Complex case. Start by doing a seek relative to the start. Then keep looping using offset seeking. */
         result = ma_decoder_seek_bytes(pDecoder, 0x7FFFFFFF, ma_seek_origin_start);
-        if (result == MA_TRUE) {
+        if (result == MA_SUCCESS) {
             totalBytesToSeek -= 0x7FFFFFFF;
 
             while (totalBytesToSeek > 0) {
@@ -47344,7 +47544,7 @@ static ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDeco
                 }
 
                 result = ma_decoder_seek_bytes(pDecoder, (int)bytesToSeekThisIteration, ma_seek_origin_current);
-                if (result != MA_TRUE) {
+                if (result != MA_SUCCESS) {
                     break;
                 }
 
@@ -47353,11 +47553,7 @@ static ma_result ma_decoder_internal_on_seek_to_pcm_frame__raw(ma_decoder* pDeco
         }
     }
 
-    if (result) {
-        return MA_SUCCESS;
-    } else {
-        return MA_ERROR;
-    }
+    return result;
 }
 
 static ma_result ma_decoder_internal_on_uninit__raw(ma_decoder* pDecoder)
@@ -47467,7 +47663,7 @@ static ma_data_source_vtable g_ma_decoder_data_source_vtable =
     ma_decoder__data_source_on_get_length
 };
 
-static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, ma_decoder_tell_proc onTell, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
     ma_data_source_config dataSourceConfig;
@@ -47494,6 +47690,7 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
 
     pDecoder->onRead    = onRead;
     pDecoder->onSeek    = onSeek;
+    pDecoder->onTell    = onTell;
     pDecoder->pUserData = pUserData;
 
     result = ma_decoder__init_allocation_callbacks(pConfig, pDecoder);
@@ -47535,7 +47732,7 @@ MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_see
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47564,7 +47761,7 @@ MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_se
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47593,7 +47790,7 @@ MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_see
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47622,7 +47819,7 @@ MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47650,7 +47847,7 @@ MA_API ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_see
 
     config = ma_decoder_config_init_copy(pConfigOut);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47674,10 +47871,17 @@ static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decod
     (void)onRead;
     (void)onSeek;
     (void)pUserData;
-    (void)pConfig;
-    (void)pDecoder;
 
-    /* We use trial and error to open a decoder. */
+    /*
+    We use trial and error to open a decoder. We prioritize custom decoders so that if they
+    implement the same encoding format they take priority over the built-in decoders.
+    */
+    if (result != MA_SUCCESS) {
+        result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+        if (result != MA_SUCCESS) {
+            onSeek(pDecoder, 0, ma_seek_origin_start);
+        }
+    }
 
 #ifdef MA_HAS_WAV
     if (result != MA_SUCCESS) {
@@ -47726,7 +47930,7 @@ MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_pr
 
     config = ma_decoder_config_init_copy(pConfig);
 
-    result = ma_decoder__preinit(onRead, onSeek, pUserData, &config, pDecoder);
+    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47739,50 +47943,72 @@ static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut,
 {
     size_t bytesRemaining;
 
-    MA_ASSERT(pDecoder->backend.memory.dataSize >= pDecoder->backend.memory.currentReadPos);
+    MA_ASSERT(pDecoder->data.memory.dataSize >= pDecoder->data.memory.currentReadPos);
 
-    bytesRemaining = pDecoder->backend.memory.dataSize - pDecoder->backend.memory.currentReadPos;
+    bytesRemaining = pDecoder->data.memory.dataSize - pDecoder->data.memory.currentReadPos;
     if (bytesToRead > bytesRemaining) {
         bytesToRead = bytesRemaining;
     }
 
     if (bytesToRead > 0) {
-        MA_COPY_MEMORY(pBufferOut, pDecoder->backend.memory.pData + pDecoder->backend.memory.currentReadPos, bytesToRead);
-        pDecoder->backend.memory.currentReadPos += bytesToRead;
+        MA_COPY_MEMORY(pBufferOut, pDecoder->data.memory.pData + pDecoder->data.memory.currentReadPos, bytesToRead);
+        pDecoder->data.memory.currentReadPos += bytesToRead;
     }
 
     return bytesToRead;
 }
 
-static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin)
+static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
     if (origin == ma_seek_origin_current) {
         if (byteOffset > 0) {
-            if (pDecoder->backend.memory.currentReadPos + byteOffset > pDecoder->backend.memory.dataSize) {
-                byteOffset = (int)(pDecoder->backend.memory.dataSize - pDecoder->backend.memory.currentReadPos);  /* Trying to seek too far forward. */
+            if (pDecoder->data.memory.currentReadPos + byteOffset > pDecoder->data.memory.dataSize) {
+                byteOffset = (ma_int64)(pDecoder->data.memory.dataSize - pDecoder->data.memory.currentReadPos);  /* Trying to seek too far forward. */
             }
         } else {
-            if (pDecoder->backend.memory.currentReadPos < (size_t)-byteOffset) {
-                byteOffset = -(int)pDecoder->backend.memory.currentReadPos;  /* Trying to seek too far backwards. */
+            if (pDecoder->data.memory.currentReadPos < (size_t)-byteOffset) {
+                byteOffset = -(ma_int64)pDecoder->data.memory.currentReadPos;  /* Trying to seek too far backwards. */
             }
         }
 
         /* This will never underflow thanks to the clamps above. */
-        pDecoder->backend.memory.currentReadPos += byteOffset;
+        pDecoder->data.memory.currentReadPos += byteOffset;
     } else {
-        if ((ma_uint32)byteOffset <= pDecoder->backend.memory.dataSize) {
-            pDecoder->backend.memory.currentReadPos = byteOffset;
+        if (origin == ma_seek_origin_end) {
+            if (byteOffset < 0) {
+                byteOffset = -byteOffset;
+            }
+
+            if (byteOffset > (ma_int64)pDecoder->data.memory.dataSize) {
+                pDecoder->data.memory.currentReadPos = 0;   /* Trying to seek too far back. */
+            } else {
+                pDecoder->data.memory.currentReadPos = pDecoder->data.memory.dataSize - byteOffset;
+            }
         } else {
-            pDecoder->backend.memory.currentReadPos = pDecoder->backend.memory.dataSize;  /* Trying to seek too far forward. */
+            if ((size_t)byteOffset <= pDecoder->data.memory.dataSize) {
+                pDecoder->data.memory.currentReadPos = byteOffset;
+            } else {
+                pDecoder->data.memory.currentReadPos = pDecoder->data.memory.dataSize;  /* Trying to seek too far forward. */
+            }
         }
     }
 
     return MA_TRUE;
 }
 
+static ma_result ma_decoder__on_tell_memory(ma_decoder* pDecoder, ma_int64* pCursor)
+{
+    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pCursor  != NULL);
+
+    *pCursor = (ma_int64)pDecoder->data.memory.currentReadPos;
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_decoder__preinit_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = ma_decoder__preinit(ma_decoder__on_read_memory, ma_decoder__on_seek_memory, NULL, pConfig, pDecoder);
+    ma_result result = ma_decoder__preinit(ma_decoder__on_read_memory, ma_decoder__on_seek_memory, ma_decoder__on_tell_memory, NULL, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -47791,9 +48017,9 @@ static ma_result ma_decoder__preinit_memory(const void* pData, size_t dataSize, 
         return MA_INVALID_ARGS;
     }
 
-    pDecoder->backend.memory.pData = (const ma_uint8*)pData;
-    pDecoder->backend.memory.dataSize = dataSize;
-    pDecoder->backend.memory.currentReadPos = 0;
+    pDecoder->data.memory.pData = (const ma_uint8*)pData;
+    pDecoder->data.memory.dataSize = dataSize;
+    pDecoder->data.memory.currentReadPos = 0;
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -48133,18 +48359,18 @@ static size_t ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, si
     MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pBufferOut != NULL);
 
-    ma_vfs_or_default_read(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, pBufferOut, bytesToRead, &bytesRead);
+    ma_vfs_or_default_read(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, pBufferOut, bytesToRead, &bytesRead);
 
     return bytesRead;
 }
 
-static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, int offset, ma_seek_origin origin)
+static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, ma_int64 offset, ma_seek_origin origin)
 {
     ma_result result;
 
     MA_ASSERT(pDecoder != NULL);
 
-    result = ma_vfs_or_default_seek(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file, offset, origin);
+    result = ma_vfs_or_default_seek(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, offset, origin);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
@@ -48152,12 +48378,19 @@ static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, int offset, ma_se
     return MA_TRUE;
 }
 
+static ma_result ma_decoder__on_tell_vfs(ma_decoder* pDecoder, ma_int64* pCursor)
+{
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_vfs_or_default_tell(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, pCursor);
+}
+
 static ma_result ma_decoder__preinit_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
     ma_vfs_file file;
 
-    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, pConfig, pDecoder);
+    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, ma_decoder__on_tell_vfs, NULL, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -48171,8 +48404,8 @@ static ma_result ma_decoder__preinit_vfs(ma_vfs* pVFS, const char* pFilePath, co
         return result;
     }
 
-    pDecoder->backend.vfs.pVFS = pVFS;
-    pDecoder->backend.vfs.file = file;
+    pDecoder->data.vfs.pVFS = pVFS;
+    pDecoder->data.vfs.file = file;
 
     return MA_SUCCESS;
 }
@@ -48223,8 +48456,8 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
     }
 
     if (result != MA_SUCCESS) {
-        if (pDecoder->backend.vfs.file != NULL) {   /* <-- Will be reset to NULL if ma_decoder_uninit() is called in one of the steps above which allows us to avoid a double close of the file. */
-            ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        if (pDecoder->data.vfs.file != NULL) {   /* <-- Will be reset to NULL if ma_decoder_uninit() is called in one of the steps above which allows us to avoid a double close of the file. */
+            ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
         }
 
         return result;
@@ -48251,7 +48484,7 @@ MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, co
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48282,7 +48515,7 @@ MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, c
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48313,7 +48546,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, co
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48344,7 +48577,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath,
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48364,7 +48597,7 @@ static ma_result ma_decoder__preinit_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePat
     ma_result result;
     ma_vfs_file file;
 
-    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, pConfig, pDecoder);
+    result = ma_decoder__preinit(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, ma_decoder__on_tell_vfs, NULL, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -48378,8 +48611,8 @@ static ma_result ma_decoder__preinit_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePat
         return result;
     }
 
-    pDecoder->backend.vfs.pVFS = pVFS;
-    pDecoder->backend.vfs.file = file;
+    pDecoder->data.vfs.pVFS = pVFS;
+    pDecoder->data.vfs.file = file;
 
     return MA_SUCCESS;
 }
@@ -48430,7 +48663,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
         return result;
     }
 
@@ -48455,7 +48688,7 @@ MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePat
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48486,7 +48719,7 @@ MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePa
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48517,7 +48750,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePat
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48548,7 +48781,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFile
     }
 
     if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->backend.vfs.file);
+        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
     }
 
     return result;
@@ -48621,13 +48854,20 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         return MA_INVALID_ARGS;
     }
 
+    if (pDecoder->pBackend != NULL) {
+        if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
+            pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, pDecoder->pBackend, &pDecoder->allocationCallbacks);
+        }
+    }
+
+    /* Legacy. */
     if (pDecoder->onUninit) {
         pDecoder->onUninit(pDecoder);
     }
 
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
-        ma_vfs_or_default_close(pDecoder->backend.vfs.pVFS, pDecoder->backend.vfs.file);
-        pDecoder->backend.vfs.file = NULL;
+        ma_vfs_or_default_close(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file);
+        pDecoder->data.vfs.file = NULL;
     }
 
     ma_data_converter_uninit(&pDecoder->converter);
@@ -48659,8 +48899,16 @@ MA_API ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
         return 0;
     }
 
-    if (pDecoder->onGetLengthInPCMFrames) {
-        ma_uint64 nativeLengthInPCMFrames = pDecoder->onGetLengthInPCMFrames(pDecoder);
+    if (pDecoder->pBackend != NULL || pDecoder->onGetLengthInPCMFrames != NULL) {
+        ma_uint64 nativeLengthInPCMFrames;
+
+        if (pDecoder->pBackend != NULL) {
+            ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &nativeLengthInPCMFrames);
+        } else {
+            /* Legacy. */
+            nativeLengthInPCMFrames = pDecoder->onGetLengthInPCMFrames(pDecoder);
+        }
+        
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             return nativeLengthInPCMFrames;
         } else {
@@ -48682,20 +48930,30 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
         return 0;
     }
 
-    if (pDecoder->onReadPCMFrames == NULL) {
+    if (pDecoder->pBackend == NULL && pDecoder->onReadPCMFrames == NULL) {
         return 0;
     }
 
     /* Fast path. */
     if (pDecoder->converter.isPassthrough) {
-        totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
+        if (pDecoder->pBackend != NULL) {
+            result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pFramesOut, frameCount, &totalFramesReadOut, MA_FALSE);
+        } else {
+            /* Legacy. */
+            totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
+        }
     } else {
         /*
         Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
         need to run through each sample because we need to ensure it's internal cache is updated.
         */
         if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
-            totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
+            if (pDecoder->pBackend != NULL) {
+                result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut, MA_FALSE);
+            } else {
+                /* Legacy. */
+                totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
+            }
         } else {
             /* Slow path. Need to run everything through the data converter. */
             totalFramesReadOut = 0;
@@ -48723,7 +48981,13 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                 }
 
                 if (requiredInputFrameCount > 0) {
-                    framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
+                    if (pDecoder->pBackend != NULL) {
+                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
+                    } else {
+                        /* Legacy. */
+                        framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
+                    }
+
                     totalFramesReadIn += framesReadThisIterationIn;
                 } else {
                     framesReadThisIterationIn = 0;
@@ -48763,7 +49027,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         return MA_INVALID_ARGS;
     }
 
-    if (pDecoder->onSeekToPCMFrame) {
+    if (pDecoder->pBackend != NULL || pDecoder->onSeekToPCMFrame != NULL) {
         ma_result result;
         ma_uint64 internalFrameIndex;
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
@@ -48772,7 +49036,13 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
             internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
-        result = pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        if (pDecoder->pBackend != NULL) {
+            result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
+        } else {
+            /* Legacy. */
+            result = pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
+        }
+
         if (result == MA_SUCCESS) {
             pDecoder->readPointerInPCMFrames = frameIndex;
         }
