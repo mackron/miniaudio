@@ -47467,7 +47467,7 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
     pRunningFramesOut = pFramesOut;
 
     while (totalFramesRead < frameCount) {
-        ma_uint64 framesReadThisIteration;
+        size_t    framesReadThisIteration;
         ma_uint64 framesToReadThisIteration = (frameCount - totalFramesRead);
         if (framesToReadThisIteration > 0x7FFFFFFF/bpf) {
             framesToReadThisIteration = 0x7FFFFFFF/bpf;
@@ -47480,7 +47480,7 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
         } else {
             /* We'll first try seeking. If this fails it means the end was reached and we'll to do a read-and-discard slow path to get the exact amount. */
             if (ma_decoder_seek_bytes(pDecoder, (int)framesToReadThisIteration, ma_seek_origin_current) == MA_SUCCESS) {
-                framesReadThisIteration = framesToReadThisIteration;
+                framesReadThisIteration = (size_t)framesToReadThisIteration;    /* Safe cast. */
             } else {
                 /* Slow path. Need to fall back to a read-and-discard. This is required so we can get the exact number of remaining. */
                 ma_uint8 buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
@@ -47488,7 +47488,7 @@ static ma_uint64 ma_decoder_internal_on_read_pcm_frames__raw(ma_decoder* pDecode
 
                 framesReadThisIteration = 0;
                 while (framesReadThisIteration < framesToReadThisIteration) {
-                    ma_uint64 framesReadNow;
+                    size_t    framesReadNow;
                     ma_uint64 framesToReadNow = framesToReadThisIteration - framesReadThisIteration;
                     if (framesToReadNow > bufferCap) {
                         framesToReadNow = bufferCap;
@@ -47960,19 +47960,24 @@ static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut,
 
 static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
+    if (byteOffset > MA_SIZE_MAX) {
+        return MA_FALSE;    /* Too far. */
+    }
+
     if (origin == ma_seek_origin_current) {
         if (byteOffset > 0) {
             if (pDecoder->data.memory.currentReadPos + byteOffset > pDecoder->data.memory.dataSize) {
                 byteOffset = (ma_int64)(pDecoder->data.memory.dataSize - pDecoder->data.memory.currentReadPos);  /* Trying to seek too far forward. */
             }
+
+            pDecoder->data.memory.currentReadPos += (size_t)byteOffset;
         } else {
             if (pDecoder->data.memory.currentReadPos < (size_t)-byteOffset) {
                 byteOffset = -(ma_int64)pDecoder->data.memory.currentReadPos;  /* Trying to seek too far backwards. */
             }
-        }
 
-        /* This will never underflow thanks to the clamps above. */
-        pDecoder->data.memory.currentReadPos += byteOffset;
+            pDecoder->data.memory.currentReadPos -= (size_t)-byteOffset;
+        }
     } else {
         if (origin == ma_seek_origin_end) {
             if (byteOffset < 0) {
@@ -47982,11 +47987,11 @@ static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteO
             if (byteOffset > (ma_int64)pDecoder->data.memory.dataSize) {
                 pDecoder->data.memory.currentReadPos = 0;   /* Trying to seek too far back. */
             } else {
-                pDecoder->data.memory.currentReadPos = pDecoder->data.memory.dataSize - byteOffset;
+                pDecoder->data.memory.currentReadPos = pDecoder->data.memory.dataSize - (size_t)byteOffset;
             }
         } else {
             if ((size_t)byteOffset <= pDecoder->data.memory.dataSize) {
-                pDecoder->data.memory.currentReadPos = byteOffset;
+                pDecoder->data.memory.currentReadPos = (size_t)byteOffset;
             } else {
                 pDecoder->data.memory.currentReadPos = pDecoder->data.memory.dataSize;  /* Trying to seek too far forward. */
             }
