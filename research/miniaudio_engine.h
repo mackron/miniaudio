@@ -1466,6 +1466,9 @@ typedef struct
     ma_uint32 jobThreadCount;       /* Set to 0 if you want to self-manage your job threads. Defaults to 1. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
+    ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
+    ma_uint32 customDecodingBackendVTableCount;
+    void* pCustomDecodingBackendUserData;
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
@@ -6905,11 +6908,30 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     }
 
 
+    /* Custom decoding backends. */
+    if (pConfig->ppCustomDecodingBackendVTables != NULL && pConfig->customDecodingBackendVTableCount > 0) {
+        size_t sizeInBytes = sizeof(*pResourceManager->config.ppCustomDecodingBackendVTables) * pConfig->customDecodingBackendVTableCount;
+
+        pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
+        if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
+            ma_job_queue_uninit(&pResourceManager->jobQueue);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        MA_COPY_MEMORY(pResourceManager->config.ppCustomDecodingBackendVTables, pConfig->ppCustomDecodingBackendVTables, sizeInBytes);
+
+        pResourceManager->config.customDecodingBackendVTableCount = pConfig->customDecodingBackendVTableCount;
+        pResourceManager->config.pCustomDecodingBackendUserData   = pConfig->pCustomDecodingBackendUserData;
+    }
+    
+
+
     /* Here is where we initialize our threading stuff. We don't do this if we don't support threading. */
     if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
         /* Data buffer lock. */
         result = ma_mutex_init(&pResourceManager->dataBufferBSTLock);
         if (result != MA_SUCCESS) {
+            ma_job_queue_uninit(&pResourceManager->jobQueue);
             return result;
         }
 
@@ -6973,6 +6995,8 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
         ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
     }
+
+    ma_free(pResourceManager->config.ppCustomDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
 }
 
 
@@ -6985,7 +7009,10 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     MA_ASSERT(pDecoder         != NULL);
 
     config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-    config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+    config.allocationCallbacks      = pResourceManager->config.allocationCallbacks;
+    config.ppCustomBackendVTables   = pResourceManager->config.ppCustomDecodingBackendVTables;
+    config.customBackendVTableCount = pResourceManager->config.customDecodingBackendVTableCount;
+    config.pCustomBackendUserData   = pResourceManager->config.pCustomDecodingBackendUserData;
 
     if (pFilePath != NULL) {
         return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
