@@ -198,7 +198,7 @@ int main(int argc, char** argv)
 
     /*
     Add your custom backend vtables here. The order in the array defines the order of priority. The
-    vtables will be passed in via the decoder config.
+    vtables will be passed in to the resource manager config.
     */
     ma_decoding_backend_vtable* pCustomBackendVTables[] =
     {
@@ -237,7 +237,7 @@ int main(int argc, char** argv)
     }
 
 
-    /* Now we can start our sound. */
+    /* Now we can play our sound. */
     result = ma_engine_play_sound(&engine, argv[1], NULL);
     if (result != MA_SUCCESS) {
         printf("Failed to play sound.");
