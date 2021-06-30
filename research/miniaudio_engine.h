@@ -1885,7 +1885,7 @@ typedef struct
     ma_vfs* pResourceManagerVFS;            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
 } ma_engine_config;
 
-MA_API ma_engine_config ma_engine_config_init_default(void);
+MA_API ma_engine_config ma_engine_config_init(void);
 
 
 struct ma_engine
@@ -7334,7 +7334,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
         };
     }
 
-    if (result == MA_SUCCESS && (framesRead < framesToTryReading || framesRead == 0)) {
+    if (result == MA_SUCCESS && framesRead == 0) {
         result = MA_AT_END;
     }
 
@@ -11916,7 +11916,7 @@ MA_API ma_sound_group_config ma_sound_group_config_init(void)
 }
 
 
-MA_API ma_engine_config ma_engine_config_init_default(void)
+MA_API ma_engine_config ma_engine_config_init(void)
 {
     ma_engine_config config;
 
@@ -11975,7 +11975,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (pConfig != NULL) {
         engineConfig = *pConfig;
     } else {
-        engineConfig = ma_engine_config_init_default();
+        engineConfig = ma_engine_config_init();
     }
 
     pEngine->pResourceManager = engineConfig.pResourceManager;

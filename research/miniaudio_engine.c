@@ -59,7 +59,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    engineConfig = ma_engine_config_init_default();
+    engineConfig = ma_engine_config_init();
     engineConfig.pResourceManager = &resourceManager;
 
     result = ma_engine_init(&engineConfig, &engine);
