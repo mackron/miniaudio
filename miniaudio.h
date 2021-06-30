@@ -46498,13 +46498,18 @@ static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, s
 {
     size_t bytesRead;
 
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pBufferOut != NULL);
+    MA_ASSERT(pDecoder    != NULL);
+    MA_ASSERT(pBufferOut  != NULL);
+    MA_ASSERT(bytesToRead > 0); /* It's an error to call this with a byte count of zero. */
 
     bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
 
     if (pBytesRead != NULL) {
         *pBytesRead = bytesRead;
+    }
+
+    if (bytesRead == 0) {
+        return MA_AT_END;
     }
 
     return MA_SUCCESS;
@@ -47247,7 +47252,7 @@ static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, m
                 pVorbis->dataSize += bytesRead;
 
                 if (result != MA_SUCCESS) {
-                    return totalFramesRead; /* Error reading more data. */
+                    return totalFramesRead; /* Error reading more data, or end of file. */
                 }
             }
         } while (MA_TRUE);
@@ -47378,7 +47383,7 @@ static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConf
         result = ma_decoder_read_bytes(pDecoder, pData + dataSize, (dataCapacity - dataSize), &bytesRead);
         dataSize += bytesRead;
 
-        if (result != MA_SUCCESS) {
+        if (result != MA_SUCCESS && (result != MA_AT_END || bytesRead == 0)) {
             return result;
         }
 
