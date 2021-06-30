@@ -5927,7 +5927,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_NOT_IMPLEMENTED if mapping is not supported. */
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. */
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
@@ -7185,6 +7185,14 @@ Standard Library Stuff
 #define MA_COPY_MEMORY(dst, src, sz) CopyMemory((dst), (src), (sz))
 #else
 #define MA_COPY_MEMORY(dst, src, sz) memcpy((dst), (src), (sz))
+#endif
+#endif
+
+#ifndef MA_MOVE_MEMORY
+#ifdef MA_WIN32
+#define MA_MOVE_MEMORY(dst, src, sz) MoveMemory((dst), (src), (sz))
+#else
+#define MA_MOVE_MEMORY(dst, src, sz) memmove((dst), (src), (sz))
 #endif
 #endif
 
@@ -43406,7 +43414,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         }
 
         /* We need to make sure MA_AT_END is returned if we hit the end of the range. */
-        if (result != MA_AT_END && (cursor + framesRead) == rangeEnd) {
+        if (result != MA_AT_END && framesRead == 0) {
             result  = MA_AT_END;
         }
 
@@ -44045,7 +44053,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_read(ma_data_source* pDataS
         *pFramesRead = framesRead;
     }
 
-    if (framesRead < frameCount || (framesRead == frameCount && pAudioBufferRef->cursor == pAudioBufferRef->sizeInFrames)) {
+    if (framesRead < frameCount || framesRead == 0) {
         return MA_AT_END;
     }
 
@@ -44908,6 +44916,7 @@ static ma_result ma_default_vfs_read__win32(ma_vfs* pVFS, ma_vfs_file file, void
 
         readResult = ReadFile((HANDLE)file, ma_offset_ptr(pDst, totalBytesRead), bytesToRead, &bytesRead, NULL);
         if (readResult == 1 && bytesRead == 0) {
+            result = MA_AT_END;
             break;  /* EOF */
         }
 
@@ -45141,8 +45150,8 @@ static ma_result ma_default_vfs_read__stdio(ma_vfs* pVFS, ma_vfs_file file, void
     }
 
     if (result != sizeInBytes) {
-        if (feof((FILE*)file)) {
-            return MA_END_OF_FILE;
+        if (result == 0 && feof((FILE*)file)) {
+            return MA_AT_END;
         } else {
             return ma_result_from_errno(ferror((FILE*)file));
         }
@@ -47613,7 +47622,7 @@ static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, vo
         *pFramesRead = framesRead;
     }
 
-    if (framesRead < frameCount) {
+    if (framesRead == 0) {
         return MA_AT_END;
     }
 
@@ -49518,7 +49527,7 @@ static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, v
         *pFramesRead = framesRead;
     }
 
-    if (framesRead < frameCount) {
+    if (framesRead == 0) {
         return MA_AT_END;
     }
 
@@ -49954,7 +49963,7 @@ static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void
         *pFramesRead = framesRead;
     }
 
-    if (framesRead < frameCount) {
+    if (framesRead == 0) {
         return MA_AT_END;
     }
 
