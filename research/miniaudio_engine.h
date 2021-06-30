@@ -7045,7 +7045,10 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         {
             ma_decoder_config configOut;
             configOut = ma_decoder_config_init(pDataBuffer->pResourceManager->config.decodedFormat, pDataBuffer->pResourceManager->config.decodedChannels, pDataBuffer->pResourceManager->config.decodedSampleRate);
-            configOut.allocationCallbacks = pDataBuffer->pResourceManager->config.allocationCallbacks;
+            configOut.allocationCallbacks      = pDataBuffer->pResourceManager->config.allocationCallbacks;
+            configOut.ppCustomBackendVTables   = pDataBuffer->pResourceManager->config.ppCustomDecodingBackendVTables;
+            configOut.customBackendVTableCount = pDataBuffer->pResourceManager->config.customDecodingBackendVTableCount;
+            configOut.pCustomBackendUserData   = pDataBuffer->pResourceManager->config.pCustomDecodingBackendUserData;
 
             result = ma_decoder_init_memory(pDataBuffer->pNode->data.encoded.pData, pDataBuffer->pNode->data.encoded.sizeInBytes, &configOut, &pDataBuffer->connector.decoder);
         } break;
@@ -12507,6 +12510,10 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
         }
     }
     ma_mutex_unlock(&pEngine->inlinedSoundLock);
+
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     /* Finally we can start playing the sound. */
     result = ma_sound_start(&pSound->sound);
