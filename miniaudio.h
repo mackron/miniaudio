@@ -1788,7 +1788,7 @@ typedef int ma_result;
 #define MA_NOT_DIRECTORY                               -14
 #define MA_IS_DIRECTORY                                -15
 #define MA_DIRECTORY_NOT_EMPTY                         -16
-#define MA_END_OF_FILE                                 -17
+#define MA_AT_END                                      -17
 #define MA_NO_SPACE                                    -18
 #define MA_BUSY                                        -19
 #define MA_IO_ERROR                                    -20
@@ -1824,7 +1824,6 @@ typedef int ma_result;
 #define MA_IN_PROGRESS                                 -50
 #define MA_CANCELLED                                   -51
 #define MA_MEMORY_ALREADY_MAPPED                       -52
-#define MA_AT_END                                      -53
 
 /* General miniaudio-specific errors. */
 #define MA_FORMAT_NOT_SUPPORTED                        -100
@@ -10265,7 +10264,7 @@ static ma_result ma_result_from_GetLastError(DWORD error)
         case ERROR_TOO_MANY_OPEN_FILES: return MA_TOO_MANY_OPEN_FILES;
         case ERROR_NOT_ENOUGH_MEMORY:   return MA_OUT_OF_MEMORY;
         case ERROR_DISK_FULL:           return MA_NO_SPACE;
-        case ERROR_HANDLE_EOF:          return MA_END_OF_FILE;
+        case ERROR_HANDLE_EOF:          return MA_AT_END;
         case ERROR_NEGATIVE_SEEK:       return MA_BAD_SEEK;
         case ERROR_INVALID_PARAMETER:   return MA_INVALID_ARGS;
         case ERROR_ACCESS_DENIED:       return MA_ACCESS_DENIED;
@@ -43128,7 +43127,7 @@ MA_API const char* ma_result_description(ma_result result)
         case MA_NOT_DIRECTORY:                 return "Not a directory";
         case MA_IS_DIRECTORY:                  return "Is a directory";
         case MA_DIRECTORY_NOT_EMPTY:           return "Directory not empty";
-        case MA_END_OF_FILE:                   return "End of file";
+        case MA_AT_END:                        return "At end";
         case MA_NO_SPACE:                      return "No space available";
         case MA_BUSY:                          return "Device or resource busy";
         case MA_IO_ERROR:                      return "Input/output error";
@@ -43164,7 +43163,6 @@ MA_API const char* ma_result_description(ma_result result)
         case MA_IN_PROGRESS:                   return "Operation in progress";
         case MA_CANCELLED:                     return "Operation cancelled";
         case MA_MEMORY_ALREADY_MAPPED:         return "Memory already mapped";
-        case MA_AT_END:                        return "Reached end of collection";
 
         case MA_FORMAT_NOT_SUPPORTED:          return "Format not supported";
         case MA_DEVICE_TYPE_NOT_SUPPORTED:     return "Device type not supported";
