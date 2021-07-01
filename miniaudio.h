@@ -46918,133 +46918,631 @@ static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig,
 #ifdef dr_flac_h
 #define MA_HAS_FLAC
 
-static size_t ma_decoder_internal_on_read__flac(void* pUserData, void* pBufferOut, size_t bytesToRead)
+typedef struct
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_data_source_base ds;
+    ma_read_proc onRead;
+    ma_seek_proc onSeek;
+    ma_tell_proc onTell;
+    void* pReadSeekTellUserData;
+    ma_format format;           /* Can be f32, s16 or s32. */
+#if !defined(MA_NO_FLAC)
+    drflac* dr;
+#endif
+} ma_flac;
+
+MA_API ma_result ma_flac_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
+MA_API ma_result ma_flac_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
+MA_API ma_result ma_flac_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
+MA_API ma_result ma_flac_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac);
+MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_flac_seek_to_pcm_frame(ma_flac* pFlac, ma_uint64 frameIndex);
+MA_API ma_result ma_flac_get_data_format(ma_flac* pFlac, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_flac_get_cursor_in_pcm_frames(ma_flac* pFlac, ma_uint64* pCursor);
+MA_API ma_result ma_flac_get_length_in_pcm_frames(ma_flac* pFlac, ma_uint64* pLength);
+
+
+static ma_result ma_flac_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_flac_read_pcm_frames((ma_flac*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_flac_ds_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_flac_seek_to_pcm_frame((ma_flac*)pDataSource, frameIndex);
+}
+
+static ma_result ma_flac_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_flac_get_data_format((ma_flac*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+}
+
+static ma_result ma_flac_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_flac_get_cursor_in_pcm_frames((ma_flac*)pDataSource, pCursor);
+}
+
+static ma_result ma_flac_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_flac_get_length_in_pcm_frames((ma_flac*)pDataSource, pLength);
+}
+
+static ma_data_source_vtable g_ma_flac_ds_vtable =
+{
+    ma_flac_ds_read,
+    ma_flac_ds_seek,
+    NULL,   /* onMap() */
+    NULL,   /* onUnmap() */
+    ma_flac_ds_get_data_format,
+    ma_flac_ds_get_cursor,
+    ma_flac_ds_get_length
+};
+
+
+#if !defined(MA_NO_FLAC)
+static drflac_allocation_callbacks drflac_allocation_callbacks_from_miniaudio(const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    drflac_allocation_callbacks callbacks;
+
+    if (pAllocationCallbacks != NULL) {
+        callbacks.onMalloc  = pAllocationCallbacks->onMalloc;
+        callbacks.onRealloc = pAllocationCallbacks->onRealloc;
+        callbacks.onFree    = pAllocationCallbacks->onFree;
+        callbacks.pUserData = pAllocationCallbacks->pUserData;
+    } else {
+        callbacks.onMalloc  = ma__malloc_default;
+        callbacks.onRealloc = ma__realloc_default;
+        callbacks.onFree    = ma__free_default;
+        callbacks.pUserData = NULL;
+    }
+
+    return callbacks;
+}
+
+static size_t ma_flac_dr_callback__read(void* pUserData, void* pBufferOut, size_t bytesToRead)
+{
+    ma_flac* pFlac = (ma_flac*)pUserData;
     ma_result result;
     size_t bytesRead;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pFlac != NULL);
 
-    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    result = pFlac->onRead(pFlac->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
     (void)result;
 
     return bytesRead;
 }
 
-static drflac_bool32 ma_decoder_internal_on_seek__flac(void* pUserData, int offset, drflac_seek_origin origin)
+static drflac_bool32 ma_flac_dr_callback__seek(void* pUserData, int offset, drflac_seek_origin origin)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_flac* pFlac = (ma_flac*)pUserData;
     ma_result result;
+    ma_seek_origin maSeekOrigin;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pFlac != NULL);
 
-    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drflac_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    maSeekOrigin = ma_seek_origin_start;
+    if (origin == drflac_seek_origin_current) {
+        maSeekOrigin =  ma_seek_origin_current;
+    }
+
+    result = pFlac->onSeek(pFlac->pReadSeekTellUserData, offset, maSeekOrigin);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
 
     return MA_TRUE;
 }
+#endif
 
-static ma_uint64 ma_decoder_internal_on_read_pcm_frames__flac(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_flac_init_internal(const ma_decoding_backend_config* pConfig, ma_flac* pFlac)
 {
-    drflac* pFlac;
+    ma_result result;
+    ma_data_source_config dataSourceConfig;
 
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-
-    pFlac = (drflac*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pFlac != NULL);
-
-    switch (pDecoder->internalFormat) {
-        case ma_format_s16: return drflac_read_pcm_frames_s16(pFlac, frameCount, (drflac_int16*)pFramesOut);
-        case ma_format_s32: return drflac_read_pcm_frames_s32(pFlac, frameCount, (drflac_int32*)pFramesOut);
-        case ma_format_f32: return drflac_read_pcm_frames_f32(pFlac, frameCount,        (float*)pFramesOut);
-        default: break;
+    if (pFlac == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    /* Should never get here. If we do, it means the internal format was not set correctly at initialization time. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
-}
+    MA_ZERO_OBJECT(pFlac);
+    pFlac->format = ma_format_f32;    /* f32 by default. */
 
-static ma_result ma_decoder_internal_on_seek_to_pcm_frame__flac(ma_decoder* pDecoder, ma_uint64 frameIndex)
-{
-    drflac* pFlac;
-    drflac_bool32 result;
-
-    pFlac = (drflac*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pFlac != NULL);
-
-    result = drflac_seek_to_pcm_frame(pFlac, frameIndex);
-    if (result) {
-        return MA_SUCCESS;
+    if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16 || pConfig->preferredFormat == ma_format_s32)) {
+        pFlac->format = pConfig->preferredFormat;
     } else {
-        return MA_ERROR;
+        /* Getting here means something other than f32 and s16 was specified. Just leave this unset to use the default format. */
     }
-}
 
-static ma_result ma_decoder_internal_on_uninit__flac(ma_decoder* pDecoder)
-{
-    drflac_close((drflac*)pDecoder->pInternalDecoder);
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_flac_ds_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pFlac->ds);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the base data source. */
+    }
+
     return MA_SUCCESS;
 }
 
-static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__flac(ma_decoder* pDecoder)
+MA_API ma_result ma_flac_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
 {
-    return ((drflac*)pDecoder->pInternalDecoder)->totalPCMFrameCount;
+    ma_result result;
+
+    result = ma_flac_init_internal(pConfig, pFlac);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (onRead == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
+    }
+
+    pFlac->onRead = onRead;
+    pFlac->onSeek = onSeek;
+    pFlac->onTell = onTell;
+    pFlac->pReadSeekTellUserData = pReadSeekTellUserData;
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_allocation_callbacks flacAllocationCallbacks = drflac_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+
+        pFlac->dr = drflac_open(ma_flac_dr_callback__read, ma_flac_dr_callback__seek, pFlac, &flacAllocationCallbacks);
+        if (pFlac->dr == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. */
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
 }
+
+MA_API ma_result ma_flac_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
+{
+    ma_result result;
+
+    result = ma_flac_init_internal(pConfig, pFlac);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_allocation_callbacks flacAllocationCallbacks = drflac_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+
+        pFlac->dr = drflac_open_file(pFilePath, &flacAllocationCallbacks);
+        if (pFlac->dr == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
+{
+    ma_result result;
+
+    result = ma_flac_init_internal(pConfig, pFlac);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_allocation_callbacks flacAllocationCallbacks = drflac_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+
+        pFlac->dr = drflac_open_file_w(pFilePath, &flacAllocationCallbacks);
+        if (pFlac->dr == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_flac* pFlac)
+{
+    ma_result result;
+
+    result = ma_flac_init_internal(pConfig, pFlac);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_allocation_callbacks flacAllocationCallbacks = drflac_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+
+        pFlac->dr = drflac_open_memory(pData, dataSize, &flacAllocationCallbacks);
+        if (pFlac->dr == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. */
+        (void)pData;
+        (void)dataSize;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pFlac == NULL) {
+        return;
+    }
+
+    (void)pAllocationCallbacks;
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_close(pFlac->dr);
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+    }
+    #endif
+
+    ma_data_source_uninit(&pFlac->ds);
+}
+
+MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pFlac == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        /* We always use floating point format. */
+        ma_result result = MA_SUCCESS;  /* Must be initialized to MA_SUCCESS. */
+        ma_uint64 totalFramesRead = 0;
+        ma_format format;
+
+        ma_flac_get_data_format(pFlac, &format, NULL, NULL, NULL, 0);
+
+        switch (format)
+        {
+            case ma_format_f32:
+            {
+                totalFramesRead = drflac_read_pcm_frames_f32(pFlac->dr, frameCount, (float*)pFramesOut);
+            } break;
+
+            case ma_format_s16:
+            {
+                totalFramesRead = drflac_read_pcm_frames_s16(pFlac->dr, frameCount, (drflac_int16*)pFramesOut);
+            } break;
+
+            case ma_format_s32:
+            {
+                totalFramesRead = drflac_read_pcm_frames_s32(pFlac->dr, frameCount, (drflac_int32*)pFramesOut);
+            } break;
+
+            case ma_format_u8:
+            case ma_format_s24:
+            case ma_format_unknown:
+            default:
+            {
+                return MA_INVALID_OPERATION;
+            };
+        }
+
+        /* In the future we'll update dr_flac to return MA_AT_END for us. */
+        if (totalFramesRead == 0) {
+            result = MA_AT_END;
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
+        }
+
+        return result;
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)pFramesOut;
+        (void)frameCount;
+        (void)pFramesRead;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_seek_to_pcm_frame(ma_flac* pFlac, ma_uint64 frameIndex)
+{
+    if (pFlac == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        drflac_bool32 flacResult;
+        
+        flacResult = drflac_seek_to_pcm_frame(pFlac->dr, frameIndex);
+        if (flacResult != DRFLAC_TRUE) {
+            return MA_ERROR;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)frameIndex;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_get_data_format(ma_flac* pFlac, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    /* Defaults for safety. */
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+    if (pChannelMap != NULL) {
+        MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channelMapCap);
+    }
+
+    if (pFlac == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = pFlac->format;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        if (pChannels != NULL) {
+            *pChannels = pFlac->dr->channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pFlac->dr->sampleRate;
+        }
+
+        if (pChannelMap != NULL) {
+            ma_get_standard_channel_map(ma_standard_channel_map_microsoft, (ma_uint32)ma_min(pFlac->dr->channels, channelMapCap), pChannelMap);
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_get_cursor_in_pcm_frames(ma_flac* pFlac, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;   /* Safety. */
+
+    if (pFlac == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        *pCursor = pFlac->dr->currentPCMFrame;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_flac_get_length_in_pcm_frames(ma_flac* pFlac, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;   /* Safety. */
+
+    if (pFlac == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_FLAC)
+    {
+        *pLength = pFlac->dr->totalPCMFrameCount;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* flac is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+
+static ma_result ma_decoding_backend_init__flac(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_flac* pFlac;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
+    if (pFlac == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_flac_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pFlac);
+    if (result != MA_SUCCESS) {
+        ma_free(pFlac, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pFlac;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__flac(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_flac* pFlac;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
+    if (pFlac == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_flac_init_file(pFilePath, pConfig, pAllocationCallbacks, pFlac);
+    if (result != MA_SUCCESS) {
+        ma_free(pFlac, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pFlac;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file_w__flac(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_flac* pFlac;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
+    if (pFlac == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_flac_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pFlac);
+    if (result != MA_SUCCESS) {
+        ma_free(pFlac, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pFlac;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_memory__flac(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_flac* pFlac;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pFlac = (ma_flac*)ma_malloc(sizeof(*pFlac), pAllocationCallbacks);
+    if (pFlac == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_flac_init_memory(pData, dataSize, pConfig, pAllocationCallbacks, pFlac);
+    if (result != MA_SUCCESS) {
+        ma_free(pFlac, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pFlac;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__flac(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_flac* pFlac = (ma_flac*)pBackend;
+
+    (void)pUserData;
+
+    ma_flac_uninit(pFlac, pAllocationCallbacks);
+    ma_free(pFlac, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__flac(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_flac* pFlac = (ma_flac*)pBackend;
+
+    (void)pUserData;
+
+    return ma_flac_get_data_format(pFlac, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
+{
+    ma_decoding_backend_init__flac,
+    ma_decoding_backend_init_file__flac,
+    ma_decoding_backend_init_file_w__flac,
+    ma_decoding_backend_init_memory__flac,
+    ma_decoding_backend_uninit__flac,
+    ma_decoding_backend_get_channel_map__flac
+};
 
 static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    drflac* pFlac;
-    drflac_allocation_callbacks allocationCallbacks;
-
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    allocationCallbacks.pUserData = pDecoder->allocationCallbacks.pUserData;
-    allocationCallbacks.onMalloc  = pDecoder->allocationCallbacks.onMalloc;
-    allocationCallbacks.onRealloc = pDecoder->allocationCallbacks.onRealloc;
-    allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
-
-    /* Try opening the decoder first. */
-    pFlac = drflac_open(ma_decoder_internal_on_read__flac, ma_decoder_internal_on_seek__flac, pDecoder, &allocationCallbacks);
-    if (pFlac == NULL) {
-        return MA_ERROR;
-    }
-
-    /* If we get here it means we successfully initialized the FLAC decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__flac;
-    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__flac;
-    pDecoder->onUninit               = ma_decoder_internal_on_uninit__flac;
-    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__flac;
-    pDecoder->pInternalDecoder       = pFlac;
-
-    /*
-    dr_flac supports reading as s32, s16 and f32. Try to do a one-to-one mapping if possible, but fall back to s32 if not. s32 is the "native" FLAC format
-    since it's the only one that's truly lossless. If the internal bits per sample is <= 16 we will decode to ma_format_s16 to keep it more efficient.
-    */
-    if (pConfig->format == ma_format_unknown) {
-        if (pFlac->bitsPerSample <= 16) {
-            pDecoder->internalFormat = ma_format_s16;
-        } else {
-            pDecoder->internalFormat = ma_format_s32;
-        }
-    } else {
-        if (pConfig->format == ma_format_s16 || pConfig->format == ma_format_f32) {
-            pDecoder->internalFormat = pConfig->format;
-        } else {
-            pDecoder->internalFormat = ma_format_s32;   /* s32 as the baseline to ensure no loss of precision for 24-bit encoded files. */
-        }
-    }
-
-    pDecoder->internalChannels = pFlac->channels;
-    pDecoder->internalSampleRate = pFlac->sampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_flac, pDecoder->internalChannels, pDecoder->internalChannelMap);
-
-    return MA_SUCCESS;
+    return ma_decoder_init_from_vtable(&g_ma_decoding_backend_vtable_flac, NULL, pConfig, pDecoder);
 }
 #endif  /* dr_flac_h */
 
