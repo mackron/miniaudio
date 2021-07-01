@@ -23047,7 +23047,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
 
-        if (ss.format == MA_PA_SAMPLE_INVALID) {
+        if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
                 ss.format = MA_PA_SAMPLE_FLOAT32LE;
             } else {
