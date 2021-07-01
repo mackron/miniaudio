@@ -558,17 +558,13 @@ If you want to loop back to the start, you can simply seek back to the first PCM
     ```
 
 When loading a decoder, miniaudio uses a trial and error technique to find the appropriate decoding backend. This can be unnecessarily inefficient if the type
-is already known. In this case you can use the `_wav`, `_mp3`, etc. varients of the aforementioned initialization APIs:
+is already known. In this case you can use `encodingFormat` variable in the device config to specify a specific encoding format you want to decode:
 
     ```c
-    ma_decoder_init_wav()
-    ma_decoder_init_mp3()
-    ma_decoder_init_memory_wav()
-    ma_decoder_init_memory_mp3()
-    ma_decoder_init_file_wav()
-    ma_decoder_init_file_mp3()
-    etc.
+    decoderConfig.encodingFormat = ma_encoding_format_wav;
     ```
+
+See the `ma_encoding_format` enum for possible encoding formats.
 
 The `ma_decoder_init_file()` API will try using the file extension to determine which decoding backend to prefer.
 
@@ -6074,6 +6070,15 @@ typedef enum
 {
     ma_resource_format_wav
 } ma_resource_format;
+
+typedef enum
+{
+    ma_encoding_format_unknown = 0,
+    ma_encoding_format_wav,
+    ma_encoding_format_flac,
+    ma_encoding_format_mp3,
+    ma_encoding_format_vorbis
+} ma_encoding_format;
 #endif
 
 /************************************************************************************************************************************************************
@@ -6140,6 +6145,7 @@ typedef struct
         } speex;
     } resampling;
     ma_allocation_callbacks allocationCallbacks;
+    ma_encoding_format encodingFormat;
     ma_decoding_backend_vtable** ppCustomBackendVTables;
     ma_uint32 customBackendCount;
     void* pCustomBackendUserData;
@@ -6182,41 +6188,15 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
 MA_API ma_decoder_config ma_decoder_config_init_default();
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
+/*
+Uninitializes a decoder.
+*/
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
 
 /*
@@ -6272,6 +6252,43 @@ pConfig should be set to what you want. On output it will be set to what you got
 MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
+
+
+
+
+/*
+DEPRECATED
+
+Set the "encodingFormat" variable in the decoder config instead:
+
+    decoderConfig.encodingFormat = ma_encoding_format_wav;
+
+These functions will be removed in version 0.11.
+*/
+MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 #endif  /* MA_NO_DECODING */
 
@@ -23075,6 +23092,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodCount, &ss);
     #ifdef MA_DEBUG_OUTPUT
+        printf("[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
         printf("[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
     #endif
 
@@ -46720,6 +46738,7 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
     config.resampling.algorithm = ma_resample_algorithm_linear;
     config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.resampling.speex.quality = 3;
+    config.encodingFormat = ma_encoding_format_unknown;
 
     /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
 
@@ -49749,21 +49768,11 @@ MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_see
 {
 #ifdef MA_HAS_WAV
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);
+    config.encodingFormat = ma_encoding_format_wav;
 
-    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_wav__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init(onRead, onSeek, pUserData, &config, pDecoder);
 #else
     (void)onRead;
     (void)onSeek;
@@ -49778,21 +49787,11 @@ MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_se
 {
 #ifdef MA_HAS_FLAC
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);
+    config.encodingFormat = ma_encoding_format_flac;
 
-    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_flac__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init(onRead, onSeek, pUserData, &config, pDecoder);
 #else
     (void)onRead;
     (void)onSeek;
@@ -49807,21 +49806,11 @@ MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_see
 {
 #ifdef MA_HAS_MP3
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);
+    config.encodingFormat = ma_encoding_format_mp3;
 
-    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_mp3__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init(onRead, onSeek, pUserData, &config, pDecoder);
 #else
     (void)onRead;
     (void)onSeek;
@@ -49836,21 +49825,11 @@ MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_
 {
 #ifdef MA_HAS_VORBIS
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);
+    config.encodingFormat = ma_encoding_format_vorbis;
 
-    result = ma_decoder__preinit(onRead, onSeek, NULL, pUserData, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init(onRead, onSeek, pUserData, &config, pDecoder);
 #else
     (void)onRead;
     (void)onSeek;
@@ -49875,49 +49854,83 @@ static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decod
     (void)onSeek;
     (void)pUserData;
 
-    /*
-    We use trial and error to open a decoder. We prioritize custom decoders so that if they
-    implement the same encoding format they take priority over the built-in decoders.
-    */
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+
+    /* If we've specified a specific encoding type, try that first. */
+    if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+    #ifdef MA_HAS_WAV
+        if (pConfig->encodingFormat == ma_encoding_format_wav) {
+            result = ma_decoder_init_wav__internal(pConfig, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_FLAC
+        if (pConfig->encodingFormat == ma_encoding_format_flac) {
+            result = ma_decoder_init_flac__internal(pConfig, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_MP3
+        if (pConfig->encodingFormat == ma_encoding_format_mp3) {
+            result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_VORBIS
+        if (pConfig->encodingFormat == ma_encoding_format_vorbis) {
+            result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
+        }
+    #endif
+
+        /* If we weren't able to initialize the decoder, seek back to the start to give the next attempts a clean start. */
         if (result != MA_SUCCESS) {
             onSeek(pDecoder, 0, ma_seek_origin_start);
         }
     }
 
-#ifdef MA_HAS_WAV
     if (result != MA_SUCCESS) {
-        result = ma_decoder_init_wav__internal(pConfig, pDecoder);
+        /* Getting here means we couldn't load a specific decoding backend based on the encoding format. */
+
+        /*
+        We use trial and error to open a decoder. We prioritize custom decoders so that if they
+        implement the same encoding format they take priority over the built-in decoders.
+        */
         if (result != MA_SUCCESS) {
-            onSeek(pDecoder, 0, ma_seek_origin_start);
+            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                onSeek(pDecoder, 0, ma_seek_origin_start);
+            }
         }
-    }
-#endif
-#ifdef MA_HAS_FLAC
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init_flac__internal(pConfig, pDecoder);
+
+    #ifdef MA_HAS_WAV
         if (result != MA_SUCCESS) {
-            onSeek(pDecoder, 0, ma_seek_origin_start);
+            result = ma_decoder_init_wav__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                onSeek(pDecoder, 0, ma_seek_origin_start);
+            }
         }
-    }
-#endif
-#ifdef MA_HAS_MP3
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
+    #endif
+    #ifdef MA_HAS_FLAC
         if (result != MA_SUCCESS) {
-            onSeek(pDecoder, 0, ma_seek_origin_start);
+            result = ma_decoder_init_flac__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                onSeek(pDecoder, 0, ma_seek_origin_start);
+            }
         }
-    }
-#endif
-#ifdef MA_HAS_VORBIS
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
+    #endif
+    #ifdef MA_HAS_MP3
         if (result != MA_SUCCESS) {
-            onSeek(pDecoder, 0, ma_seek_origin_start);
+            result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                onSeek(pDecoder, 0, ma_seek_origin_start);
+            }
         }
+    #endif
+    #ifdef MA_HAS_VORBIS
+        if (result != MA_SUCCESS) {
+            result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                onSeek(pDecoder, 0, ma_seek_origin_start);
+            }
+        }
+    #endif
     }
-#endif
 
     if (result != MA_SUCCESS) {
         return result;
@@ -50052,21 +50065,11 @@ MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, 
 {
 #ifdef MA_HAS_WAV
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
+    config.encodingFormat = ma_encoding_format_wav;
 
-    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_wav__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50080,21 +50083,11 @@ MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize,
 {
 #ifdef MA_HAS_FLAC
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
+    config.encodingFormat = ma_encoding_format_flac;
 
-    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_flac__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50108,21 +50101,11 @@ MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, 
 {
 #ifdef MA_HAS_MP3
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
+    config.encodingFormat = ma_encoding_format_mp3;
 
-    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_mp3__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50136,21 +50119,11 @@ MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSiz
 {
 #ifdef MA_HAS_VORBIS
     ma_decoder_config config;
-    ma_result result;
 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
+    config.encodingFormat = ma_encoding_format_vorbis;
 
-    result = ma_decoder__preinit_memory(pData, dataSize, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(&config, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50412,30 +50385,61 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
 
     result = MA_NO_BACKEND;
 
-#ifdef MA_HAS_WAV
-    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
-        result = ma_decoder_init_wav__internal(&config, pDecoder);
+    if (config.encodingFormat != ma_encoding_format_unknown) {
+    #ifdef MA_HAS_WAV
+        if (config.encodingFormat == ma_encoding_format_wav) {
+            result = ma_decoder_init_wav__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_FLAC
+        if (config.encodingFormat == ma_encoding_format_flac) {
+            result = ma_decoder_init_flac__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_MP3
+        if (config.encodingFormat == ma_encoding_format_mp3) {
+            result = ma_decoder_init_mp3__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_VORBIS
+        if (config.encodingFormat == ma_encoding_format_vorbis) {
+            result = ma_decoder_init_vorbis__internal(&config, pDecoder);
+        }
+    #endif
+
+        /* Make sure we seek back to the start if we didn't initialize a decoder successfully so the next attempts have a fresh start. */
         if (result != MA_SUCCESS) {
             ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
         }
     }
-#endif
-#ifdef MA_HAS_FLAC
-    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "flac")) {
-        result = ma_decoder_init_flac__internal(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+
+    if (result != MA_SUCCESS) {
+        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
+    #ifdef MA_HAS_WAV
+        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
+            result = ma_decoder_init_wav__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
         }
-    }
-#endif
-#ifdef MA_HAS_MP3
-    if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "mp3")) {
-        result = ma_decoder_init_mp3__internal(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+    #endif
+    #ifdef MA_HAS_FLAC
+        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "flac")) {
+            result = ma_decoder_init_flac__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
         }
+    #endif
+    #ifdef MA_HAS_MP3
+        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "mp3")) {
+            result = ma_decoder_init_mp3__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
+        }
+    #endif
     }
-#endif
 
     /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
     if (result != MA_SUCCESS) {
@@ -50458,25 +50462,12 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
 MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_WAV
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_wav;
 
-    result = ma_decoder_init_wav__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50489,25 +50480,12 @@ MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, co
 MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_FLAC
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_flac;
 
-    result = ma_decoder_init_flac__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50520,25 +50498,12 @@ MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, c
 MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_MP3
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_mp3;
 
-    result = ma_decoder_init_mp3__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50551,25 +50516,12 @@ MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, co
 MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_VORBIS
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_vorbis;
 
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50619,30 +50571,61 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
 
     result = MA_NO_BACKEND;
 
-#ifdef MA_HAS_WAV
-    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
-        result = ma_decoder_init_wav__internal(&config, pDecoder);
+    if (config.encodingFormat != ma_encoding_format_unknown) {
+    #ifdef MA_HAS_WAV
+        if (config.encodingFormat == ma_encoding_format_wav) {
+            result = ma_decoder_init_wav__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_FLAC
+        if (config.encodingFormat == ma_encoding_format_flac) {
+            result = ma_decoder_init_flac__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_MP3
+        if (config.encodingFormat == ma_encoding_format_mp3) {
+            result = ma_decoder_init_mp3__internal(&config, pDecoder);
+        }
+    #endif
+    #ifdef MA_HAS_VORBIS
+        if (config.encodingFormat == ma_encoding_format_vorbis) {
+            result = ma_decoder_init_vorbis__internal(&config, pDecoder);
+        }
+    #endif
+
+        /* Make sure we seek back to the start if we didn't initialize a decoder successfully so the next attempts have a fresh start. */
         if (result != MA_SUCCESS) {
             ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
         }
     }
-#endif
-#ifdef MA_HAS_FLAC
-    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"flac")) {
-        result = ma_decoder_init_flac__internal(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+
+    if (result != MA_SUCCESS) {
+        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
+    #ifdef MA_HAS_WAV
+        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
+            result = ma_decoder_init_wav__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
         }
-    }
-#endif
-#ifdef MA_HAS_MP3
-    if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"mp3")) {
-        result = ma_decoder_init_mp3__internal(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+    #endif
+    #ifdef MA_HAS_FLAC
+        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"flac")) {
+            result = ma_decoder_init_flac__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
         }
+    #endif
+    #ifdef MA_HAS_MP3
+        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"mp3")) {
+            result = ma_decoder_init_mp3__internal(&config, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
+        }
+    #endif
     }
-#endif
 
     /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
     if (result != MA_SUCCESS) {
@@ -50662,25 +50645,12 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
 MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_WAV
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_wav;
 
-    result = ma_decoder_init_wav__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50693,25 +50663,12 @@ MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePat
 MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_FLAC
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_flac;
 
-    result = ma_decoder_init_flac__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50724,25 +50681,12 @@ MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePa
 MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_MP3
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_mp3;
 
-    result = ma_decoder_init_mp3__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50755,25 +50699,12 @@ MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePat
 MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
 #ifdef MA_HAS_VORBIS
-    ma_result result;
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
-    result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
+    config.encodingFormat = ma_encoding_format_vorbis;
 
-    result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
-    }
-
-    return result;
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
