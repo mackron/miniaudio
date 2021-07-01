@@ -46760,157 +46760,639 @@ static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConf
 #ifdef dr_wav_h
 #define MA_HAS_WAV
 
-static size_t ma_decoder_internal_on_read__wav(void* pUserData, void* pBufferOut, size_t bytesToRead)
+typedef struct
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_data_source_base ds;
+    ma_read_proc onRead;
+    ma_seek_proc onSeek;
+    ma_tell_proc onTell;
+    void* pReadSeekTellUserData;
+    ma_format format;           /* Can be f32, s16 or s32. */
+    ma_uint64 cursor;           /* TODO: Manage this within dr_wav. */
+#if !defined(MA_NO_WAV)
+    drwav dr;
+#endif
+} ma_wav;
+
+MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
+MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
+MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
+MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav);
+MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_wav_seek_to_pcm_frame(ma_wav* pWav, ma_uint64 frameIndex);
+MA_API ma_result ma_wav_get_data_format(ma_wav* pWav, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_wav_get_cursor_in_pcm_frames(ma_wav* pWav, ma_uint64* pCursor);
+MA_API ma_result ma_wav_get_length_in_pcm_frames(ma_wav* pWav, ma_uint64* pLength);
+
+
+static ma_result ma_wav_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_wav_read_pcm_frames((ma_wav*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_wav_ds_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_wav_seek_to_pcm_frame((ma_wav*)pDataSource, frameIndex);
+}
+
+static ma_result ma_wav_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_wav_get_data_format((ma_wav*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+}
+
+static ma_result ma_wav_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_wav_get_cursor_in_pcm_frames((ma_wav*)pDataSource, pCursor);
+}
+
+static ma_result ma_wav_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_wav_get_length_in_pcm_frames((ma_wav*)pDataSource, pLength);
+}
+
+static ma_data_source_vtable g_ma_wav_ds_vtable =
+{
+    ma_wav_ds_read,
+    ma_wav_ds_seek,
+    NULL,   /* onMap() */
+    NULL,   /* onUnmap() */
+    ma_wav_ds_get_data_format,
+    ma_wav_ds_get_cursor,
+    ma_wav_ds_get_length
+};
+
+
+#if !defined(MA_NO_WAV)
+static drwav_allocation_callbacks drwav_allocation_callbacks_from_miniaudio(const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    drwav_allocation_callbacks callbacks;
+
+    if (pAllocationCallbacks != NULL) {
+        callbacks.onMalloc  = pAllocationCallbacks->onMalloc;
+        callbacks.onRealloc = pAllocationCallbacks->onRealloc;
+        callbacks.onFree    = pAllocationCallbacks->onFree;
+        callbacks.pUserData = pAllocationCallbacks->pUserData;
+    } else {
+        callbacks.onMalloc  = ma__malloc_default;
+        callbacks.onRealloc = ma__realloc_default;
+        callbacks.onFree    = ma__free_default;
+        callbacks.pUserData = NULL;
+    }
+
+    return callbacks;
+}
+
+static size_t ma_wav_dr_callback__read(void* pUserData, void* pBufferOut, size_t bytesToRead)
+{
+    ma_wav* pWav = (ma_wav*)pUserData;
     ma_result result;
     size_t bytesRead;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pWav != NULL);
 
-    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    result = pWav->onRead(pWav->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
     (void)result;
 
     return bytesRead;
 }
 
-static drwav_bool32 ma_decoder_internal_on_seek__wav(void* pUserData, int offset, drwav_seek_origin origin)
+static drwav_bool32 ma_wav_dr_callback__seek(void* pUserData, int offset, drwav_seek_origin origin)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_wav* pWav = (ma_wav*)pUserData;
     ma_result result;
+    ma_seek_origin maSeekOrigin;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pWav != NULL);
 
-    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    maSeekOrigin = ma_seek_origin_start;
+    if (origin == drwav_seek_origin_current) {
+        maSeekOrigin =  ma_seek_origin_current;
+    }
+
+    result = pWav->onSeek(pWav->pReadSeekTellUserData, offset, maSeekOrigin);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
 
     return MA_TRUE;
 }
+#endif
 
-static ma_uint64 ma_decoder_internal_on_read_pcm_frames__wav(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
+static ma_result ma_wav_init_internal(const ma_decoding_backend_config* pConfig, ma_wav* pWav)
 {
-    drwav* pWav;
+    ma_result result;
+    ma_data_source_config dataSourceConfig;
 
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-
-    pWav = (drwav*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pWav != NULL);
-
-    switch (pDecoder->internalFormat) {
-        case ma_format_s16: return drwav_read_pcm_frames_s16(pWav, frameCount, (drwav_int16*)pFramesOut);
-        case ma_format_s32: return drwav_read_pcm_frames_s32(pWav, frameCount, (drwav_int32*)pFramesOut);
-        case ma_format_f32: return drwav_read_pcm_frames_f32(pWav, frameCount,       (float*)pFramesOut);
-        default: break;
+    if (pWav == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    /* Should never get here. If we do, it means the internal format was not set correctly at initialization time. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
-}
+    MA_ZERO_OBJECT(pWav);
+    pWav->format = ma_format_f32;    /* f32 by default. */
 
-static ma_result ma_decoder_internal_on_seek_to_pcm_frame__wav(ma_decoder* pDecoder, ma_uint64 frameIndex)
-{
-    drwav* pWav;
-    drwav_bool32 result;
-
-    pWav = (drwav*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pWav != NULL);
-
-    result = drwav_seek_to_pcm_frame(pWav, frameIndex);
-    if (result) {
-        return MA_SUCCESS;
+    if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16 || pConfig->preferredFormat == ma_format_s32)) {
+        pWav->format = pConfig->preferredFormat;
     } else {
-        return MA_ERROR;
+        /* Getting here means something other than f32 and s16 was specified. Just leave this unset to use the default format. */
     }
-}
 
-static ma_result ma_decoder_internal_on_uninit__wav(ma_decoder* pDecoder)
-{
-    drwav_uninit((drwav*)pDecoder->pInternalDecoder);
-    ma__free_from_callbacks(pDecoder->pInternalDecoder, &pDecoder->allocationCallbacks);
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_wav_ds_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pWav->ds);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the base data source. */
+    }
+
     return MA_SUCCESS;
 }
 
-static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__wav(ma_decoder* pDecoder)
+MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
 {
-    return ((drwav*)pDecoder->pInternalDecoder)->totalPCMFrameCount;
+    ma_result result;
+
+    result = ma_wav_init_internal(pConfig, pWav);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (onRead == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
+    }
+
+    pWav->onRead = onRead;
+    pWav->onSeek = onSeek;
+    pWav->onTell = onTell;
+    pWav->pReadSeekTellUserData = pReadSeekTellUserData;
+
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_allocation_callbacks wavAllocationCallbacks = drwav_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drwav_bool32 wavResult;
+
+        wavResult = drwav_init(&pWav->dr, ma_wav_dr_callback__read, ma_wav_dr_callback__seek, pWav, &wavAllocationCallbacks);
+        if (wavResult != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. */
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
 }
 
-static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
 {
-    drwav* pWav;
-    drwav_allocation_callbacks allocationCallbacks;
+    ma_result result;
 
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
+    result = ma_wav_init_internal(pConfig, pWav);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
-    (void)pConfig;
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_allocation_callbacks wavAllocationCallbacks = drwav_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drwav_bool32 wavResult;
 
-    pWav = (drwav*)ma__malloc_from_callbacks(sizeof(*pWav), &pDecoder->allocationCallbacks);
+        wavResult = drwav_init_file(&pWav->dr, pFilePath, &wavAllocationCallbacks);
+        if (wavResult != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
+{
+    ma_result result;
+
+    result = ma_wav_init_internal(pConfig, pWav);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_allocation_callbacks wavAllocationCallbacks = drwav_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drwav_bool32 wavResult;
+
+        wavResult = drwav_init_file_w(&pWav->dr, pFilePath, &wavAllocationCallbacks);
+        if (wavResult != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
+{
+    ma_result result;
+
+    result = ma_wav_init_internal(pConfig, pWav);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_allocation_callbacks wavAllocationCallbacks = drwav_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drwav_bool32 wavResult;
+
+        wavResult = drwav_init_memory(&pWav->dr, pData, dataSize, &wavAllocationCallbacks);
+        if (wavResult != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. */
+        (void)pData;
+        (void)dataSize;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pWav == NULL) {
+        return;
+    }
+
+    (void)pAllocationCallbacks;
+
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_uninit(&pWav->dr);
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+    }
+    #endif
+
+    ma_data_source_uninit(&pWav->ds);
+}
+
+MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pWav == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        /* We always use floating point format. */
+        ma_result result = MA_SUCCESS;  /* Must be initialized to MA_SUCCESS. */
+        ma_uint64 totalFramesRead = 0;
+        ma_format format;
+
+        ma_wav_get_data_format(pWav, &format, NULL, NULL, NULL, 0);
+
+        switch (format)
+        {
+            case ma_format_f32:
+            {
+                totalFramesRead = drwav_read_pcm_frames_f32(&pWav->dr, frameCount, (float*)pFramesOut);
+            } break;
+
+            case ma_format_s16:
+            {
+                totalFramesRead = drwav_read_pcm_frames_s16(&pWav->dr, frameCount, (drwav_int16*)pFramesOut);
+            } break;
+
+            case ma_format_s32:
+            {
+                totalFramesRead = drwav_read_pcm_frames_s32(&pWav->dr, frameCount, (drwav_int32*)pFramesOut);
+            } break;
+
+            /* Fallback to a raw read. */
+            case ma_format_unknown: return MA_INVALID_OPERATION; /* <-- this should never be hit because initialization would just fall back to supported format. */
+            default:
+            {
+                totalFramesRead = drwav_read_pcm_frames(&pWav->dr, frameCount, pFramesOut);
+            } break;
+        }
+
+        pWav->cursor += totalFramesRead;
+
+        /* In the future we'll update dr_wav to return MA_AT_END for us. */
+        if (totalFramesRead == 0) {
+            result = MA_AT_END;
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
+        }
+
+        return result;
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)pFramesOut;
+        (void)frameCount;
+        (void)pFramesRead;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_seek_to_pcm_frame(ma_wav* pWav, ma_uint64 frameIndex)
+{
+    if (pWav == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        drwav_bool32 wavResult;
+        
+        wavResult = drwav_seek_to_pcm_frame(&pWav->dr, frameIndex);
+        if (wavResult != DRWAV_TRUE) {
+            return MA_ERROR;
+        }
+
+        pWav->cursor = frameIndex;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)frameIndex;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_get_data_format(ma_wav* pWav, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    /* Defaults for safety. */
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+    if (pChannelMap != NULL) {
+        MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channelMapCap);
+    }
+
+    if (pWav == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = pWav->format;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        if (pChannels != NULL) {
+            *pChannels = pWav->dr.channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pWav->dr.sampleRate;
+        }
+
+        if (pChannelMap != NULL) {
+            ma_get_standard_channel_map(ma_standard_channel_map_microsoft, (ma_uint32)ma_min(pWav->dr.channels, channelMapCap), pChannelMap);
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_get_cursor_in_pcm_frames(ma_wav* pWav, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;   /* Safety. */
+
+    if (pWav == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        *pCursor = pWav->cursor;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_wav_get_length_in_pcm_frames(ma_wav* pWav, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;   /* Safety. */
+
+    if (pWav == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_WAV)
+    {
+        *pLength = pWav->dr.totalPCMFrameCount;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* wav is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+
+static ma_result ma_decoding_backend_init__wav(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_wav* pWav;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
     if (pWav == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    allocationCallbacks.pUserData = pDecoder->allocationCallbacks.pUserData;
-    allocationCallbacks.onMalloc  = pDecoder->allocationCallbacks.onMalloc;
-    allocationCallbacks.onRealloc = pDecoder->allocationCallbacks.onRealloc;
-    allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
-
-    /* Try opening the decoder first. */
-    if (!drwav_init(pWav, ma_decoder_internal_on_read__wav, ma_decoder_internal_on_seek__wav, pDecoder, &allocationCallbacks)) {
-        ma__free_from_callbacks(pWav, &pDecoder->allocationCallbacks);
-        return MA_ERROR;
+    result = ma_wav_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pWav);
+    if (result != MA_SUCCESS) {
+        ma_free(pWav, pAllocationCallbacks);
+        return result;
     }
 
-    /* If we get here it means we successfully initialized the WAV decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__wav;
-    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__wav;
-    pDecoder->onUninit               = ma_decoder_internal_on_uninit__wav;
-    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__wav;
-    pDecoder->pInternalDecoder       = pWav;
-
-    /* Try to be as optimal as possible for the internal format. If miniaudio does not support a format we will fall back to f32. */
-    pDecoder->internalFormat = ma_format_unknown;
-    switch (pWav->translatedFormatTag) {
-        case DR_WAVE_FORMAT_PCM:
-        {
-            if (pWav->bitsPerSample == 8) {
-                pDecoder->internalFormat = ma_format_s16;
-            } else if (pWav->bitsPerSample == 16) {
-                pDecoder->internalFormat = ma_format_s16;
-            } else if (pWav->bitsPerSample == 32) {
-                pDecoder->internalFormat = ma_format_s32;
-            }
-        } break;
-
-        case DR_WAVE_FORMAT_IEEE_FLOAT:
-        {
-            if (pWav->bitsPerSample == 32) {
-                pDecoder->internalFormat = ma_format_f32;
-            }
-        } break;
-
-        case DR_WAVE_FORMAT_ALAW:
-        case DR_WAVE_FORMAT_MULAW:
-        case DR_WAVE_FORMAT_ADPCM:
-        case DR_WAVE_FORMAT_DVI_ADPCM:
-        {
-            pDecoder->internalFormat = ma_format_s16;
-        } break;
-    }
-
-    if (pDecoder->internalFormat == ma_format_unknown) {
-        pDecoder->internalFormat = ma_format_f32;
-    }
-
-    pDecoder->internalChannels = pWav->channels;
-    pDecoder->internalSampleRate = pWav->sampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDecoder->internalChannels, pDecoder->internalChannelMap);
+    *ppBackend = pWav;
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__wav(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_wav* pWav;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
+    if (pWav == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_wav_init_file(pFilePath, pConfig, pAllocationCallbacks, pWav);
+    if (result != MA_SUCCESS) {
+        ma_free(pWav, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pWav;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file_w__wav(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_wav* pWav;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
+    if (pWav == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_wav_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pWav);
+    if (result != MA_SUCCESS) {
+        ma_free(pWav, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pWav;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_memory__wav(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_wav* pWav;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pWav = (ma_wav*)ma_malloc(sizeof(*pWav), pAllocationCallbacks);
+    if (pWav == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_wav_init_memory(pData, dataSize, pConfig, pAllocationCallbacks, pWav);
+    if (result != MA_SUCCESS) {
+        ma_free(pWav, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pWav;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__wav(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_wav* pWav = (ma_wav*)pBackend;
+
+    (void)pUserData;
+
+    ma_wav_uninit(pWav, pAllocationCallbacks);
+    ma_free(pWav, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__wav(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_wav* pWav = (ma_wav*)pBackend;
+
+    (void)pUserData;
+
+    return ma_wav_get_data_format(pWav, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
+{
+    ma_decoding_backend_init__wav,
+    ma_decoding_backend_init_file__wav,
+    ma_decoding_backend_init_file_w__wav,
+    ma_decoding_backend_init_memory__wav,
+    ma_decoding_backend_uninit__wav,
+    ma_decoding_backend_get_channel_map__wav
+};
+
+static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    return ma_decoder_init_from_vtable(&g_ma_decoding_backend_vtable_wav, NULL, pConfig, pDecoder);
 }
 #endif  /* dr_wav_h */
 
