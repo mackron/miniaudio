@@ -7000,6 +7000,19 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 }
 
 
+static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_manager* pResourceManager)
+{
+    ma_decoder_config config;
+
+    config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
+    config.allocationCallbacks      = pResourceManager->config.allocationCallbacks;
+    config.ppCustomBackendVTables   = pResourceManager->config.ppCustomDecodingBackendVTables;
+    config.customBackendVTableCount = pResourceManager->config.customDecodingBackendVTableCount;
+    config.pCustomBackendUserData   = pResourceManager->config.pCustomDecodingBackendUserData;
+
+    return config;
+}
+
 static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_decoder* pDecoder)
 {
     ma_decoder_config config;
@@ -7008,11 +7021,7 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     MA_ASSERT(pFilePath        != NULL || pFilePathW != NULL);
     MA_ASSERT(pDecoder         != NULL);
 
-    config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-    config.allocationCallbacks      = pResourceManager->config.allocationCallbacks;
-    config.ppCustomBackendVTables   = pResourceManager->config.ppCustomDecodingBackendVTables;
-    config.customBackendVTableCount = pResourceManager->config.customDecodingBackendVTableCount;
-    config.pCustomBackendUserData   = pResourceManager->config.pCustomDecodingBackendUserData;
+    config = ma_resource_manager__init_decoder_config(pResourceManager);
 
     if (pFilePath != NULL) {
         return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
@@ -7043,14 +7052,9 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     {
         case ma_resource_manager_data_supply_type_encoded:          /* Connector is a decoder. */
         {
-            ma_decoder_config configOut;
-            configOut = ma_decoder_config_init(pDataBuffer->pResourceManager->config.decodedFormat, pDataBuffer->pResourceManager->config.decodedChannels, pDataBuffer->pResourceManager->config.decodedSampleRate);
-            configOut.allocationCallbacks      = pDataBuffer->pResourceManager->config.allocationCallbacks;
-            configOut.ppCustomBackendVTables   = pDataBuffer->pResourceManager->config.ppCustomDecodingBackendVTables;
-            configOut.customBackendVTableCount = pDataBuffer->pResourceManager->config.customDecodingBackendVTableCount;
-            configOut.pCustomBackendUserData   = pDataBuffer->pResourceManager->config.pCustomDecodingBackendUserData;
-
-            result = ma_decoder_init_memory(pDataBuffer->pNode->data.encoded.pData, pDataBuffer->pNode->data.encoded.sizeInBytes, &configOut, &pDataBuffer->connector.decoder);
+            ma_decoder_config config;
+            config = ma_resource_manager__init_decoder_config(pDataBuffer->pResourceManager);
+            result = ma_decoder_init_memory(pDataBuffer->pNode->data.encoded.pData, pDataBuffer->pNode->data.encoded.sizeInBytes, &config, &pDataBuffer->connector.decoder);
         } break;
 
         case ma_resource_manager_data_supply_type_decoded:          /* Connector is an audio buffer. */
