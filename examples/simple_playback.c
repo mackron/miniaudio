@@ -41,6 +41,7 @@ int main(int argc, char** argv)
 
     result = ma_decoder_init_file(argv[1], NULL, &decoder);
     if (result != MA_SUCCESS) {
+        printf("Could not load file: %s\n", argv[1]);
         return -2;
     }
 
