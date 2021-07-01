@@ -6166,11 +6166,6 @@ struct ma_decoder
     ma_channel outputChannelMap[MA_MAX_CHANNELS];
     ma_data_converter converter;   /* <-- Data conversion is achieved by running frames through this. */
     ma_allocation_callbacks allocationCallbacks;
-    ma_decoder_read_pcm_frames_proc onReadPCMFrames;
-    ma_decoder_seek_to_pcm_frame_proc onSeekToPCMFrame;
-    ma_decoder_uninit_proc onUninit;
-    ma_decoder_get_length_in_pcm_frames_proc onGetLengthInPCMFrames;
-    void* pInternalDecoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
     union
     {
         struct
@@ -50843,10 +50838,6 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     }
 
     /* Legacy. */
-    if (pDecoder->onUninit) {
-        pDecoder->onUninit(pDecoder);
-    }
-
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
         ma_vfs_or_default_close(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file);
         pDecoder->data.vfs.file = NULL;
@@ -50881,15 +50872,10 @@ MA_API ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
         return 0;
     }
 
-    if (pDecoder->pBackend != NULL || pDecoder->onGetLengthInPCMFrames != NULL) {
+    if (pDecoder->pBackend != NULL) {
         ma_uint64 nativeLengthInPCMFrames;
 
-        if (pDecoder->pBackend != NULL) {
-            ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &nativeLengthInPCMFrames);
-        } else {
-            /* Legacy. */
-            nativeLengthInPCMFrames = pDecoder->onGetLengthInPCMFrames(pDecoder);
-        }
+        ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &nativeLengthInPCMFrames);
         
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             return nativeLengthInPCMFrames;
@@ -50912,30 +50898,20 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
         return 0;
     }
 
-    if (pDecoder->pBackend == NULL && pDecoder->onReadPCMFrames == NULL) {
+    if (pDecoder->pBackend == NULL) {
         return 0;
     }
 
     /* Fast path. */
     if (pDecoder->converter.isPassthrough) {
-        if (pDecoder->pBackend != NULL) {
-            result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pFramesOut, frameCount, &totalFramesReadOut, MA_FALSE);
-        } else {
-            /* Legacy. */
-            totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, pFramesOut, frameCount);
-        }
+        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pFramesOut, frameCount, &totalFramesReadOut, MA_FALSE);
     } else {
         /*
         Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
         need to run through each sample because we need to ensure it's internal cache is updated.
         */
         if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
-            if (pDecoder->pBackend != NULL) {
-                result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut, MA_FALSE);
-            } else {
-                /* Legacy. */
-                totalFramesReadOut = pDecoder->onReadPCMFrames(pDecoder, NULL, frameCount);   /* All decoder backends must support passing in NULL for the output buffer. */
-            }
+            result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut, MA_FALSE);
         } else {
             /* Slow path. Need to run everything through the data converter. */
             totalFramesReadOut = 0;
@@ -50963,13 +50939,7 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                 }
 
                 if (requiredInputFrameCount > 0) {
-                    if (pDecoder->pBackend != NULL) {
-                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
-                    } else {
-                        /* Legacy. */
-                        framesReadThisIterationIn = pDecoder->onReadPCMFrames(pDecoder, pIntermediaryBuffer, framesToReadThisIterationIn);
-                    }
-
+                    result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
                     totalFramesReadIn += framesReadThisIterationIn;
                 } else {
                     framesReadThisIterationIn = 0;
@@ -51009,22 +50979,17 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         return MA_INVALID_ARGS;
     }
 
-    if (pDecoder->pBackend != NULL || pDecoder->onSeekToPCMFrame != NULL) {
+    if (pDecoder->pBackend != NULL) {
         ma_result result;
         ma_uint64 internalFrameIndex;
+
         if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
             internalFrameIndex = frameIndex;
         } else {
             internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
-        if (pDecoder->pBackend != NULL) {
-            result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
-        } else {
-            /* Legacy. */
-            result = pDecoder->onSeekToPCMFrame(pDecoder, internalFrameIndex);
-        }
-
+        result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
         if (result == MA_SUCCESS) {
             pDecoder->readPointerInPCMFrames = frameIndex;
         }
