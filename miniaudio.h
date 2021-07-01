@@ -47052,129 +47052,631 @@ static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig
 #ifdef dr_mp3_h
 #define MA_HAS_MP3
 
-static size_t ma_decoder_internal_on_read__mp3(void* pUserData, void* pBufferOut, size_t bytesToRead)
+typedef struct
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_data_source_base ds;
+    ma_read_proc onRead;
+    ma_seek_proc onSeek;
+    ma_tell_proc onTell;
+    void* pReadSeekTellUserData;
+    ma_format format;           /* Can be f32 or s16. */
+#if !defined(MA_NO_MP3)
+    drmp3 dr;
+#endif
+} ma_mp3;
+
+MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
+MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
+MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
+MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3);
+MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_mp3_seek_to_pcm_frame(ma_mp3* pMP3, ma_uint64 frameIndex);
+MA_API ma_result ma_mp3_get_data_format(ma_mp3* pMP3, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_mp3_get_cursor_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pCursor);
+MA_API ma_result ma_mp3_get_length_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pLength);
+
+
+static ma_result ma_mp3_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    return ma_mp3_read_pcm_frames((ma_mp3*)pDataSource, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_mp3_ds_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+    return ma_mp3_seek_to_pcm_frame((ma_mp3*)pDataSource, frameIndex);
+}
+
+static ma_result ma_mp3_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_mp3_get_data_format((ma_mp3*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+}
+
+static ma_result ma_mp3_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_mp3_get_cursor_in_pcm_frames((ma_mp3*)pDataSource, pCursor);
+}
+
+static ma_result ma_mp3_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_mp3_get_length_in_pcm_frames((ma_mp3*)pDataSource, pLength);
+}
+
+static ma_data_source_vtable g_ma_mp3_ds_vtable =
+{
+    ma_mp3_ds_read,
+    ma_mp3_ds_seek,
+    NULL,   /* onMap() */
+    NULL,   /* onUnmap() */
+    ma_mp3_ds_get_data_format,
+    ma_mp3_ds_get_cursor,
+    ma_mp3_ds_get_length
+};
+
+
+#if !defined(MA_NO_MP3)
+static drmp3_allocation_callbacks drmp3_allocation_callbacks_from_miniaudio(const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    drmp3_allocation_callbacks callbacks;
+
+    if (pAllocationCallbacks != NULL) {
+        callbacks.onMalloc  = pAllocationCallbacks->onMalloc;
+        callbacks.onRealloc = pAllocationCallbacks->onRealloc;
+        callbacks.onFree    = pAllocationCallbacks->onFree;
+        callbacks.pUserData = pAllocationCallbacks->pUserData;
+    } else {
+        callbacks.onMalloc  = ma__malloc_default;
+        callbacks.onRealloc = ma__realloc_default;
+        callbacks.onFree    = ma__free_default;
+        callbacks.pUserData = NULL;
+    }
+
+    return callbacks;
+}
+
+static size_t ma_mp3_dr_callback__read(void* pUserData, void* pBufferOut, size_t bytesToRead)
+{
+    ma_mp3* pMP3 = (ma_mp3*)pUserData;
     ma_result result;
     size_t bytesRead;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pMP3 != NULL);
 
-    result = ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, &bytesRead);
+    result = pMP3->onRead(pMP3->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
     (void)result;
 
     return bytesRead;
 }
 
-static drmp3_bool32 ma_decoder_internal_on_seek__mp3(void* pUserData, int offset, drmp3_seek_origin origin)
+static drmp3_bool32 ma_mp3_dr_callback__seek(void* pUserData, int offset, drmp3_seek_origin origin)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    ma_mp3* pMP3 = (ma_mp3*)pUserData;
     ma_result result;
+    ma_seek_origin maSeekOrigin;
 
-    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pMP3 != NULL);
 
-    result = ma_decoder_seek_bytes(pDecoder, offset, (origin == drmp3_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    maSeekOrigin = ma_seek_origin_start;
+    if (origin == drmp3_seek_origin_current) {
+        maSeekOrigin =  ma_seek_origin_current;
+    }
+
+    result = pMP3->onSeek(pMP3->pReadSeekTellUserData, offset, maSeekOrigin);
     if (result != MA_SUCCESS) {
         return MA_FALSE;
     }
 
     return MA_TRUE;
 }
-
-static ma_uint64 ma_decoder_internal_on_read_pcm_frames__mp3(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
-{
-    drmp3* pMP3;
-
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-
-    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pMP3 != NULL);
-
-#if defined(DR_MP3_FLOAT_OUTPUT)
-    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
-    return drmp3_read_pcm_frames_f32(pMP3, frameCount, (float*)pFramesOut);
-#else
-    MA_ASSERT(pDecoder->internalFormat == ma_format_s16);
-    return drmp3_read_pcm_frames_s16(pMP3, frameCount, (drmp3_int16*)pFramesOut);
 #endif
-}
 
-static ma_result ma_decoder_internal_on_seek_to_pcm_frame__mp3(ma_decoder* pDecoder, ma_uint64 frameIndex)
+static ma_result ma_mp3_init_internal(const ma_decoding_backend_config* pConfig, ma_mp3* pMP3)
 {
-    drmp3* pMP3;
-    drmp3_bool32 result;
+    ma_result result;
+    ma_data_source_config dataSourceConfig;
 
-    pMP3 = (drmp3*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pMP3 != NULL);
-
-    result = drmp3_seek_to_pcm_frame(pMP3, frameIndex);
-    if (result) {
-        return MA_SUCCESS;
-    } else {
-        return MA_ERROR;
+    if (pMP3 == NULL) {
+        return MA_INVALID_ARGS;
     }
-}
 
-static ma_result ma_decoder_internal_on_uninit__mp3(ma_decoder* pDecoder)
-{
-    drmp3_uninit((drmp3*)pDecoder->pInternalDecoder);
-    ma__free_from_callbacks(pDecoder->pInternalDecoder, &pDecoder->allocationCallbacks);
+    MA_ZERO_OBJECT(pMP3);
+    pMP3->format = ma_format_f32;    /* f32 by default. */
+
+    if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16)) {
+        pMP3->format = pConfig->preferredFormat;
+    } else {
+        /* Getting here means something other than f32 and s16 was specified. Just leave this unset to use the default format. */
+    }
+
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_mp3_ds_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pMP3->ds);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the base data source. */
+    }
+
     return MA_SUCCESS;
 }
 
-static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__mp3(ma_decoder* pDecoder)
+MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
 {
-    return drmp3_get_pcm_frame_count((drmp3*)pDecoder->pInternalDecoder);
+    ma_result result;
+
+    result = ma_mp3_init_internal(pConfig, pMP3);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (onRead == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
+    }
+
+    pMP3->onRead = onRead;
+    pMP3->onSeek = onSeek;
+    pMP3->onTell = onTell;
+    pMP3->pReadSeekTellUserData = pReadSeekTellUserData;
+
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_allocation_callbacks mp3AllocationCallbacks = drmp3_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drmp3_bool32 mp3Result;
+
+        mp3Result = drmp3_init(&pMP3->dr, ma_mp3_dr_callback__read, ma_mp3_dr_callback__seek, pMP3, &mp3AllocationCallbacks);
+        if (mp3Result != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. */
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
 }
 
-static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
 {
-    drmp3* pMP3;
-    drmp3_allocation_callbacks allocationCallbacks;
+    ma_result result;
 
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
+    result = ma_mp3_init_internal(pConfig, pMP3);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
-    (void)pConfig;
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_allocation_callbacks mp3AllocationCallbacks = drmp3_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drmp3_bool32 mp3Result;
 
-    pMP3 = (drmp3*)ma__malloc_from_callbacks(sizeof(*pMP3), &pDecoder->allocationCallbacks);
+        mp3Result = drmp3_init_file(&pMP3->dr, pFilePath, &mp3AllocationCallbacks);
+        if (mp3Result != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
+{
+    ma_result result;
+
+    result = ma_mp3_init_internal(pConfig, pMP3);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_allocation_callbacks mp3AllocationCallbacks = drmp3_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drmp3_bool32 mp3Result;
+
+        mp3Result = drmp3_init_file_w(&pMP3->dr, pFilePath, &mp3AllocationCallbacks);
+        if (mp3Result != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
+{
+    ma_result result;
+
+    result = ma_mp3_init_internal(pConfig, pMP3);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_allocation_callbacks mp3AllocationCallbacks = drmp3_allocation_callbacks_from_miniaudio(pAllocationCallbacks);
+        drmp3_bool32 mp3Result;
+
+        mp3Result = drmp3_init_memory(&pMP3->dr, pData, dataSize, &mp3AllocationCallbacks);
+        if (mp3Result != MA_TRUE) {
+            return MA_INVALID_FILE;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. */
+        (void)pData;
+        (void)dataSize;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pMP3 == NULL) {
+        return;
+    }
+
+    (void)pAllocationCallbacks;
+
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_uninit(&pMP3->dr);
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+    }
+    #endif
+
+    ma_data_source_uninit(&pMP3->ds);
+}
+
+MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pMP3 == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        /* We always use floating point format. */
+        ma_result result = MA_SUCCESS;  /* Must be initialized to MA_SUCCESS. */
+        ma_uint64 totalFramesRead = 0;
+        ma_format format;
+
+        ma_mp3_get_data_format(pMP3, &format, NULL, NULL, NULL, 0);
+
+        switch (format)
+        {
+            case ma_format_f32:
+            {
+                totalFramesRead = drmp3_read_pcm_frames_f32(&pMP3->dr, frameCount, (float*)pFramesOut);
+            } break;
+
+            case ma_format_s16:
+            {
+                totalFramesRead = drmp3_read_pcm_frames_s16(&pMP3->dr, frameCount, (drmp3_int16*)pFramesOut);
+            } break;
+
+            case ma_format_u8:
+            case ma_format_s24:
+            case ma_format_s32:
+            case ma_format_unknown:
+            default:
+            {
+                return MA_INVALID_OPERATION;
+            };
+        }
+
+        /* In the future we'll update dr_mp3 to return MA_AT_END for us. */
+        if (totalFramesRead == 0) {
+            result = MA_AT_END;
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
+        }
+
+        return result;
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)pFramesOut;
+        (void)frameCount;
+        (void)pFramesRead;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_seek_to_pcm_frame(ma_mp3* pMP3, ma_uint64 frameIndex)
+{
+    if (pMP3 == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        drmp3_bool32 mp3Result;
+        
+        mp3Result = drmp3_seek_to_pcm_frame(&pMP3->dr, frameIndex);
+        if (mp3Result != DRMP3_TRUE) {
+            return MA_ERROR;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)frameIndex;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_get_data_format(ma_mp3* pMP3, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    /* Defaults for safety. */
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+    if (pChannelMap != NULL) {
+        MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channelMapCap);
+    }
+
+    if (pMP3 == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = pMP3->format;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        if (pChannels != NULL) {
+            *pChannels = pMP3->dr.channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pMP3->dr.sampleRate;
+        }
+
+        if (pChannelMap != NULL) {
+            ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(pMP3->dr.channels, channelMapCap), pChannelMap);
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_get_cursor_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;   /* Safety. */
+
+    if (pMP3 == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        *pCursor = pMP3->dr.currentPCMFrame;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_mp3_get_length_in_pcm_frames(ma_mp3* pMP3, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;   /* Safety. */
+
+    if (pMP3 == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_MP3)
+    {
+        *pLength = drmp3_get_pcm_frame_count(&pMP3->dr);
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* mp3 is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+
+static ma_result ma_decoding_backend_init__mp3(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_mp3* pMP3;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
     if (pMP3 == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    allocationCallbacks.pUserData = pDecoder->allocationCallbacks.pUserData;
-    allocationCallbacks.onMalloc  = pDecoder->allocationCallbacks.onMalloc;
-    allocationCallbacks.onRealloc = pDecoder->allocationCallbacks.onRealloc;
-    allocationCallbacks.onFree    = pDecoder->allocationCallbacks.onFree;
-
-    /*
-    Try opening the decoder first. We always use whatever dr_mp3 reports for channel count and sample rate. The format is determined by
-    the presence of DR_MP3_FLOAT_OUTPUT.
-    */
-    if (!drmp3_init(pMP3, ma_decoder_internal_on_read__mp3, ma_decoder_internal_on_seek__mp3, pDecoder, &allocationCallbacks)) {
-        ma__free_from_callbacks(pMP3, &pDecoder->allocationCallbacks);
-        return MA_ERROR;
+    result = ma_mp3_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pMP3);
+    if (result != MA_SUCCESS) {
+        ma_free(pMP3, pAllocationCallbacks);
+        return result;
     }
 
-    /* If we get here it means we successfully initialized the MP3 decoder. We can now initialize the rest of the ma_decoder. */
-    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__mp3;
-    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__mp3;
-    pDecoder->onUninit               = ma_decoder_internal_on_uninit__mp3;
-    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__mp3;
-    pDecoder->pInternalDecoder       = pMP3;
-
-    /* Internal format. */
-#if defined(DR_MP3_FLOAT_OUTPUT)
-    pDecoder->internalFormat     = ma_format_f32;
-#else
-    pDecoder->internalFormat     = ma_format_s16;
-#endif
-    pDecoder->internalChannels   = pMP3->channels;
-    pDecoder->internalSampleRate = pMP3->sampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->internalChannels, pDecoder->internalChannelMap);
+    *ppBackend = pMP3;
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__mp3(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_mp3* pMP3;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
+    if (pMP3 == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_mp3_init_file(pFilePath, pConfig, pAllocationCallbacks, pMP3);
+    if (result != MA_SUCCESS) {
+        ma_free(pMP3, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pMP3;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file_w__mp3(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_mp3* pMP3;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
+    if (pMP3 == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_mp3_init_file_w(pFilePath, pConfig, pAllocationCallbacks, pMP3);
+    if (result != MA_SUCCESS) {
+        ma_free(pMP3, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pMP3;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_memory__mp3(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_mp3* pMP3;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pMP3 = (ma_mp3*)ma_malloc(sizeof(*pMP3), pAllocationCallbacks);
+    if (pMP3 == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_mp3_init_memory(pData, dataSize, pConfig, pAllocationCallbacks, pMP3);
+    if (result != MA_SUCCESS) {
+        ma_free(pMP3, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pMP3;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__mp3(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_mp3* pMP3 = (ma_mp3*)pBackend;
+
+    (void)pUserData;
+
+    ma_mp3_uninit(pMP3, pAllocationCallbacks);
+    ma_free(pMP3, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__mp3(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_mp3* pMP3 = (ma_mp3*)pBackend;
+
+    (void)pUserData;
+
+    return ma_mp3_get_data_format(pMP3, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
+{
+    ma_decoding_backend_init__mp3,
+    ma_decoding_backend_init_file__mp3,
+    ma_decoding_backend_init_file_w__mp3,
+    ma_decoding_backend_init_memory__mp3,
+    ma_decoding_backend_uninit__mp3,
+    ma_decoding_backend_get_channel_map__mp3
+};
+
+static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    return ma_decoder_init_from_vtable(&g_ma_decoding_backend_vtable_mp3, NULL, pConfig, pDecoder);
 }
 #endif  /* dr_mp3_h */
 
