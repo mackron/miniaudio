@@ -47187,299 +47187,775 @@ static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig,
 
 typedef struct
 {
-    stb_vorbis* pInternalVorbis;
-    ma_uint8* pData;
-    size_t dataSize;
-    size_t dataCapacity;
-    ma_uint32 framesConsumed;  /* The number of frames consumed in ppPacketData. */
-    ma_uint32 framesRemaining; /* The number of frames remaining in ppPacketData. */
-    float** ppPacketData;
-} ma_vorbis_decoder;
+    ma_data_source_base ds;
+    ma_read_proc onRead;
+    ma_seek_proc onSeek;
+    ma_tell_proc onTell;
+    void* pReadSeekTellUserData;
+    ma_allocation_callbacks allocationCallbacks;    /* Store the allocation callbacks within the structure because we may need to dynamically expand a buffer in ma_stbvorbis_read_pcm_frames() when using push mode. */
+    ma_format format;               /* Only f32 is allowed with stb_vorbis. */
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_uint64 cursor;
+#if !defined(MA_NO_VORBIS)
+    stb_vorbis* stb;
+    ma_bool32 usingPushMode;
+    struct
+    {
+        ma_uint8* pData;
+        size_t dataSize;
+        size_t dataCapacity;
+        ma_uint32 framesConsumed;   /* The number of frames consumed in ppPacketData. */
+        ma_uint32 framesRemaining;  /* The number of frames remaining in ppPacketData. */
+        float** ppPacketData;
+    } push;
+#endif
+} ma_stbvorbis;
 
-static ma_uint64 ma_vorbis_decoder_read_pcm_frames(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
+MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
+MA_API ma_result ma_stbvorbis_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
+MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis);
+MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64 frameIndex);
+MA_API ma_result ma_stbvorbis_get_data_format(ma_stbvorbis* pVorbis, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_stbvorbis_get_cursor_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pCursor);
+MA_API ma_result ma_stbvorbis_get_length_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pLength);
+
+
+static ma_result ma_stbvorbis_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    float* pFramesOutF;
-    ma_uint64 totalFramesRead;
-    ma_result result;
-
-    MA_ASSERT(pVorbis  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    pFramesOutF = (float*)pFramesOut;
-
-    totalFramesRead = 0;
-    while (frameCount > 0) {
-        /* Read from the in-memory buffer first. */
-        ma_uint32 framesToReadFromCache = (ma_uint32)ma_min(pVorbis->framesRemaining, frameCount);  /* Safe cast because pVorbis->framesRemaining is 32-bit. */
-
-        if (pFramesOut != NULL) {
-            ma_uint64 iFrame;
-            for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
-                ma_uint32 iChannel;
-                for (iChannel = 0; iChannel < pDecoder->internalChannels; ++iChannel) {
-                    pFramesOutF[iChannel] = pVorbis->ppPacketData[iChannel][pVorbis->framesConsumed+iFrame];
-                }
-                pFramesOutF += pDecoder->internalChannels;
-            }
-        }
-
-        pVorbis->framesConsumed  += framesToReadFromCache;
-        pVorbis->framesRemaining -= framesToReadFromCache;
-        frameCount               -= framesToReadFromCache;
-        totalFramesRead          += framesToReadFromCache;
-
-        if (frameCount == 0) {
-            break;
-        }
-
-        MA_ASSERT(pVorbis->framesRemaining == 0);
-
-        /* We've run out of cached frames, so decode the next packet and continue iteration. */
-        do
-        {
-            int samplesRead;
-            int consumedDataSize;
-
-            if (pVorbis->dataSize > INT_MAX) {
-                break;  /* Too big. */
-            }
-
-            samplesRead = 0;
-            consumedDataSize = stb_vorbis_decode_frame_pushdata(pVorbis->pInternalVorbis, pVorbis->pData, (int)pVorbis->dataSize, NULL, (float***)&pVorbis->ppPacketData, &samplesRead);
-            if (consumedDataSize != 0) {
-                size_t leftoverDataSize = (pVorbis->dataSize - (size_t)consumedDataSize);
-                size_t i;
-                for (i = 0; i < leftoverDataSize; ++i) {
-                    pVorbis->pData[i] = pVorbis->pData[i + consumedDataSize];
-                }
-
-                pVorbis->dataSize = leftoverDataSize;
-                pVorbis->framesConsumed = 0;
-                pVorbis->framesRemaining = samplesRead;
-                break;
-            } else {
-                /* Need more data. If there's any room in the existing buffer allocation fill that first. Otherwise expand. */
-                size_t bytesRead;
-                if (pVorbis->dataCapacity == pVorbis->dataSize) {
-                    /* No room. Expand. */
-                    size_t oldCap = pVorbis->dataCapacity;
-                    size_t newCap = pVorbis->dataCapacity + MA_VORBIS_DATA_CHUNK_SIZE;
-                    ma_uint8* pNewData;
-
-                    pNewData = (ma_uint8*)ma__realloc_from_callbacks(pVorbis->pData, newCap, oldCap, &pDecoder->allocationCallbacks);
-                    if (pNewData == NULL) {
-                        return totalFramesRead; /* Out of memory. */
-                    }
-
-                    pVorbis->pData = pNewData;
-                    pVorbis->dataCapacity = newCap;
-                }
-
-                /* Fill in a chunk. */
-                result = ma_decoder_read_bytes(pDecoder, pVorbis->pData + pVorbis->dataSize, (pVorbis->dataCapacity - pVorbis->dataSize), &bytesRead);
-                pVorbis->dataSize += bytesRead;
-
-                if (result != MA_SUCCESS) {
-                    return totalFramesRead; /* Error reading more data, or end of file. */
-                }
-            }
-        } while (MA_TRUE);
-    }
-
-    return totalFramesRead;
+    return ma_stbvorbis_read_pcm_frames((ma_stbvorbis*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
-static ma_result ma_vorbis_decoder_seek_to_pcm_frame(ma_vorbis_decoder* pVorbis, ma_decoder* pDecoder, ma_uint64 frameIndex)
+static ma_result ma_stbvorbis_ds_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
 {
-    float buffer[4096];
+    return ma_stbvorbis_seek_to_pcm_frame((ma_stbvorbis*)pDataSource, frameIndex);
+}
+
+static ma_result ma_stbvorbis_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+{
+    return ma_stbvorbis_get_data_format((ma_stbvorbis*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+}
+
+static ma_result ma_stbvorbis_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+    return ma_stbvorbis_get_cursor_in_pcm_frames((ma_stbvorbis*)pDataSource, pCursor);
+}
+
+static ma_result ma_stbvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+    return ma_stbvorbis_get_length_in_pcm_frames((ma_stbvorbis*)pDataSource, pLength);
+}
+
+static ma_data_source_vtable g_ma_stbvorbis_ds_vtable =
+{
+    ma_stbvorbis_ds_read,
+    ma_stbvorbis_ds_seek,
+    NULL,   /* onMap() */
+    NULL,   /* onUnmap() */
+    ma_stbvorbis_ds_get_data_format,
+    ma_stbvorbis_ds_get_cursor,
+    ma_stbvorbis_ds_get_length
+};
+
+
+static ma_result ma_stbvorbis_init_internal(const ma_decoding_backend_config* pConfig, ma_stbvorbis* pVorbis)
+{
     ma_result result;
+    ma_data_source_config dataSourceConfig;
+
+    (void)pConfig;
+
+    if (pVorbis == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pVorbis);
+    pVorbis->format = ma_format_f32;    /* Only supporting f32. */
+
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &g_ma_stbvorbis_ds_vtable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pVorbis->ds);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the base data source. */
+    }
+
+    return MA_SUCCESS;
+}
+
+#if !defined(MA_NO_VORBIS)
+static ma_result ma_stbvorbis_post_init(ma_stbvorbis* pVorbis)
+{
+    stb_vorbis_info info;
 
     MA_ASSERT(pVorbis != NULL);
-    MA_ASSERT(pDecoder != NULL);
 
-    /*
-    This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
-    a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
-    find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
+    info = stb_vorbis_get_info(pVorbis->stb);
 
-    TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
-    */
-    result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
+    pVorbis->channels   = info.channels;
+    pVorbis->sampleRate = info.sample_rate;
+
+    return MA_SUCCESS;
+}
+#endif
+
+MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis)
+{
+    ma_result result;
+
+    result = ma_stbvorbis_init_internal(pConfig, pVorbis);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    stb_vorbis_flush_pushdata(pVorbis->pInternalVorbis);
-    pVorbis->framesConsumed  = 0;
-    pVorbis->framesRemaining = 0;
-    pVorbis->dataSize        = 0;
-
-    while (frameIndex > 0) {
-        ma_uint32 framesRead;
-        ma_uint32 framesToRead = ma_countof(buffer)/pDecoder->internalChannels;
-        if (framesToRead > frameIndex) {
-            framesToRead = (ma_uint32)frameIndex;
-        }
-
-        framesRead = (ma_uint32)ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, buffer, framesToRead);
-        if (framesRead == 0) {
-            return MA_ERROR;
-        }
-
-        frameIndex -= framesRead;
+    if (onRead == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
     }
 
-    return MA_SUCCESS;
-}
+    pVorbis->onRead = onRead;
+    pVorbis->onSeek = onSeek;
+    pVorbis->onTell = onTell;
+    pVorbis->pReadSeekTellUserData = pReadSeekTellUserData;
+    ma_allocation_callbacks_init_copy(&pVorbis->allocationCallbacks, pAllocationCallbacks);
 
-
-static ma_result ma_decoder_internal_on_seek_to_pcm_frame__vorbis(ma_decoder* pDecoder, ma_uint64 frameIndex)
-{
-    ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pVorbis != NULL);
-
-    return ma_vorbis_decoder_seek_to_pcm_frame(pVorbis, pDecoder, frameIndex);
-}
-
-static ma_result ma_decoder_internal_on_uninit__vorbis(ma_decoder* pDecoder)
-{
-    ma_vorbis_decoder* pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pVorbis != NULL);
-
-    stb_vorbis_close(pVorbis->pInternalVorbis);
-    ma__free_from_callbacks(pVorbis->pData, &pDecoder->allocationCallbacks);
-    ma__free_from_callbacks(pVorbis,        &pDecoder->allocationCallbacks);
-
-    return MA_SUCCESS;
-}
-
-static ma_uint64 ma_decoder_internal_on_read_pcm_frames__vorbis(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
-{
-    ma_vorbis_decoder* pVorbis;
-
-    MA_ASSERT(pDecoder   != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-    MA_ASSERT(pDecoder->internalFormat == ma_format_f32);
-
-    pVorbis = (ma_vorbis_decoder*)pDecoder->pInternalDecoder;
-    MA_ASSERT(pVorbis != NULL);
-
-    return ma_vorbis_decoder_read_pcm_frames(pVorbis, pDecoder, pFramesOut, frameCount);
-}
-
-static ma_uint64 ma_decoder_internal_on_get_length_in_pcm_frames__vorbis(ma_decoder* pDecoder)
-{
-    /* No good way to do this with Vorbis. */
-    (void)pDecoder;
-    return 0;
-}
-
-static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    stb_vorbis* pInternalVorbis = NULL;
-    size_t dataSize = 0;
-    size_t dataCapacity = 0;
-    ma_uint8* pData = NULL;
-    stb_vorbis_info vorbisInfo;
-    size_t vorbisDataSize;
-    ma_vorbis_decoder* pVorbis;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    /* We grow the buffer in chunks. */
-    do
+    #if !defined(MA_NO_VORBIS)
     {
-        /* Allocate memory for a new chunk. */
-        ma_uint8* pNewData;
-        size_t bytesRead;
-        int vorbisError = 0;
-        int consumedDataSize = 0;
-        size_t oldCapacity = dataCapacity;
+        /*
+        stb_vorbis lacks a callback based API for it's pulling API which means we're stuck with the
+        pushing API. In order for us to be able to successfully initialize the decoder we need to
+        supply it with enough data. We need to keep loading data until we have enough.
+        */
+        stb_vorbis* stb;
+        size_t dataSize = 0;
+        size_t dataCapacity = 0;
+        ma_uint8* pData = NULL; /* <-- Must be initialized to NULL. */
 
-        dataCapacity += MA_VORBIS_DATA_CHUNK_SIZE;
-        pNewData = (ma_uint8*)ma__realloc_from_callbacks(pData, dataCapacity, oldCapacity, &pDecoder->allocationCallbacks);
-        if (pNewData == NULL) {
-            ma__free_from_callbacks(pData, &pDecoder->allocationCallbacks);
-            return MA_OUT_OF_MEMORY;
+        for (;;) {
+            int vorbisError;
+            int consumedDataSize;   /* <-- Fill by stb_vorbis_open_pushdata(). */
+            size_t bytesRead;
+            ma_uint8* pNewData;
+
+            /* Allocate memory for the new chunk. */
+            dataCapacity += MA_VORBIS_DATA_CHUNK_SIZE;
+            pNewData = (ma_uint8*)ma_realloc(pData, dataCapacity, pAllocationCallbacks);
+            if (pNewData == NULL) {
+                ma_free(pData, pAllocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            pData = pNewData;
+
+            /* Read in the next chunk. */
+            result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, ma_offset_ptr(pData, dataSize), (dataCapacity - dataSize), &bytesRead);
+            dataSize += bytesRead;
+
+            if (result != MA_SUCCESS) {
+                ma_free(pData, pAllocationCallbacks);
+                return result;
+            }
+
+            /* We have a maximum of 31 bits with stb_vorbis. */
+            if (dataSize > INT_MAX) {
+                ma_free(pData, pAllocationCallbacks);
+                return MA_TOO_BIG;
+            }
+
+            stb = stb_vorbis_open_pushdata(pData, (int)dataSize, &consumedDataSize, &vorbisError, NULL);
+            if (stb != NULL) {
+                /*
+                Successfully opened the Vorbis decoder. We might have some leftover unprocessed
+                data so we'll need to move that down to the front.
+                */
+                dataSize -= (size_t)consumedDataSize;   /* Consume the data. */
+                MA_MOVE_MEMORY(pData, ma_offset_ptr(pData, consumedDataSize), dataSize);
+                break;
+            } else {
+                /* Failed to open the decoder. */
+                if (vorbisError == VORBIS_need_more_data) {
+                    continue;
+                } else {
+                    ma_free(pData, pAllocationCallbacks);
+                    return MA_ERROR;   /* Failed to open the stb_vorbis decoder. */
+                }
+            }
         }
 
-        pData = pNewData;
+        MA_ASSERT(stb != NULL);
+        pVorbis->stb = stb;
+        pVorbis->push.pData = pData;
+        pVorbis->push.dataSize = dataSize;
+        pVorbis->push.dataCapacity = dataCapacity;
 
-        /* Fill in a chunk. */
-        result = ma_decoder_read_bytes(pDecoder, pData + dataSize, (dataCapacity - dataSize), &bytesRead);
-        dataSize += bytesRead;
+        pVorbis->usingPushMode = MA_TRUE;
 
-        if (result != MA_SUCCESS && (result != MA_AT_END || bytesRead == 0)) {
+        result = ma_stbvorbis_post_init(pVorbis);
+        if (result != MA_SUCCESS) {
+            stb_vorbis_close(pVorbis->stb);
+            ma_free(pData, pAllocationCallbacks);
             return result;
         }
 
-        if (dataSize > INT_MAX) {
-            return MA_ERROR;   /* Too big. */
-        }
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. */
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
 
-        pInternalVorbis = stb_vorbis_open_pushdata(pData, (int)dataSize, &consumedDataSize, &vorbisError, NULL);
-        if (pInternalVorbis != NULL) {
-            /*
-            If we get here it means we were able to open the stb_vorbis decoder. There may be some leftover bytes in our buffer, so
-            we need to move those bytes down to the front of the buffer since they'll be needed for future decoding.
-            */
-            size_t leftoverDataSize = (dataSize - (size_t)consumedDataSize);
-            size_t i;
-            for (i = 0; i < leftoverDataSize; ++i) {
-                pData[i] = pData[i + consumedDataSize];
-            }
+MA_API ma_result ma_stbvorbis_init_file(const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis)
+{
+    ma_result result;
 
-            dataSize = leftoverDataSize;
-            break;  /* Success. */
-        } else {
-            if (vorbisError == VORBIS_need_more_data) {
-                continue;
-            } else {
-                return MA_ERROR;   /* Failed to open the stb_vorbis decoder. */
-            }
-        }
-    } while (MA_TRUE);
-
-
-    /* If we get here it means we successfully opened the Vorbis decoder. */
-    vorbisInfo = stb_vorbis_get_info(pInternalVorbis);
-
-    /* Don't allow more than MA_MAX_CHANNELS channels. */
-    if (vorbisInfo.channels > MA_MAX_CHANNELS) {
-        stb_vorbis_close(pInternalVorbis);
-        ma__free_from_callbacks(pData, &pDecoder->allocationCallbacks);
-        return MA_ERROR;   /* Too many channels. */
+    result = ma_stbvorbis_init_internal(pConfig, pVorbis);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    vorbisDataSize = sizeof(ma_vorbis_decoder) + sizeof(float)*vorbisInfo.max_frame_size;
-    pVorbis = (ma_vorbis_decoder*)ma__malloc_from_callbacks(vorbisDataSize, &pDecoder->allocationCallbacks);
+    #if !defined(MA_NO_VORBIS)
+    {
+        (void)pAllocationCallbacks; /* Don't know how to make use of this with stb_vorbis. */
+
+        /* We can use stb_vorbis' pull mode for file based streams. */
+        pVorbis->stb = stb_vorbis_open_filename(pFilePath, NULL, NULL);
+        if (pVorbis->stb == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        pVorbis->usingPushMode = MA_FALSE;
+
+        result = ma_stbvorbis_post_init(pVorbis);
+        if (result != MA_SUCCESS) {
+            stb_vorbis_close(pVorbis->stb);
+            return result;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. */
+        (void)pFilePath;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis)
+{
+    ma_result result;
+
+    result = ma_stbvorbis_init_internal(pConfig, pVorbis);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        (void)pAllocationCallbacks;
+
+        /* stb_vorbis uses an int as it's size specifier, restricting it to 32-bit even on 64-bit systems. *sigh*. */
+        if (dataSize > INT_MAX) {
+            return MA_TOO_BIG;
+        }
+
+        pVorbis->stb = stb_vorbis_open_memory((const unsigned char*)pData, (int)dataSize, NULL, NULL);
+        if (pVorbis->stb == NULL) {
+            return MA_INVALID_FILE;
+        }
+
+        pVorbis->usingPushMode = MA_FALSE;
+
+        result = ma_stbvorbis_post_init(pVorbis);
+        if (result != MA_SUCCESS) {
+            stb_vorbis_close(pVorbis->stb);
+            return result;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. */
+        (void)pData;
+        (void)dataSize;
+        (void)pAllocationCallbacks;
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callbacks* pAllocationCallbacks)
+{
     if (pVorbis == NULL) {
-        stb_vorbis_close(pInternalVorbis);
-        ma__free_from_callbacks(pData, &pDecoder->allocationCallbacks);
+        return;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        stb_vorbis_close(pVorbis->stb);
+
+        /* We'll have to clear some memory if we're using push mode. */
+        if (pVorbis->usingPushMode) {
+            ma_free(pVorbis->push.pData, pAllocationCallbacks);
+        }
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+    }
+    #endif
+
+    ma_data_source_uninit(&pVorbis->ds);
+}
+
+MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pVorbis == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        /* We always use floating point format. */
+        ma_result result = MA_SUCCESS;  /* Must be initialized to MA_SUCCESS. */
+        ma_uint64 totalFramesRead = 0;
+        ma_format format;
+        ma_uint32 channels;
+
+        ma_stbvorbis_get_data_format(pVorbis, &format, &channels, NULL, NULL, 0);
+
+        if (format == ma_format_f32) {
+            /* We read differently depending on whether or not we're using push mode. */
+            if (pVorbis->usingPushMode) {
+                /* Push mode. This is the complex case. */
+                float* pFramesOutF32 = (float*)pFramesOut;
+
+                while (totalFramesRead < frameCount) {
+                    /* The first thing to do is read from any already-cached frames. */
+                    ma_uint32 framesToReadFromCache = (ma_uint32)ma_min(pVorbis->push.framesRemaining, (frameCount - totalFramesRead));  /* Safe cast because pVorbis->framesRemaining is 32-bit. */
+
+                    /* The output pointer can be null in which case we just treate it as a seek. */
+                    if (pFramesOut != NULL) {
+                        ma_uint64 iFrame;
+                        for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
+                            ma_uint32 iChannel;
+                            for (iChannel = 0; iChannel < pVorbis->channels; iChannel += 1) {
+                                pFramesOutF32[iChannel] = pVorbis->push.ppPacketData[iChannel][pVorbis->push.framesConsumed + iFrame];
+                            }
+
+                            pFramesOutF32 += pVorbis->channels;
+                        }
+                    }
+
+                    /* Update pointers and counters. */
+                    pVorbis->push.framesConsumed  += framesToReadFromCache;
+                    pVorbis->push.framesRemaining -= framesToReadFromCache;
+                    totalFramesRead               += framesToReadFromCache;
+
+                    /* Don't bother reading any more frames right now if we've just finished loading. */
+                    if (totalFramesRead == frameCount) {
+                        break;
+                    }
+
+                    MA_ASSERT(pVorbis->push.framesRemaining == 0);
+
+                    /* Getting here means we've run out of cached frames. We'll need to load some more. */
+                    for (;;) {
+                        int samplesRead = 0;
+                        int consumedDataSize;
+
+                        /* We need to case dataSize to an int, so make sure we can do it safely. */
+                        if (pVorbis->push.dataSize > INT_MAX) {
+                            break;  /* Too big. */
+                        }
+
+                        consumedDataSize = stb_vorbis_decode_frame_pushdata(pVorbis->stb, pVorbis->push.pData, (int)pVorbis->push.dataSize, NULL, &pVorbis->push.ppPacketData, &samplesRead);
+                        if (consumedDataSize != 0) {
+                            /* Successfully decoded a Vorbis frame. Consume the data. */
+                            pVorbis->push.dataSize -= (size_t)consumedDataSize;
+                            MA_MOVE_MEMORY(pVorbis->push.pData, ma_offset_ptr(pVorbis->push.pData, consumedDataSize), pVorbis->push.dataSize);
+
+                            pVorbis->push.framesConsumed  = 0;
+                            pVorbis->push.framesRemaining = samplesRead;
+
+                            break;
+                        } else {
+                            /* Not enough data. Read more. */
+                            size_t bytesRead;
+
+                            /* Expand the data buffer if necessary. */
+                            if (pVorbis->push.dataCapacity == pVorbis->push.dataSize) {
+                                size_t newCap = pVorbis->push.dataCapacity + MA_VORBIS_DATA_CHUNK_SIZE;
+                                ma_uint8* pNewData;
+
+                                pNewData = (ma_uint8*)ma_realloc(pVorbis->push.pData, newCap, &pVorbis->allocationCallbacks);
+                                if (pNewData == NULL) {
+                                    result = MA_OUT_OF_MEMORY;
+                                    break;
+                                }
+
+                                pVorbis->push.pData = pNewData;
+                                pVorbis->push.dataCapacity = newCap;
+                            }
+
+                            /* We should have enough room to load some data. */
+                            result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, ma_offset_ptr(pVorbis->push.pData, pVorbis->push.dataSize), (pVorbis->push.dataCapacity - pVorbis->push.dataSize), &bytesRead);
+                            pVorbis->push.dataSize += bytesRead;
+
+                            if (result != MA_SUCCESS) {
+                                break;  /* Failed to read any data. Get out. */
+                            }
+                        }
+                    }
+                }
+            } else {
+                /* Pull mode. This is the simple case, but we still need to run in a loop because stb_vorbis loves using 32-bit instead of 64-bit. */
+                while (totalFramesRead < frameCount) {
+                    ma_uint64 framesRemaining = (frameCount - totalFramesRead);
+                    int framesRead;
+                    
+                    if (framesRemaining > INT_MAX) {
+                        framesRemaining = INT_MAX;
+                    }
+
+                    framesRead = stb_vorbis_get_samples_float_interleaved(pVorbis->stb, channels, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), (int)framesRemaining * channels);   /* Safe cast. */
+                    totalFramesRead += framesRead;
+
+                    if (framesRead < framesRemaining) {
+                        break;  /* Nothing left to read. Get out. */
+                    }
+                }
+            }
+        } else {
+            result = MA_INVALID_ARGS;
+        }
+
+        pVorbis->cursor += totalFramesRead;
+
+        if (totalFramesRead == 0) {
+            result = MA_AT_END;
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
+        }
+
+        return result;
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)pFramesOut;
+        (void)frameCount;
+        (void)pFramesRead;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64 frameIndex)
+{
+    if (pVorbis == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        /* Different seeking methods depending on whether or not we're using push mode. */
+        if (pVorbis->usingPushMode) {
+            /* Push mode. This is the complex case. */
+            ma_result result;
+            float buffer[4096];
+
+            /*
+            This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
+            a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
+            find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
+
+            TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
+            */
+
+            /* Seek to the start of the file to begin with. */
+            result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, 0, ma_seek_origin_start);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            stb_vorbis_flush_pushdata(pVorbis->stb);
+            pVorbis->push.framesRemaining = 0;
+            pVorbis->push.dataSize        = 0;
+
+            /* Move the cursor back to the start. We'll increment this in the loop below. */
+            pVorbis->cursor = 0;
+
+            while (pVorbis->cursor < frameIndex) {
+                ma_uint64 framesRead;
+                ma_uint64 framesToRead = ma_countof(buffer)/pVorbis->channels;
+                if (framesToRead > (frameIndex - pVorbis->cursor)) {
+                    framesToRead = (frameIndex - pVorbis->cursor);
+                }
+
+                result = ma_stbvorbis_read_pcm_frames(pVorbis, buffer, framesToRead, &framesRead);
+                pVorbis->cursor += framesRead;
+
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+            }
+        } else {
+            /* Pull mode. This is the simple case. */
+            int vorbisResult;
+
+            if (frameIndex > UINT_MAX) {
+                return MA_INVALID_ARGS; /* Trying to seek beyond the 32-bit maximum of stb_vorbis. */
+            }
+
+            vorbisResult = stb_vorbis_seek(pVorbis->stb, (unsigned int)frameIndex);  /* Safe cast. */
+            if (vorbisResult == 0) {
+                return MA_ERROR;    /* See failed. */
+            }
+
+            pVorbis->cursor = frameIndex;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+
+        (void)frameIndex;
+
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_stbvorbis_get_data_format(ma_stbvorbis* pVorbis, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    /* Defaults for safety. */
+    if (pFormat != NULL) {
+        *pFormat = ma_format_unknown;
+    }
+    if (pChannels != NULL) {
+        *pChannels = 0;
+    }
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;
+    }
+    if (pChannelMap != NULL) {
+        MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channelMapCap);
+    }
+
+    if (pVorbis == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = pVorbis->format;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        if (pChannels != NULL) {
+            *pChannels = pVorbis->channels;
+        }
+
+        if (pSampleRate != NULL) {
+            *pSampleRate = pVorbis->sampleRate;
+        }
+
+        if (pChannelMap != NULL) {
+            ma_get_standard_channel_map(ma_standard_channel_map_vorbis, (ma_uint32)ma_min(pVorbis->channels, channelMapCap), pChannelMap);
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_stbvorbis_get_cursor_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;   /* Safety. */
+
+    if (pVorbis == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        *pCursor = pVorbis->cursor;
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+MA_API ma_result ma_stbvorbis_get_length_in_pcm_frames(ma_stbvorbis* pVorbis, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;   /* Safety. */
+
+    if (pVorbis == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #if !defined(MA_NO_VORBIS)
+    {
+        if (pVorbis->usingPushMode) {
+            *pLength = 0;   /* I don't know of a good way to determine this reliably with stb_vorbis and push mode. */
+        } else {
+            *pLength = stb_vorbis_stream_length_in_samples(pVorbis->stb);
+        }
+        
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        /* vorbis is disabled. Should never hit this since initialization would have failed. */
+        MA_ASSERT(MA_FALSE);
+        return MA_NOT_IMPLEMENTED;
+    }
+    #endif
+}
+
+
+static ma_result ma_decoding_backend_init__stbvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_stbvorbis* pVorbis;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pVorbis = (ma_stbvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
-    MA_ZERO_MEMORY(pVorbis, vorbisDataSize);
-    pVorbis->pInternalVorbis = pInternalVorbis;
-    pVorbis->pData = pData;
-    pVorbis->dataSize = dataSize;
-    pVorbis->dataCapacity = dataCapacity;
+    result = ma_stbvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        return result;
+    }
 
-    pDecoder->onReadPCMFrames        = ma_decoder_internal_on_read_pcm_frames__vorbis;
-    pDecoder->onSeekToPCMFrame       = ma_decoder_internal_on_seek_to_pcm_frame__vorbis;
-    pDecoder->onUninit               = ma_decoder_internal_on_uninit__vorbis;
-    pDecoder->onGetLengthInPCMFrames = ma_decoder_internal_on_get_length_in_pcm_frames__vorbis;
-    pDecoder->pInternalDecoder       = pVorbis;
-
-    /* The internal format is always f32. */
-    pDecoder->internalFormat     = ma_format_f32;
-    pDecoder->internalChannels   = vorbisInfo.channels;
-    pDecoder->internalSampleRate = vorbisInfo.sample_rate;
-    ma_get_standard_channel_map(ma_standard_channel_map_vorbis, pDecoder->internalChannels, pDecoder->internalChannelMap);
+    *ppBackend = pVorbis;
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__stbvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_stbvorbis* pVorbis;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pVorbis = (ma_stbvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_stbvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_memory__stbvorbis(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_stbvorbis* pVorbis;
+
+    (void)pUserData;    /* For now not using pUserData, but once we start storing the vorbis decoder state within the ma_decoder structure this will be set to the decoder so we can avoid a malloc. */
+
+    /* For now we're just allocating the decoder backend on the heap. */
+    pVorbis = (ma_stbvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_stbvorbis_init_memory(pData, dataSize, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__stbvorbis(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_stbvorbis* pVorbis = (ma_stbvorbis*)pBackend;
+
+    (void)pUserData;
+
+    ma_stbvorbis_uninit(pVorbis, pAllocationCallbacks);
+    ma_free(pVorbis, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__stbvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_stbvorbis* pVorbis = (ma_stbvorbis*)pBackend;
+
+    (void)pUserData;
+
+    return ma_stbvorbis_get_data_format(pVorbis, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_stbvorbis =
+{
+    ma_decoding_backend_init__stbvorbis,
+    ma_decoding_backend_init_file__stbvorbis,
+    NULL, /* onInitFileW() */
+    ma_decoding_backend_init_memory__stbvorbis,
+    ma_decoding_backend_uninit__stbvorbis,
+    ma_decoding_backend_get_channel_map__stbvorbis
+};
+
+static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    return ma_decoder_init_from_vtable(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pConfig, pDecoder);
 }
 #endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
 
