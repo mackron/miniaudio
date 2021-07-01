@@ -68975,6 +68975,8 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 0.10.36 - TBD
+  - Add support for custom decoding backends.
+  - Fix some bugs with the Vorbis decoder.
   - PulseAudio: Fix a bug with channel mapping.
   - Silence some warnings when compiling with MA_DEBUG_OUTPUT
   - Prep work for some upcoming changes to data sources. These changes are still compatible with
