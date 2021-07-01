@@ -221,9 +221,9 @@ int main(int argc, char** argv)
     
     /* Initialize the decoder. */
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pCustomBackendUserData   = NULL;  /* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */
-    decoderConfig.ppCustomBackendVTables   = pCustomBackendVTables;
-    decoderConfig.customBackendVTableCount = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    decoderConfig.pCustomBackendUserData = NULL;  /* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */
+    decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
+    decoderConfig.customBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
     
     result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {

@@ -6141,7 +6141,7 @@ typedef struct
     } resampling;
     ma_allocation_callbacks allocationCallbacks;
     ma_decoding_backend_vtable** ppCustomBackendVTables;
-    ma_uint32 customBackendVTableCount;
+    ma_uint32 customBackendCount;
     void* pCustomBackendUserData;
 } ma_decoder_config;
 
@@ -46698,7 +46698,7 @@ static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConf
     backendConfig = ma_decoding_backend_config_init(pConfig->format);
 
     /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->customBackendVTableCount; ivtable += 1) {
+    for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
         const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
         if (pVTable != NULL && pVTable->onInit != NULL) {
             result = pVTable->onInit(pConfig->pCustomBackendUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);

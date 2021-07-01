@@ -1467,7 +1467,7 @@ typedef struct
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
     ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
-    ma_uint32 customDecodingBackendVTableCount;
+    ma_uint32 customDecodingBackendCount;
     void* pCustomDecodingBackendUserData;
 } ma_resource_manager_config;
 
@@ -6909,8 +6909,8 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
 
     /* Custom decoding backends. */
-    if (pConfig->ppCustomDecodingBackendVTables != NULL && pConfig->customDecodingBackendVTableCount > 0) {
-        size_t sizeInBytes = sizeof(*pResourceManager->config.ppCustomDecodingBackendVTables) * pConfig->customDecodingBackendVTableCount;
+    if (pConfig->ppCustomDecodingBackendVTables != NULL && pConfig->customDecodingBackendCount > 0) {
+        size_t sizeInBytes = sizeof(*pResourceManager->config.ppCustomDecodingBackendVTables) * pConfig->customDecodingBackendCount;
 
         pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
@@ -6920,8 +6920,8 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         MA_COPY_MEMORY(pResourceManager->config.ppCustomDecodingBackendVTables, pConfig->ppCustomDecodingBackendVTables, sizeInBytes);
 
-        pResourceManager->config.customDecodingBackendVTableCount = pConfig->customDecodingBackendVTableCount;
-        pResourceManager->config.pCustomDecodingBackendUserData   = pConfig->pCustomDecodingBackendUserData;
+        pResourceManager->config.customDecodingBackendCount     = pConfig->customDecodingBackendCount;
+        pResourceManager->config.pCustomDecodingBackendUserData = pConfig->pCustomDecodingBackendUserData;
     }
     
 
@@ -7005,10 +7005,10 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
     ma_decoder_config config;
 
     config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-    config.allocationCallbacks      = pResourceManager->config.allocationCallbacks;
-    config.ppCustomBackendVTables   = pResourceManager->config.ppCustomDecodingBackendVTables;
-    config.customBackendVTableCount = pResourceManager->config.customDecodingBackendVTableCount;
-    config.pCustomBackendUserData   = pResourceManager->config.pCustomDecodingBackendUserData;
+    config.allocationCallbacks    = pResourceManager->config.allocationCallbacks;
+    config.ppCustomBackendVTables = pResourceManager->config.ppCustomDecodingBackendVTables;
+    config.customBackendCount     = pResourceManager->config.customDecodingBackendCount;
+    config.pCustomBackendUserData = pResourceManager->config.pCustomDecodingBackendUserData;
 
     return config;
 }

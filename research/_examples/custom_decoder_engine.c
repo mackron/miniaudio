@@ -219,9 +219,9 @@ int main(int argc, char** argv)
 
     /* Using custom decoding backends requires a resource manager. */
     resourceManagerConfig = ma_resource_manager_config_init();
-    resourceManagerConfig.ppCustomDecodingBackendVTables   = pCustomBackendVTables;
-    resourceManagerConfig.customDecodingBackendVTableCount = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
-    resourceManagerConfig.pCustomDecodingBackendUserData   = NULL;  /* <-- This will be passed in to the pUserData parameter of each function in the decoding backend vtables. */
+    resourceManagerConfig.ppCustomDecodingBackendVTables = pCustomBackendVTables;
+    resourceManagerConfig.customDecodingBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    resourceManagerConfig.pCustomDecodingBackendUserData = NULL;  /* <-- This will be passed in to the pUserData parameter of each function in the decoding backend vtables. */
 
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
