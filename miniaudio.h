@@ -6155,14 +6155,10 @@ struct ma_decoder
     ma_decoder_seek_proc onSeek;
     ma_decoder_tell_proc onTell;
     void* pUserData;
-    ma_uint64  readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
-    ma_format  internalFormat;
-    ma_uint32  internalChannels;
-    ma_uint32  internalSampleRate;
-    ma_channel internalChannelMap[MA_MAX_CHANNELS];
-    ma_format  outputFormat;
-    ma_uint32  outputChannels;
-    ma_uint32  outputSampleRate;
+    ma_uint64 readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
+    ma_format outputFormat;
+    ma_uint32 outputChannels;
+    ma_uint32 outputSampleRate;
     ma_channel outputChannelMap[MA_MAX_CHANNELS];
     ma_data_converter converter;   /* <-- Data conversion is achieved by running frames through this. */
     ma_allocation_callbacks allocationCallbacks;
@@ -46749,10 +46745,29 @@ MA_API ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pC
 
 static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
 {
+    ma_result result;
     ma_data_converter_config converterConfig;
+    ma_format internalFormat;
+    ma_uint32 internalChannels;
+    ma_uint32 internalSampleRate;
+    ma_channel internalChannelMap[MA_MAX_CHANNELS];
 
     MA_ASSERT(pDecoder != NULL);
     MA_ASSERT(pConfig  != NULL);
+
+    result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, &internalSampleRate);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the internal data format. */
+    }
+
+    /* Channel map needs to be retrieved separately. */
+    if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onGetChannelMap != NULL) {
+        pDecoder->pBackendVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, internalChannelMap, ma_countof(internalChannelMap));
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(internalChannels, ma_countof(internalChannelMap)), internalChannelMap);
+    }
+
+
 
     /* Make sure we're not asking for too many channels. */
     if (pConfig->channels > MA_MAX_CHANNELS) {
@@ -46760,26 +46775,26 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     }
 
     /* The internal channels should have already been validated at a higher level, but we'll do it again explicitly here for safety. */
-    if (pDecoder->internalChannels > MA_MAX_CHANNELS) {
+    if (internalChannels > MA_MAX_CHANNELS) {
         return MA_INVALID_ARGS;
     }
 
 
     /* Output format. */
     if (pConfig->format == ma_format_unknown) {
-        pDecoder->outputFormat = pDecoder->internalFormat;
+        pDecoder->outputFormat = internalFormat;
     } else {
         pDecoder->outputFormat = pConfig->format;
     }
 
     if (pConfig->channels == 0) {
-        pDecoder->outputChannels = pDecoder->internalChannels;
+        pDecoder->outputChannels = internalChannels;
     } else {
         pDecoder->outputChannels = pConfig->channels;
     }
 
     if (pConfig->sampleRate == 0) {
-        pDecoder->outputSampleRate = pDecoder->internalSampleRate;
+        pDecoder->outputSampleRate = internalSampleRate;
     } else {
         pDecoder->outputSampleRate = pConfig->sampleRate;
     }
@@ -46792,11 +46807,11 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 
 
     converterConfig = ma_data_converter_config_init(
-        pDecoder->internalFormat,     pDecoder->outputFormat,
-        pDecoder->internalChannels,   pDecoder->outputChannels,
-        pDecoder->internalSampleRate, pDecoder->outputSampleRate
+        internalFormat,     pDecoder->outputFormat,
+        internalChannels,   pDecoder->outputChannels,
+        internalSampleRate, pDecoder->outputSampleRate
     );
-    ma_channel_map_copy(converterConfig.channelMapIn,  pDecoder->internalChannelMap, pDecoder->internalChannels);
+    ma_channel_map_copy(converterConfig.channelMapIn,  internalChannelMap, internalChannels);
     ma_channel_map_copy(converterConfig.channelMapOut, pDecoder->outputChannelMap,   pDecoder->outputChannels);
     converterConfig.channelMixMode             = pConfig->channelMixMode;
     converterConfig.ditherMode                 = pConfig->ditherMode;
@@ -46860,15 +46875,6 @@ static ma_result ma_decoder_init_from_vtable(const ma_decoding_backend_vtable* p
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
     pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
-
-    /* Internal format/channels/rate. */
-    ma_data_source_get_data_format(pDecoder->pBackend, &pDecoder->internalFormat, &pDecoder->internalChannels, &pDecoder->internalSampleRate);
-
-    /* Internal channel map. For now we need to use a separate vtable API for this, but later on we'll add this to ma_data_source_get_data_format(). */
-    if (pVTable->onGetChannelMap == NULL || pVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, pDecoder->internalChannelMap, ma_countof(pDecoder->internalChannelMap)) != MA_SUCCESS) {
-        /* Failed to retrieve the channel map. Assume default. */
-        ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(pDecoder->internalChannels, ma_countof(pDecoder->internalChannelMap)), pDecoder->internalChannelMap);
-    }
 
     return MA_SUCCESS;
 }
@@ -49716,8 +49722,14 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
     ma_result result = MA_SUCCESS;
 
     /* Basic validation in case the internal decoder supports different limits to miniaudio. */
-    if (pDecoder->internalChannels < MA_MIN_CHANNELS || pDecoder->internalChannels > MA_MAX_CHANNELS) {
-        result = MA_INVALID_DATA;
+    {
+        /* TODO: Remove this block once we remove MA_MIN_CHANNELS and MA_MAX_CHANNELS. */
+        ma_uint32 internalChannels;
+        ma_data_source_get_data_format(pDecoder->pBackend, NULL, &internalChannels, NULL);
+
+        if (internalChannels < MA_MIN_CHANNELS || internalChannels > MA_MAX_CHANNELS) {
+            result = MA_INVALID_DATA;
+        }
     }
 
     if (result == MA_SUCCESS) {
@@ -50873,14 +50885,21 @@ MA_API ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
     }
 
     if (pDecoder->pBackend != NULL) {
+        ma_result result;
         ma_uint64 nativeLengthInPCMFrames;
+        ma_uint32 internalSampleRate;
 
         ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &nativeLengthInPCMFrames);
         
-        if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
+        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
+        if (result != MA_SUCCESS) {
+            return 0;   /* Failed to retrieve the internal sample rate. */
+        }
+
+        if (internalSampleRate == pDecoder->outputSampleRate) {
             return nativeLengthInPCMFrames;
         } else {
-            return ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, pDecoder->internalSampleRate, nativeLengthInPCMFrames);
+            return ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, internalSampleRate, nativeLengthInPCMFrames);
         }
     }
 
@@ -50914,13 +50933,21 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
             result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut, MA_FALSE);
         } else {
             /* Slow path. Need to run everything through the data converter. */
+            ma_format internalFormat;
+            ma_uint32 internalChannels;
+
             totalFramesReadOut = 0;
             totalFramesReadIn  = 0;
             pRunningFramesOut  = pFramesOut;
 
+            result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, NULL);
+            if (result != MA_SUCCESS) {
+                return 0;   /* Failed to retrieve the internal format and channel count. */
+            }
+
             while (totalFramesReadOut < frameCount) {
                 ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
-                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDecoder->internalFormat, pDecoder->internalChannels);
+                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(internalFormat, internalChannels);
                 ma_uint64 framesToReadThisIterationIn;
                 ma_uint64 framesReadThisIterationIn;
                 ma_uint64 framesToReadThisIterationOut;
@@ -50982,11 +51009,17 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
     if (pDecoder->pBackend != NULL) {
         ma_result result;
         ma_uint64 internalFrameIndex;
+        ma_uint32 internalSampleRate;
 
-        if (pDecoder->internalSampleRate == pDecoder->outputSampleRate) {
+        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to retrieve the internal sample rate. */
+        }
+
+        if (internalSampleRate == pDecoder->outputSampleRate) {
             internalFrameIndex = frameIndex;
         } else {
-            internalFrameIndex = ma_calculate_frame_count_after_resampling(pDecoder->internalSampleRate, pDecoder->outputSampleRate, frameIndex);
+            internalFrameIndex = ma_calculate_frame_count_after_resampling(internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
         result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
