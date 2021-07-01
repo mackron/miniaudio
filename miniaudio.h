@@ -22976,6 +22976,29 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
+        if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
+            if (ma_is_little_endian()) {
+                ss.format = MA_PA_SAMPLE_FLOAT32LE;
+            } else {
+                ss.format = MA_PA_SAMPLE_FLOAT32BE;
+            }
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_RATE_FLOAT32\n");
+        #endif
+        }
+        if (ss.rate == 0) {
+            ss.rate = MA_DEFAULT_SAMPLE_RATE;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.rate = 0. Defaulting to %d\n", ss.rate);
+        #endif
+        }
+        if (ss.channels == 0) {
+            ss.channels = MA_DEFAULT_CHANNELS;
+        #ifdef MA_DEBUG_OUTPUT
+            printf("[PulseAudio] WARNING: sample_spec.channels = 0. Defaulting to %d\n", ss.channels);
+        #endif
+        }
+
         /* We now have enough information to calculate our actual period size in frames. */
         pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, ss.rate, pConfig->performanceProfile);
 
@@ -23071,7 +23094,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
         #ifdef MA_DEBUG_OUTPUT
-            printf("[PulseAudio] WARNING: sample_spec.format = PA_SAMPLE_INVALID. Defaulting to PA_SAMPLE_RATE_FLOAT32\n");
+            printf("[PulseAudio] WARNING: sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_RATE_FLOAT32\n");
         #endif
         }
         if (ss.rate == 0) {
@@ -50069,7 +50092,7 @@ MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
     config.encodingFormat = ma_encoding_format_wav;
 
-    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, &config, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50087,7 +50110,7 @@ MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize,
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
     config.encodingFormat = ma_encoding_format_flac;
 
-    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, &config, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50105,7 +50128,7 @@ MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, 
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
     config.encodingFormat = ma_encoding_format_mp3;
 
-    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, &config, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50123,7 +50146,7 @@ MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSiz
     config = ma_decoder_config_init_copy(pConfig);  /* Make sure the config is not NULL. */
     config.encodingFormat = ma_encoding_format_vorbis;
 
-    return ma_decoder_init_memory(pData, dataSize, pConfig, pDecoder);
+    return ma_decoder_init_memory(pData, dataSize, &config, pDecoder);
 #else
     (void)pData;
     (void)dataSize;
@@ -50467,7 +50490,7 @@ MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, co
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_wav;
 
-    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50485,7 +50508,7 @@ MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, c
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_flac;
 
-    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50503,7 +50526,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, co
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_mp3;
 
-    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50521,7 +50544,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath,
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_vorbis;
 
-    return ma_decoder_init_vfs(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50650,7 +50673,7 @@ MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePat
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_wav;
 
-    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50668,7 +50691,7 @@ MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePa
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_flac;
 
-    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50686,7 +50709,7 @@ MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePat
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_mp3;
 
-    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
@@ -50704,7 +50727,7 @@ MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFile
     config = ma_decoder_config_init_copy(pConfig);
     config.encodingFormat = ma_encoding_format_vorbis;
 
-    return ma_decoder_init_vfs_w(pVFS, pFilePath, pConfig, pDecoder);
+    return ma_decoder_init_vfs_w(pVFS, pFilePath, &config, pDecoder);
 #else
     (void)pVFS;
     (void)pFilePath;
