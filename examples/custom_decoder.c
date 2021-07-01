@@ -24,69 +24,61 @@ The `onInitFile`, `onInitFileW` and `onInitMemory` functions are optional.
 
 #include <stdio.h>
 
-/*
-In this example we're going to be implementing our custom decoders as an extension to the ma_decoder
-object. We declare our decoding backends after the ma_decoder object which allows us to avoid a
-memory allocation. There are many ways to manage the backend objects so use whatever works best for
-your particular scenario.
-*/
-typedef struct
+static ma_result ma_decoding_backend_init__libvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
-    ma_decoder base;    /* Must be the first member so we can cast between ma_decoder_ex and ma_decoder. */
-    union
-    {
-        ma_libvorbis libvorbis;
-        ma_libopus   libopus;
-    } backends;
-} ma_decoder_ex;
-
-static ma_result ma_decoder_ex_init__libvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_decoder_ex* pDecoderEx = (ma_decoder_ex*)pUserData;
     ma_result result;
-
-    /*
-    NOTE: We don't need to allocate any memory for the libvorbis object here because our backend
-    data is just extended off the ma_decoder object (ma_decode_ex) which is passed in as a
-    parameter to this function. We therefore need only cast to ma_decoder_ex and reference data
-    directly from that structure.
-    */
-    *ppBackend = (ma_data_source*)&pDecoderEx->backends.libvorbis;
-
-    result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, &pDecoderEx->backends.libvorbis);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_ex_init_file__libvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_decoder_ex* pDecoderEx = (ma_decoder_ex*)pUserData;
-    ma_result result;
-
-    *ppBackend = (ma_data_source*)&pDecoderEx->backends.libvorbis;
-
-    result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, &pDecoderEx->backends.libvorbis);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_decoder_ex_uninit__libvorbis(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
-    ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
-
-    /* No need to free the pVorbis object because it is sitting in the containing ma_decoder_ex object. */
+    ma_libvorbis* pVorbis;
 
     (void)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_decoder_ex_get_channel_map__libvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+static ma_result ma_decoding_backend_init_file__libvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libvorbis* pVorbis;
+
+    (void)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
+
+    (void)pUserData;
+
+    ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
+    ma_free(pVorbis, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__libvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
 
@@ -97,63 +89,71 @@ static ma_result ma_decoder_ex_get_channel_map__libvorbis(void* pUserData, ma_da
 
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
 {
-    ma_decoder_ex_init__libvorbis,
-    ma_decoder_ex_init_file__libvorbis,
+    ma_decoding_backend_init__libvorbis,
+    ma_decoding_backend_init_file__libvorbis,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoder_ex_uninit__libvorbis,
-    ma_decoder_ex_get_channel_map__libvorbis
+    ma_decoding_backend_uninit__libvorbis,
+    ma_decoding_backend_get_channel_map__libvorbis
 };
 
 
 
-static ma_result ma_decoder_ex_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
 {
-    ma_decoder_ex* pDecoderEx = (ma_decoder_ex*)pUserData;
     ma_result result;
-
-    /*
-    NOTE: We don't need to allocate any memory for the libopus object here because our backend
-    data is just extended off the ma_decoder object (ma_decode_ex) which is passed in as a
-    parameter to this function. We therefore need only cast to ma_decoder_ex and reference data
-    directly from that structure.
-    */
-    *ppBackend = (ma_data_source*)&pDecoderEx->backends.libopus;
-
-    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, &pDecoderEx->backends.libopus);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_ex_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_decoder_ex* pDecoderEx = (ma_decoder_ex*)pUserData;
-    ma_result result;
-
-    *ppBackend = (ma_data_source*)&pDecoderEx->backends.libopus;
-
-    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, &pDecoderEx->backends.libopus);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_decoder_ex_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_libopus* pOpus = (ma_libopus*)pBackend;
-    ma_libopus_uninit(pOpus, pAllocationCallbacks);
-
-    /* No need to free the pOpus object because it is sitting in the containing ma_decoder_ex object. */
+    ma_libopus* pOpus;
 
     (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_decoder_ex_get_channel_map__libopus(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libopus* pOpus;
+
+    (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (void)pUserData;
+
+    ma_libopus_uninit(pOpus, pAllocationCallbacks);
+    ma_free(pOpus, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__libopus(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_libopus* pOpus = (ma_libopus*)pBackend;
 
@@ -164,12 +164,12 @@ static ma_result ma_decoder_ex_get_channel_map__libopus(void* pUserData, ma_data
 
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
 {
-    ma_decoder_ex_init__libopus,
-    ma_decoder_ex_init_file__libopus,
+    ma_decoding_backend_init__libopus,
+    ma_decoding_backend_init_file__libopus,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoder_ex_uninit__libopus,
-    ma_decoder_ex_get_channel_map__libopus
+    ma_decoding_backend_uninit__libopus,
+    ma_decoding_backend_get_channel_map__libopus
 };
 
 
@@ -191,7 +191,7 @@ int main(int argc, char** argv)
 {
     ma_result result;
     ma_decoder_config decoderConfig;
-    ma_decoder_ex decoder;
+    ma_decoder decoder;
     ma_device_config deviceConfig;
     ma_device device;
     ma_format format;
@@ -217,11 +217,11 @@ int main(int argc, char** argv)
     
     /* Initialize the decoder. */
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pCustomBackendUserData   = &decoder;  /* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */
+    decoderConfig.pCustomBackendUserData   = NULL;  /* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */
     decoderConfig.ppCustomBackendVTables   = pCustomBackendVTables;
     decoderConfig.customBackendVTableCount = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
     
-    result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder.base);
+    result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize decoder.");
         return -1;
@@ -232,7 +232,7 @@ int main(int argc, char** argv)
     result = ma_data_source_get_data_format(&decoder, &format, &channels, &sampleRate);
     if (result != MA_SUCCESS) {
         printf("Failed to retrieve decoder data format.");
-        ma_decoder_uninit(&decoder.base);
+        ma_decoder_uninit(&decoder);
         return -1;
     }
 
@@ -245,14 +245,14 @@ int main(int argc, char** argv)
 
     if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
-        ma_decoder_uninit(&decoder.base);
+        ma_decoder_uninit(&decoder);
         return -1;
     }
 
     if (ma_device_start(&device) != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
         ma_device_uninit(&device);
-        ma_decoder_uninit(&decoder.base);
+        ma_decoder_uninit(&decoder);
         return -1;
     }
 
@@ -260,7 +260,7 @@ int main(int argc, char** argv)
     getchar();
 
     ma_device_uninit(&device);
-    ma_decoder_uninit(&decoder.base);
+    ma_decoder_uninit(&decoder);
 
     return 0;
 }
