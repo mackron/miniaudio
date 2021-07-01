@@ -39,6 +39,7 @@ static ma_result ma_decoding_backend_init__libvorbis(void* pUserData, ma_read_pr
 
     result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
     if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
         return result;
     }
 
@@ -61,6 +62,7 @@ static ma_result ma_decoding_backend_init_file__libvorbis(void* pUserData, const
 
     result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
     if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
         return result;
     }
 
@@ -114,6 +116,7 @@ static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc
 
     result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
     if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
         return result;
     }
 
@@ -136,6 +139,7 @@ static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const c
 
     result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
     if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
         return result;
     }
 
