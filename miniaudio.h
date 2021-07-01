@@ -46654,7 +46654,7 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 }
 
 
-/* Custom decoders. */
+
 static ma_result ma_decoder_internal_on_read__custom(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
     ma_decoder* pDecoder = (ma_decoder*)pUserData;
@@ -46679,54 +46679,75 @@ static ma_result ma_decoder_internal_on_tell__custom(void* pUserData, ma_int64* 
     return ma_decoder_tell_bytes(pDecoder, pCursor);
 }
 
+
+static ma_result ma_decoder_init_from_vtable(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoding_backend_config backendConfig;
+    ma_data_source* pBackend;
+
+    MA_ASSERT(pVTable  != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pVTable->onInit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format);
+
+    result = pVTable->onInit(pVTableUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the backend from this vtable. */
+    }
+
+    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
+    pDecoder->pBackend         = pBackend;
+    pDecoder->pBackendVTable   = pVTable;
+    pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+
+    /* Internal format/channels/rate. */
+    ma_data_source_get_data_format(pDecoder->pBackend, &pDecoder->internalFormat, &pDecoder->internalChannels, &pDecoder->internalSampleRate);
+
+    /* Internal channel map. For now we need to use a separate vtable API for this, but later on we'll add this to ma_data_source_get_data_format(). */
+    if (pVTable->onGetChannelMap == NULL || pVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, pDecoder->internalChannelMap, ma_countof(pDecoder->internalChannelMap)) != MA_SUCCESS) {
+        /* Failed to retrieve the channel map. Assume default. */
+        ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(pDecoder->internalChannels, ma_countof(pDecoder->internalChannelMap)), pDecoder->internalChannelMap);
+    }
+
+    return MA_SUCCESS;
+}
+
+
+
 static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = MA_NO_BACKEND;
-    ma_data_source* pBackend;
-    ma_decoding_backend_config backendConfig;
     size_t ivtable;
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    (void)pConfig;
-
     if (pConfig->ppCustomBackendVTables == NULL) {
         return MA_NO_BACKEND;
     }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format);
 
     /* The order each backend is listed is what defines the priority. */
     for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
         const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
         if (pVTable != NULL && pVTable->onInit != NULL) {
-            result = pVTable->onInit(pConfig->pCustomBackendUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+            result = ma_decoder_init_from_vtable(pVTable, pConfig->pCustomBackendUserData, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
-                /* We found our decoding backend. Now we just need to set up some stuff in the decoder. */
-                pDecoder->pBackend         = pBackend;
-                pDecoder->pBackendVTable   = pVTable;
-                pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
-
-                /* Internal format/channels/rate. */
-                ma_data_source_get_data_format(pDecoder->pBackend, &pDecoder->internalFormat, &pDecoder->internalChannels, &pDecoder->internalSampleRate);
-
-                /* Internal channel map. For now we need to use a separate vtable API for this, but later on we'll add this to ma_data_source_get_data_format(). */
-                if (pVTable->onGetChannelMap == NULL || pVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, pDecoder->internalChannelMap, ma_countof(pDecoder->internalChannelMap)) != MA_SUCCESS) {
-                    /* Failed to retrieve the channel map. Assume default. */
-                    ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(pDecoder->internalChannels, ma_countof(pDecoder->internalChannelMap)), pDecoder->internalChannelMap);
-                }
-
                 return MA_SUCCESS;
             } else {
-                /* Initialization failed. Move on to the next one, but seek back to the start. */
+                /* Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from the first byte of the file. */
                 result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
                 if (result != MA_SUCCESS) {
                     return result;  /* Failed to seek back to the start. */
                 }
             }
         } else {
-            /* No onInit callback. */
+            /* No vtable. */
         }
     }
 
