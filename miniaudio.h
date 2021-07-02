@@ -2039,6 +2039,15 @@ Logging
 **************************************************************************************************************************************************************/
 #include <stdarg.h> /* For va_list. */
 
+#if defined(__has_attribute)
+    #if __has_attribute(format)
+        #define MA_ATTRIBUTE_FORMAT(fmt, va) __attribute__((format(printf, fmt, va)))
+    #endif
+#endif
+#ifndef MA_ATTRIBUTE_FORMAT
+#define MA_ATTRIBUTE_FORMAT(fmt,va)
+#endif
+
 #ifndef MA_MAX_LOG_CALLBACKS
 #define MA_MAX_LOG_CALLBACKS    4
 #endif
@@ -2068,7 +2077,7 @@ MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback
 MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callback);
 MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage);
 MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, va_list args);
-MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...);
+MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...) MA_ATTRIBUTE_FORMAT(3, 4);
 
 
 /**************************************************************************************************************************************************************
@@ -11915,7 +11924,7 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
         return;
     }
 
-    ma_log_postf(ma_context_get_log(pContext), logLevel, message);   /* <-- This will deal with MA_DEBUG_OUTPUT. */
+    ma_log_post(ma_context_get_log(pContext), logLevel, message);   /* <-- This will deal with MA_DEBUG_OUTPUT. */
 
     /* Legacy. */
 #if defined(MA_LOG_LEVEL)
