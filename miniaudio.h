@@ -49492,6 +49492,11 @@ MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFram
                             }
                         }
                     }
+
+                    /* If we don't have a success code at this point it means we've encounted an error or the end of the file has been reached (probably the latter). */
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
                 }
             } else {
                 /* Pull mode. This is the simple case, but we still need to run in a loop because stb_vorbis loves using 32-bit instead of 64-bit. */
