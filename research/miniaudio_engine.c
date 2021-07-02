@@ -201,7 +201,7 @@ int main(int argc, char** argv)
         ma_engine_listener_set_direction(&engine, 0, -1, 0, 0);
         //ma_sound_set_velocity(&sound, step*1000, 0, 0);
 
-        ma_engine_listener_set_direction(&engine, 0, (float)ma_cos(angle), 0, (float)ma_sin(angle));
+        ma_engine_listener_set_direction(&engine, 0, (float)ma_cosd(angle), 0, (float)ma_sind(angle));
         angle += stepAngle;
 
         ma_sleep(1);

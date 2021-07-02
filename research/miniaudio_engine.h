@@ -1872,6 +1872,7 @@ typedef struct
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
+    ma_log* pLog;                           /* When set to NULL, will use the context's log. */
     ma_uint32 listenerCount;                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
     ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
@@ -1893,6 +1894,7 @@ struct ma_engine
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
     ma_resource_manager* pResourceManager;
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
+    ma_log* pLog;
     ma_uint32 listenerCount;
     ma_spatializer_listener listeners[MA_ENGINE_MAX_LISTENERS];
     ma_allocation_callbacks allocationCallbacks;
@@ -1907,6 +1909,8 @@ struct ma_engine
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
 MA_API void ma_engine_uninit(ma_engine* pEngine);
 MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
+MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
+MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);
@@ -10252,7 +10256,7 @@ MA_API float ma_vec3f_len2(ma_vec3f v)
 
 MA_API float ma_vec3f_len(ma_vec3f v)
 {
-    return (float)ma_sqrt(ma_vec3f_len2(v));
+    return (float)ma_sqrtd(ma_vec3f_len2(v));
 }
 
 MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
@@ -10377,7 +10381,7 @@ static float ma_attenuation_exponential(float distance, float minDistance, float
         return 1;   /* To avoid division by zero. Do not attenuate. */
     }
 
-    return (float)ma_pow(ma_clamp(distance, minDistance, maxDistance) / minDistance, -rolloff);
+    return (float)ma_powd(ma_clamp(distance, minDistance, maxDistance) / minDistance, -rolloff);
 }
 
 
@@ -10721,8 +10725,8 @@ static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneI
     */
     if (coneInnerAngleInRadians < 6.283185f) {
         float angularGain = 1;
-        float cutoffInner = (float)ma_cos(coneInnerAngleInRadians*0.5f);
-        float cutoffOuter = (float)ma_cos(coneOuterAngleInRadians*0.5f);
+        float cutoffInner = (float)ma_cosd(coneInnerAngleInRadians*0.5f);
+        float cutoffOuter = (float)ma_cosd(coneOuterAngleInRadians*0.5f);
         float d;
 
         d = ma_vec3f_dot(dirA, dirB);
@@ -11970,7 +11974,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_result result;
     ma_node_graph_config nodeGraphConfig;
     ma_engine_config engineConfig;
-    ma_context_config contextConfig;
     ma_spatializer_listener_config listenerConfig;
     ma_uint32 iListener;
 
@@ -11988,10 +11991,6 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     pEngine->pResourceManager = engineConfig.pResourceManager;
     pEngine->pDevice          = engineConfig.pDevice;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
-
-    /* We need a context before we'll be able to create the default listener. */
-    contextConfig = ma_context_config_init();
-    contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
 
     /* If we don't have a device, we need one. */
     if (pEngine->pDevice == NULL) {
@@ -12015,6 +12014,10 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine will do clipping itself. */
 
         if (engineConfig.pContext == NULL) {
+            ma_context_config contextConfig = ma_context_config_init();
+            contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
+            contextConfig.pLog = engineConfig.pLog;
+
             result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
         } else {
             result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
@@ -12027,6 +12030,16 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         pEngine->ownsDevice = MA_TRUE;
+    }
+
+    /*
+    The engine always uses either the log that was passed into the config, or the context's log. Either
+    way, the engine never has ownership of the log.
+    */
+    if (engineConfig.pLog != NULL) {
+        pEngine->pLog = engineConfig.pLog;
+    } else {
+        pEngine->pLog = ma_device_get_log(pEngine->pDevice);
     }
 
 
@@ -12198,6 +12211,28 @@ MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const 
     (void)pFramesIn;    /* Unused. */
 
     ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, NULL);
+}
+
+MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return NULL;
+    }
+
+    return pEngine->pDevice;
+}
+
+MA_API ma_log* ma_engine_get_log(ma_engine* pEngine)
+{
+    if (pEngine == NULL) {
+        return NULL;
+    }
+
+    if (pEngine->pLog != NULL) {
+        return pEngine->pLog;
+    } else {
+        return ma_device_get_log(ma_engine_get_device(pEngine));
+    }
 }
 
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine)
