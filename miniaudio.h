@@ -12065,7 +12065,7 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 {
     ma_handle handle;
 
-    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: ", filename);
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
 
 #ifdef _WIN32
 #ifdef MA_WIN32_DESKTOP
@@ -12088,7 +12088,7 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     backend is a deliberate design choice. Instead I'm logging it as an informational message.
     */
     if (handle == NULL) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "Failed to load library: ", filename);
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "Failed to load library: %s\n", filename);
     }
 
     (void)pContext; /* It's possible for pContext to be unused. */
@@ -12110,7 +12110,7 @@ MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symb
 {
     ma_proc proc;
 
-    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading symbol: ", symbol);
+    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
 
 #ifdef _WIN32
     proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
@@ -12126,7 +12126,7 @@ MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symb
 #endif
 
     if (proc == NULL) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to load symbol: ", symbol);
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
     }
 
     (void)pContext; /* It's possible for pContext to be unused. */
