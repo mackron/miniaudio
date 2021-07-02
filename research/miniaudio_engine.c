@@ -160,7 +160,7 @@ int main(int argc, char** argv)
     float posX = 0;
     float posZ = -1.0f;
     float step = 0.1f;
-    float stepAngle = 0.02f;
+    float stepAngle = 0.002f;
     float angle = 0;
 
     float pitch     = 1;

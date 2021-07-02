@@ -7045,6 +7045,7 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
 
 static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_decoder* pDecoder)
 {
+    ma_result result;
     ma_decoder_config config;
 
     MA_ASSERT(pResourceManager != NULL);
@@ -7054,10 +7055,20 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     config = ma_resource_manager__init_decoder_config(pResourceManager);
 
     if (pFilePath != NULL) {
-        return ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
+        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %d\n", pFilePath, result);
+            return result;
+        }
     } else {
-        return ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pFilePathW, &config, pDecoder);
+        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pFilePathW, &config, pDecoder);
+        if (result != MA_SUCCESS) {
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %d\n", pFilePathW, result);
+            return result;
+        }
     }
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pInitNotification, ma_fence* pInitFence)
@@ -7179,7 +7190,7 @@ static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource
         case ma_resource_manager_data_supply_type_unknown:
         default:
         {
-            /* TODO: Post an error here. */
+            ma_log_postf(ma_resource_manager_get_log(pDataBuffer->pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to retrieve data buffer connector. Unknown data supply type.\n");
             return NULL;
         };
     };
@@ -7196,13 +7207,21 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_res
     MA_ASSERT(pFilePath != NULL || pFilePathW != NULL);
 
     result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, pFilePathW, &pData, &dataSizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
-    if (result == MA_SUCCESS) {
-        pDataBufferNode->data.encoded.pData       = pData;
-        pDataBufferNode->data.encoded.sizeInBytes = dataSizeInBytes;
-        ma_resource_manager_data_buffer_node_set_data_supply_type(pDataBufferNode, ma_resource_manager_data_supply_type_encoded);  /* <-- Must be set last. */
+    if (result != MA_SUCCESS) {
+        if (pFilePath != NULL) {
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %d\n", pFilePath, result);
+        } else {
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %d\n", pFilePathW, result);
+        }
+
+        return result;
     }
 
-    return result;
+    pDataBufferNode->data.encoded.pData       = pData;
+    pDataBufferNode->data.encoded.sizeInBytes = dataSizeInBytes;
+    ma_resource_manager_data_buffer_node_set_data_supply_type(pDataBufferNode, ma_resource_manager_data_supply_type_encoded);  /* <-- Must be set last. */
+
+    return MA_SUCCESS;
 }
 
 static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pFilePath, const wchar_t* pFilePathW, ma_decoder** ppDecoder)
@@ -7366,7 +7385,8 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
         case ma_resource_manager_data_supply_type_unknown:
         default:
         {
-            /* Unexpected data supply type. TODO: Post an error here. */
+            /* Unexpected data supply type. */
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Unexpected data supply type (%d) when decoding page.", ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBufferNode));
             return MA_ERROR;
         };
     }
@@ -7510,7 +7530,8 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
 
                 result = ma_resource_manager_post_job(pResourceManager, &job);
                 if (result != MA_SUCCESS) {
-                    /* TODO: Post an error message. Failed to post job. Probably ran out of memory. */
+                    /* Failed to post job. Probably ran out of memory. */
+                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER_NODE job. %d\n", ma_result_description(result));
 
                     /*
                     Fences were acquired before posting the job, but since the job was not able to
@@ -7546,8 +7567,7 @@ early_exit:
             hashed name), but that node has been freed in the meantime, probably from some other
             thread. This is an invalid operation.
             */
-
-            /* TODO: Post an error message here. */
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Cloning data buffer node failed because the source node was released. The source node must remain valid until the cloning has completed.\n");
             result = MA_INVALID_OPERATION;
             goto done;
         }
@@ -7705,7 +7725,7 @@ stage2:
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
-                /* Failed to post the job. TODO: Post an error message here. */
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_FREE_DATA_BUFFER_NODE job. %d\n", ma_result_description(result));
                 return result;
             }
 
@@ -7877,7 +7897,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
                 /* We failed to post the job. Most likely there isn't enough room in the queue's buffer. */
-                /* TODO: Post an error here. */
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER job. %d\n", ma_result_description(result));
                 c89atomic_exchange_i32(&pDataBuffer->result, result);
 
                 /* Release the fences after the result has been set on the data buffer. */
@@ -9397,7 +9417,12 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         }
 
         if (result != MA_SUCCESS) {
-            /* TODO: Post a log message here. */
+            if (pJob->loadDataBufferNode.pFilePath != NULL) {
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%s\". %d\n", pJob->loadDataBufferNode.pFilePath, result);
+            } else {
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%ls\", %d\n", pJob->loadDataBufferNode.pFilePathW, result);
+            }
+
             goto done;
         }
 
@@ -9426,7 +9451,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         is set to MA_BUSY.
         */
         if (result != MA_SUCCESS) {
-            /* Failed to post the paging job. TODO: Post an error here. */
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_PAGE_DATA_BUFFER_NODE job. %d\n", ma_result_description(result));
             ma_decoder_uninit(pDecoder);
             ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
         } else {
@@ -9599,7 +9624,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
             result = ma_resource_manager_data_buffer_init_connector(pJob->loadDataBuffer.pDataBuffer, pJob->loadDataBuffer.pInitNotification, pJob->loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
-                /* TODO: Post error here. */
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %d\n", ma_result_description(result));
                 goto done;
             }
         }
