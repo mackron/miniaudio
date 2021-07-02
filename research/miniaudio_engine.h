@@ -7057,13 +7057,13 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     if (pFilePath != NULL) {
         result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pFilePath, &config, pDecoder);
         if (result != MA_SUCCESS) {
-            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %d\n", pFilePath, result);
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %s.\n", pFilePath, ma_result_description(result));
             return result;
         }
     } else {
         result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pFilePathW, &config, pDecoder);
         if (result != MA_SUCCESS) {
-            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %d\n", pFilePathW, result);
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %s.\n", pFilePathW, ma_result_description(result));
             return result;
         }
     }
@@ -7209,9 +7209,9 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_res
     result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, pFilePathW, &pData, &dataSizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
     if (result != MA_SUCCESS) {
         if (pFilePath != NULL) {
-            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %d\n", pFilePath, result);
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %s.\n", pFilePath, ma_result_description(result));
         } else {
-            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %d\n", pFilePathW, result);
+            ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%ls\". %s.\n", pFilePathW, ma_result_description(result));
         }
 
         return result;
@@ -7531,7 +7531,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
                 result = ma_resource_manager_post_job(pResourceManager, &job);
                 if (result != MA_SUCCESS) {
                     /* Failed to post job. Probably ran out of memory. */
-                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER_NODE job. %d\n", ma_result_description(result));
+                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
 
                     /*
                     Fences were acquired before posting the job, but since the job was not able to
@@ -7725,7 +7725,7 @@ stage2:
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_FREE_DATA_BUFFER_NODE job. %d\n", ma_result_description(result));
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_FREE_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
                 return result;
             }
 
@@ -7897,7 +7897,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
                 /* We failed to post the job. Most likely there isn't enough room in the queue's buffer. */
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER job. %d\n", ma_result_description(result));
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_LOAD_DATA_BUFFER job. %s.\n", ma_result_description(result));
                 c89atomic_exchange_i32(&pDataBuffer->result, result);
 
                 /* Release the fences after the result has been set on the data buffer. */
@@ -9418,9 +9418,9 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
 
         if (result != MA_SUCCESS) {
             if (pJob->loadDataBufferNode.pFilePath != NULL) {
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%s\". %d\n", pJob->loadDataBufferNode.pFilePath, result);
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%s\". %s.\n", pJob->loadDataBufferNode.pFilePath, ma_result_description(result));
             } else {
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%ls\", %d\n", pJob->loadDataBufferNode.pFilePathW, result);
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%ls\", %s.\n", pJob->loadDataBufferNode.pFilePathW, ma_result_description(result));
             }
 
             goto done;
@@ -9624,7 +9624,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
             result = ma_resource_manager_data_buffer_init_connector(pJob->loadDataBuffer.pDataBuffer, pJob->loadDataBuffer.pInitNotification, pJob->loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %d\n", ma_result_description(result));
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %s.\n", ma_result_description(result));
                 goto done;
             }
         }
