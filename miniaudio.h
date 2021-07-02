@@ -31320,7 +31320,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
 
         /* Set the recording preset before realizing the player. */
         if (pConfig->opensl.recordingPreset != ma_opensl_recording_preset_default) {
-            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioPlayerObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioPlayerObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pRecorderConfig);
+            resultSL = MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->GetInterface((SLObjectItf)pDevice->opensl.pAudioRecorderObj, (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDCONFIGURATION, &pRecorderConfig);
             if (resultSL == SL_RESULT_SUCCESS) {
                 SLint32 recordingPreset = ma_to_recording_preset__opensl(pConfig->opensl.recordingPreset);
                 resultSL = (*pRecorderConfig)->SetConfiguration(pRecorderConfig, SL_ANDROID_KEY_RECORDING_PRESET, &recordingPreset, sizeof(SLint32));
@@ -49999,7 +49999,7 @@ static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut,
 
 static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
-    if (byteOffset > MA_SIZE_MAX) {
+    if (byteOffset > 0 && (ma_uint64)byteOffset > MA_SIZE_MAX) {
         return MA_FALSE;    /* Too far. */
     }
 
