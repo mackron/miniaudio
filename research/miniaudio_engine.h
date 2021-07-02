@@ -1460,6 +1460,7 @@ struct ma_resource_manager_data_source
 typedef struct
 {
     ma_allocation_callbacks allocationCallbacks;
+    ma_log* pLog;
     ma_format decodedFormat;        /* The decoded format to use. Set to ma_format_unknown (default) to use the file's native format. */
     ma_uint32 decodedChannels;      /* The decoded channel count to use. Set to 0 (default) to use the file's native channel count. */
     ma_uint32 decodedSampleRate;    /* the decoded sample rate to use. Set to 0 (default) to use the file's native sample rate. */
@@ -1481,11 +1482,13 @@ struct ma_resource_manager
     ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The threads for executing jobs. */
     ma_job_queue jobQueue;                                          /* Lock-free multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
     ma_default_vfs defaultVFS;                                      /* Only used if a custom VFS is not specified. */
+    ma_log log;                                                     /* Only used if no log was specified in the config. */
 };
 
 /* Init. */
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager);
 MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager);
+MA_API ma_log* ma_resource_manager_get_log(ma_resource_manager* pResourceManager);
 
 /* Registration. */
 MA_API ma_result ma_resource_manager_register_file(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags);
@@ -6877,6 +6880,16 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     pResourceManager->config = *pConfig;
     ma_allocation_callbacks_init_copy(&pResourceManager->config.allocationCallbacks, &pConfig->allocationCallbacks);
 
+    /* Get the log set up early so we can start using it as soon as possible. */
+    if (pResourceManager->config.pLog == NULL) {
+        result = ma_log_init(&pResourceManager->config.allocationCallbacks, &pResourceManager->log);
+        if (result == MA_SUCCESS) {
+            pResourceManager->config.pLog = &pResourceManager->log;
+        } else {
+            pResourceManager->config.pLog = NULL;   /* Logging is unavailable. */
+        }
+    }
+
     if (pResourceManager->config.pVFS == NULL) {
         result = ma_default_vfs_init(&pResourceManager->defaultVFS, &pResourceManager->config.allocationCallbacks);
         if (result != MA_SUCCESS) {
@@ -7001,6 +7014,19 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     }
 
     ma_free(pResourceManager->config.ppCustomDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
+
+    if (pResourceManager->config.pLog == &pResourceManager->log) {
+        ma_log_uninit(&pResourceManager->log);
+    }
+}
+
+MA_API ma_log* ma_resource_manager_get_log(ma_resource_manager* pResourceManager)
+{
+    if (pResourceManager == NULL) {
+        return NULL;
+    }
+
+    return pResourceManager->config.pLog;
 }
 
 
@@ -12018,6 +12044,15 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
             contextConfig.pLog = engineConfig.pLog;
 
+            /* If the engine config does not specify a log, use the resource manager's if we have one. */
+            #ifndef MA_NO_RESOURCE_MANAGER
+            {
+                if (contextConfig.pLog == NULL && engineConfig.pResourceManager != NULL) {
+                    contextConfig.pLog = ma_resource_manager_get_log(engineConfig.pResourceManager);
+                }
+            }
+            #endif
+
             result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
         } else {
             result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
@@ -12087,39 +12122,42 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
 
     /* We need a resource manager. */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pEngine->pResourceManager == NULL) {
-        ma_resource_manager_config resourceManagerConfig;
-
-        pEngine->pResourceManager = (ma_resource_manager*)ma__malloc_from_callbacks(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
+    #ifndef MA_NO_RESOURCE_MANAGER
+    {
         if (pEngine->pResourceManager == NULL) {
-            result = MA_OUT_OF_MEMORY;
-            goto on_error_2;
+            ma_resource_manager_config resourceManagerConfig;
+
+            pEngine->pResourceManager = (ma_resource_manager*)ma_malloc(sizeof(*pEngine->pResourceManager), &pEngine->allocationCallbacks);
+            if (pEngine->pResourceManager == NULL) {
+                result = MA_OUT_OF_MEMORY;
+                goto on_error_2;
+            }
+
+            resourceManagerConfig = ma_resource_manager_config_init();
+            resourceManagerConfig.pLog              = pEngine->pLog;    /* Always use the engine's log for internally-managed resource managers. */
+            resourceManagerConfig.decodedFormat     = ma_format_f32;
+            resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
+            resourceManagerConfig.decodedSampleRate = ma_engine_get_sample_rate(pEngine);
+            ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
+            resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
+
+            /* The Emscripten build cannot use threads. */
+            #if defined(MA_EMSCRIPTEN)
+            {
+                resourceManagerConfig.jobThreadCount = 0;
+                resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+            }
+            #endif
+
+            result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
+            if (result != MA_SUCCESS) {
+                goto on_error_3;
+            }
+
+            pEngine->ownsResourceManager = MA_TRUE;
         }
-
-        resourceManagerConfig = ma_resource_manager_config_init();
-        resourceManagerConfig.decodedFormat     = ma_format_f32;
-        resourceManagerConfig.decodedChannels   = 0;  /* Leave the decoded channel count as 0 so we can get good spatialization. */
-        resourceManagerConfig.decodedSampleRate = ma_engine_get_sample_rate(pEngine);
-        ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
-        resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
-
-        /* The Emscripten build cannot use threads. */
-        #if defined(MA_EMSCRIPTEN)
-        {
-            resourceManagerConfig.jobThreadCount = 0;
-            resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
-        }
-        #endif
-
-        result = ma_resource_manager_init(&resourceManagerConfig, pEngine->pResourceManager);
-        if (result != MA_SUCCESS) {
-            goto on_error_3;
-        }
-
-        pEngine->ownsResourceManager = MA_TRUE;
     }
-#endif
+    #endif
 
     /* Setup some stuff for inlined sounds. That is sounds played with ma_engine_play_sound(). */
     ma_mutex_init(&pEngine->inlinedSoundLock);
@@ -12140,7 +12178,7 @@ on_error_4:
 #ifndef MA_NO_RESOURCE_MANAGER
 on_error_3:
     if (pEngine->ownsResourceManager) {
-        ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
+        ma_free(pEngine->pResourceManager, &pEngine->allocationCallbacks);
     }
 #endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_2:
@@ -12152,7 +12190,7 @@ on_error_2:
 on_error_1:
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
-        ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
     }
 
     return result;
@@ -12167,7 +12205,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
     /* The device must be uninitialized before the node graph to ensure the audio thread doesn't try accessing it. */
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
-        ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
     } else {
         ma_device_stop(pEngine->pDevice);
     }
@@ -12201,7 +12239,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pEngine->ownsResourceManager) {
         ma_resource_manager_uninit(pEngine->pResourceManager);
-        ma__free_from_callbacks(pEngine->pResourceManager, &pEngine->allocationCallbacks);
+        ma_free(pEngine->pResourceManager, &pEngine->allocationCallbacks);
     }
 #endif
 }
