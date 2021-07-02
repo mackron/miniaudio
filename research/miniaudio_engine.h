@@ -8541,8 +8541,8 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
             ma_resource_manager_inline_notification_uninit(&waitNotification);
         }
 
-        ma__free_from_callbacks(pFilePathCopy,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-        ma__free_from_callbacks(pFilePathWCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
         return result;
     }
 
@@ -9716,7 +9716,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     /* We have the decoder so we can now initialize our page buffer. */
     pageBufferSizeInBytes = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream) * 2 * ma_get_bytes_per_frame(pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels);
 
-    pDataStream->pPageData = ma__malloc_from_callbacks(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+    pDataStream->pPageData = ma_malloc(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
     if (pDataStream->pPageData == NULL) {
         ma_decoder_uninit(&pDataStream->decoder);
         result = MA_OUT_OF_MEMORY;
@@ -9730,8 +9730,8 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     result = MA_SUCCESS;
 
 done:
-    ma__free_from_callbacks(pJob->loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-    ma__free_from_callbacks(pJob->loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma_free(pJob->loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma_free(pJob->loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);
@@ -9770,7 +9770,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     }
 
     if (pDataStream->pPageData != NULL) {
-        ma__free_from_callbacks(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        ma_free(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
         pDataStream->pPageData = NULL;  /* Just in case... */
     }
 
@@ -12022,7 +12022,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (pEngine->pDevice == NULL) {
         ma_device_config deviceConfig;
 
-        pEngine->pDevice = (ma_device*)ma__malloc_from_callbacks(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
         if (pEngine->pDevice == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -12059,7 +12059,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         if (result != MA_SUCCESS) {
-            ma__free_from_callbacks(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
             pEngine->pDevice = NULL;
             return result;
         }
