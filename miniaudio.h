@@ -1922,7 +1922,7 @@ typedef enum
     ma_channel_mix_mode_simple,            /* Drop excess channels; zeroed out extra channels. */
     ma_channel_mix_mode_custom_weights,    /* Use custom weights specified in ma_channel_router_config. */
     ma_channel_mix_mode_planar_blend = ma_channel_mix_mode_rectangular,
-    ma_channel_mix_mode_default = ma_channel_mix_mode_planar_blend
+    ma_channel_mix_mode_default = ma_channel_mix_mode_rectangular
 } ma_channel_mix_mode;
 
 typedef enum
@@ -40228,18 +40228,18 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
         return MA_INVALID_ARGS;
     }
 
-    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn)) {
+    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn) && pConfig->channelMapIn != NULL) {
         return MA_INVALID_ARGS; /* Invalid input channel map. */
     }
-    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut)) {
+    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut) && pConfig->channelMapOut != NULL) {
         return MA_INVALID_ARGS; /* Invalid output channel map. */
     }
 
     pConverter->format      = pConfig->format;
     pConverter->channelsIn  = pConfig->channelsIn;
     pConverter->channelsOut = pConfig->channelsOut;
-    ma_channel_map_copy(pConverter->channelMapIn,  pConfig->channelMapIn,  pConfig->channelsIn);
-    ma_channel_map_copy(pConverter->channelMapOut, pConfig->channelMapOut, pConfig->channelsOut);
+    ma_channel_map_copy_or_default(pConverter->channelMapIn,  pConfig->channelMapIn,  pConfig->channelsIn);
+    ma_channel_map_copy_or_default(pConverter->channelMapOut, pConfig->channelMapOut, pConfig->channelsOut);
     pConverter->mixingMode  = pConfig->mixingMode;
 
     for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; iChannelIn += 1) {
