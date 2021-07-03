@@ -1878,8 +1878,14 @@ typedef struct
     MA_ATOMIC ma_bool8 isPitchDisabled;             /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
     MA_ATOMIC ma_bool8 isSpatializationDisabled;    /* Set to false by default. When set to false, will not have spatialisation applied. */
     MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_engine_node;
 
+MA_API ma_result ma_engine_node_get_heap_size(const ma_engine_node_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* pConfig, void* pHeap, ma_engine_node* pEngineNode);
 MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode);
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 
@@ -12329,9 +12335,115 @@ static ma_node_vtable g_ma_engine_node_vtable__group =
     MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES /* The engine node does resampling so should let miniaudio know about it. */
 };
 
-MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode)
+
+
+static ma_node_config ma_engine_node_base_node_config_init(const ma_engine_node_config* pConfig)
+{
+    ma_node_config baseNodeConfig;
+
+    if (pConfig->type == ma_engine_node_type_sound) {
+        /* Sound. */
+        baseNodeConfig = ma_node_config_init();
+        baseNodeConfig.vtable       = &g_ma_engine_node_vtable__sound;
+        baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
+    } else {
+        /* Group. */
+        baseNodeConfig = ma_node_config_init();
+        baseNodeConfig.vtable       = &g_ma_engine_node_vtable__group;
+        baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
+    }
+
+    return baseNodeConfig;
+}
+
+static ma_spatializer_config ma_engine_node_spatializer_config_init(const ma_node_config* pBaseNodeConfig)
+{
+    return ma_spatializer_config_init(pBaseNodeConfig->pInputChannels[0], pBaseNodeConfig->pOutputChannels[0]);
+}
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t baseNodeOffset;
+    size_t spatializerOffset;
+} ma_engine_node_heap_layout;
+
+static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pConfig, ma_engine_node_heap_layout* pHeapLayout)
 {
     ma_result result;
+    size_t tempHeapSize;
+    ma_node_config baseNodeConfig;
+    ma_spatializer_config spatializerConfig;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+
+    MA_ASSERT(pHeapLayout);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->pEngine == NULL) {
+        return MA_INVALID_ARGS; /* An engine must be specified. */
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
+    channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
+
+
+    /* Base node. */
+    baseNodeConfig = ma_engine_node_base_node_config_init(pConfig);
+    baseNodeConfig.pInputChannels  = &channelsIn;
+    baseNodeConfig.pOutputChannels = &channelsOut;
+
+    pHeapLayout->baseNodeOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += 0;  /* TODO: Implement pre-allocation for nodes. */
+
+
+    /* Spatializer. */
+    spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
+
+    result = ma_spatializer_get_heap_size(&spatializerConfig, &tempHeapSize);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap for the spatializer. */
+    }
+
+    pHeapLayout->spatializerOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += tempHeapSize;
+
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_node_get_heap_size(const ma_engine_node_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_engine_node_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_engine_node_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* pConfig, void* pHeap, ma_engine_node* pEngineNode)
+{
+    ma_result result;
+    ma_engine_node_heap_layout heapLayout;
     ma_node_config baseNodeConfig;
     ma_resampler_config resamplerConfig;
     ma_fader_config faderConfig;
@@ -12346,43 +12458,16 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     MA_ZERO_OBJECT(pEngineNode);
 
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS; /* Config must be specified. */
-    }
-
-    if (pConfig->pEngine == NULL) {
-        return MA_INVALID_ARGS; /* An engine must be specified. */
+    result = ma_engine_node_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     if (pConfig->pinnedListenerIndex != (ma_uint8)-1 && pConfig->pinnedListenerIndex >= ma_engine_get_listener_count(pConfig->pEngine)) {
         return MA_INVALID_ARGS; /* Invalid listener. */
     }
 
-    /* Assume the engine channel count if no channels were specified. */
-    channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
-    channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
-
-    if (pConfig->type == ma_engine_node_type_sound) {
-        /* Sound. */
-        baseNodeConfig = ma_node_config_init();
-        baseNodeConfig.vtable          = &g_ma_engine_node_vtable__sound;
-        baseNodeConfig.pInputChannels  = &channelsIn;
-        baseNodeConfig.pOutputChannels = &channelsOut;
-        baseNodeConfig.initialState = ma_node_state_stopped;    /* Sounds are stopped by default. */
-    } else {
-        /* Group. */
-        baseNodeConfig = ma_node_config_init();
-        baseNodeConfig.vtable          = &g_ma_engine_node_vtable__group;
-        baseNodeConfig.pInputChannels  = &channelsIn;
-        baseNodeConfig.pOutputChannels = &channelsOut;
-        baseNodeConfig.initialState = ma_node_state_started;    /* Groups are started by default. */
-    }
-
-    result = ma_node_init(&pConfig->pEngine->nodeGraph, &baseNodeConfig, pAllocationCallbacks, &pEngineNode->baseNode);
-    if (result != MA_SUCCESS) {
-        goto error0;
-    }
-
+    pEngineNode->_pHeap                   = pHeap;
     pEngineNode->pEngine                  = pConfig->pEngine;
     pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
     pEngineNode->pitch                    = 1;
@@ -12391,6 +12476,22 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     pEngineNode->isPitchDisabled          = pConfig->isPitchDisabled;
     pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
     pEngineNode->pinnedListenerIndex      = pConfig->pinnedListenerIndex;
+
+
+    channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
+    channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
+
+
+    /* Base node. */
+    baseNodeConfig = ma_engine_node_base_node_config_init(pConfig);
+    baseNodeConfig.pInputChannels  = &channelsIn;
+    baseNodeConfig.pOutputChannels = &channelsOut;
+
+    result = ma_node_init(&pConfig->pEngine->nodeGraph, &baseNodeConfig, &pEngineNode->pEngine->allocationCallbacks, &pEngineNode->baseNode); /* TODO: Implement pre-allocation for nodes. */
+    if (result != MA_SUCCESS) {
+        goto error0;
+    }
+    
 
     /*
     We can now initialize the effects we need in order to implement the engine node. There's a
@@ -12423,10 +12524,10 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     Spatialization comes next. We spatialize based ont he node's output channel count. It's up the caller to
     ensure channels counts link up correctly in the node graph.
     */
-    spatializerConfig = ma_spatializer_config_init(baseNodeConfig.pInputChannels[0], baseNodeConfig.pOutputChannels[0]);
+    spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
     spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
     
-    result = ma_spatializer_init(&spatializerConfig, pAllocationCallbacks, &pEngineNode->spatializer);  /* TODO: Use a preallocated heap for this. */
+    result = ma_spatializer_init_preallocated(&spatializerConfig, ma_offset_ptr(pHeap, heapLayout.spatializerOffset), &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
         goto error2;
     }
@@ -12440,14 +12541,45 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 
     result = ma_panner_init(&pannerConfig, &pEngineNode->panner);
     if (result != MA_SUCCESS) {
-        goto error2;
+        goto error3;
     }
 
     return MA_SUCCESS;
 
+error3: ma_spatializer_uninit(&pEngineNode->spatializer, NULL); /* <-- No need for allocation callbacks here because we use a preallocated heap. */
 error2: ma_resampler_uninit(&pEngineNode->resampler);
-error1: ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
+error1: ma_node_uninit(&pEngineNode->baseNode, NULL);           /* <-- No need for allocation callbacks here because we use a preallocated heap. */
 error0: return result;
+}
+
+MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_engine_node* pEngineNode)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_engine_node_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_engine_node_init_preallocated(pConfig, pHeap, pEngineNode);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pEngineNode->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
 }
 
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -12459,7 +12591,13 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 
     /* Now that the node has been uninitialized we can safely uninitialize the rest. */
+    ma_spatializer_uninit(&pEngineNode->spatializer, NULL);
     ma_resampler_uninit(&pEngineNode->resampler);
+
+    /* Free the heap last. */
+    if (pEngineNode->_pHeap != NULL && pEngineNode->_ownsHeap) {
+        ma_free(pEngineNode->_pHeap, pAllocationCallbacks);
+    }
 }
 
 
