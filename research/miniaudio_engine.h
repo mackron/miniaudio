@@ -1018,6 +1018,8 @@ struct ma_node_base
     ma_bool32 _ownsHeap;    /* If set to true, the node owns the heap allocation and _pHeap will be freed in ma_node_uninit(). */
 };
 
+MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, void* pHeap, ma_node* pNode);
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
 MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_node_graph* ma_node_get_node_graph(const ma_node* pNode);
@@ -4141,63 +4143,54 @@ static float* ma_node_get_cached_output_ptr(ma_node* pNode, ma_uint32 outputBusI
 }
 
 
-MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode)
+typedef struct
 {
-    ma_node_base* pNodeBase = (ma_node_base*)pNode;
-    ma_result result;
-    ma_uint32 iInputBus;
-    ma_uint32 iOutputBus;
-    size_t heapSizeInBytes = 0;
-    size_t inputBusHeapOffsetInBytes = MA_SIZE_MAX;
-    size_t outputBusHeapOffsetInBytes = MA_SIZE_MAX;
-    size_t cachedDataHeapOffsetInBytes = MA_SIZE_MAX;
+    size_t sizeInBytes;
+    size_t inputBusOffset;
+    size_t outputBusOffset;
+    size_t cachedDataOffset;
+    ma_uint32 inputBusCount;    /* So it doesn't have to be calculated twice. */
+    ma_uint32 outputBusCount;   /* So it doesn't have to be calculated twice. */
+} ma_node_heap_layout;
 
-    if (pNodeBase == NULL) {
-        return MA_INVALID_ARGS;
-    }
+static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_uint32* pInputBusCount, ma_uint32* pOutputBusCount)
+{
+    ma_uint32 inputBusCount;
+    ma_uint32 outputBusCount;
 
-    MA_ZERO_OBJECT(pNodeBase);
-
-    if (pConfig == NULL || pConfig->vtable == NULL || pConfig->vtable->onProcess == NULL) {
-        return MA_INVALID_ARGS; /* Config is invalid. */
-    }
-
-
-    pNodeBase->pNodeGraph = pNodeGraph;
-    pNodeBase->vtable     = pConfig->vtable;
-    pNodeBase->state      = pConfig->initialState;
-    pNodeBase->stateTimes[ma_node_state_started] = 0;
-    pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
+    MA_ASSERT(pConfig != NULL);
+    MA_ASSERT(pInputBusCount  != NULL);
+    MA_ASSERT(pOutputBusCount != NULL);
 
     /* Bus counts are determined by the vtable, unless they're set to `MA_NODE_BUS_COUNT_UNKNWON`, in which case they're taken from the config. */
-    if (pNodeBase->vtable->inputBusCount == MA_NODE_BUS_COUNT_UNKNOWN) {
-        pNodeBase->inputBusCount = pConfig->inputBusCount;
+    if (pConfig->vtable->inputBusCount == MA_NODE_BUS_COUNT_UNKNOWN) {
+        inputBusCount = pConfig->inputBusCount;
     } else {
-        pNodeBase->inputBusCount = pNodeBase->vtable->inputBusCount;
+        inputBusCount = pConfig->vtable->inputBusCount;
 
-        if (pConfig->inputBusCount != MA_NODE_BUS_COUNT_UNKNOWN && pConfig->inputBusCount != pNodeBase->vtable->inputBusCount) {
+        if (pConfig->inputBusCount != MA_NODE_BUS_COUNT_UNKNOWN && pConfig->inputBusCount != pConfig->vtable->inputBusCount) {
             return MA_INVALID_ARGS; /* Invalid configuration. You must not specify a conflicting bus count between the node's config and the vtable. */
         }
     }
 
-    if (pNodeBase->vtable->outputBusCount == MA_NODE_BUS_COUNT_UNKNOWN) {
-        pNodeBase->outputBusCount = pConfig->outputBusCount;
+    if (pConfig->vtable->outputBusCount == MA_NODE_BUS_COUNT_UNKNOWN) {
+        outputBusCount = pConfig->outputBusCount;
     } else {
-        pNodeBase->outputBusCount = pNodeBase->vtable->outputBusCount;
+        outputBusCount = pConfig->vtable->outputBusCount;
 
-        if (pConfig->outputBusCount != MA_NODE_BUS_COUNT_UNKNOWN && pConfig->outputBusCount != pNodeBase->vtable->outputBusCount) {
+        if (pConfig->outputBusCount != MA_NODE_BUS_COUNT_UNKNOWN && pConfig->outputBusCount != pConfig->vtable->outputBusCount) {
             return MA_INVALID_ARGS; /* Invalid configuration. You must not specify a conflicting bus count between the node's config and the vtable. */
         }
     }
 
     /* Bus counts must be within limits. */
-    if (ma_node_get_input_bus_count(pNodeBase) > MA_MAX_NODE_BUS_COUNT || ma_node_get_output_bus_count(pNodeBase) > MA_MAX_NODE_BUS_COUNT) {
+    if (inputBusCount > MA_MAX_NODE_BUS_COUNT || outputBusCount > MA_MAX_NODE_BUS_COUNT) {
         return MA_INVALID_ARGS;
     }
 
 
     /* We must have channel counts for each bus. */
-    if ((pNodeBase->inputBusCount > 0 && pConfig->pInputChannels == NULL) || (pNodeBase->outputBusCount > 0 && pConfig->pOutputChannels == NULL)) {
+    if ((inputBusCount > 0 && pConfig->pInputChannels == NULL) || (outputBusCount > 0 && pConfig->pOutputChannels == NULL)) {
         return MA_INVALID_ARGS; /* You must specify channel counts for each input and output bus. */
     }
 
@@ -4214,28 +4207,47 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     }
 
 
-    /*
-    We may need to allocate memory on the heap. These are what we may need to put on the heap:
+    *pInputBusCount  = inputBusCount;
+    *pOutputBusCount = outputBusCount;
 
-       +------------------------------------------------+
-       | Input Buses | Output Buses | Cached Audio Data |
-       +------------------------------------------------+
+    return MA_SUCCESS;
+}
 
-    We'll need to first count how much space we'll need to allocate. If it exceeds 0, we'll
-    allocate a buffer on the heap.
-    */
-    heapSizeInBytes = 0;    /* Always start at zero. */
+static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_heap_layout* pHeapLayout)
+{
+    ma_result result;
+    ma_uint32 inputBusCount;
+    ma_uint32 outputBusCount;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL || pConfig->vtable == NULL || pConfig->vtable->onProcess == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_node_translate_bus_counts(pConfig, &inputBusCount, &outputBusCount);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
 
     /* Input buses. */
-    if (ma_node_get_input_bus_count(pNodeBase) > ma_countof(pNodeBase->_inputBuses)) {
-        inputBusHeapOffsetInBytes = heapSizeInBytes;
-        heapSizeInBytes += ma_node_get_input_bus_count(pNodeBase) * sizeof(*pNodeBase->pInputBuses);
+    if (inputBusCount > MA_MAX_NODE_LOCAL_BUS_COUNT) {
+        pHeapLayout->inputBusOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(ma_node_input_bus) * inputBusCount;
+    } else {
+        pHeapLayout->inputBusOffset = MA_SIZE_MAX;  /* MA_SIZE_MAX indicates that no heap allocation is required for the input bus. */
     }
 
     /* Output buses. */
-    if (ma_node_get_output_bus_count(pNodeBase) > ma_countof(pNodeBase->_outputBuses)) {
-        outputBusHeapOffsetInBytes = heapSizeInBytes;
-        heapSizeInBytes += ma_node_get_output_bus_count(pNodeBase) * sizeof(*pNodeBase->pOutputBuses);
+    if (outputBusCount > MA_MAX_NODE_LOCAL_BUS_COUNT) {
+        pHeapLayout->outputBusOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(ma_node_output_bus) * outputBusCount;
+    } else {
+        pHeapLayout->outputBusOffset = MA_SIZE_MAX;
     }
 
     /*
@@ -4254,64 +4266,113 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     now I'm going with 10ms @ 48K which is 480 frames per bus. This is configurable at compile
     time. It might also be worth investigating whether or not this can be configured at run time.
     */
-    if (ma_node_get_input_bus_count(pNode) == 0 && ma_node_get_output_bus_count(pNode) == 1) {
+    if (inputBusCount == 0 && outputBusCount == 1) {
         /* Fast path. No cache needed. */
+        pHeapLayout->cachedDataOffset = MA_SIZE_MAX;
     } else {
         /* Slow path. Cache needed. */
         size_t cachedDataSizeInBytes = 0;
         ma_uint32 iBus;
 
-        cachedDataHeapOffsetInBytes = heapSizeInBytes;
+        MA_ASSERT(MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS <= 0xFFFF);    /* Clamped to 16 bits. */
 
+        for (iBus = 0; iBus < inputBusCount; iBus += 1) {
+            cachedDataSizeInBytes += MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
+        }
+
+        for (iBus = 0; iBus < outputBusCount; iBus += 1) {
+            cachedDataSizeInBytes += MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
+        }
+
+        pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += cachedDataSizeInBytes;
+    }
+
+
+    /*
+    Not technically part of the heap, but we can output the input and output bus counts so we can
+    avoid a redundant call to ma_node_translate_bus_counts().
+    */
+    pHeapLayout->inputBusCount  = inputBusCount;
+    pHeapLayout->outputBusCount = outputBusCount;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_node_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_node_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, void* pHeap, ma_node* pNode)
+{
+    ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_result result;
+    ma_node_heap_layout heapLayout;
+    ma_uint32 iInputBus;
+    ma_uint32 iOutputBus;
+
+    if (pNodeBase == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNodeBase);
+
+    result = ma_node_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pNodeBase->_pHeap         = pHeap;
+    pNodeBase->pNodeGraph     = pNodeGraph;
+    pNodeBase->vtable         = pConfig->vtable;
+    pNodeBase->state          = pConfig->initialState;
+    pNodeBase->stateTimes[ma_node_state_started] = 0;
+    pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
+    pNodeBase->inputBusCount  = heapLayout.inputBusCount;
+    pNodeBase->outputBusCount = heapLayout.outputBusCount;
+
+    if (heapLayout.inputBusOffset != MA_SIZE_MAX) {
+        pNodeBase->pInputBuses = (ma_node_input_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
+    } else {
+        pNodeBase->pInputBuses = pNodeBase->_inputBuses;
+    }
+
+    if (heapLayout.outputBusOffset != MA_SIZE_MAX) {
+        pNodeBase->pOutputBuses = (ma_node_output_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
+    } else {
+        pNodeBase->pOutputBuses = pNodeBase->_outputBuses;
+    }
+
+    if (heapLayout.cachedDataOffset != MA_SIZE_MAX) {
+        pNodeBase->pCachedData = (float*)ma_offset_ptr(pHeap, heapLayout.cachedDataOffset);
         pNodeBase->cachedDataCapInFramesPerBus = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
-        MA_ASSERT(pNodeBase->cachedDataCapInFramesPerBus <= 0xFFFF);    /* Clamped to 16 bits. */
-
-        for (iBus = 0; iBus < ma_node_get_input_bus_count(pNodeBase); iBus += 1) {
-            cachedDataSizeInBytes += pNodeBase->cachedDataCapInFramesPerBus * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
-        }
-
-        for (iBus = 0; iBus < ma_node_get_output_bus_count(pNodeBase); iBus += 1) {
-            cachedDataSizeInBytes += pNodeBase->cachedDataCapInFramesPerBus * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
-        }
-
-        heapSizeInBytes += cachedDataSizeInBytes;
+    } else {
+        pNodeBase->pCachedData = NULL;
     }
 
-    /* Now that we know the size of the heap we can allocate memory and assign offsets. */
-    if (heapSizeInBytes > 0) {
-        pNodeBase->_pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pNodeBase->_pHeap == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        pNodeBase->_ownsHeap = MA_TRUE;
-    }
-
-    /* Input Buses. */
-    pNodeBase->pInputBuses = pNodeBase->_inputBuses;
-    if (inputBusHeapOffsetInBytes != MA_SIZE_MAX) {
-        pNodeBase->pInputBuses = (ma_node_input_bus*)ma_offset_ptr(pNodeBase->_pHeap, inputBusHeapOffsetInBytes);
-    }
-
-    /* Output Buses. */
-    pNodeBase->pOutputBuses = pNodeBase->_outputBuses;
-    if (outputBusHeapOffsetInBytes != MA_SIZE_MAX) {
-        pNodeBase->pOutputBuses = (ma_node_output_bus*)ma_offset_ptr(pNodeBase->_pHeap, outputBusHeapOffsetInBytes);
-    }
-
-    /* Cached Audio Data. */
-    pNodeBase->pCachedData = NULL;
-    if (cachedDataHeapOffsetInBytes != MA_SIZE_MAX) {
-        pNodeBase->pCachedData = (float*)ma_offset_ptr(pNodeBase->_pHeap, cachedDataHeapOffsetInBytes);
-    }
-
-
+    
 
     /* We need to run an initialization step for each input and output bus. */ 
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNodeBase); iInputBus += 1) {
         result = ma_node_input_bus_init(pConfig->pInputChannels[iInputBus], &pNodeBase->pInputBuses[iInputBus]);
         if (result != MA_SUCCESS) {
-            if (pNodeBase->_ownsHeap) { ma_free(pNodeBase->_pHeap, pAllocationCallbacks); }
             return result;
         }
     }
@@ -4319,7 +4380,6 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNodeBase); iOutputBus += 1) {
         result = ma_node_output_bus_init(pNodeBase, iOutputBus, pConfig->pOutputChannels[iOutputBus], &pNodeBase->pOutputBuses[iOutputBus]);
         if (result != MA_SUCCESS) {
-            if (pNodeBase->_ownsHeap) { ma_free(pNodeBase->_pHeap, pAllocationCallbacks); }
             return result;
         }
     }
@@ -4348,6 +4408,36 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     #endif
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_node_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_node_init_preallocated(pNodeGraph, pConfig, pHeap, pNode);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    ((ma_node_base*)pNode)->_ownsHeap = MA_TRUE;
     return MA_SUCCESS;
 }
 
@@ -12400,8 +12490,13 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     baseNodeConfig.pInputChannels  = &channelsIn;
     baseNodeConfig.pOutputChannels = &channelsOut;
 
+    result = ma_node_get_heap_size(&baseNodeConfig, &tempHeapSize);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap for the base node. */
+    }
+
     pHeapLayout->baseNodeOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += 0;  /* TODO: Implement pre-allocation for nodes. */
+    pHeapLayout->sizeInBytes += tempHeapSize;
 
 
     /* Spatializer. */
@@ -12487,7 +12582,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     baseNodeConfig.pInputChannels  = &channelsIn;
     baseNodeConfig.pOutputChannels = &channelsOut;
 
-    result = ma_node_init(&pConfig->pEngine->nodeGraph, &baseNodeConfig, &pEngineNode->pEngine->allocationCallbacks, &pEngineNode->baseNode); /* TODO: Implement pre-allocation for nodes. */
+    result = ma_node_init_preallocated(&pConfig->pEngine->nodeGraph, &baseNodeConfig, ma_offset_ptr(pHeap, heapLayout.baseNodeOffset), &pEngineNode->baseNode);
     if (result != MA_SUCCESS) {
         goto error0;
     }
