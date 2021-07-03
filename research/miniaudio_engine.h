@@ -407,11 +407,18 @@ typedef struct
 {
     ma_gainer_config config;
     ma_uint32 t;
-    float oldGains[MA_MAX_CHANNELS];
-    float newGains[MA_MAX_CHANNELS];
+    float* pOldGains;
+    float* pNewGains;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_gainer;
 
-MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer);
+MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer);
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer);
+MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
 MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
@@ -1706,7 +1713,7 @@ typedef enum
 typedef struct
 {
     ma_uint32 channelsOut;
-    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_channel* pChannelMapOut;
     ma_handedness handedness;   /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
     float coneInnerAngleInRadians;
     float coneOuterAngleInRadians;
@@ -1724,10 +1731,17 @@ typedef struct
     ma_vec3f position;  /* The absolute position of the listener. */
     ma_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
     ma_vec3f velocity;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_spatializer_listener;
 
-MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, ma_spatializer_listener* pListener);
-MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener);
+MA_API ma_result ma_spatializer_listener_get_heap_size(const ma_spatializer_listener_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_listener_config* pConfig, void* pHeap, ma_spatializer_listener* pListener);
+MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_channel* ma_spatializer_listener_get_channel_map(ma_spatializer_listener* pListener);
 MA_API void ma_spatializer_listener_set_cone(ma_spatializer_listener* pListener, float innerAngleInRadians, float outerAngleInRadians, float outerGain);
 MA_API void ma_spatializer_listener_get_cone(const ma_spatializer_listener* pListener, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_spatializer_listener_set_position(ma_spatializer_listener* pListener, float x, float y, float z);
@@ -1746,7 +1760,7 @@ typedef struct
 {
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
-    ma_channel channelMapIn[MA_MAX_CHANNELS];
+    ma_channel* pChannelMapIn;
     ma_attenuation_model attenuationModel;
     ma_positioning positioning;
     ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
@@ -1773,10 +1787,17 @@ typedef struct
     ma_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
     ma_gainer gainer;   /* For smooth gain transitions. */
+    float* pNewChannelGainsOut; /* An offset of _pHeap. Used by ma_spatializer_process_pcm_frames() to store new channel gains. The number of elements in this array is equal to config.channelsOut. */
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_spatializer;
 
-MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer);
-MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer);
+MA_API ma_result ma_spatializer_get_heap_size(const ma_spatializer_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* pConfig, void* pHeap, ma_spatializer* pSpatializer);
+MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
@@ -2765,8 +2786,67 @@ MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoo
 }
 
 
-MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGainer)
+typedef struct
 {
+    size_t sizeInBytes;
+    size_t oldGainsOffset;
+    size_t newGainsOffset;
+} ma_gainer_heap_layout;
+
+static ma_result ma_gainer_get_heap_layout(const ma_gainer_config* pConfig, ma_gainer_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Old gains. */
+    pHeapLayout->oldGainsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+
+    /* New gains. */
+    pHeapLayout->newGainsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_gainer_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer)
+{
+    ma_result result;
+    ma_gainer_heap_layout heapLayout;
     ma_uint32 iChannel;
 
     if (pGainer == NULL) {
@@ -2775,29 +2855,74 @@ MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, ma_gainer* pGai
 
     MA_ZERO_OBJECT(pGainer);
 
-    if (pConfig == NULL) {
+    if (pConfig == NULL || pHeap == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->channels > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS; /* Too many channels. */
+    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
+
+    pGainer->_pHeap    = pHeap;
+    pGainer->pOldGains = (float*)ma_offset_ptr(pHeap, heapLayout.oldGainsOffset);
+    pGainer->pNewGains = (float*)ma_offset_ptr(pHeap, heapLayout.newGainsOffset);
 
     pGainer->config = *pConfig;
     pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
 
     for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
-        pGainer->oldGains[iChannel] = 1;
-        pGainer->newGains[iChannel] = 1;
+        pGainer->pOldGains[iChannel] = 1;
+        pGainer->pNewGains[iChannel] = 1;
     }
     
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_gainer_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap allocation. */
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_gainer_init_preallocated(pConfig, pHeap, pGainer);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pGainer->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pGainer == NULL) {
+        return;
+    }
+
+    if (pGainer->_pHeap != NULL && pGainer->_ownsHeap) {
+        ma_free(pGainer->_pHeap, pAllocationCallbacks);
+    }
+}
+
 static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint32 channel)
 {
     float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
-    return ma_mix_f32_fast(pGainer->oldGains[channel], pGainer->newGains[channel], a);
+    return ma_mix_f32_fast(pGainer->pOldGains[channel], pGainer->pNewGains[channel], a);
 }
 
 MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
@@ -2813,7 +2938,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         /* Fast path. No gain calculation required. */
-        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->newGains);
+        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->pNewGains);
 
         /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
         if (pGainer->t == (ma_uint32)-1) {
@@ -2830,7 +2955,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
-                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->oldGains[iChannel], pGainer->newGains[iChannel], a);
+                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
                 }
 
                 pFramesOutF32 += channelCount;
@@ -2863,24 +2988,37 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
     return MA_SUCCESS;
 }
 
+static void ma_gainer_set_gain_by_index(ma_gainer* pGainer, float newGain, ma_uint32 iChannel)
+{
+    pGainer->pOldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
+    pGainer->pNewGains[iChannel] = newGain;
+}
+
+static void ma_gainer_reset_smoothing_time(ma_gainer* pGainer)
+{
+    if (pGainer->t == (ma_uint32)-1) {
+        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
+    } else {
+        pGainer->t = 0;
+    }
+}
+
 MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain)
 {
-    float newGains[MA_MAX_CHANNELS];
     ma_uint32 iChannel;
 
     if (pGainer == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pGainer->config.channels > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
-
     for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-        newGains[iChannel] = newGain;
+        ma_gainer_set_gain_by_index(pGainer, newGain, iChannel);
     }
 
-    return ma_gainer_set_gains(pGainer, newGains);
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
+    ma_gainer_reset_smoothing_time(pGainer);
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
@@ -2892,16 +3030,11 @@ MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
     }
 
     for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-        pGainer->oldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
-        pGainer->newGains[iChannel] = pNewGains[iChannel];
+        ma_gainer_set_gain_by_index(pGainer, pNewGains[iChannel], iChannel);
     }
 
     /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
-    if (pGainer->t == (ma_uint32)-1) {
-        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
-    } else {
-        pGainer->t = 0;
-    }
+    ma_gainer_reset_smoothing_time(pGainer);
     
     return MA_SUCCESS;
 }
@@ -10646,7 +10779,9 @@ MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uin
 {
     ma_spatializer_listener_config config;
 
-    config.channelsOut             = ma_clamp(channelsOut, MA_MIN_CHANNELS, MA_MAX_CHANNELS);
+    MA_ZERO_OBJECT(&config);
+    config.channelsOut             = channelsOut;
+    config.pChannelMapOut          = NULL;
     config.handedness              = ma_handedness_right;
     config.worldUp                 = ma_vec3f_init_3f(0, 1,  0);
     config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
@@ -10654,28 +10789,78 @@ MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uin
     config.coneOuterGain           = 0;
     config.speedOfSound            = 343.3f;    /* Same as OpenAL. Used for doppler effect. */
 
-    ma_get_default_channel_map_for_spatializer(config.channelsOut, config.channelMapOut);
-
     return config;
 }
 
 
-MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, ma_spatializer_listener* pListener)
+typedef struct
 {
+    size_t sizeInBytes;
+    size_t channelMapOutOffset;
+} ma_spatializer_listener_heap_layout;
+
+static ma_result ma_spatializer_listener_get_heap_layout(const ma_spatializer_listener_config* pConfig, ma_spatializer_listener_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channelsOut == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Channel map. We always need this, even for passthroughs. */
+    pHeapLayout->channelMapOutOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(*pConfig->pChannelMapOut) * pConfig->channelsOut;
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_spatializer_listener_get_heap_size(const ma_spatializer_listener_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_spatializer_listener_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_spatializer_listener_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_listener_config* pConfig, void* pHeap, ma_spatializer_listener* pListener)
+{
+    ma_result result;
+    ma_spatializer_listener_heap_layout heapLayout;
+
     if (pListener == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pListener);
 
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
+    result = ma_spatializer_listener_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    if (pConfig->channelsOut < MA_MIN_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
-
+    pListener->_pHeap    = pHeap;
     pListener->config    = *pConfig;
     pListener->position  = ma_vec3f_init_3f(0, 0,  0);
     pListener->direction = ma_vec3f_init_3f(0, 0, -1);
@@ -10686,22 +10871,68 @@ MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_conf
         pListener->direction = ma_vec3f_neg(pListener->direction);
     }
 
-    /* We need to make sure we have a valid chanel map. */
-    ma_channel_map_copy_or_default(pListener->config.channelMapOut, pConfig->channelMapOut, pListener->config.channelsOut);
-    if (ma_channel_map_blank(pListener->config.channelsOut, pListener->config.channelMapOut)) {
-        ma_get_default_channel_map_for_spatializer(pListener->config.channelsOut, pListener->config.channelMapOut);
+
+    /* We must always have a valid channel map. */
+    pListener->config.pChannelMapOut = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapOutOffset);
+
+    /* Use a slightly different default channel map for stereo. */
+    if (pConfig->pChannelMapOut == NULL) {
+        ma_get_default_channel_map_for_spatializer(pConfig->channelsOut, pListener->config.pChannelMapOut);
+    } else {
+        ma_channel_map_copy_or_default(pListener->config.pChannelMapOut, pConfig->pChannelMapOut, pConfig->channelsOut);
     }
 
     return MA_SUCCESS;
 }
 
-MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener)
+MA_API ma_result ma_spatializer_listener_init(const ma_spatializer_listener_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer_listener* pListener)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_spatializer_listener_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_spatializer_listener_init_preallocated(pConfig, pHeap, pListener);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pListener->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pListener == NULL) {
         return;
     }
 
-    /* Placeholder. */
+    if (pListener->_pHeap != NULL && pListener->_ownsHeap) {
+        ma_free(pListener->_pHeap, pAllocationCallbacks);
+    }
+}
+
+MA_API ma_channel* ma_spatializer_listener_get_channel_map(ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return NULL;
+    }
+
+    return pListener->config.pChannelMapOut;
 }
 
 MA_API void ma_spatializer_listener_set_cone(ma_spatializer_listener* pListener, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
@@ -10834,6 +11065,7 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     MA_ZERO_OBJECT(&config);
     config.channelsIn              = channelsIn;
     config.channelsOut             = channelsOut;
+    config.pChannelMapIn           = NULL;
     config.attenuationModel        = ma_attenuation_model_inverse;
     config.positioning             = ma_positioning_absolute;
     config.handedness              = ma_handedness_right;
@@ -10848,17 +11080,110 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.dopplerFactor           = 1;
     config.gainSmoothTimeInFrames  = 360;       /* 7.5ms @ 48K. */
 
-    if (config.channelsIn >= MA_MIN_CHANNELS && config.channelsOut <= MA_MAX_CHANNELS) {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelsIn, config.channelMapIn);
-    }
-
     return config;
 }
 
 
-MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_spatializer* pSpatializer)
+static ma_gainer_config ma_spatializer_gainer_config_init(const ma_spatializer_config* pConfig)
+{
+    MA_ASSERT(pConfig != NULL);
+    return ma_gainer_config_init(pConfig->channelsOut, pConfig->gainSmoothTimeInFrames);
+}
+
+static ma_result ma_spatializer_validate_config(const ma_spatializer_config* pConfig)
+{
+    MA_ASSERT(pConfig != NULL);
+
+    if (pConfig->channelsIn == 0 || pConfig->channelsOut == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    return MA_SUCCESS;
+}
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t channelMapInOffset;
+    size_t newChannelGainsOffset;
+    size_t gainerOffset;
+} ma_spatializer_heap_layout;
+
+static ma_result ma_spatializer_get_heap_layout(const ma_spatializer_config* pConfig, ma_spatializer_heap_layout* pHeapLayout)
 {
     ma_result result;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_spatializer_validate_config(pConfig);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Channel map. */
+    pHeapLayout->channelMapInOffset = MA_SIZE_MAX;  /* <-- MA_SIZE_MAX indicates no allocation necessary. */
+    if (pConfig->pChannelMapIn != NULL) {
+        pHeapLayout->channelMapInOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(*pConfig->pChannelMapIn) * pConfig->channelsIn;
+    }
+
+    /* New channel gains for output. */
+    pHeapLayout->newChannelGainsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channelsOut;
+
+    /* Gainer. */
+    {
+        size_t gainerHeapSizeInBytes;
+        ma_gainer_config gainerConfig;
+
+        gainerConfig = ma_spatializer_gainer_config_init(pConfig);
+
+        result = ma_gainer_get_heap_size(&gainerConfig, &gainerHeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->gainerOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += gainerHeapSizeInBytes;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_spatializer_get_heap_size(const ma_spatializer_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_spatializer_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;  /* Safety. */
+
+    result = ma_spatializer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* pConfig, void* pHeap, ma_spatializer* pSpatializer)
+{
+    ma_result result;
+    ma_spatializer_heap_layout heapLayout;
     ma_gainer_config gainerConfig;
 
     if (pSpatializer == NULL) {
@@ -10867,15 +11192,16 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
 
     MA_ZERO_OBJECT(pSpatializer);
 
-    if (pConfig == NULL) {
+    if (pConfig == NULL || pHeap == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->channelsIn  < MA_MIN_CHANNELS || pConfig->channelsIn  > MA_MAX_CHANNELS ||
-        pConfig->channelsOut < MA_MIN_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
+    result = ma_spatializer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
+    pSpatializer->_pHeap       = pHeap;
     pSpatializer->config       = *pConfig;
     pSpatializer->position     = ma_vec3f_init_3f(0, 0,  0);
     pSpatializer->direction    = ma_vec3f_init_3f(0, 0, -1);
@@ -10887,29 +11213,68 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, ma_sp
         pSpatializer->direction = ma_vec3f_neg(pSpatializer->direction);
     }
 
-    /* We need to make sure we have a valid channel map. */
-    ma_channel_map_copy_or_default(pSpatializer->config.channelMapIn, pConfig->channelMapIn, pSpatializer->config.channelsIn);
-    if (ma_channel_map_blank(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn)) {
-        ma_get_default_channel_map_for_spatializer(pSpatializer->config.channelsIn, pSpatializer->config.channelMapIn);
+    /* Channel map. This will be on the heap. */
+    if (pConfig->pChannelMapIn != NULL) {
+        pSpatializer->config.pChannelMapIn = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapInOffset);
+        ma_channel_map_copy_or_default(pSpatializer->config.pChannelMapIn, pConfig->pChannelMapIn, pSpatializer->config.channelsIn);
     }
 
-    /* We need a gainer for smoothing gain transitions. */
-    gainerConfig = ma_gainer_config_init(pConfig->channelsOut, pConfig->gainSmoothTimeInFrames);
-    result = ma_gainer_init(&gainerConfig, &pSpatializer->gainer);
+    /* New channel gains for output channels. */
+    pSpatializer->pNewChannelGainsOut = (float*)ma_offset_ptr(pHeap, heapLayout.newChannelGainsOffset);
+
+    /* Gainer. */
+    gainerConfig = ma_spatializer_gainer_config_init(pConfig);
+
+    result = ma_gainer_init_preallocated(&gainerConfig, ma_offset_ptr(pHeap, heapLayout.gainerOffset), &pSpatializer->gainer);
     if (result != MA_SUCCESS) {
-        return result;
+        return result;  /* Failed to initialize the gainer. */
     }
 
     return MA_SUCCESS;
 }
 
-MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer)
+MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer* pSpatializer)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    /* We'll need a heap allocation to retrieve the size. */
+    result = ma_spatializer_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_spatializer_init_preallocated(pConfig, pHeap, pSpatializer);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pSpatializer->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pSpatializer == NULL) {
         return;
     }
 
-    /* Placeholder. */
+    ma_gainer_uninit(&pSpatializer->gainer, pAllocationCallbacks);
+
+    if (pSpatializer->_pHeap != NULL && pSpatializer->_ownsHeap) {
+        ma_free(pSpatializer->_pHeap, pAllocationCallbacks);
+    }
 }
 
 static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneInnerAngleInRadians, float coneOuterAngleInRadians, float coneOuterGain)
@@ -10958,20 +11323,11 @@ static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneI
 
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
-    ma_channel defaultChannelMap[MA_MAX_CHANNELS];
-    ma_channel* pChannelMapIn  = pSpatializer->config.channelMapIn;
-    ma_channel* pChannelMapOut = NULL;
+    ma_channel* pChannelMapIn  = pSpatializer->config.pChannelMapIn;
+    ma_channel* pChannelMapOut = pListener->config.pChannelMapOut;
 
     if (pSpatializer == NULL) {
         return MA_INVALID_ARGS;
-    }
-
-    /* Make sure we have a valid output channel map. */
-    if (pListener != NULL) {
-        pChannelMapOut = pListener->config.channelMapOut;
-    } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pSpatializer->config.channelsOut, defaultChannelMap);
-        pChannelMapOut = defaultChannelMap;
     }
 
     /* If we're not spatializing we need to run an optimized path. */
@@ -11002,12 +11358,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         float distance = 0;
         float gain = 1;
         ma_uint32 iChannel;
-        float channelGainsOut[MA_MAX_CHANNELS];
         const ma_uint32 channelsOut = pSpatializer->config.channelsOut;
-        const ma_uint32 channelsIn = pSpatializer->config.channelsIn;
-
-        MA_ASSUME(channelsOut >= MA_MIN_CHANNELS && channelsOut <= MA_MAX_CHANNELS);
-        MA_ASSUME(channelsIn >= MA_MIN_CHANNELS && channelsIn <= MA_MAX_CHANNELS);
+        const ma_uint32 channelsIn  = pSpatializer->config.channelsIn;
 
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
@@ -11230,7 +11582,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         position of the sound.
         */
         for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
-            channelGainsOut[iChannel] = gain;
+            pSpatializer->pNewChannelGainsOut[iChannel] = gain;
         }
 
         /* Convert to our output channel count. */
@@ -11294,7 +11646,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                     */
                     d = (d + 1) * 0.5f;  /* -1..1 to 0..1 */
                     d = ma_max(d, dMin);
-                    channelGainsOut[iChannel] *= d;
+                    pSpatializer->pNewChannelGainsOut[iChannel] *= d;
                 }
                 #else
                 {
@@ -11315,7 +11667,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         }
 
         /* Now we need to apply the volume to each channel. This needs to run through the gainer to ensure we get a smooth volume transition. */
-        ma_gainer_set_gains(&pSpatializer->gainer, channelGainsOut);
+        ma_gainer_set_gains(&pSpatializer->gainer, pSpatializer->pNewChannelGainsOut);
         ma_gainer_process_pcm_frames(&pSpatializer->gainer, pFramesOut, pFramesOut, frameCount);
 
         /*
@@ -12074,7 +12426,7 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
     spatializerConfig = ma_spatializer_config_init(baseNodeConfig.pInputChannels[0], baseNodeConfig.pOutputChannels[0]);
     spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
     
-    result = ma_spatializer_init(&spatializerConfig, &pEngineNode->spatializer);
+    result = ma_spatializer_init(&spatializerConfig, pAllocationCallbacks, &pEngineNode->spatializer);  /* TODO: Use a preallocated heap for this. */
     if (result != MA_SUCCESS) {
         goto error2;
     }
@@ -12277,7 +12629,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     for (iListener = 0; iListener < engineConfig.listenerCount; iListener += 1) {
         listenerConfig = ma_spatializer_listener_config_init(pEngine->pDevice->playback.channels);
 
-        result = ma_spatializer_listener_init(&listenerConfig, &pEngine->listeners[iListener]);
+        result = ma_spatializer_listener_init(&listenerConfig, &pEngine->allocationCallbacks, &pEngine->listeners[iListener]);  /* TODO: Change this to a pre-allocated heap. */
         if (result != MA_SUCCESS) {
             goto on_error_2;
         }
@@ -12360,7 +12712,7 @@ on_error_3:
 #endif  /* MA_NO_RESOURCE_MANAGER */
 on_error_2:
     for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
-        ma_spatializer_listener_uninit(&pEngine->listeners[iListener]);
+        ma_spatializer_listener_uninit(&pEngine->listeners[iListener], &pEngine->allocationCallbacks);
     }
 
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
