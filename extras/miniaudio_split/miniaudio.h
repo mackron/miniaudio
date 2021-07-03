@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.35 - 2021-04-27
+miniaudio - v0.10.36 - 2021-07-03
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 35
+#define MA_VERSION_REVISION 36
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -183,34 +183,39 @@ typedef ma_uint16 wchar_t;
 /*
 Logging Levels
 ==============
-A log level will automatically include the lower levels. For example, verbose logging will enable everything. The warning log level will only include warnings
-and errors, but will ignore informational and verbose logging. If you only want to handle a specific log level, implement a custom log callback (see
-ma_context_init() for details) and interrogate the `logLevel` parameter.
+Log levels are only used to give logging callbacks some context as to the severity of a log message
+so they can do filtering. All log levels will be posted to registered logging callbacks, except for
+MA_LOG_LEVEL_DEBUG which will only get processed if MA_DEBUG_OUTPUT is enabled.
 
-By default the log level will be set to MA_LOG_LEVEL_ERROR, but you can change this by defining MA_LOG_LEVEL before the implementation of miniaudio.
-
-MA_LOG_LEVEL_VERBOSE
-    Mainly intended for debugging. This will enable all log levels and can be triggered from within the data callback so care must be taken when enabling this
-    in production environments.
+MA_LOG_LEVEL_DEBUG
+    Used for debugging. These log messages are only posted when `MA_DEBUG_OUTPUT` is enabled.
 
 MA_LOG_LEVEL_INFO
-    Informational logging. Useful for debugging. This will also enable warning and error logs. This will never be called from within the data callback.
+    Informational logging. Useful for debugging. This will also enable warning and error logs. This
+    will never be called from within the data callback.
 
 MA_LOG_LEVEL_WARNING
-    Warnings. You should enable this in you development builds and action them when encounted. This will also enable error logs. These logs usually indicate a
-    potential problem or misconfiguration, but still allow you to keep running. This will never be called from within the data callback.
+    Warnings. You should enable this in you development builds and action them when encounted. This
+    will also enable error logs. These logs usually indicate a potential problem or
+    misconfiguration, but still allow you to keep running. This will never be called from within
+    the data callback.
 
 MA_LOG_LEVEL_ERROR
-    Error logging. This will be fired when an operation fails and is subsequently aborted. This can be fired from within the data callback, in which case the
-    device will be stopped. You should always have this log level enabled.
+    Error logging. This will be fired when an operation fails and is subsequently aborted. This can
+    be fired from within the data callback, in which case the device will be stopped. You should
+    always have this log level enabled.
 */
-#define MA_LOG_LEVEL_VERBOSE   4
-#define MA_LOG_LEVEL_INFO      3
-#define MA_LOG_LEVEL_WARNING   2
-#define MA_LOG_LEVEL_ERROR     1
+#define MA_LOG_LEVEL_DEBUG      4
+#define MA_LOG_LEVEL_INFO       3
+#define MA_LOG_LEVEL_WARNING    2
+#define MA_LOG_LEVEL_ERROR      1
 
+/* Deprecated. */
+#define MA_LOG_LEVEL_VERBOSE    MA_LOG_LEVEL_DEBUG
+
+/* Deprecated. */
 #ifndef MA_LOG_LEVEL
-#define MA_LOG_LEVEL           MA_LOG_LEVEL_ERROR
+#define MA_LOG_LEVEL            MA_LOG_LEVEL_ERROR
 #endif
 
 /*
@@ -298,7 +303,7 @@ typedef int ma_result;
 #define MA_NOT_DIRECTORY                               -14
 #define MA_IS_DIRECTORY                                -15
 #define MA_DIRECTORY_NOT_EMPTY                         -16
-#define MA_END_OF_FILE                                 -17
+#define MA_AT_END                                      -17
 #define MA_NO_SPACE                                    -18
 #define MA_BUSY                                        -19
 #define MA_IO_ERROR                                    -20
@@ -334,7 +339,6 @@ typedef int ma_result;
 #define MA_IN_PROGRESS                                 -50
 #define MA_CANCELLED                                   -51
 #define MA_MEMORY_ALREADY_MAPPED                       -52
-#define MA_AT_END                                      -53
 
 /* General miniaudio-specific errors. */
 #define MA_FORMAT_NOT_SUPPORTED                        -100
@@ -440,7 +444,7 @@ typedef enum
     ma_channel_mix_mode_simple,            /* Drop excess channels; zeroed out extra channels. */
     ma_channel_mix_mode_custom_weights,    /* Use custom weights specified in ma_channel_router_config. */
     ma_channel_mix_mode_planar_blend = ma_channel_mix_mode_rectangular,
-    ma_channel_mix_mode_default = ma_channel_mix_mode_planar_blend
+    ma_channel_mix_mode_default = ma_channel_mix_mode_rectangular
 } ma_channel_mix_mode;
 
 typedef enum
@@ -548,6 +552,54 @@ MA_API void ma_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* pRevisio
 Retrieves the version of miniaudio as a string which can be useful for logging purposes.
 */
 MA_API const char* ma_version_string(void);
+
+
+/**************************************************************************************************************************************************************
+
+Logging
+
+**************************************************************************************************************************************************************/
+#include <stdarg.h> /* For va_list. */
+
+#if defined(__has_attribute)
+    #if __has_attribute(format)
+        #define MA_ATTRIBUTE_FORMAT(fmt, va) __attribute__((format(printf, fmt, va)))
+    #endif
+#endif
+#ifndef MA_ATTRIBUTE_FORMAT
+#define MA_ATTRIBUTE_FORMAT(fmt,va)
+#endif
+
+#ifndef MA_MAX_LOG_CALLBACKS
+#define MA_MAX_LOG_CALLBACKS    4
+#endif
+
+typedef void (* ma_log_callback_proc)(void* pUserData, ma_uint32 level, const char* pMessage);
+
+typedef struct
+{
+    ma_log_callback_proc onLog;
+    void* pUserData;
+} ma_log_callback;
+
+MA_API ma_log_callback ma_log_callback_init(ma_log_callback_proc onLog, void* pUserData);
+
+
+typedef struct
+{
+    ma_log_callback callbacks[MA_MAX_LOG_CALLBACKS];
+    ma_uint32 callbackCount;
+    ma_allocation_callbacks allocationCallbacks;    /* Need to store these persistently because ma_log_postv() might need to allocate a buffer on the heap. */
+    ma_mutex lock;  /* For thread safety just to make it easier and safer for the logging implementation. */
+} ma_log;
+
+MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks, ma_log* pLog);
+MA_API void ma_log_uninit(ma_log* pLog);
+MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback);
+MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callback);
+MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage);
+MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, va_list args);
+MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...) MA_ATTRIBUTE_FORMAT(3, 4);
 
 
 /**************************************************************************************************************************************************************
@@ -796,7 +848,7 @@ typedef struct
     ma_uint32 sampleRate;
     double q;
     double frequency;
-} ma_notch2_config;
+} ma_notch2_config, ma_notch_config;
 
 MA_API ma_notch2_config ma_notch2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double q, double frequency);
 
@@ -824,7 +876,7 @@ typedef struct
     double gainDB;
     double q;
     double frequency;
-} ma_peak2_config;
+} ma_peak2_config, ma_peak_config;
 
 MA_API ma_peak2_config ma_peak2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double q, double frequency);
 
@@ -852,7 +904,7 @@ typedef struct
     double gainDB;
     double shelfSlope;
     double frequency;
-} ma_loshelf2_config;
+} ma_loshelf2_config, ma_loshelf_config;
 
 MA_API ma_loshelf2_config ma_loshelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency);
 
@@ -880,7 +932,7 @@ typedef struct
     double gainDB;
     double shelfSlope;
     double frequency;
-} ma_hishelf2_config;
+} ma_hishelf2_config, ma_hishelf_config;
 
 MA_API ma_hishelf2_config ma_hishelf2_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double gainDB, double shelfSlope, double frequency);
 
@@ -1672,7 +1724,7 @@ logLevel (in)
     +----------------------+
     | Log Level            |
     +----------------------+
-    | MA_LOG_LEVEL_VERBOSE |
+    | MA_LOG_LEVEL_DEBUG   |
     | MA_LOG_LEVEL_INFO    |
     | MA_LOG_LEVEL_WARNING |
     | MA_LOG_LEVEL_ERROR   |
@@ -2069,7 +2121,8 @@ struct ma_backend_callbacks
 
 struct ma_context_config
 {
-    ma_log_proc logCallback;
+    ma_log_proc logCallback;    /* Legacy logging callback. Will be removed in version 0.11. */
+    ma_log* pLog;
     ma_thread_priority threadPriority;
     size_t threadStackSize;
     void* pUserData;
@@ -2129,7 +2182,9 @@ struct ma_context
 {
     ma_backend_callbacks callbacks;
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
-    ma_log_proc logCallback;
+    ma_log* pLog;
+    ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
+    ma_log_proc logCallback;    /* Legacy callback. Will be removed in version 0.11. */
     ma_thread_priority threadPriority;
     size_t threadStackSize;
     void* pUserData;
@@ -2875,8 +2930,9 @@ When `backends` is NULL, the default priority order will be used. Below is a lis
 The context can be configured via the `pConfig` argument. The config object is initialized with `ma_context_config_init()`. Individual configuration settings
 can then be set directly on the structure. Below are the members of the `ma_context_config` object.
 
-    logCallback
-        Callback for handling log messages from miniaudio.
+    pLog
+        A pointer to the `ma_log` to post log messages to. Can be NULL if the application does not
+        require logging. See the `ma_log` API for details on how to use the logging system.
 
     threadPriority
         The desired priority to use for the audio thread. Allowable values include the following:
@@ -3044,6 +3100,23 @@ Retrieves the size of the ma_context object.
 This is mainly for the purpose of bindings to know how much memory to allocate.
 */
 MA_API size_t ma_context_sizeof(void);
+
+/*
+Retrieves a pointer to the log object associated with this context.
+
+
+Remarks
+-------
+Pass the returned pointer to `ma_log_post()`, `ma_log_postv()` or `ma_log_postf()` to post a log
+message.
+
+
+Return Value
+------------
+A pointer to the `ma_log` object that the context uses to post log messages. If some error occurs,
+NULL will be returned.
+*/
+MA_API ma_log* ma_context_get_log(ma_context* pContext);
 
 /*
 Enumerates over every device (both playback and capture).
@@ -3677,6 +3750,18 @@ ma_device_init()
 ma_device_stop()
 */
 MA_API void ma_device_uninit(ma_device* pDevice);
+
+
+/*
+Retrieves a pointer to the context that owns the given device.
+*/
+MA_API ma_context* ma_device_get_context(ma_device* pDevice);
+
+/*
+Helper function for retrieving the log object associated with the context that owns this device.
+*/
+MA_API ma_log* ma_device_get_log(ma_device* pDevice);
+
 
 /*
 Starts the device. For playback devices this begins playback. For capture devices it begins recording.
@@ -4405,23 +4490,60 @@ typedef struct
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
     ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
     ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
-} ma_data_source_callbacks;
+} ma_data_source_vtable, ma_data_source_callbacks;  /* TODO: Remove ma_data_source_callbacks in version 0.11. */
 
-MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
-MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
-MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
-MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
-MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
-MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
+typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSource);
 
+typedef struct
+{
+    const ma_data_source_vtable* vtable;    /* Can be null, which is useful for proxies. */
+} ma_data_source_config;
 
+MA_API ma_data_source_config ma_data_source_config_init(void);
 
 
 typedef struct
 {
-    ma_data_source_callbacks ds;
+    ma_data_source_callbacks cb;    /* TODO: Remove this. */
+
+    /* Variables below are placeholder and not yet used. */
+    const ma_data_source_vtable* vtable;
+    ma_uint64 rangeBegInFrames;
+    ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
+    ma_uint64 loopBegInFrames;              /* Relative to rangeBegInFrames. */
+    ma_uint64 loopEndInFrames;              /* Relative to rangeBegInFrames. Set to -1 for the end of the range. */
+    ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
+    ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
+    ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
+} ma_data_source_base;
+
+MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
+MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
+MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
+MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_NOT_IMPLEMENTED if mapping is not supported. */
+MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. */
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
+#if defined(MA_EXPERIMENTAL__DATA_LOOPING_AND_CHAINING)
+MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
+MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
+MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
+MA_API void ma_data_source_get_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
+MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource);
+MA_API ma_data_source* ma_data_source_get_current(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource);
+MA_API ma_data_source* ma_data_source_get_next(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext);
+MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(ma_data_source* pDataSource);
+#endif
+
+
+typedef struct
+{
+    ma_data_source_base ds;
     ma_format format;
     ma_uint32 channels;
     ma_uint64 cursor;
@@ -4430,13 +4552,16 @@ typedef struct
 } ma_audio_buffer_ref;
 
 MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
+MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef);
 MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
 MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_audio_buffer_ref_at_end(ma_audio_buffer_ref* pAudioBufferRef);
-MA_API ma_result ma_audio_buffer_ref_get_available_frames(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
+MA_API ma_bool32 ma_audio_buffer_ref_at_end(const ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_get_cursor_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_ref_get_length_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
 
 
 
@@ -4468,8 +4593,10 @@ MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, 
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_result ma_audio_buffer_at_end(ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_get_available_frames(ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
+MA_API ma_bool32 ma_audio_buffer_at_end(const ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_get_cursor_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_get_length_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_get_available_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
 
 
 
@@ -4532,12 +4659,26 @@ MA_API ma_result ma_default_vfs_init(ma_default_vfs* pVFS, const ma_allocation_c
 
 
 
+typedef ma_result (* ma_read_proc)(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);
+typedef ma_result (* ma_seek_proc)(void* pUserData, ma_int64 offset, ma_seek_origin origin);
+typedef ma_result (* ma_tell_proc)(void* pUserData, ma_int64* pCursor);
+
+
 
 #if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
 typedef enum
 {
     ma_resource_format_wav
 } ma_resource_format;
+
+typedef enum
+{
+    ma_encoding_format_unknown = 0,
+    ma_encoding_format_wav,
+    ma_encoding_format_flac,
+    ma_encoding_format_mp3,
+    ma_encoding_format_vorbis
+} ma_encoding_format;
 #endif
 
 /************************************************************************************************************************************************************
@@ -4552,12 +4693,30 @@ you do your own synchronization.
 #ifndef MA_NO_DECODING
 typedef struct ma_decoder ma_decoder;
 
-typedef size_t    (* ma_decoder_read_proc)                    (ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);     /* Returns the number of bytes read. */
-typedef ma_bool32 (* ma_decoder_seek_proc)                    (ma_decoder* pDecoder, int byteOffset, ma_seek_origin origin);    /* Origin will never be ma_seek_origin_end. */
-typedef ma_uint64 (* ma_decoder_read_pcm_frames_proc)         (ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);   /* Returns the number of frames read. Output data is in internal format. */
-typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDecoder, ma_uint64 frameIndex);
-typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
-typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
+
+typedef struct
+{
+    ma_format preferredFormat;
+} ma_decoding_backend_config;
+
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat);
+
+
+typedef struct
+{
+    ma_result (* onInit         )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
+    ma_result (* onInitFile     )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
+    ma_result (* onInitFileW    )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
+    ma_result (* onInitMemory   )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
+    void      (* onUninit       )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onGetChannelMap)(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap);
+} ma_decoding_backend_vtable;
+
+
+/* TODO: Convert read and seek to be consistent with the VFS API (ma_result return value, bytes read moved to an output parameter). */
+typedef size_t    (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);         /* Returns the number of bytes read. */
+typedef ma_bool32 (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
 
 typedef struct
 {
@@ -4580,31 +4739,29 @@ typedef struct
         } speex;
     } resampling;
     ma_allocation_callbacks allocationCallbacks;
+    ma_encoding_format encodingFormat;
+    ma_decoding_backend_vtable** ppCustomBackendVTables;
+    ma_uint32 customBackendCount;
+    void* pCustomBackendUserData;
 } ma_decoder_config;
 
 struct ma_decoder
 {
-    ma_data_source_callbacks ds;
+    ma_data_source_base ds;
+    ma_data_source* pBackend;                   /* The decoding backend we'll be pulling data from. */
+    const ma_decoding_backend_vtable* pBackendVTable; /* The vtable for the decoding backend. This needs to be stored so we can access the onUninit() callback. */
+    void* pBackendUserData;
     ma_decoder_read_proc onRead;
     ma_decoder_seek_proc onSeek;
+    ma_decoder_tell_proc onTell;
     void* pUserData;
-    ma_uint64  readPointerInBytes;          /* In internal encoded data. */
-    ma_uint64  readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
-    ma_format  internalFormat;
-    ma_uint32  internalChannels;
-    ma_uint32  internalSampleRate;
-    ma_channel internalChannelMap[MA_MAX_CHANNELS];
-    ma_format  outputFormat;
-    ma_uint32  outputChannels;
-    ma_uint32  outputSampleRate;
+    ma_uint64 readPointerInPCMFrames;      /* In output sample rate. Used for keeping track of how many frames are available for decoding. */
+    ma_format outputFormat;
+    ma_uint32 outputChannels;
+    ma_uint32 outputSampleRate;
     ma_channel outputChannelMap[MA_MAX_CHANNELS];
     ma_data_converter converter;   /* <-- Data conversion is achieved by running frames through this. */
     ma_allocation_callbacks allocationCallbacks;
-    ma_decoder_read_pcm_frames_proc onReadPCMFrames;
-    ma_decoder_seek_to_pcm_frame_proc onSeekToPCMFrame;
-    ma_decoder_uninit_proc onUninit;
-    ma_decoder_get_length_in_pcm_frames_proc onGetLengthInPCMFrames;
-    void* pInternalDecoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
     union
     {
         struct
@@ -4618,49 +4775,22 @@ struct ma_decoder
             size_t dataSize;
             size_t currentReadPos;
         } memory;               /* Only used for decoders that were opened against a block of memory. */
-    } backend;
+    } data;
 };
 
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
+MA_API ma_decoder_config ma_decoder_config_init_default();
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_raw(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_memory_raw(const void* pData, size_t dataSize, const ma_decoder_config* pConfigIn, const ma_decoder_config* pConfigOut, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-
 MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
-MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
+/*
+Uninitializes a decoder.
+*/
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
 
 /*
@@ -4716,6 +4846,43 @@ pConfig should be set to what you want. On output it will be set to what you got
 MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
+
+
+
+
+/*
+DEPRECATED
+
+Set the "encodingFormat" variable in the decoder config instead:
+
+    decoderConfig.encodingFormat = ma_encoding_format_wav;
+
+These functions will be removed in version 0.11.
+*/
+MA_API ma_result ma_decoder_init_wav(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_flac(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_mp3(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vorbis(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_wav(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_flac(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_mp3(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_memory_vorbis(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis(ma_vfs* pVFS, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_wav_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_flac_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_mp3_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_vfs_vorbis_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_wav(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_flac(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_mp3(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_wav_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_flac_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_mp3_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_init_file_vorbis_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 
 #endif  /* MA_NO_DECODING */
 
@@ -4798,13 +4965,14 @@ MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 ch
 
 typedef struct
 {
-    ma_data_source_callbacks ds;
+    ma_data_source_base ds;
     ma_waveform_config config;
     double advance;
     double time;
 } ma_waveform;
 
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform);
+MA_API void ma_waveform_uninit(ma_waveform* pWaveform);
 MA_API ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64 frameIndex);
 MA_API ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
@@ -4833,7 +5001,7 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 
 typedef struct
 {
-    ma_data_source_callbacks ds;
+    ma_data_source_vtable ds;
     ma_noise_config config;
     ma_lcg lcg;
     union
@@ -4852,6 +5020,7 @@ typedef struct
 } ma_noise;
 
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
+MA_API void ma_noise_uninit(ma_noise* pNoise);
 MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);

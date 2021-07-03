@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.36 - TBD
+miniaudio - v0.10.36 - 2021-07-03
 
 David Reid - mackron@gmail.com
 
@@ -6195,12 +6195,6 @@ typedef struct
 typedef size_t    (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);         /* Returns the number of bytes read. */
 typedef ma_bool32 (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
-
-/* TODO: Remove these when internal decoders are transferred over to the new backend system. */
-typedef ma_uint64 (* ma_decoder_read_pcm_frames_proc)         (ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);       /* Returns the number of frames read. Output data is in internal format. */
-typedef ma_result (* ma_decoder_seek_to_pcm_frame_proc)       (ma_decoder* pDecoder, ma_uint64 frameIndex);
-typedef ma_result (* ma_decoder_uninit_proc)                  (ma_decoder* pDecoder);
-typedef ma_uint64 (* ma_decoder_get_length_in_pcm_frames_proc)(ma_decoder* pDecoder);
 
 typedef struct
 {
@@ -69123,7 +69117,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-0.10.36 - TBD
+0.10.36 - 2021-07-03
   - Add support for custom decoding backends.
   - Fix some bugs with the Vorbis decoder.
   - PulseAudio: Fix a bug with channel mapping.
