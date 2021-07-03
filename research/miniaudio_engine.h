@@ -1008,6 +1008,7 @@ struct ma_node_base
     ma_node_input_bus _inputBuses[MA_MAX_NODE_LOCAL_BUS_COUNT];
     ma_node_output_bus _outputBuses[MA_MAX_NODE_LOCAL_BUS_COUNT];
     void* _pHeap;   /* A heap allocation for internal use only. pInputBuses and/or pOutputBuses will point to this if the bus count exceeds MA_MAX_NODE_LOCAL_BUS_COUNT. */
+    ma_bool32 _ownsHeap;    /* If set to true, the node owns the heap allocation and _pHeap will be freed in ma_node_uninit(). */
 };
 
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
@@ -3506,6 +3507,10 @@ static ma_result ma_node_output_bus_init(ma_node* pNode, ma_uint32 outputBusInde
 
     MA_ZERO_OBJECT(pOutputBus);
 
+    if (channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     pOutputBus->pNode          = pNode;
     pOutputBus->outputBusIndex = (ma_uint8)outputBusIndex;
     pOutputBus->channels       = (ma_uint8)channels;
@@ -3583,6 +3588,11 @@ static ma_result ma_node_input_bus_init(ma_uint32 channels, ma_node_input_bus* p
     MA_ASSERT(channels < 256);
 
     MA_ZERO_OBJECT(pInputBus);
+
+    if (channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     pInputBus->channels = (ma_uint8)channels;
 
     return MA_SUCCESS;
@@ -3995,6 +4005,7 @@ static float* ma_node_get_cached_output_ptr(ma_node* pNode, ma_uint32 outputBusI
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode)
 {
     ma_node_base* pNodeBase = (ma_node_base*)pNode;
+    ma_result result;
     ma_uint32 iInputBus;
     ma_uint32 iOutputBus;
     size_t heapSizeInBytes = 0;
@@ -4133,6 +4144,8 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
         if (pNodeBase->_pHeap == NULL) {
             return MA_OUT_OF_MEMORY;
         }
+
+        pNodeBase->_ownsHeap = MA_TRUE;
     }
 
     /* Input Buses. */
@@ -4157,11 +4170,19 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
 
     /* We need to run an initialization step for each input and output bus. */ 
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNodeBase); iInputBus += 1) {
-        ma_node_input_bus_init(pConfig->pInputChannels[iInputBus], &pNodeBase->pInputBuses[iInputBus]);
+        result = ma_node_input_bus_init(pConfig->pInputChannels[iInputBus], &pNodeBase->pInputBuses[iInputBus]);
+        if (result != MA_SUCCESS) {
+            if (pNodeBase->_ownsHeap) { ma_free(pNodeBase->_pHeap, pAllocationCallbacks); }
+            return result;
+        }
     }
 
     for (iOutputBus = 0; iOutputBus < ma_node_get_output_bus_count(pNodeBase); iOutputBus += 1) {
-        ma_node_output_bus_init(pNodeBase, iOutputBus, pConfig->pOutputChannels[iOutputBus], &pNodeBase->pOutputBuses[iOutputBus]);
+        result = ma_node_output_bus_init(pNodeBase, iOutputBus, pConfig->pOutputChannels[iOutputBus], &pNodeBase->pOutputBuses[iOutputBus]);
+        if (result != MA_SUCCESS) {
+            if (pNodeBase->_ownsHeap) { ma_free(pNodeBase->_pHeap, pAllocationCallbacks); }
+            return result;
+        }
     }
 
 
@@ -4211,7 +4232,7 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
     At this point the node should be completely unreferenced by the node graph and we can finish up
     the uninitialization process without needing to worry about thread-safety.
     */
-    if (pNodeBase->_pHeap != NULL) {
+    if (pNodeBase->_pHeap != NULL && pNodeBase->_ownsHeap) {
         ma_free(pNodeBase->_pHeap, pAllocationCallbacks);
         pNodeBase->_pHeap;
     }
