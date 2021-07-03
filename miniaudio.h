@@ -40228,10 +40228,10 @@ MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pC
         return MA_INVALID_ARGS;
     }
 
-    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn) && pConfig->channelMapIn != NULL) {
+    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->channelMapIn)) {
         return MA_INVALID_ARGS; /* Invalid input channel map. */
     }
-    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut) && pConfig->channelMapOut != NULL) {
+    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->channelMapOut)) {
         return MA_INVALID_ARGS; /* Invalid output channel map. */
     }
 
