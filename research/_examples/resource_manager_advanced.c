@@ -267,7 +267,7 @@ int main(int argc, char** argv)
     self-managed job threads you would set the internal job thread count to zero. We're doing both internal and
     self-managed job threads in this example just for demonstration purposes.
     */
-    ma_thread_create(&jobThread, ma_thread_priority_default, 0, custom_job_thread, &resourceManager);
+    ma_thread_create(&jobThread, ma_thread_priority_default, 0, custom_job_thread, &resourceManager, NULL);
 
     /* Create each data source from the resource manager. Note that the caller is the owner. */
     for (iFile = 0; iFile < ma_countof(g_dataSources) && iFile < argc-1; iFile += 1) {

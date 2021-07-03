@@ -39,6 +39,8 @@ MA_API ma_result ma_vocoder_node_init(ma_node_graph* pNodeGraph, const ma_vocode
 {
     ma_result result;
     ma_node_config baseConfig;
+    ma_uint32 inputChannels[2];
+    ma_uint32 outputChannels[1];
 
     if (pVocoderNode == NULL) {
         return MA_INVALID_ARGS;
@@ -54,12 +56,14 @@ MA_API ma_result ma_vocoder_node_init(ma_node_graph* pNodeGraph, const ma_vocode
         return MA_INVALID_ARGS;
     }
 
+    inputChannels [0] = pConfig->channels;   /* Source/carrier. */
+    inputChannels [1] = 1;                   /* Excite/modulator. Must always be single channel. */
+    outputChannels[0] = pConfig->channels;   /* Output channels is always the same as the source/carrier. */
+
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable            = &g_ma_vocoder_node_vtable;
-    baseConfig.inputChannels [0] = pConfig->channels;   /* Source/carrier. */
-    baseConfig.inputChannels [1] = 1;                   /* Excite/modulator. Must always be single channel. */
-    baseConfig.outputChannels[0] = pConfig->channels;   /* Output channels is always the same as the source/carrier. */
-    baseConfig.outputChannels[1] = 0;                   /* Unused. */
+    baseConfig.vtable          = &g_ma_vocoder_node_vtable;
+    baseConfig.pInputChannels  = inputChannels;
+    baseConfig.pOutputChannels = outputChannels;
 
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pVocoderNode->baseNode);
     if (result != MA_SUCCESS) {

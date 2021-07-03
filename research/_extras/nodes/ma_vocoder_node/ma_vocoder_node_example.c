@@ -13,7 +13,7 @@ effect.
 
 #include <stdio.h>
 
-#define DEVICE_FORMAT      ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
+#define DEVICE_FORMAT      ma_format_f32    /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
 static ma_waveform         g_sourceData;    /* The underlying data source of the excite node. */

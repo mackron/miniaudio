@@ -59,11 +59,9 @@ MA_API ma_result ma_reverb_node_init(ma_node_graph* pNodeGraph, const ma_reverb_
     }
 
     baseConfig = pConfig->nodeConfig;
-    baseConfig.vtable            = &g_ma_reverb_node_vtable;
-    baseConfig.inputChannels [0] = pConfig->channels;
-    baseConfig.inputChannels [1] = 0;                   /* Unused. */
-    baseConfig.outputChannels[0] = pConfig->channels;
-    baseConfig.outputChannels[1] = 0;                   /* Unused. */
+    baseConfig.vtable          = &g_ma_reverb_node_vtable;
+    baseConfig.pInputChannels  = &pConfig->channels;
+    baseConfig.pOutputChannels = &pConfig->channels;
 
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pReverbNode->baseNode);
     if (result != MA_SUCCESS) {

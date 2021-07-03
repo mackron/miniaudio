@@ -5,7 +5,7 @@
 
 #include <stdio.h>
 
-#define DEVICE_FORMAT       ma_format_f32;      /* Must always be f32 for this example because the node graph system only works with this. */
+#define DEVICE_FORMAT       ma_format_f32       /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS     1                   /* For this example, always set to 1. */
 #define DEVICE_SAMPLE_RATE  48000               /* Cannot be less than 22050 for this example. */
 
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
 
     result = ma_reverb_node_init(&g_nodeGraph, &reverbNodeConfig, NULL, &g_reverbNode);
     if (result != MA_SUCCESS) {
-        printf("Failed to initialize vocoder node.");
+        printf("Failed to initialize reverb node.");
         goto done1;
     }
 

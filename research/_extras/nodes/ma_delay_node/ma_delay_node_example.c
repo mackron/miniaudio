@@ -5,7 +5,7 @@
 
 #include <stdio.h>
 
-#define DEVICE_FORMAT       ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
+#define DEVICE_FORMAT       ma_format_f32       /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS     2
 #define DEVICE_SAMPLE_RATE  48000
 
@@ -70,7 +70,7 @@ int main(int argc, char** argv)
 
     result = ma_delay_node_init(&g_nodeGraph, &delayNodeConfig, NULL, &g_delayNode);
     if (result != MA_SUCCESS) {
-        printf("Failed to initialize vocoder node.");
+        printf("Failed to initialize delay node.");
         goto done1;
     }
 
