@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Decoder</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Custom Decoder</h1><p>
+Demonstrates how to implement a custom decoder.
+</p>
+<p>
+
+This example implements two custom decoders:
+</p>
+<ul style="overflow:hidden;">
+<li>
+</li>
+</ul>
+<ul style="overflow:hidden;">
+<li>
+Vorbis via libvorbis
+  </li>
+<li>
+Opus via libopus
+
+A </li>
+</ul>
+<p>
+A custom decoder must implement a data source. In this example, the libvorbis data source is called
+<span style="font-family:monospace;">ma_libvorbis</span> and the Opus data source is called <span style="font-family:monospace;">ma_libopus</span>. These two objects are compatible
+with the <span style="font-family:monospace;">ma_data_source</span> APIs and can be taken straight from this example and used in real code.
+</p>
+<p>
+
+The custom decoding data sources (<span style="font-family:monospace;">ma_libvorbis</span> and <span style="font-family:monospace;">ma_libopus</span> in this example) are connected to
+the decoder via the decoder config (<span style="font-family:monospace;">ma_decoder_config</span>). You need to implement a vtable for each
+of your custom decoders. See <span style="font-family:monospace;">ma_decoding_backend_vtable</span> for the functions you need to implement.
+The <span style="font-family:monospace;">onInitFile</span>, <span style="font-family:monospace;">onInitFileW</span> and <span style="font-family:monospace;">onInitMemory</span> functions are optional.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MA_NO_VORBIS    <span style="color:#009900">/* Disable the built-in Vorbis decoder to ensure the libvorbis decoder is picked. */</span>
+<span style="color:#666666">#define</span> MA_NO_OPUS      <span style="color:#009900">/* Disable the (not yet implemented) built-in Opus decoder to ensure the libopus decoder is picked. */</span>
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../extras/miniaudio_libvorbis.h&quot;</span>
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../extras/miniaudio_libopus.h&quot;</span>
+
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_init__libvorbis(<span style="color:#0033ff">void</span>* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, <span style="color:#0033ff">void</span>* pReadSeekTellUserData, <span style="color:#0033ff">const</span> ma_decoding_backend_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, <span style="color:#0099cc">ma_data_source</span>** ppBackend)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_libvorbis* pVorbis;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(<span style="color:#0033ff">sizeof</span>(*pVorbis), pAllocationCallbacks);
+    <span style="color:#0033ff">if</span> (pVorbis == NULL) {
+        <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    *ppBackend = pVorbis;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_init_file__libvorbis(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pFilePath, <span style="color:#0033ff">const</span> ma_decoding_backend_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, <span style="color:#0099cc">ma_data_source</span>** ppBackend)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_libvorbis* pVorbis;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(<span style="color:#0033ff">sizeof</span>(*pVorbis), pAllocationCallbacks);
+    <span style="color:#0033ff">if</span> (pVorbis == NULL) {
+        <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    *ppBackend = pVorbis;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0033ff">void</span> ma_decoding_backend_uninit__libvorbis(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_data_source</span>* pBackend, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
+    ma_free(pVorbis, pAllocationCallbacks);
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_get_channel_map__libvorbis(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_data_source</span>* pBackend, <span style="color:#0099cc">ma_channel</span>* pChannelMap, size_t channelMapCap)
+{
+    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    <span style="color:#0033ff">return</span> ma_libvorbis_get_data_format(pVorbis, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+<span style="color:#0033ff">static</span> ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
+{
+    ma_decoding_backend_init__libvorbis,
+    ma_decoding_backend_init_file__libvorbis,
+    NULL, <span style="color:#009900">/* onInitFileW() */</span>
+    NULL, <span style="color:#009900">/* onInitMemory() */</span>
+    ma_decoding_backend_uninit__libvorbis,
+    ma_decoding_backend_get_channel_map__libvorbis
+};
+
+
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_init__libopus(<span style="color:#0033ff">void</span>* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, <span style="color:#0033ff">void</span>* pReadSeekTellUserData, <span style="color:#0033ff">const</span> ma_decoding_backend_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, <span style="color:#0099cc">ma_data_source</span>** ppBackend)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_libopus* pOpus;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(<span style="color:#0033ff">sizeof</span>(*pOpus), pAllocationCallbacks);
+    <span style="color:#0033ff">if</span> (pOpus == NULL) {
+        <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    *ppBackend = pOpus;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_init_file__libopus(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pFilePath, <span style="color:#0033ff">const</span> ma_decoding_backend_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, <span style="color:#0099cc">ma_data_source</span>** ppBackend)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_libopus* pOpus;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(<span style="color:#0033ff">sizeof</span>(*pOpus), pAllocationCallbacks);
+    <span style="color:#0033ff">if</span> (pOpus == NULL) {
+        <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    *ppBackend = pOpus;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0033ff">void</span> ma_decoding_backend_uninit__libopus(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_data_source</span>* pBackend, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    ma_libopus_uninit(pOpus, pAllocationCallbacks);
+    ma_free(pOpus, pAllocationCallbacks);
+}
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_decoding_backend_get_channel_map__libopus(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_data_source</span>* pBackend, <span style="color:#0099cc">ma_channel</span>* pChannelMap, size_t channelMapCap)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (<span style="color:#0033ff">void</span>)pUserData;
+
+    <span style="color:#0033ff">return</span> ma_libopus_get_data_format(pOpus, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+<span style="color:#0033ff">static</span> ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
+{
+    ma_decoding_backend_init__libopus,
+    ma_decoding_backend_init_file__libopus,
+    NULL, <span style="color:#009900">/* onInitFileW() */</span>
+    NULL, <span style="color:#009900">/* onInitMemory() */</span>
+    ma_decoding_backend_uninit__libopus,
+    ma_decoding_backend_get_channel_map__libopus
+};
+
+
+
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
+{
+    <span style="color:#0099cc">ma_data_source</span>* pDataSource = (<span style="color:#0099cc">ma_data_source</span>*)pDevice-&gt;pUserData;
+    <span style="color:#0033ff">if</span> (pDataSource == NULL) {
+        <span style="color:#0033ff">return</span>;
+    }
+
+    ma_data_source_read_pcm_frames(pDataSource, pOutput, frameCount, NULL, MA_TRUE);
+
+    (<span style="color:#0033ff">void</span>)pInput;
+}
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_decoder_config</span> decoderConfig;
+    <span style="color:#0099cc">ma_decoder</span> decoder;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
+    ma_format format;
+    <span style="color:#0099cc">ma_uint32</span> channels;
+    <span style="color:#0099cc">ma_uint32</span> sampleRate;
+
+    <span style="color:#009900">/*
+    Add your custom backend vtables here. The order in the array defines the order of priority. The
+    vtables will be passed in via the decoder config.
+    */</span>
+    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    {
+        &amp;g_ma_decoding_backend_vtable_libvorbis,
+        &amp;g_ma_decoding_backend_vtable_libopus
+    };
+
+
+    <span style="color:#0033ff">if</span> (argc &lt; 2) {
+        printf(<span style="color:#cc3300">&quot;No input file.\n&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    
+    <span style="color:#009900">/* Initialize the decoder. */</span>
+    decoderConfig = ma_decoder_config_init_default();
+    decoderConfig.pCustomBackendUserData = NULL;  <span style="color:#009900">/* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */</span>
+    decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
+    decoderConfig.customBackendCount     = <span style="color:#0033ff">sizeof</span>(pCustomBackendVTables) / <span style="color:#0033ff">sizeof</span>(pCustomBackendVTables[0]);
+    
+    result = ma_decoder_init_file(argv[1], &amp;decoderConfig, &amp;decoder);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize decoder.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    <span style="color:#009900">/* Initialize the device. */</span>
+    result = ma_data_source_get_data_format(&amp;decoder, &amp;format, &amp;channels, &amp;sampleRate);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to retrieve decoder data format.&quot;</span>);
+        ma_decoder_uninit(&amp;decoder);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format   = format;
+    deviceConfig.playback.channels = channels;
+    deviceConfig.sampleRate        = sampleRate;
+    deviceConfig.dataCallback      = data_callback;
+    deviceConfig.pUserData         = &amp;decoder;
+
+    <span style="color:#0033ff">if</span> (ma_device_init(NULL, &amp;deviceConfig, &amp;device) != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to open playback device.\n&quot;</span>);
+        ma_decoder_uninit(&amp;decoder);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#0033ff">if</span> (ma_device_start(&amp;device) != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to start playback device.\n&quot;</span>);
+        ma_device_uninit(&amp;device);
+        ma_decoder_uninit(&amp;decoder);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...&quot;</span>);
+    getchar();
+
+    ma_device_uninit(&amp;device);
+    ma_decoder_uninit(&amp;decoder);
+
+    <span style="color:#0033ff">return</span> 0;
+}</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2021 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>

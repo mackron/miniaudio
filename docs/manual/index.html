@@ -1126,38 +1126,12 @@ runtime linking via <span style="font-family:monospace;">dlopen()</span>.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
-MA_LOG_LEVEL [level]
-
-</p>
-<p>
-
-
-</p>
-<p>
-
-
-</p>
-<p>
-
+MA_DEBUG_OUTPUT
 </p>
 </td>
 <td class="doc" valign="top"><p>
-Sets the logging level. Set <span style="font-family:monospace;">level</span> to one of the following:
-
-</p>
-<div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-MA_LOG_LEVEL_VERBOSE
-MA_LOG_LEVEL_INFO
-MA_LOG_LEVEL_WARNING
-MA_LOG_LEVEL_ERROR
-</pre></div></td>
-</tr>
-<tr>
-<td class="doc" valign="top"><p>
-MA_DEBUG_OUTPUT</p>
-</td>
-<td class="doc" valign="top"><p>
-Enable <span style="font-family:monospace;">printf()</span> debug output.</p>
+Enable processing of MA_LOG_LEVEL_DEBUG messages and <span style="font-family:monospace;">printf()</span>
+output.</p>
 </td>
 </tr>
 <tr>
@@ -1493,20 +1467,18 @@ ma_decoder_seek_to_pcm_frame(pDecoder, 0);
 </pre></div><p>
 
 When loading a decoder, miniaudio uses a trial and error technique to find the appropriate decoding backend. This can be unnecessarily inefficient if the type
-is already known. In this case you can use the <span style="font-family:monospace;">_wav</span>, <span style="font-family:monospace;">_mp3</span>, etc. varients of the aforementioned initialization APIs:
+is already known. In this case you can use <span style="font-family:monospace;">encodingFormat</span> variable in the device config to specify a specific encoding format you want to decode:
 </p>
 <p>
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-ma_decoder_init_wav()
-ma_decoder_init_mp3()
-ma_decoder_init_memory_wav()
-ma_decoder_init_memory_mp3()
-ma_decoder_init_file_wav()
-ma_decoder_init_file_mp3()
-etc.
+decoderConfig.encodingFormat = ma_encoding_format_wav;
 </pre></div><p>
+
+See the <span style="font-family:monospace;">ma_encoding_format</span> enum for possible encoding formats.
+</p>
+<p>
 
 The <span style="font-family:monospace;">ma_decoder_init_file()</span> API will try using the file extension to determine which decoding backend to prefer.
 </p>
