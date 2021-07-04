@@ -11661,21 +11661,11 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 axisX = ma_vec3f_neg(axisX);
             }
 
-            #if 0
-            {
-                m[0][0] = axisX.x;                                   m[0][1] = axisY.x;                                   m[0][2] = axisZ.x;                                   m[0][3] = 0;
-                m[1][0] = axisX.y;                                   m[1][1] = axisY.y;                                   m[1][2] = axisZ.y;                                   m[1][3] = 0;
-                m[2][0] = axisX.z;                                   m[2][1] = axisY.z;                                   m[2][2] = axisZ.z;                                   m[2][3] = 0;
-                m[3][0] = -ma_vec3f_dot(axisX, pListener->position); m[3][1] = -ma_vec3f_dot(axisY, pListener->position); m[3][2] = -ma_vec3f_dot(axisZ, pListener->position); m[3][3] = 1;
-            }
-            #else
-            {
-                m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
-                m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
-                m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
-                m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
-            }
-            #endif
+            /* Lookat. */
+            m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
+            m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
+            m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+            m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
 
             /*
             Multiply the lookat matrix by the spatializer position to transform it to listener
@@ -11683,44 +11673,18 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             origin which makes things simpler.
             */
             v = pSpatializer->position;
-            #if 0
-            {
-                relativePos.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3] * 1;
-                relativePos.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3] * 1;
-                relativePos.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z + m[2][3] * 1;
-            }
-            #else
-            {
-                relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
-                relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
-                relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
-            }
-            #endif
+            relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
+            relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
+            relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
 
             /*
             The direction of the sound needs to also be transformed so that it's relative to the
             rotation of the listener.
             */
             v = pSpatializer->direction;
-            #if 0
-            {
-                relativeDir.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z;
-                relativeDir.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z;
-                relativeDir.z = m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z;
-            }
-            #else
-            {
-                relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-                relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-                relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
-            }
-            #endif
-
-            #if defined(MA_DEBUG_OUTPUT)
-            {
-                /*printf("dir.x = {%f, %f, %f}\n", relativeDir.x, relativeDir.y, relativeDir.z);*/
-            }
-            #endif
+            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
         }
 
         distance = ma_vec3f_len(relativePos);
@@ -11933,12 +11897,6 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         } else {
             pSpatializer->dopplerPitch = 1;
         }
-
-        #if defined(MA_DEBUG_OUTPUT)
-        {
-            /*printf("dopplerPitch = %f; relativePos = {%f %f %f}\n", pSpatializer->dopplerPitch, relativePos.x, relativePos.y, relativePos.z);*/
-        }
-        #endif
     }
 
     return MA_SUCCESS;
