@@ -7832,7 +7832,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
             );
             MA_ASSERT(pDst != NULL);
 
-            framesRead = ma_decoder_read_pcm_frames(pDecoder, pDst, framesToTryReading);
+            result = ma_decoder_read_pcm_frames(pDecoder, pDst, framesToTryReading, &framesRead);
             if (framesRead > 0) {
                 pDataBufferNode->data.decoded.decodedFrameCount += framesRead;
             }
@@ -7848,7 +7848,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
                 return result;
             }
 
-            framesRead = ma_decoder_read_pcm_frames(pDecoder, pPage->pAudioData, framesToTryReading);
+            result = ma_decoder_read_pcm_frames(pDecoder, pPage->pAudioData, framesToTryReading, &framesRead);
             if (framesRead > 0) {
                 pPage->sizeInFrames = framesRead;
 
@@ -9113,6 +9113,7 @@ static void* ma_resource_manager_data_stream_get_page_data_pointer(ma_resource_m
 
 static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
 {
+    ma_result result = MA_SUCCESS;
     ma_bool32 isLooping;
     ma_uint64 pageSizeInFrames;
     ma_uint64 totalFramesReadForThisPage = 0;
@@ -9128,23 +9129,28 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
             ma_uint64 framesRead;
 
             framesRemaining = pageSizeInFrames - totalFramesReadForThisPage;
-            framesRead = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining);
+            result = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining, &framesRead);
             totalFramesReadForThisPage += framesRead;
 
             /* Loop back to the start if we reached the end. We'll also have a known length at this point as well. */
-            if (framesRead < framesRemaining) {
+            if (result == MA_AT_END || framesRead < framesRemaining) {
                 if (pDataStream->totalLengthInPCMFrames == 0) {
                     ma_decoder_get_cursor_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
                 }
 
                 ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
+                result = MA_SUCCESS;    /* Clear the AT_END result so we don't incorrectly mark this looping stream as at the end and then have it stopped. */
+            }
+
+            if (result != MA_SUCCESS && result != MA_AT_END) {
+                break;
             }
         }
     } else {
-        totalFramesReadForThisPage = ma_decoder_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames);
+        result = ma_decoder_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames, &totalFramesReadForThisPage);
     }
 
-    if (totalFramesReadForThisPage < pageSizeInFrames) {
+    if (result == MA_AT_END || totalFramesReadForThisPage < pageSizeInFrames) {
         c89atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
     }
 

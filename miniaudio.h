@@ -6256,7 +6256,7 @@ Reads PCM frames from the given decoder.
 
 This is not thread safe without your own synchronization.
 */
-MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount);
+MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 
 /*
 Seeks to a PCM frame based on it's absolute index.
@@ -49583,17 +49583,7 @@ static ma_result ma_decoder__init_allocation_callbacks(const ma_decoder_config* 
 
 static ma_result ma_decoder__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_uint64 framesRead = ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount);
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
-    }
-
-    if (framesRead == 0) {
-        return MA_AT_END;
-    }
-
-    return MA_SUCCESS;
+    return ma_decoder_read_pcm_frames((ma_decoder*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
 static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -49614,16 +49604,12 @@ static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDat
 
 static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
-
-    return ma_decoder_get_cursor_in_pcm_frames(pDecoder, pCursor);
+    return ma_decoder_get_cursor_in_pcm_frames((ma_decoder*)pDataSource, pCursor);
 }
 
 static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSource, ma_uint64* pLength)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
-
-    return ma_decoder_get_length_in_pcm_frames(pDecoder, pLength);
+    return ma_decoder_get_length_in_pcm_frames((ma_decoder*)pDataSource, pLength);
 }
 
 static ma_data_source_vtable g_ma_decoder_data_source_vtable =
@@ -50447,19 +50433,23 @@ MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_ui
     }
 }
 
-MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
+MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesReadOut;
     ma_uint64 totalFramesReadIn;
     void* pRunningFramesOut;
 
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;   /* Safety. */
+    }
+
     if (pDecoder == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     if (pDecoder->pBackend == NULL) {
-        return 0;
+        return MA_INVALID_OPERATION;
     }
 
     /* Fast path. */
@@ -50483,7 +50473,7 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
             result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, NULL);
             if (result != MA_SUCCESS) {
-                return 0;   /* Failed to retrieve the internal format and channel count. */
+                return result;   /* Failed to retrieve the internal format and channel count. */
             }
 
             while (totalFramesReadOut < frameCount) {
@@ -50538,7 +50528,11 @@ MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
     pDecoder->readPointerInPCMFrames += totalFramesReadOut;
 
-    return totalFramesReadOut;
+    if (pFramesRead != NULL) {
+        *pFramesRead = totalFramesReadOut;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex)
@@ -50607,6 +50601,7 @@ MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64
 
 static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_decoder_config* pConfigOut, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
+    ma_result result;
     ma_uint64 totalFrameCount;
     ma_uint64 bpf;
     ma_uint64 dataCapInFrames;
@@ -50652,8 +50647,12 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
         frameCountToTryReading = dataCapInFrames - totalFrameCount;
         MA_ASSERT(frameCountToTryReading > 0);
 
-        framesJustRead = ma_decoder_read_pcm_frames(pDecoder, (ma_uint8*)pPCMFramesOut + (totalFrameCount * bpf), frameCountToTryReading);
+        result = ma_decoder_read_pcm_frames(pDecoder, (ma_uint8*)pPCMFramesOut + (totalFrameCount * bpf), frameCountToTryReading, &framesJustRead);
         totalFrameCount += framesJustRead;
+
+        if (result != MA_SUCCESS) {
+            break;
+        }
 
         if (framesJustRead < frameCountToTryReading) {
             break;
