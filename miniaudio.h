@@ -5884,7 +5884,6 @@ For all formats except `ma_format_u8`, the output buffer will be filled with 0. 
 makes more sense for the purpose of mixing to initialize it to the center point.
 */
 MA_API void ma_silence_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
-static MA_INLINE void ma_zero_pcm_frames(void* p, ma_uint64 frameCount, ma_format format, ma_uint32 channels) { ma_silence_pcm_frames(p, frameCount, format, channels); }
 
 
 /*
