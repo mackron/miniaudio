@@ -2378,9 +2378,6 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
 
-#define ma_align(x, a) ((x + (a-1)) & ~(a-1))
-#define ma_align_64(x) ma_align(x, 8)
-
 MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData)
 {
     if (pData == NULL) {
