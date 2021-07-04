@@ -5629,18 +5629,6 @@ static void ma_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 
     }
 }
 
-static void ma_clip_samples_f32_ex(float* pDst, const float* pSrc, ma_uint64 count)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_f32(pSrc[iSample]);
-    }
-}
-
 
 
 static void ma_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume)
@@ -5734,7 +5722,7 @@ static void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCoun
         case ma_format_s16: ma_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount); break;
         case ma_format_s24: ma_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount); break;
         case ma_format_s32: ma_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount); break;
-        case ma_format_f32: ma_clip_samples_f32_ex((float*)pDst, (const    float*)pSrc, sampleCount); break;
+        case ma_format_f32: ma_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount); break;
         
         /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
         case ma_format_unknown:

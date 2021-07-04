@@ -5898,8 +5898,8 @@ static MA_INLINE const float* ma_offset_pcm_frames_const_ptr_f32(const float* p,
 /*
 Clips f32 samples.
 */
-MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount);
-static MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, frameCount*channels); }
+MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count);
+static MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, p, frameCount*channels); }
 
 /*
 Helper for applying a volume factor to samples.
@@ -34115,13 +34115,15 @@ MA_API const void* ma_offset_pcm_frames_const_ptr(const void* p, ma_uint64 offse
 }
 
 
-MA_API void ma_clip_samples_f32(float* p, ma_uint64 sampleCount)
+MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count)
 {
-    ma_uint32 iSample;
+    ma_uint64 iSample;
 
-    /* TODO: Research a branchless SSE implementation. */
-    for (iSample = 0; iSample < sampleCount; iSample += 1) {
-        p[iSample] = ma_clip_f32(p[iSample]);
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_f32(pSrc[iSample]);
     }
 }
 
