@@ -6245,6 +6245,11 @@ This is not thread safe without your own synchronization.
 MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
 
 /*
+Retrieves the decoder's output data format.
+*/
+MA_API ma_result ma_decoder_get_data_format(ma_decoder* pDecoder, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+
+/*
 Retrieves the current position of the read cursor in PCM frames.
 */
 MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor);
@@ -49593,13 +49598,7 @@ static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma
 
 static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
-    ma_decoder* pDecoder = (ma_decoder*)pDataSource;
-
-    *pFormat     = pDecoder->outputFormat;
-    *pChannels   = pDecoder->outputChannels;
-    *pSampleRate = pDecoder->outputSampleRate;
-
-    return MA_SUCCESS;
+    return ma_decoder_get_data_format((ma_decoder*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
 }
 
 static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -50511,6 +50510,31 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
     return MA_INVALID_ARGS;
+}
+
+MA_API ma_result ma_decoder_get_data_format(ma_decoder* pDecoder, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFormat != NULL) {
+        *pFormat = pDecoder->outputFormat;
+    }
+
+    if (pChannels != NULL) {
+        *pChannels = pDecoder->outputChannels;
+    }
+
+    if (pSampleRate != NULL) {
+        *pSampleRate = pDecoder->outputSampleRate;
+    }
+
+    if (pChannelMap != NULL) {
+        ma_channel_map_copy_or_default(pChannelMap, pDecoder->outputChannelMap, (ma_uint32)ma_min(channelMapCap, pDecoder->outputChannels));
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor)
