@@ -2957,17 +2957,22 @@ Retrieves a human readable description of the given result code.
 MA_API const char* ma_result_description(ma_result result);
 
 /*
-malloc(). Calls MA_MALLOC().
+malloc()
 */
 MA_API void* ma_malloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks);
 
 /*
-realloc(). Calls MA_REALLOC().
+calloc()
+*/
+MA_API void* ma_calloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks);
+
+/*
+realloc()
 */
 MA_API void* ma_realloc(void* p, size_t sz, const ma_allocation_callbacks* pAllocationCallbacks);
 
 /*
-free(). Calls MA_FREE().
+free()
 */
 MA_API void ma_free(void* p, const ma_allocation_callbacks* pAllocationCallbacks);
 
@@ -8223,54 +8228,6 @@ static void ma__free_default(void* p, void* pUserData)
 {
     (void)pUserData;
     MA_FREE(p);
-}
-
-
-static void* ma__malloc_from_callbacks(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pAllocationCallbacks == NULL) {
-        return NULL;
-    }
-
-    if (pAllocationCallbacks->onMalloc != NULL) {
-        return pAllocationCallbacks->onMalloc(sz, pAllocationCallbacks->pUserData);
-    }
-
-    return NULL;
-}
-
-static void* ma__realloc_from_callbacks(void* p, size_t szNew, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pAllocationCallbacks == NULL) {
-        return NULL;
-    }
-
-    if (pAllocationCallbacks->onRealloc != NULL) {
-        return pAllocationCallbacks->onRealloc(p, szNew, pAllocationCallbacks->pUserData);
-    }
-
-    return NULL;
-}
-
-static MA_INLINE void* ma__calloc_from_callbacks(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    void* p = ma__malloc_from_callbacks(sz, pAllocationCallbacks);
-    if (p != NULL) {
-        MA_ZERO_MEMORY(p, sz);
-    }
-
-    return p;
-}
-
-static void ma__free_from_callbacks(void* p, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (p == NULL || pAllocationCallbacks == NULL) {
-        return;
-    }
-
-    if (pAllocationCallbacks->onFree != NULL) {
-        pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
-    }
 }
 
 static ma_allocation_callbacks ma_allocation_callbacks_init_default(void)
@@ -18794,7 +18751,7 @@ static ma_result ma_device_uninit__winmm(ma_device* pDevice)
         CloseHandle((HANDLE)pDevice->winmm.hEventPlayback);
     }
 
-    ma__free_from_callbacks(pDevice->winmm._pHeapData, &pDevice->pContext->allocationCallbacks);
+    ma_free(pDevice->winmm._pHeapData, &pDevice->pContext->allocationCallbacks);
 
     MA_ZERO_OBJECT(&pDevice->winmm);   /* Safety. */
 
@@ -18935,7 +18892,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         heapSize += sizeof(WAVEHDR)*pDescriptorPlayback->periodCount + (pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels));
     }
 
-    pDevice->winmm._pHeapData = (ma_uint8*)ma__calloc_from_callbacks(heapSize, &pDevice->pContext->allocationCallbacks);
+    pDevice->winmm._pHeapData = (ma_uint8*)ma_calloc(heapSize, &pDevice->pContext->allocationCallbacks);
     if (pDevice->winmm._pHeapData == NULL) {
         errorMsg = "[WinMM] Failed to allocate memory for the intermediary buffer.", errorCode = MA_OUT_OF_MEMORY;
         goto on_error;
@@ -19026,7 +18983,7 @@ on_error:
         ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
     }
 
-    ma__free_from_callbacks(pDevice->winmm._pHeapData, &pDevice->pContext->allocationCallbacks);
+    ma_free(pDevice->winmm._pHeapData, &pDevice->pContext->allocationCallbacks);
     return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, errorMsg, errorCode);
 }
 
@@ -20217,7 +20174,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
         }
     }
 
-    ma__free_from_callbacks(pUniqueIDs, &pContext->allocationCallbacks);
+    ma_free(pUniqueIDs, &pContext->allocationCallbacks);
     ((ma_snd_device_name_free_hint_proc)pContext->alsa.snd_device_name_free_hint)((void**)ppDeviceHints);
 
     ma_mutex_unlock(&pContext->alsa.internalDeviceEnumLock);
@@ -20341,7 +20298,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     }
 
     /* We need to initialize a HW parameters object in order to know what formats are supported. */
-    pHWParams = (ma_snd_pcm_hw_params_t*)ma__calloc_from_callbacks(((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)(), &pContext->allocationCallbacks);
+    pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(((ma_snd_pcm_hw_params_sizeof_proc)pContext->alsa.snd_pcm_hw_params_sizeof)(), &pContext->allocationCallbacks);
     if (pHWParams == NULL) {
         ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
         return MA_OUT_OF_MEMORY;
@@ -20349,7 +20306,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
 
     resultALSA = ((ma_snd_pcm_hw_params_any_proc)pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams);
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pHWParams, &pContext->allocationCallbacks);
+        ma_free(pHWParams, &pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
         return ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", ma_result_from_errno(-resultALSA));
     }
@@ -20435,7 +20392,7 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
         }
     }
 
-    ma__free_from_callbacks(pHWParams, &pContext->allocationCallbacks);
+    ma_free(pHWParams, &pContext->allocationCallbacks);
 
     ((ma_snd_pcm_close_proc)pContext->alsa.snd_pcm_close)(pPCM);
     return MA_SUCCESS;
@@ -20505,14 +20462,14 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
 
     /* Hardware parameters. */
-    pHWParams = (ma_snd_pcm_hw_params_t*)ma__calloc_from_callbacks(((ma_snd_pcm_hw_params_sizeof_proc)pDevice->pContext->alsa.snd_pcm_hw_params_sizeof)(), &pDevice->pContext->allocationCallbacks);
+    pHWParams = (ma_snd_pcm_hw_params_t*)ma_calloc(((ma_snd_pcm_hw_params_sizeof_proc)pDevice->pContext->alsa.snd_pcm_hw_params_sizeof)(), &pDevice->pContext->allocationCallbacks);
     if (pHWParams == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
     resultALSA = ((ma_snd_pcm_hw_params_any_proc)pDevice->pContext->alsa.snd_pcm_hw_params_any)(pPCM, pHWParams);
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+        ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize hardware parameters. snd_pcm_hw_params_any() failed.", ma_result_from_errno(-resultALSA));
     }
@@ -20532,7 +20489,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     if (!isUsingMMap) {
         resultALSA = ((ma_snd_pcm_hw_params_set_access_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_access)(pPCM, pHWParams, MA_SND_PCM_ACCESS_RW_INTERLEAVED);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set access mode to neither SND_PCM_ACCESS_MMAP_INTERLEAVED nor SND_PCM_ACCESS_RW_INTERLEAVED. snd_pcm_hw_params_set_access() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20562,7 +20519,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
             }
 
             if (formatALSA == MA_SND_PCM_FORMAT_UNKNOWN) {
-                ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+                ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
                 ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
                 return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. The device does not support any miniaudio formats.", MA_FORMAT_NOT_SUPPORTED);
             }
@@ -20570,14 +20527,14 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
         resultALSA = ((ma_snd_pcm_hw_params_set_format_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_format)(pPCM, pHWParams, formatALSA);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Format not supported. snd_pcm_hw_params_set_format() failed.", ma_result_from_errno(-resultALSA));
         }
 
         internalFormat = ma_format_from_alsa(formatALSA);
         if (internalFormat == ma_format_unknown) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] The chosen format is not supported by miniaudio.", MA_FORMAT_NOT_SUPPORTED);
         }
@@ -20592,7 +20549,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
         resultALSA = ((ma_snd_pcm_hw_params_set_channels_near_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_channels_near)(pPCM, pHWParams, &channels);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set channel count. snd_pcm_hw_params_set_channels_near() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20630,7 +20587,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
         resultALSA = ((ma_snd_pcm_hw_params_set_rate_near_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_rate_near)(pPCM, pHWParams, &sampleRate, 0);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Sample rate not supported. snd_pcm_hw_params_set_rate_near() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20644,7 +20601,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
         resultALSA = ((ma_snd_pcm_hw_params_set_periods_near_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_periods_near)(pPCM, pHWParams, &periods, NULL);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set period count. snd_pcm_hw_params_set_periods_near() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20658,7 +20615,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
         resultALSA = ((ma_snd_pcm_hw_params_set_buffer_size_near_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_buffer_size_near)(pPCM, pHWParams, &actualBufferSizeInFrames);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set buffer size for device. snd_pcm_hw_params_set_buffer_size() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20669,17 +20626,17 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     /* Apply hardware parameters. */
     resultALSA = ((ma_snd_pcm_hw_params_proc)pDevice->pContext->alsa.snd_pcm_hw_params)(pPCM, pHWParams);
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+        ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set hardware parameters. snd_pcm_hw_params() failed.", ma_result_from_errno(-resultALSA));
     }
 
-    ma__free_from_callbacks(pHWParams, &pDevice->pContext->allocationCallbacks);
+    ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);
     pHWParams = NULL;
 
 
     /* Software parameters. */
-    pSWParams = (ma_snd_pcm_sw_params_t*)ma__calloc_from_callbacks(((ma_snd_pcm_sw_params_sizeof_proc)pDevice->pContext->alsa.snd_pcm_sw_params_sizeof)(), &pDevice->pContext->allocationCallbacks);
+    pSWParams = (ma_snd_pcm_sw_params_t*)ma_calloc(((ma_snd_pcm_sw_params_sizeof_proc)pDevice->pContext->alsa.snd_pcm_sw_params_sizeof)(), &pDevice->pContext->allocationCallbacks);
     if (pSWParams == NULL) {
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return MA_OUT_OF_MEMORY;
@@ -20687,14 +20644,14 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
     resultALSA = ((ma_snd_pcm_sw_params_current_proc)pDevice->pContext->alsa.snd_pcm_sw_params_current)(pPCM, pSWParams);
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+        ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to initialize software parameters. snd_pcm_sw_params_current() failed.", ma_result_from_errno(-resultALSA));
     }
 
     resultALSA = ((ma_snd_pcm_sw_params_set_avail_min_proc)pDevice->pContext->alsa.snd_pcm_sw_params_set_avail_min)(pPCM, pSWParams, ma_prev_power_of_2(internalPeriodSizeInFrames));
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+        ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_sw_params_set_avail_min() failed.", ma_result_from_errno(-resultALSA));
     }
@@ -20711,14 +20668,14 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
         */
         resultALSA = ((ma_snd_pcm_sw_params_set_start_threshold_proc)pDevice->pContext->alsa.snd_pcm_sw_params_set_start_threshold)(pPCM, pSWParams, internalPeriodSizeInFrames*2);
         if (resultALSA < 0) {
-            ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set start threshold for playback device. snd_pcm_sw_params_set_start_threshold() failed.", ma_result_from_errno(-resultALSA));
         }
 
         resultALSA = ((ma_snd_pcm_sw_params_set_stop_threshold_proc)pDevice->pContext->alsa.snd_pcm_sw_params_set_stop_threshold)(pPCM, pSWParams, bufferBoundary);
         if (resultALSA < 0) { /* Set to boundary to loop instead of stop in the event of an xrun. */
-            ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+            ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
             ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set stop threshold for playback device. snd_pcm_sw_params_set_stop_threshold() failed.", ma_result_from_errno(-resultALSA));
         }
@@ -20726,12 +20683,12 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
     resultALSA = ((ma_snd_pcm_sw_params_proc)pDevice->pContext->alsa.snd_pcm_sw_params)(pPCM, pSWParams);
     if (resultALSA < 0) {
-        ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+        ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to set software parameters. snd_pcm_sw_params() failed.", ma_result_from_errno(-resultALSA));
     }
 
-    ma__free_from_callbacks(pSWParams, &pDevice->pContext->allocationCallbacks);
+    ma_free(pSWParams, &pDevice->pContext->allocationCallbacks);
     pSWParams = NULL;
 
 
@@ -23866,11 +23823,11 @@ static ma_result ma_device_uninit__jack(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ma__free_from_callbacks(pDevice->jack.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ma__free_from_callbacks(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
     }
 
     return MA_SUCCESS;
@@ -23892,12 +23849,12 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         size_t newBufferSize = frameCount * (pDevice->capture.internalChannels * ma_get_bytes_per_sample(pDevice->capture.internalFormat));
-        float* pNewBuffer = (float*)ma__calloc_from_callbacks(newBufferSize, &pDevice->pContext->allocationCallbacks);
+        float* pNewBuffer = (float*)ma_calloc(newBufferSize, &pDevice->pContext->allocationCallbacks);
         if (pNewBuffer == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
-        ma__free_from_callbacks(pDevice->jack.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
 
         pDevice->jack.pIntermediaryBufferCapture = pNewBuffer;
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
@@ -23905,12 +23862,12 @@ static int ma_device__jack_buffer_size_callback(ma_jack_nframes_t frameCount, vo
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         size_t newBufferSize = frameCount * (pDevice->playback.internalChannels * ma_get_bytes_per_sample(pDevice->playback.internalFormat));
-        float* pNewBuffer = (float*)ma__calloc_from_callbacks(newBufferSize, &pDevice->pContext->allocationCallbacks);
+        float* pNewBuffer = (float*)ma_calloc(newBufferSize, &pDevice->pContext->allocationCallbacks);
         if (pNewBuffer == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
-        ma__free_from_callbacks(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
 
         pDevice->jack.pIntermediaryBufferPlayback = pNewBuffer;
         pDevice->playback.internalPeriodSizeInFrames = frameCount;
@@ -24049,7 +24006,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
         pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
         pDescriptorCapture->periodCount        = 1; /* There's no notion of a period in JACK. Just set to 1. */
 
-        pDevice->jack.pIntermediaryBufferCapture = (float*)ma__calloc_from_callbacks(pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels), &pDevice->pContext->allocationCallbacks);
+        pDevice->jack.pIntermediaryBufferCapture = (float*)ma_calloc(pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels), &pDevice->pContext->allocationCallbacks);
         if (pDevice->jack.pIntermediaryBufferCapture == NULL) {
             ma_device_uninit__jack(pDevice);
             return MA_OUT_OF_MEMORY;
@@ -24089,7 +24046,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
         pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
         pDescriptorPlayback->periodCount        = 1;   /* There's no notion of a period in JACK. Just set to 1. */
 
-        pDevice->jack.pIntermediaryBufferPlayback = (float*)ma__calloc_from_callbacks(pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels), &pDevice->pContext->allocationCallbacks);
+        pDevice->jack.pIntermediaryBufferPlayback = (float*)ma_calloc(pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels), &pDevice->pContext->allocationCallbacks);
         if (pDevice->jack.pIntermediaryBufferPlayback == NULL) {
             ma_device_uninit__jack(pDevice);
             return MA_OUT_OF_MEMORY;
@@ -24838,14 +24795,14 @@ static ma_bool32 ma_does_AudioObject_support_scope(ma_context* pContext, AudioOb
         return MA_FALSE;
     }
 
-    pBufferList = (AudioBufferList*)ma__malloc_from_callbacks(dataSize, &pContext->allocationCallbacks);
+    pBufferList = (AudioBufferList*)ma_malloc(dataSize, &pContext->allocationCallbacks);
     if (pBufferList == NULL) {
         return MA_FALSE;   /* Out of memory. */
     }
 
     status = ((ma_AudioObjectGetPropertyData_proc)pContext->coreaudio.AudioObjectGetPropertyData)(deviceObjectID, &propAddress, 0, NULL, &dataSize, pBufferList);
     if (status != noErr) {
-        ma__free_from_callbacks(pBufferList, &pContext->allocationCallbacks);
+        ma_free(pBufferList, &pContext->allocationCallbacks);
         return MA_FALSE;
     }
 
@@ -24854,7 +24811,7 @@ static ma_bool32 ma_does_AudioObject_support_scope(ma_context* pContext, AudioOb
         isSupported = MA_TRUE;
     }
 
-    ma__free_from_callbacks(pBufferList, &pContext->allocationCallbacks);
+    ma_free(pBufferList, &pContext->allocationCallbacks);
     return isSupported;
 }
 
@@ -25483,24 +25440,24 @@ static ma_result ma_get_AudioUnit_channel_map(ma_context* pContext, AudioUnit au
         return ma_result_from_OSStatus(status);
     }
 
-    pChannelLayout = (AudioChannelLayout*)ma__malloc_from_callbacks(channelLayoutSize, &pContext->allocationCallbacks);
+    pChannelLayout = (AudioChannelLayout*)ma_malloc(channelLayoutSize, &pContext->allocationCallbacks);
     if (pChannelLayout == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
     status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioUnitProperty_AudioChannelLayout, deviceScope, deviceBus, pChannelLayout, &channelLayoutSize);
     if (status != noErr) {
-        ma__free_from_callbacks(pChannelLayout, &pContext->allocationCallbacks);
+        ma_free(pChannelLayout, &pContext->allocationCallbacks);
         return ma_result_from_OSStatus(status);
     }
 
     result = ma_get_channel_map_from_AudioChannelLayout(pChannelLayout, pChannelMap, channelMapCap);
     if (result != MA_SUCCESS) {
-        ma__free_from_callbacks(pChannelLayout, &pContext->allocationCallbacks);
+        ma_free(pChannelLayout, &pContext->allocationCallbacks);
         return result;
     }
 
-    ma__free_from_callbacks(pChannelLayout, &pContext->allocationCallbacks);
+    ma_free(pChannelLayout, &pContext->allocationCallbacks);
     return MA_SUCCESS;
 }
 #endif /* MA_APPLE_DESKTOP */
@@ -25852,7 +25809,7 @@ static AudioBufferList* ma_allocate_AudioBufferList__coreaudio(ma_uint32 sizeInF
 
     allocationSize += sizeInFrames * ma_get_bytes_per_frame(format, channels);
 
-    pBufferList = (AudioBufferList*)ma__malloc_from_callbacks(allocationSize, pAllocationCallbacks);
+    pBufferList = (AudioBufferList*)ma_malloc(allocationSize, pAllocationCallbacks);
     if (pBufferList == NULL) {
         return NULL;
     }
@@ -25893,7 +25850,7 @@ static ma_result ma_device_realloc_AudioBufferList__coreaudio(ma_device* pDevice
         }
 
         /* At this point we'll have a new AudioBufferList and we can free the old one. */
-        ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
         pDevice->coreaudio.pAudioBufferList = pNewAudioBufferList;
         pDevice->coreaudio.audioBufferCapInFrames = sizeInFrames;
     }
@@ -26374,7 +26331,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
                 /* If there's nothing else in the list we need to free memory. */
                 if (g_TrackedDeviceCount_CoreAudio == 0) {
-                    ma__free_from_callbacks(g_ppTrackedDevices_CoreAudio, &pDevice->pContext->allocationCallbacks);
+                    ma_free(g_ppTrackedDevices_CoreAudio, &pDevice->pContext->allocationCallbacks);
                     g_ppTrackedDevices_CoreAudio = NULL;
                     g_TrackedDeviceCap_CoreAudio = 0;
                 }
@@ -26516,7 +26473,7 @@ static ma_result ma_device_uninit__coreaudio(ma_device* pDevice)
     }
 
     if (pDevice->coreaudio.pAudioBufferList) {
-        ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
     }
 
     return MA_SUCCESS;
@@ -26921,7 +26878,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     /* Initialize the audio unit. */
     status = ((ma_AudioUnitInitialize_proc)pContext->coreaudio.AudioUnitInitialize)(pData->audioUnit);
     if (status != noErr) {
-        ma__free_from_callbacks(pData->pAudioBufferList, &pContext->allocationCallbacks);
+        ma_free(pData->pAudioBufferList, &pContext->allocationCallbacks);
         pData->pAudioBufferList = NULL;
         ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
         return ma_result_from_OSStatus(status);
@@ -26968,7 +26925,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
             ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
         }
         if (pDevice->coreaudio.pAudioBufferList) {
-            ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
+            ma_free(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
         }
     } else if (deviceType == ma_device_type_playback) {
         data.formatIn               = pDevice->playback.format;
@@ -27130,7 +27087,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
             if (pConfig->deviceType == ma_device_type_duplex) {
                 ((ma_AudioComponentInstanceDispose_proc)pDevice->pContext->coreaudio.AudioComponentInstanceDispose)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
                 if (pDevice->coreaudio.pAudioBufferList) {
-                    ma__free_from_callbacks(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
+                    ma_free(pDevice->coreaudio.pAudioBufferList, &pDevice->pContext->allocationCallbacks);
                 }
             }
             return result;
@@ -31112,7 +31069,7 @@ static ma_result ma_device_uninit__opensl(ma_device* pDevice)
             MA_OPENSL_OBJ(pDevice->opensl.pAudioRecorderObj)->Destroy((SLObjectItf)pDevice->opensl.pAudioRecorderObj);
         }
 
-        ma__free_from_callbacks(pDevice->opensl.pBufferCapture, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->opensl.pBufferCapture, &pDevice->pContext->allocationCallbacks);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -31123,7 +31080,7 @@ static ma_result ma_device_uninit__opensl(ma_device* pDevice)
             MA_OPENSL_OBJ(pDevice->opensl.pOutputMixObj)->Destroy((SLObjectItf)pDevice->opensl.pOutputMixObj);
         }
 
-        ma__free_from_callbacks(pDevice->opensl.pBufferPlayback, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->opensl.pBufferPlayback, &pDevice->pContext->allocationCallbacks);
     }
 
     return MA_SUCCESS;
@@ -31357,7 +31314,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         pDevice->opensl.currentBufferIndexCapture = 0;
 
         bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
-        pDevice->opensl.pBufferCapture = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
+        pDevice->opensl.pBufferCapture = (ma_uint8*)ma_calloc(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
         if (pDevice->opensl.pBufferCapture == NULL) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MA_OUT_OF_MEMORY);
@@ -31471,7 +31428,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         pDevice->opensl.currentBufferIndexPlayback   = 0;
 
         bufferSizeInBytes = pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount;
-        pDevice->opensl.pBufferPlayback = (ma_uint8*)ma__calloc_from_callbacks(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
+        pDevice->opensl.pBufferPlayback = (ma_uint8*)ma_calloc(bufferSizeInBytes, &pDevice->pContext->allocationCallbacks);
         if (pDevice->opensl.pBufferPlayback == NULL) {
             ma_device_uninit__opensl(pDevice);
             return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[OpenSL] Failed to allocate memory for data buffer.", MA_OUT_OF_MEMORY);
@@ -33045,7 +33002,7 @@ MA_API ma_result ma_context_uninit(ma_context* pContext)
 
     ma_mutex_uninit(&pContext->deviceEnumLock);
     ma_mutex_uninit(&pContext->deviceInfoLock);
-    ma__free_from_callbacks(pContext->pDeviceInfos, &pContext->allocationCallbacks);
+    ma_free(pContext->pDeviceInfos, &pContext->allocationCallbacks);
     ma_context_uninit_backend_apis(pContext);
 
     if (pContext->pLog == &pContext->log) {
@@ -33578,7 +33535,7 @@ MA_API ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backen
     }
 
 
-    pContext = (ma_context*)ma__malloc_from_callbacks(sizeof(*pContext), &allocationCallbacks);
+    pContext = (ma_context*)ma_malloc(sizeof(*pContext), &allocationCallbacks);
     if (pContext == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -33609,7 +33566,7 @@ MA_API ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backen
     }
 
     if (result != MA_SUCCESS) {
-        ma__free_from_callbacks(pContext, &allocationCallbacks);
+        ma_free(pContext, &allocationCallbacks);
         return result;
     }
 
@@ -33657,7 +33614,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_allocation_callbacks allocationCallbacks = pDevice->pContext->allocationCallbacks;
 
         ma_context_uninit(pDevice->pContext);
-        ma__free_from_callbacks(pDevice->pContext, &allocationCallbacks);
+        ma_free(pDevice->pContext, &allocationCallbacks);
     }
 
     MA_ZERO_OBJECT(pDevice);
@@ -43304,16 +43261,34 @@ MA_API const char* ma_result_description(ma_result result)
 MA_API void* ma_malloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks != NULL) {
-        return ma__malloc_from_callbacks(sz, pAllocationCallbacks);
+        if (pAllocationCallbacks->onMalloc != NULL) {
+            return pAllocationCallbacks->onMalloc(sz, pAllocationCallbacks->pUserData);
+        } else {
+            return NULL;    /* Do not fall back to the default implementation. */
+        }
     } else {
         return ma__malloc_default(sz, NULL);
     }
 }
 
+MA_API void* ma_calloc(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    void* p = ma_malloc(sz, pAllocationCallbacks);
+    if (p != NULL) {
+        MA_ZERO_MEMORY(p, sz);
+    }
+
+    return p;
+}
+
 MA_API void* ma_realloc(void* p, size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks != NULL) {
-        return ma__realloc_from_callbacks(p, sz, pAllocationCallbacks);
+        if (pAllocationCallbacks->onRealloc != NULL) {
+            return pAllocationCallbacks->onRealloc(p, sz, pAllocationCallbacks->pUserData);
+        } else {
+            return NULL;    /* Do not fall back to the default implementation. */
+        }
     } else {
         return ma__realloc_default(p, sz, NULL);
     }
@@ -43322,7 +43297,11 @@ MA_API void* ma_realloc(void* p, size_t sz, const ma_allocation_callbacks* pAllo
 MA_API void ma_free(void* p, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks != NULL) {
-        ma__free_from_callbacks(p, pAllocationCallbacks);
+        if (pAllocationCallbacks->onFree != NULL) {
+            pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
+        } else {
+            return; /* Do no fall back to the default implementation. */
+        }
     } else {
         ma__free_default(p, NULL);
     }
@@ -44321,7 +44300,7 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
             return MA_OUT_OF_MEMORY;    /* Too big. */
         }
 
-        pData = ma__malloc_from_callbacks((size_t)allocationSizeInBytes, &pAudioBuffer->allocationCallbacks);   /* Safe cast to size_t. */
+        pData = ma_malloc((size_t)allocationSizeInBytes, &pAudioBuffer->allocationCallbacks);   /* Safe cast to size_t. */
         if (pData == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -44349,11 +44328,11 @@ static void ma_audio_buffer_uninit_ex(ma_audio_buffer* pAudioBuffer, ma_bool32 d
     }
 
     if (pAudioBuffer->ownsData && pAudioBuffer->ref.pData != &pAudioBuffer->_pExtraData[0]) {
-        ma__free_from_callbacks((void*)pAudioBuffer->ref.pData, &pAudioBuffer->allocationCallbacks);    /* Naugty const cast, but OK in this case since we've guarded it with the ownsData check. */
+        ma_free((void*)pAudioBuffer->ref.pData, &pAudioBuffer->allocationCallbacks);    /* Naugty const cast, but OK in this case since we've guarded it with the ownsData check. */
     }
 
     if (doFree) {
-        ma__free_from_callbacks(pAudioBuffer, &pAudioBuffer->allocationCallbacks);
+        ma_free(pAudioBuffer, &pAudioBuffer->allocationCallbacks);
     }
 
     ma_audio_buffer_ref_uninit(&pAudioBuffer->ref);
@@ -44394,7 +44373,7 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
         return MA_OUT_OF_MEMORY;    /* Too big. */
     }
 
-    pAudioBuffer = (ma_audio_buffer*)ma__malloc_from_callbacks((size_t)allocationSizeInBytes, &innerConfig.allocationCallbacks);  /* Safe cast to size_t. */
+    pAudioBuffer = (ma_audio_buffer*)ma_malloc((size_t)allocationSizeInBytes, &innerConfig.allocationCallbacks);  /* Safe cast to size_t. */
     if (pAudioBuffer == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -44409,7 +44388,7 @@ MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pC
 
     result = ma_audio_buffer_init_ex(&innerConfig, MA_FALSE, pAudioBuffer);
     if (result != MA_SUCCESS) {
-        ma__free_from_callbacks(pAudioBuffer, &innerConfig.allocationCallbacks);
+        ma_free(pAudioBuffer, &innerConfig.allocationCallbacks);
         return result;
     }
 
@@ -44713,7 +44692,7 @@ static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePat
         return MA_TOO_BIG;
     }
 
-    pData = ma__malloc_from_callbacks((size_t)info.sizeInBytes, pAllocationCallbacks);  /* Safe cast. */
+    pData = ma_malloc((size_t)info.sizeInBytes, pAllocationCallbacks);  /* Safe cast. */
     if (pData == NULL) {
         ma_vfs_close(pVFS, file);
         return result;
@@ -44723,7 +44702,7 @@ static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePat
     ma_vfs_close(pVFS, file);
 
     if (result != MA_SUCCESS) {
-        ma__free_from_callbacks(pData, pAllocationCallbacks);
+        ma_free(pData, pAllocationCallbacks);
         return result;
     }
 
@@ -50622,13 +50601,13 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
             }
 
             if ((newDataCapInFrames * bpf) > MA_SIZE_MAX) {
-                ma__free_from_callbacks(pPCMFramesOut, &pDecoder->allocationCallbacks);
+                ma_free(pPCMFramesOut, &pDecoder->allocationCallbacks);
                 return MA_TOO_BIG;
             }
 
             pNewPCMFramesOut = (void*)ma_realloc(pPCMFramesOut, (size_t)(newDataCapInFrames * bpf), &pDecoder->allocationCallbacks);
             if (pNewPCMFramesOut == NULL) {
-                ma__free_from_callbacks(pPCMFramesOut, &pDecoder->allocationCallbacks);
+                ma_free(pPCMFramesOut, &pDecoder->allocationCallbacks);
                 return MA_OUT_OF_MEMORY;
             }
 
@@ -50662,7 +50641,7 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
     if (ppPCMFramesOut != NULL) {
         *ppPCMFramesOut = pPCMFramesOut;
     } else {
-        ma__free_from_callbacks(pPCMFramesOut, &pDecoder->allocationCallbacks);
+        ma_free(pPCMFramesOut, &pDecoder->allocationCallbacks);
     }
 
     if (pFrameCountOut != NULL) {
@@ -50759,7 +50738,7 @@ static ma_result ma_encoder__on_init_wav(ma_encoder* pEncoder)
 
     MA_ASSERT(pEncoder != NULL);
 
-    pWav = (drwav*)ma__malloc_from_callbacks(sizeof(*pWav), &pEncoder->config.allocationCallbacks);
+    pWav = (drwav*)ma_malloc(sizeof(*pWav), &pEncoder->config.allocationCallbacks);
     if (pWav == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -50798,7 +50777,7 @@ static void ma_encoder__on_uninit_wav(ma_encoder* pEncoder)
     MA_ASSERT(pWav != NULL);
 
     drwav_uninit(pWav);
-    ma__free_from_callbacks(pWav, &pEncoder->config.allocationCallbacks);
+    ma_free(pWav, &pEncoder->config.allocationCallbacks);
 }
 
 static ma_uint64 ma_encoder__on_write_pcm_frames_wav(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount)
