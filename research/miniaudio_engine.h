@@ -1840,8 +1840,10 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer);
 #define MA_SOUND_FLAG_NO_SPATIALIZATION     0x00000040  /* Disable spatialization. */
 
 #ifndef MA_ENGINE_MAX_LISTENERS
-#define MA_ENGINE_MAX_LISTENERS 4
+#define MA_ENGINE_MAX_LISTENERS             4
 #endif
+
+#define MA_LISTENER_INDEX_CLOSEST           ((ma_uint8)-1)
 
 typedef enum
 {
@@ -1858,7 +1860,7 @@ typedef struct
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
-    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 } ma_engine_node_config;
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags);
@@ -1879,11 +1881,11 @@ typedef struct
     float oldDopplerPitch;                          /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
     MA_ATOMIC ma_bool8 isPitchDisabled;             /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
     MA_ATOMIC ma_bool8 isSpatializationDisabled;    /* Set to false by default. When set to false, will not have spatialisation applied. */
-    MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to (ma_uint8)-1 the engine will use the closest listener. */
+    MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 
     /* Memory management. */
+    ma_bool8 _ownsHeap;
     void* _pHeap;
-    ma_bool32 _ownsHeap;
 } ma_engine_node;
 
 MA_API ma_result ma_engine_node_get_heap_size(const ma_engine_node_config* pConfig, size_t* pHeapSizeInBytes);
@@ -1997,7 +1999,7 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
 
 MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine);
-MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
+MA_API ma_uint32 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
 MA_API void ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_position(const ma_engine* pEngine, ma_uint32 listenerIndex);
 MA_API void ma_engine_listener_set_direction(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
@@ -12153,8 +12155,7 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
 Engine
 
 **************************************************************************************************************************************************************/
-#define MA_SEEK_TARGET_NONE (~(ma_uint64)0)
-
+#define MA_SEEK_TARGET_NONE         (~(ma_uint64)0)
 
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags)
 {
@@ -12330,13 +12331,13 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
         /* Spatialization. */
         if (isSpatializationEnabled) {
-            ma_uint8 iListener;
+            ma_uint32 iListener;
 
             /*
             When determining the listener to use, we first check to see if the sound is pinned to a
             specific listener. If so, we use that. Otherwise we just use the closest listener.
             */
-            if (pEngineNode->pinnedListenerIndex != (ma_uint8)-1 && pEngineNode->pinnedListenerIndex < ma_engine_get_listener_count(pEngineNode->pEngine)) {
+            if (pEngineNode->pinnedListenerIndex != MA_LISTENER_INDEX_CLOSEST && pEngineNode->pinnedListenerIndex < ma_engine_get_listener_count(pEngineNode->pEngine)) {
                 iListener = pEngineNode->pinnedListenerIndex;
             } else {
                 iListener = ma_engine_find_closest_listener(pEngineNode->pEngine, pEngineNode->spatializer.position.x, pEngineNode->spatializer.position.y, pEngineNode->spatializer.position.z);
@@ -12669,7 +12670,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
         return result;
     }
 
-    if (pConfig->pinnedListenerIndex != (ma_uint8)-1 && pConfig->pinnedListenerIndex >= ma_engine_get_listener_count(pConfig->pEngine)) {
+    if (pConfig->pinnedListenerIndex != MA_LISTENER_INDEX_CLOSEST && pConfig->pinnedListenerIndex >= ma_engine_get_listener_count(pConfig->pEngine)) {
         return MA_INVALID_ARGS; /* Invalid listener. */
     }
 
@@ -13240,7 +13241,7 @@ MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine)
     return pEngine->listenerCount;
 }
 
-MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ)
+MA_API ma_uint32 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ)
 {
     ma_uint32 iListener;
     ma_uint32 iListenerClosest;
@@ -13260,7 +13261,7 @@ MA_API ma_uint8 ma_engine_find_closest_listener(const ma_engine* pEngine, float 
     }
 
     MA_ASSERT(iListenerClosest < 255);
-    return (ma_uint8)iListenerClosest;  /* Safe cast. */
+    return iListenerClosest;
 }
 
 MA_API void ma_engine_listener_set_position(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z)
@@ -13891,7 +13892,7 @@ MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listen
 MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
 {
     if (pSound == NULL) {
-        return (ma_uint8)-1;
+        return MA_LISTENER_INDEX_CLOSEST;
     }
 
     return c89atomic_load_explicit_8(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
