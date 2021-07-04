@@ -5899,7 +5899,7 @@ static MA_INLINE const float* ma_offset_pcm_frames_const_ptr_f32(const float* p,
 Clips f32 samples.
 */
 MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count);
-static MA_INLINE void ma_clip_pcm_frames_f32(float* p, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(p, p, frameCount*channels); }
+static MA_INLINE void ma_clip_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(pDst, pSrc, frameCount*channels); }
 
 /*
 Helper for applying a volume factor to samples.
@@ -12165,7 +12165,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
             }
 
             if (!pDevice->noClip && pDevice->playback.format == ma_format_f32) {
-                ma_clip_pcm_frames_f32((float*)pFramesOut, frameCount, pDevice->playback.channels);
+                ma_clip_pcm_frames_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount, pDevice->playback.channels);   /* Intentionally specifying the same pointer for both input and output for in-place processing. */
             }
         }
     }
