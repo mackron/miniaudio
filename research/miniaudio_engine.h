@@ -2544,7 +2544,7 @@ static ma_result ma_paged_audio_buffer__data_source_on_get_data_format(ma_data_s
     *pFormat     = pPagedAudioBuffer->pData->format;
     *pChannels   = pPagedAudioBuffer->pData->channels;
     *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
-    ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channelMapCap, pPagedAudioBuffer->pData->channels), pChannelMap);
+    ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pPagedAudioBuffer->pData->channels);
 
     return MA_SUCCESS;
 }
@@ -8642,7 +8642,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
             *pFormat     = pDataBuffer->pNode->data.decoded.format;
             *pChannels   = pDataBuffer->pNode->data.decoded.channels;
             *pSampleRate = pDataBuffer->pNode->data.decoded.sampleRate;
-            ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channelMapCap, pDataBuffer->pNode->data.decoded.channels), pChannelMap);
+            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.decoded.channels);
             return MA_SUCCESS;
         };
 
@@ -8651,7 +8651,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
             *pFormat     = pDataBuffer->pNode->data.decodedPaged.data.format;
             *pChannels   = pDataBuffer->pNode->data.decodedPaged.data.channels;
             *pSampleRate = pDataBuffer->pNode->data.decodedPaged.sampleRate;
-            ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channelMapCap, pDataBuffer->pNode->data.decoded.channels), pChannelMap);
+            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.decoded.channels);
             return MA_SUCCESS;
         };
 
@@ -10971,7 +10971,7 @@ static float ma_doppler_pitch(ma_vec3f relativePosition, ma_vec3f sourceVelocity
 }
 
 
-static void ma_get_default_channel_map_for_spatializer(ma_uint32 channelCount, ma_channel* pChannelMap)
+static void ma_get_default_channel_map_for_spatializer(ma_channel* pChannelMap, size_t channelMapCap, ma_uint32 channelCount)
 {
     /*
     Special case for stereo. Want to default the left and right speakers to side left and side
@@ -10984,7 +10984,7 @@ static void ma_get_default_channel_map_for_spatializer(ma_uint32 channelCount, m
         pChannelMap[0] = MA_CHANNEL_SIDE_LEFT;
         pChannelMap[1] = MA_CHANNEL_SIDE_RIGHT;
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, channelCount, pChannelMap);
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
     }
 }
 
@@ -11091,7 +11091,7 @@ MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_
 
     /* Use a slightly different default channel map for stereo. */
     if (pConfig->pChannelMapOut == NULL) {
-        ma_get_default_channel_map_for_spatializer(pConfig->channelsOut, pListener->config.pChannelMapOut);
+        ma_get_default_channel_map_for_spatializer(pListener->config.pChannelMapOut, pConfig->channelsOut, pConfig->channelsOut);
     } else {
         ma_channel_map_copy_or_default(pListener->config.pChannelMapOut, pConfig->pChannelMapOut, pConfig->channelsOut);
     }
@@ -14286,7 +14286,7 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channels, channelMapCap), pChannelMap);
+            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channels);
         }
 
         return MA_SUCCESS;
