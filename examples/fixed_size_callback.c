@@ -70,7 +70,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             {
                 memcpy(pRunningOutput, pReadBuffer, framesToRead * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels));
             }
-            ma_pcm_rb_commit_read(&g_rb, framesToRead, pReadBuffer);
+            ma_pcm_rb_commit_read(&g_rb, framesToRead);
 
             pRunningOutput += framesToRead * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
             pcmFramesProcessed += framesToRead;
@@ -90,7 +90,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
                 MA_ASSERT(framesToWrite == PCM_FRAME_CHUNK_SIZE);   /* <-- This should always work in this example because we just reset the ring buffer. */
                 data_callback_fixed(pDevice, pWriteBuffer, NULL, framesToWrite);
             }
-            ma_pcm_rb_commit_write(&g_rb, framesToWrite, pWriteBuffer);
+            ma_pcm_rb_commit_write(&g_rb, framesToWrite);
         }
     }
 

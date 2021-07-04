@@ -2865,9 +2865,9 @@ MA_API ma_result ma_rb_init(size_t bufferSizeInBytes, void* pOptionalPreallocate
 MA_API void ma_rb_uninit(ma_rb* pRB);
 MA_API void ma_rb_reset(ma_rb* pRB);
 MA_API ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut);
-MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut);
+MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes);
 MA_API ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut);
-MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut);
+MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes);
 MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes);
 MA_API ma_result ma_rb_seek_write(ma_rb* pRB, size_t offsetInBytes);
 MA_API ma_int32 ma_rb_pointer_distance(ma_rb* pRB);    /* Returns the distance between the write pointer and the read pointer. Should never be negative for a correct program. Will return the number of bytes that can be read before the read pointer hits the write pointer. */
@@ -2891,9 +2891,9 @@ MA_API ma_result ma_pcm_rb_init(ma_format format, ma_uint32 channels, ma_uint32 
 MA_API void ma_pcm_rb_uninit(ma_pcm_rb* pRB);
 MA_API void ma_pcm_rb_reset(ma_pcm_rb* pRB);
 MA_API ma_result ma_pcm_rb_acquire_read(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut);
-MA_API ma_result ma_pcm_rb_commit_read(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut);
+MA_API ma_result ma_pcm_rb_commit_read(ma_pcm_rb* pRB, ma_uint32 sizeInFrames);
 MA_API ma_result ma_pcm_rb_acquire_write(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut);
-MA_API ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut);
+MA_API ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames);
 MA_API ma_result ma_pcm_rb_seek_read(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
 MA_API ma_result ma_pcm_rb_seek_write(ma_pcm_rb* pRB, ma_uint32 offsetInFrames);
 MA_API ma_int32 ma_pcm_rb_pointer_distance(ma_pcm_rb* pRB); /* Return value is in frames. */
@@ -12323,7 +12323,7 @@ static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, m
             break;
         }
 
-        result = ma_pcm_rb_commit_write(pRB, (ma_uint32)framesProcessedInClientFormat, pFramesInClientFormat);  /* Safe cast. */
+        result = ma_pcm_rb_commit_write(pRB, (ma_uint32)framesProcessedInClientFormat);  /* Safe cast. */
         if (result != MA_SUCCESS) {
             ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "Failed to commit capture PCM frames to ring buffer.", result);
             break;
@@ -12390,7 +12390,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
             }
 
             /* We're done with the captured samples. */
-            result = ma_pcm_rb_commit_read(pRB, inputFrameCount, pInputFrames);
+            result = ma_pcm_rb_commit_read(pRB, inputFrameCount);
             if (result != MA_SUCCESS) {
                 break; /* Don't know what to do here... Just abandon ship. */
             }
@@ -42796,7 +42796,7 @@ MA_API ma_result ma_rb_acquire_read(ma_rb* pRB, size_t* pSizeInBytes, void** ppB
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut)
+MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes)
 {
     ma_uint32 readOffset;
     ma_uint32 readOffsetInBytes;
@@ -42805,11 +42805,6 @@ MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes, void* pBuffer
     ma_uint32 newReadOffsetLoopFlag;
 
     if (pRB == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* Validate the buffer. */
-    if (pBufferOut != ma_rb__get_read_ptr(pRB)) {
         return MA_INVALID_ARGS;
     }
 
@@ -42887,7 +42882,7 @@ MA_API ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** pp
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes, void* pBufferOut)
+MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes)
 {
     ma_uint32 writeOffset;
     ma_uint32 writeOffsetInBytes;
@@ -42896,11 +42891,6 @@ MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes, void* pBuffe
     ma_uint32 newWriteOffsetLoopFlag;
 
     if (pRB == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* Validate the buffer. */
-    if (pBufferOut != ma_rb__get_write_ptr(pRB)) {
         return MA_INVALID_ARGS;
     }
 
@@ -43187,13 +43177,13 @@ MA_API ma_result ma_pcm_rb_acquire_read(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_pcm_rb_commit_read(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut)
+MA_API ma_result ma_pcm_rb_commit_read(ma_pcm_rb* pRB, ma_uint32 sizeInFrames)
 {
     if (pRB == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_rb_commit_read(&pRB->rb, sizeInFrames * ma_pcm_rb_get_bpf(pRB), pBufferOut);
+    return ma_rb_commit_read(&pRB->rb, sizeInFrames * ma_pcm_rb_get_bpf(pRB));
 }
 
 MA_API ma_result ma_pcm_rb_acquire_write(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames, void** ppBufferOut)
@@ -43216,13 +43206,13 @@ MA_API ma_result ma_pcm_rb_acquire_write(ma_pcm_rb* pRB, ma_uint32* pSizeInFrame
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames, void* pBufferOut)
+MA_API ma_result ma_pcm_rb_commit_write(ma_pcm_rb* pRB, ma_uint32 sizeInFrames)
 {
     if (pRB == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_rb_commit_write(&pRB->rb, sizeInFrames * ma_pcm_rb_get_bpf(pRB), pBufferOut);
+    return ma_rb_commit_write(&pRB->rb, sizeInFrames * ma_pcm_rb_get_bpf(pRB));
 }
 
 MA_API ma_result ma_pcm_rb_seek_read(ma_pcm_rb* pRB, ma_uint32 offsetInFrames)
