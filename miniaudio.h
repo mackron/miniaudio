@@ -386,8 +386,6 @@ The Emscripten build emits Web Audio JavaScript directly and should compile clea
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_AVX2                       | Disables AVX2 optimizations.                                       |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_AVX512                     | Disables AVX-512 optimizations.                                    |
-    +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_NEON                       | Disables NEON optimizations.                                       |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_RUNTIME_LINKING            | Disables runtime linking. This is useful for passing Apple's       |
@@ -1654,8 +1652,8 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-/* SIMD alignment in bytes. Currently set to 64 bytes in preparation for future AVX-512 optimizations. */
-#define MA_SIMD_ALIGNMENT  64
+/* SIMD alignment in bytes. Currently set to 32 bytes in preparation for future AVX optimizations. */
+#define MA_SIMD_ALIGNMENT  32
 
 
 /*
@@ -6604,11 +6602,6 @@ IMPLEMENTATION
 #define MA_ARM
 #endif
 
-/* Cannot currently support AVX-512 if AVX is disabled. */
-#if !defined(MA_NO_AVX512) && defined(MA_NO_AVX2)
-#define MA_NO_AVX512
-#endif
-
 /* Intrinsics Support */
 #if defined(MA_X64) || defined(MA_X86)
     #if defined(_MSC_VER) && !defined(__clang__)
@@ -6622,9 +6615,6 @@ IMPLEMENTATION
         #if _MSC_VER >= 1700 && !defined(MA_NO_AVX2)   /* 2012 */
             #define MA_SUPPORT_AVX2
         #endif
-        #if _MSC_VER >= 1910 && !defined(MA_NO_AVX512) /* 2017 */
-            #define MA_SUPPORT_AVX512
-        #endif
     #else
         /* Assume GNUC-style. */
         #if defined(__SSE2__) && !defined(MA_NO_SSE2)
@@ -6635,9 +6625,6 @@ IMPLEMENTATION
         /*#endif*/
         #if defined(__AVX2__) && !defined(MA_NO_AVX2)
             #define MA_SUPPORT_AVX2
-        #endif
-        #if defined(__AVX512F__) && !defined(MA_NO_AVX512)
-            #define MA_SUPPORT_AVX512
         #endif
     #endif
 
@@ -6652,14 +6639,9 @@ IMPLEMENTATION
         #if !defined(MA_SUPPORT_AVX2)   && !defined(MA_NO_AVX2)   && __has_include(<immintrin.h>)
             #define MA_SUPPORT_AVX2
         #endif
-        #if !defined(MA_SUPPORT_AVX512) && !defined(MA_NO_AVX512) && __has_include(<zmmintrin.h>)
-            #define MA_SUPPORT_AVX512
-        #endif
     #endif
 
-    #if defined(MA_SUPPORT_AVX512)
-        #include <immintrin.h>  /* Not a mistake. Intentionally including <immintrin.h> instead of <zmmintrin.h> because otherwise the compiler will complain. */
-    #elif defined(MA_SUPPORT_AVX2) || defined(MA_SUPPORT_AVX)
+    #if defined(MA_SUPPORT_AVX2) || defined(MA_SUPPORT_AVX)
         #include <immintrin.h>
     #elif defined(MA_SUPPORT_SSE2)
         #include <emmintrin.h>
@@ -6842,41 +6824,6 @@ static MA_INLINE ma_bool32 ma_has_avx2(void)
         #endif
     #else
         return MA_FALSE;       /* AVX2 is only supported on x86 and x64 architectures. */
-    #endif
-#else
-    return MA_FALSE;           /* No compiler support. */
-#endif
-}
-
-static MA_INLINE ma_bool32 ma_has_avx512f(void)
-{
-#if defined(MA_SUPPORT_AVX512)
-    #if (defined(MA_X64) || defined(MA_X86)) && !defined(MA_NO_AVX512)
-        #if defined(__AVX512F__)
-            return MA_TRUE;    /* If the compiler is allowed to freely generate AVX-512F code we can assume support. */
-        #else
-            /* AVX-512 requires both CPU and OS support. */
-            #if defined(MA_NO_CPUID) || defined(MA_NO_XGETBV)
-                return MA_FALSE;
-            #else
-                int info1[4];
-                int info7[4];
-                ma_cpuid(info1, 1);
-                ma_cpuid(info7, 7);
-                if (((info1[2] & (1 << 27)) != 0) && ((info7[1] & (1 << 16)) != 0)) {
-                    ma_uint64 xrc = ma_xgetbv(0);
-                    if ((xrc & 0xE6) == 0xE6) {
-                        return MA_TRUE;
-                    } else {
-                        return MA_FALSE;
-                    }
-                } else {
-                    return MA_FALSE;
-                }
-            #endif
-        #endif
-    #else
-        return MA_FALSE;       /* AVX-512F is only supported on x86 and x64 architectures. */
     #endif
 #else
     return MA_FALSE;           /* No compiler support. */
@@ -8892,12 +8839,6 @@ static MA_INLINE __m128 ma_mix_f32_fast__sse2(__m128 x, __m128 y, __m128 a)
 static MA_INLINE __m256 ma_mix_f32_fast__avx2(__m256 x, __m256 y, __m256 a)
 {
     return _mm256_add_ps(x, _mm256_mul_ps(_mm256_sub_ps(y, x), a));
-}
-#endif
-#if defined(MA_SUPPORT_AVX512)
-static MA_INLINE __m512 ma_mix_f32_fast__avx512(__m512 x, __m512 y, __m512 a)
-{
-    return _mm512_add_ps(x, _mm512_mul_ps(_mm512_sub_ps(y, x), a));
 }
 #endif
 #if defined(MA_SUPPORT_NEON)
@@ -33206,7 +33147,6 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[miniaudio] Endian:  %s\n", ma_is_little_endian() ? "LE"  : "BE");
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[miniaudio] SSE2:    %s\n", ma_has_sse2()         ? "YES" : "NO");
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[miniaudio] AVX2:    %s\n", ma_has_avx2()         ? "YES" : "NO");
-                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[miniaudio] AVX512F: %s\n", ma_has_avx512f()      ? "YES" : "NO");
                 ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[miniaudio] NEON:    %s\n", ma_has_neon()         ? "YES" : "NO");
             }
             #endif
