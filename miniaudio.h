@@ -1919,7 +1919,6 @@ typedef enum
     ma_channel_mix_mode_rectangular = 0,   /* Simple averaging based on the plane(s) the channel is sitting on. */
     ma_channel_mix_mode_simple,            /* Drop excess channels; zeroed out extra channels. */
     ma_channel_mix_mode_custom_weights,    /* Use custom weights specified in ma_channel_router_config. */
-    ma_channel_mix_mode_planar_blend = ma_channel_mix_mode_rectangular,
     ma_channel_mix_mode_default = ma_channel_mix_mode_rectangular
 } ma_channel_mix_mode;
 
