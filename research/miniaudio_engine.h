@@ -35,25 +35,6 @@ The best resource to use when understanding the API is the function declarations
 extern "C" {
 #endif
 
-/*
-Memory Allocation Types
-=======================
-When allocating memory you may want to optimize your custom allocators based on what it is miniaudio is actually allocating. Normally the context in which you
-are using the allocator is enough to optimize allocations, however there are high-level APIs that perform many different types of allocations and it can be
-useful to be told exactly what it being allocated so you can optimize your allocations appropriately.
-*/
-#define MA_ALLOCATION_TYPE_GENERAL                              0x00000001  /* A general memory allocation. */
-#define MA_ALLOCATION_TYPE_CONTEXT                              0x00000002  /* A ma_context allocation. */
-#define MA_ALLOCATION_TYPE_DEVICE                               0x00000003  /* A ma_device allocation. */
-#define MA_ALLOCATION_TYPE_DECODER                              0x00000004  /* A ma_decoder allocation. */
-#define MA_ALLOCATION_TYPE_AUDIO_BUFFER                         0x00000005  /* A ma_audio_buffer allocation. */
-#define MA_ALLOCATION_TYPE_ENCODED_BUFFER                       0x00000006  /* Allocation for encoded audio data containing the raw file data of a sound file. */
-#define MA_ALLOCATION_TYPE_DECODED_BUFFER                       0x00000007  /* Allocation for decoded audio data from a sound file. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER_NODE    0x00000010  /* A ma_resource_manager_data_buffer_node object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER         0x00000011  /* A ma_resource_manager_data_buffer_node object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_STREAM         0x00000012  /* A ma_resource_manager_data_stream object. */
-#define MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_SOURCE         0x00000013  /* A ma_resource_manager_data_source object. */
-
 
 /*
 Paged Audio Buffer
@@ -7209,11 +7190,11 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
 
     if (pDataBufferNode->isDataOwnedByResourceManager) {
         if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBufferNode) == ma_resource_manager_data_supply_type_encoded) {
-            ma_free((void*)pDataBufferNode->data.encoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_ENCODED_BUFFER*/);
+            ma_free((void*)pDataBufferNode->data.encoded.pData, &pResourceManager->config.allocationCallbacks);
             pDataBufferNode->data.encoded.pData       = NULL;
             pDataBufferNode->data.encoded.sizeInBytes = 0;
         } else if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBufferNode) == ma_resource_manager_data_supply_type_decoded) {
-            ma_free((void*)pDataBufferNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+            ma_free((void*)pDataBufferNode->data.decoded.pData, &pResourceManager->config.allocationCallbacks);
             pDataBufferNode->data.decoded.pData           = NULL;
             pDataBufferNode->data.decoded.totalFrameCount = 0;
         } else if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBufferNode) == ma_resource_manager_data_supply_type_decoded_paged) {
@@ -7225,7 +7206,7 @@ static void ma_resource_manager_data_buffer_node_free(ma_resource_manager* pReso
     }
 
     /* The data buffer itself needs to be freed. */
-    ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+    ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
 }
 
 static ma_result ma_resource_manager_data_buffer_node_result(const ma_resource_manager_data_buffer_node* pDataBufferNode)
@@ -7713,7 +7694,7 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_res
     MA_ASSERT(pDataBufferNode  != NULL);
     MA_ASSERT(pFilePath != NULL || pFilePathW != NULL);
 
-    result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, pFilePathW, &pData, &dataSizeInBytes, &pResourceManager->config.allocationCallbacks, MA_ALLOCATION_TYPE_ENCODED_BUFFER);
+    result = ma_vfs_open_and_read_file_ex(pResourceManager->config.pVFS, pFilePath, pFilePathW, &pData, &dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
     if (result != MA_SUCCESS) {
         if (pFilePath != NULL) {
             ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to load file \"%s\". %s.\n", pFilePath, ma_result_description(result));
@@ -7744,14 +7725,14 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
 
     *ppDecoder = NULL;  /* For safety. */
 
-    pDecoder = (ma_decoder*)ma_malloc(sizeof(*pDecoder), &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+    pDecoder = (ma_decoder*)ma_malloc(sizeof(*pDecoder), &pResourceManager->config.allocationCallbacks);
     if (pDecoder == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
     result = ma_resource_manager__init_decoder(pResourceManager, pFilePath, pFilePathW, pDecoder);
     if (result != MA_SUCCESS) {
-        ma_free(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+        ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
         return result;
     }
 
@@ -7770,14 +7751,14 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
         dataSizeInBytes = totalFrameCount * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
         if (dataSizeInBytes > MA_SIZE_MAX) {
             ma_decoder_uninit(pDecoder);
-            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
             return MA_TOO_BIG;
         }
 
-        pData = ma_malloc((size_t)dataSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        pData = ma_malloc((size_t)dataSizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pData == NULL) {
             ma_decoder_uninit(pDecoder);
-            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -7801,7 +7782,7 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
         result = ma_paged_audio_buffer_data_init(pDecoder->outputFormat, pDecoder->outputChannels, &pDataBufferNode->data.decodedPaged.data);
         if (result != MA_SUCCESS) {
             ma_decoder_uninit(pDecoder);
-            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+            ma_free(pDecoder, &pResourceManager->config.allocationCallbacks);
             return result;
         }
 
@@ -7988,7 +7969,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
 
             result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBufferNode, pInsertPoint);
             if (result != MA_SUCCESS) {
-                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
                 goto early_exit;  /* Should never happen. Failed to insert the data buffer into the BST. */
             }
 
@@ -8005,9 +7986,9 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
 
                 /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
                 if (pFilePath != NULL) {
-                    pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+                    pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks);
                 } else {
-                    pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+                    pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks);
                 }
 
                 if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
@@ -8047,8 +8028,8 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
                     if (pInitFence != NULL) { ma_fence_release(pInitFence); }
                     if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
 
-                    ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-                    ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+                    ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
+                    ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
                     goto done;
                 }
             }
@@ -8137,7 +8118,7 @@ done:
     if (result != MA_SUCCESS) {
         if (nodeAlreadyExists == MA_FALSE) {
             ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
-            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_RESOURCE_MANAGER_DATA_BUFFER*/);
+            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
         }
     }
 
@@ -9030,9 +9011,9 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
 
     /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
     if (pFilePath != NULL) {
-        pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks);
     } else {
-        pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks);
     }
 
     if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
@@ -9068,8 +9049,8 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
             ma_resource_manager_inline_notification_uninit(&waitNotification);
         }
 
-        ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-        ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+        ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
+        ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
         return result;
     }
 
@@ -9972,8 +9953,8 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
 
 done:
     /* File paths are no longer needed. */
-    ma_free(pJob->loadDataBufferNode.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-    ma_free(pJob->loadDataBufferNode.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma_free(pJob->loadDataBufferNode.pFilePath,  &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->loadDataBufferNode.pFilePathW, &pResourceManager->config.allocationCallbacks);
 
     /*
     We need to set the result to at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
@@ -10073,7 +10054,7 @@ done:
     /* If there's still more to decode the result will be set to MA_BUSY. Otherwise we can free the decoder. */
     if (result != MA_BUSY) {
         ma_decoder_uninit(pJob->pageDataBufferNode.pDecoder);
-        ma_free(pJob->pageDataBufferNode.pDecoder, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODER*/);
+        ma_free(pJob->pageDataBufferNode.pDecoder, &pResourceManager->config.allocationCallbacks);
     }
 
     /* If we reached the end we need to treat it as successful. */
@@ -10248,7 +10229,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     /* We have the decoder so we can now initialize our page buffer. */
     pageBufferSizeInBytes = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream) * 2 * ma_get_bytes_per_frame(pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels);
 
-    pDataStream->pPageData = ma_malloc(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+    pDataStream->pPageData = ma_malloc(pageBufferSizeInBytes, &pResourceManager->config.allocationCallbacks);
     if (pDataStream->pPageData == NULL) {
         ma_decoder_uninit(&pDataStream->decoder);
         result = MA_OUT_OF_MEMORY;
@@ -10262,8 +10243,8 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     result = MA_SUCCESS;
 
 done:
-    ma_free(pJob->loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
-    ma_free(pJob->loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_TRANSIENT_STRING*/);
+    ma_free(pJob->loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);
@@ -10302,7 +10283,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     }
 
     if (pDataStream->pPageData != NULL) {
-        ma_free(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks/*, MA_ALLOCATION_TYPE_DECODED_BUFFER*/);
+        ma_free(pDataStream->pPageData, &pResourceManager->config.allocationCallbacks);
         pDataStream->pPageData = NULL;  /* Just in case... */
     }
 
@@ -12884,7 +12865,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     if (pEngine->pDevice == NULL) {
         ma_device_config deviceConfig;
 
-        pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks);
         if (pEngine->pDevice == NULL) {
             return MA_OUT_OF_MEMORY;
         }
@@ -12921,7 +12902,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         if (result != MA_SUCCESS) {
-            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
             pEngine->pDevice = NULL;
             return result;
         }
@@ -13052,7 +13033,7 @@ on_error_2:
 on_error_1:
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
-        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
     }
 
     return result;
@@ -13067,7 +13048,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
     /* The device must be uninitialized before the node graph to ensure the audio thread doesn't try accessing it. */
     if (pEngine->ownsDevice) {
         ma_device_uninit(pEngine->pDevice);
-        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks/*, MA_ALLOCATION_TYPE_CONTEXT*/);
+        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
     } else {
         ma_device_stop(pEngine->pDevice);
     }

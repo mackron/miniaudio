@@ -11289,14 +11289,14 @@ static ma_result ma_event_alloc_and_init(ma_event** ppEvent, ma_allocation_callb
 
     *ppEvent = NULL;
 
-    pEvent = ma_malloc(sizeof(*pEvent), pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
+    pEvent = ma_malloc(sizeof(*pEvent), pAllocationCallbacks);
     if (pEvent == NULL) {
         return MA_OUT_OF_MEMORY;
     }
 
     result = ma_event_init(pEvent);
     if (result != MA_SUCCESS) {
-        ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
+        ma_free(pEvent, pAllocationCallbacks);
         return result;
     }
 
@@ -11327,7 +11327,7 @@ static void ma_event_uninit_and_free(ma_event* pEvent, ma_allocation_callbacks* 
     }
 
     ma_event_uninit(pEvent);
-    ma_free(pEvent, pAllocationCallbacks/*, MA_ALLOCATION_TYPE_EVENT*/);
+    ma_free(pEvent, pAllocationCallbacks);
 }
 #endif
 
@@ -20896,7 +20896,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to retrieve poll descriptors count.", MA_ERROR);
     }
 
-    pPollDescriptors = (struct pollfd*)ma_malloc(sizeof(*pPollDescriptors) * (pollDescriptorCount + 1), &pDevice->pContext->allocationCallbacks/*, MA_ALLOCATION_TYPE_GENERAL*/);   /* +1 because we want room for the wakeup descriptor. */
+    pPollDescriptors = (struct pollfd*)ma_malloc(sizeof(*pPollDescriptors) * (pollDescriptorCount + 1), &pDevice->pContext->allocationCallbacks);   /* +1 because we want room for the wakeup descriptor. */
     if (pPollDescriptors == NULL) {
         ((ma_snd_pcm_close_proc)pDevice->pContext->alsa.snd_pcm_close)(pPCM);
         return ma_post_error(pDevice, MA_LOG_LEVEL_ERROR, "[ALSA] Failed to allocate memory for poll descriptors.", MA_OUT_OF_MEMORY);
@@ -44823,15 +44823,13 @@ MA_API ma_result ma_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_info* pInfo
 }
 
 
-static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, const wchar_t* pFilePathW, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 allocationType)
+static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePath, const wchar_t* pFilePathW, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_result result;
     ma_vfs_file file;
     ma_file_info info;
     void* pData;
     size_t bytesRead;
-
-    (void)allocationType;
 
     if (ppData != NULL) {
         *ppData = NULL;
@@ -44890,12 +44888,12 @@ static ma_result ma_vfs_open_and_read_file_ex(ma_vfs* pVFS, const char* pFilePat
 
 MA_API ma_result ma_vfs_open_and_read_file(ma_vfs* pVFS, const char* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, NULL, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
+    return ma_vfs_open_and_read_file_ex(pVFS, pFilePath, NULL, ppData, pSize, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_vfs_open_and_read_file_w(ma_vfs* pVFS, const wchar_t* pFilePath, void** ppData, size_t* pSize, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    return ma_vfs_open_and_read_file_ex(pVFS, NULL, pFilePath, ppData, pSize, pAllocationCallbacks, 0 /*MA_ALLOCATION_TYPE_GENERAL*/);
+    return ma_vfs_open_and_read_file_ex(pVFS, NULL, pFilePath, ppData, pSize, pAllocationCallbacks);
 }
 
 
