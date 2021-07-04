@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.36 - 2021-07-03
+miniaudio - v0.10.37 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1498,7 +1498,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 36
+#define MA_VERSION_REVISION 37
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2746,6 +2746,20 @@ MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_ui
 Channel Maps
 
 ************************************************************************************************************************************************************/
+/*
+This is used in the shuffle table to indicate that the channel index is undefined and should be ignored.
+*/
+#define MA_CHANNEL_INDEX_NULL   255
+
+/* Retrieves the channel position of the specified channel based on miniaudio's default channel map. */
+MA_API ma_channel ma_channel_map_get_default_channel(ma_uint32 channelCount, ma_uint32 channelIndex);
+
+/*
+Retrieves the channel position of the specified channel in the given channel map.
+
+The pChannelMap parameter can be null, in which case miniaudio's default channel map will be assumed.
+*/
+MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex);
 
 /*
 Initializes a blank channel map.
@@ -40192,6 +40206,10 @@ static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
         return MA_FALSE;
     }
 
+    if (channelPosition >= MA_CHANNEL_AUX_0 || channelPosition <= MA_CHANNEL_AUX_31) {
+        return MA_FALSE;
+    }
+
     for (i = 0; i < 6; ++i) {   /* Each side of a cube. */
         if (g_maChannelPlaneRatios[channelPosition][i] != 0) {
             return MA_TRUE;
@@ -41859,6 +41877,134 @@ MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* p
 Channel Maps
 
 **************************************************************************************************************************************************************/
+MA_API ma_channel ma_channel_map_get_default_channel(ma_uint32 channelCount, ma_uint32 channelIndex)
+{
+    if (channelCount == 0 || channelIndex >= channelCount) {
+        return MA_CHANNEL_NONE;
+    }
+
+    /* This is the Microsoft channel map. Based off the speaker configurations mentioned here: https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/content/ksmedia/ns-ksmedia-ksaudio_channel_config */
+    switch (channelCount)
+    {
+        case 0: return MA_CHANNEL_NONE; 
+
+        case 1:
+        {
+            return MA_CHANNEL_MONO;
+        } break;
+
+        case 2:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+            }
+        } break;
+
+        case 3: /* No defined, but best guess. */
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+            }
+        } break;
+
+        case 4:
+        {
+            switch (channelIndex) {
+            #ifndef MA_USE_QUAD_MICROSOFT_CHANNEL_MAP
+                /* Surround. Using the Surround profile has the advantage of the 3rd channel (MA_CHANNEL_FRONT_CENTER) mapping nicely with higher channel counts. */
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_BACK_CENTER;
+            #else
+                /* Quad. */
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_BACK_LEFT;
+                case 3: return MA_CHANNEL_BACK_RIGHT;
+            #endif
+            }
+        } break;
+
+        case 5: /* Not defined, but best guess. */
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_BACK_LEFT;
+                case 4: return MA_CHANNEL_BACK_RIGHT;
+            }
+        } break;
+
+        case 6:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_SIDE_LEFT;
+                case 5: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+
+        case 7: /* Not defined, but best guess. */
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_BACK_CENTER;
+                case 5: return MA_CHANNEL_SIDE_LEFT;
+                case 6: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+
+        case 8:
+        default:
+        {
+            switch (channelIndex) {
+                case 0: return MA_CHANNEL_FRONT_LEFT;
+                case 1: return MA_CHANNEL_FRONT_RIGHT;
+                case 2: return MA_CHANNEL_FRONT_CENTER;
+                case 3: return MA_CHANNEL_LFE;
+                case 4: return MA_CHANNEL_BACK_LEFT;
+                case 5: return MA_CHANNEL_BACK_RIGHT;
+                case 6: return MA_CHANNEL_SIDE_LEFT;
+                case 7: return MA_CHANNEL_SIDE_RIGHT;
+            }
+        } break;
+    }
+
+    if (channelCount > 8) {
+        if (channelIndex < 32) {    /* We have 32 AUX channels. */
+            return (ma_channel)(MA_CHANNEL_AUX_0 + (channelIndex - 8));
+        }
+    }
+
+    /* Getting here means we don't know how to map the channel position so just return MA_CHANNEL_NONE. */
+    return MA_CHANNEL_NONE;
+}
+
+MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
+{
+    if (pChannelMap == NULL) {
+        return ma_channel_map_get_default_channel(channelCount, channelIndex);
+    } else {
+        if (channelIndex >= channelCount) {
+            return MA_CHANNEL_NONE;
+        }
+
+        return pChannelMap[channelIndex];
+    }
+}
+
+
 MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap)
 {
     if (pChannelMap == NULL) {
@@ -41976,8 +42122,8 @@ static void ma_get_standard_channel_map_alsa(ma_uint32 channels, ma_channel* pCh
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -42063,8 +42209,8 @@ static void ma_get_standard_channel_map_rfc3551(ma_uint32 channels, ma_channel* 
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -42126,8 +42272,8 @@ static void ma_get_standard_channel_map_flac(ma_uint32 channels, ma_channel* pCh
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -42214,8 +42360,8 @@ static void ma_get_standard_channel_map_vorbis(ma_uint32 channels, ma_channel* p
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -42301,8 +42447,8 @@ static void ma_get_standard_channel_map_sound4(ma_uint32 channels, ma_channel* p
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -42388,8 +42534,8 @@ static void ma_get_standard_channel_map_sndio(ma_uint32 channels, ma_channel* pC
 
         case 2:
         {
-            pChannelMap[0] = MA_CHANNEL_LEFT;
-            pChannelMap[1] = MA_CHANNEL_RIGHT;
+            pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
+            pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
         } break;
 
         case 3:
@@ -69117,6 +69263,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+0.10.37 - TBD
+  - Minor updates to channel mapping.
+
 0.10.36 - 2021-07-03
   - Add support for custom decoding backends.
   - Fix some bugs with the Vorbis decoder.
