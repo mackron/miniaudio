@@ -3121,71 +3121,215 @@ static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 
 
 
-static void ma_convert_pcm_frames_format_and_channels(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint64 frameCount, ma_dither_mode ditherMode)
+
+static ma_result ma_channel_map_build_shuffle_table(const ma_channel* pChannelMapIn, ma_uint32 channelCountIn, const ma_channel* pChannelMapOut, ma_uint32 channelCountOut, ma_uint8* pShuffleTable)
 {
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
+    ma_uint32 iChannelIn;
+    ma_uint32 iChannelOut;
 
-    if (channelsOut == channelsIn) {
-        /* Only format conversion required. */
-        if (formatOut == formatIn) {
-            /* No data conversion required at all - just copy. */
-            if (pDst == pSrc) {
-                /* No-op. */
-            } else {
-                ma_copy_pcm_frames(pDst, pSrc, frameCount, formatOut, channelsOut);
+    if (pShuffleTable == NULL || channelCountIn == 0 || channelCountIn > MA_MAX_CHANNELS || channelCountOut == 0 || channelCountOut > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    When building the shuffle table we just do a 1:1 mapping based on the first occurance of a channel. If the
+    input channel has more than one occurance of a channel position, the second one will be ignored.
+    */
+    for (iChannelOut = 0; iChannelOut < channelCountOut; iChannelOut += 1) {
+        ma_channel channelOut;
+
+        /* Default to MA_CHANNEL_INDEX_NULL so that if a mapping is not found it'll be set appropriately. */
+        pShuffleTable[iChannelOut] = MA_CHANNEL_INDEX_NULL;
+
+        channelOut = ma_channel_map_get_channel(pChannelMapOut, channelCountOut, iChannelOut);
+        for (iChannelIn = 0; iChannelIn < channelCountIn; iChannelIn += 1) {
+            ma_channel channelIn;
+
+            channelIn = ma_channel_map_get_channel(pChannelMapIn, channelCountIn, iChannelIn);
+            if (channelOut == channelIn) {
+                pShuffleTable[iChannelOut] = (ma_uint8)iChannelIn;
+                break;
             }
-        } else {
-            /* Simple format conversion. */
-            ma_convert_pcm_frames_format(pDst, formatOut, pSrc, formatIn, frameCount, channelsOut, ditherMode);
-        }
-    } else {
-        /* TODO: This needs to be optimized. Too inefficient to be initializing a channel converter. */
 
-        /* Getting here means we require a channel converter. We do channel conversion in the input format, and then format convert as a post process step if required. */
-        ma_result result;
-        ma_channel_converter_config channelConverterConfig;
-        ma_channel_converter channelConverter;
+            /*
+            Getting here means the channels don't exactly match, but we are going to support some
+            relaxed matching for practicality. If, for example, there are two stereo channel maps,
+            but one uses front left/right and the other uses side left/right, it makes logical
+            sense to just map these. The way we'll do it is we'll check if there is a logical
+            corresponding mapping, and if so, apply it, but we will *not* break from the loop,
+            thereby giving the loop a chance to find an exact match later which will take priority.
+            */
+            switch (channelOut)
+            {
+                /* Left channels. */
+                case MA_CHANNEL_FRONT_LEFT:
+                case MA_CHANNEL_SIDE_LEFT:
+                {
+                    switch (channelIn) {
+                        case MA_CHANNEL_FRONT_LEFT:
+                        case MA_CHANNEL_SIDE_LEFT:
+                        {
+                            pShuffleTable[iChannelOut] = (ma_uint8)iChannelIn;
+                        } break;
+                    }
+                } break;
 
-        channelConverterConfig = ma_channel_converter_config_init(formatIn, channelsIn, pChannelMapIn, channelsOut, pChannelMapOut, ma_channel_mix_mode_default);
-        result = ma_channel_converter_init(&channelConverterConfig, &channelConverter);
-        if (result != MA_SUCCESS) {
-            return; /* Failed to initialize channel converter for some reason. Should never fail. */
-        }
+                /* Right channels. */
+                case MA_CHANNEL_FRONT_RIGHT:
+                case MA_CHANNEL_SIDE_RIGHT:
+                {
+                    switch (channelIn) {
+                        case MA_CHANNEL_FRONT_RIGHT:
+                        case MA_CHANNEL_SIDE_RIGHT:
+                        {
+                            pShuffleTable[iChannelOut] = (ma_uint8)iChannelIn;
+                        } break;
+                    }
+                } break;
 
-        /* If we don't require any format conversion we can output straight into the output buffer. Otherwise we need to use an intermediary. */
-        if (formatOut == formatIn) {
-            /* No format conversion required. Output straight to the output buffer. */
-            ma_channel_converter_process_pcm_frames(&channelConverter, pDst, pSrc, frameCount);
-        } else {
-            /* Format conversion required. We need to use an intermediary buffer. */
-            ma_uint8  buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE]; /* formatIn, channelsOut */
-            ma_uint32 bufferCap = sizeof(buffer) / ma_get_bytes_per_frame(formatIn, channelsOut);
-            ma_uint64 totalFramesProcessed = 0;
-            
-            while (totalFramesProcessed < frameCount) {
-                ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
-                if (framesToProcess > bufferCap) {
-                    framesToProcess = bufferCap;
-                }
-
-                result = ma_channel_converter_process_pcm_frames(&channelConverter, buffer, ma_offset_ptr(pSrc, totalFramesProcessed * ma_get_bytes_per_frame(formatIn, channelsIn)), framesToProcess);
-                if (result != MA_SUCCESS) {
-                    break;
-                }
-
-                /* Channel conversion is done, now format conversion straight into the output buffer. */
-                ma_convert_pcm_frames_format(ma_offset_ptr(pDst, totalFramesProcessed * ma_get_bytes_per_frame(formatOut, channelsOut)), formatOut, buffer, formatIn, framesToProcess, channelsOut, ditherMode);
-
-                totalFramesProcessed += framesToProcess;
+                default: break;
             }
         }
     }
+
+    return MA_SUCCESS;
 }
 
-static void ma_convert_pcm_frames_channels_f32(float* pFramesOut, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, const float* pFramesIn, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint64 frameCount)
+static ma_result ma_channel_map_apply_shuffle_table_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount, const ma_uint8* pShuffleTable)
 {
-    ma_convert_pcm_frames_format_and_channels(pFramesOut, ma_format_f32, channelsOut, pChannelMapOut, pFramesIn, ma_format_f32, channelsIn, pChannelMapIn, frameCount, ma_dither_mode_none);
+    ma_uint64 iFrame;
+    ma_uint32 iChannelOut;
+
+    if (pFramesOut == NULL || pFramesIn == NULL || channelsOut == 0 || channelsOut > MA_MAX_CHANNELS || pShuffleTable == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+            ma_uint8 iChannelIn = pShuffleTable[iChannelOut];
+            if (iChannelIn < channelsIn) {  /* For safety, and to deal with MA_CHANNEL_INDEX_NULL. */
+                pFramesOut[iChannelOut] = pFramesIn[iChannelIn];
+            } else {
+                pFramesOut[iChannelOut] = 0;
+            }
+        }
+
+        pFramesOut += channelsOut;
+        pFramesIn  += channelsIn;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_map_apply_mono_out_f32(float* pFramesOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannelIn;
+    ma_uint32 accumulationCount;
+
+    if (pFramesOut == NULL || pFramesIn == NULL || channelsIn == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* In this case the output stream needs to be the average of all channels, ignoring NONE. */
+
+    /* A quick pre-processing step to get the accumulation counter since we're ignoring NONE channels. */
+    accumulationCount = 0;
+    for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+        if (ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn) != MA_CHANNEL_NONE) {
+            accumulationCount += 1;
+        }
+    }
+
+    if (accumulationCount > 0) {    /* <-- Prevent a division by zero. */
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            float accumulation = 0;
+
+            for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                ma_channel channelIn = ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn);
+                if (channelIn != MA_CHANNEL_NONE) {
+                    accumulation += pFramesIn[iChannelIn];
+                }
+            }
+
+            pFramesOut[0] = accumulation / accumulationCount;
+            pFramesOut += 1;
+            pFramesIn  += channelsIn;
+        }
+    } else {
+        ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, 1);
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannelOut;
+
+    if (pFramesOut == NULL || channelsOut == 0 || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* In this case we just copy the mono channel to each of the output channels, ignoring NONE. */
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+            ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+            if (channelOut != MA_CHANNEL_NONE) {
+                pFramesOut[iChannelOut] = pFramesIn[0];
+            }
+        }
+
+        pFramesOut += channelsOut;
+        pFramesIn  += 1;
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount)
+{
+    /* Optimized Path: Passthrough */
+    if (channelsOut == channelsIn && pChannelMapOut == pChannelMapIn) {
+        ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, channelsOut);
+        return;
+    }
+
+    /* Special Path: Mono Output. */
+    if (channelsOut == 1 && (pChannelMapOut == NULL || pChannelMapOut[0] == MA_CHANNEL_MONO)) {
+        ma_channel_map_apply_mono_out_f32(pFramesOut, pFramesIn, pChannelMapIn, channelsIn, frameCount);
+        return;
+    }
+
+    /* Special Path: Mono Input. */
+    if (channelsIn == 1 && (pChannelMapIn == NULL || pChannelMapIn[0] == MA_CHANNEL_MONO)) {
+        ma_channel_map_apply_mono_in_f32(pFramesOut, pChannelMapOut, channelsOut, pFramesIn, frameCount);
+        return;
+    }
+
+    /*
+    For now, we're doing channel conversion a bit different to the standard channel converter. Here
+    we're only going to do a shuffle. We can't do this if the channel count exceeds the maximum
+    channel count or else we won't be able to fit it in a stack-allocated shuffle table.
+    */
+    if (channelsOut <= MA_MAX_CHANNELS) {
+        ma_result result;
+        ma_channel shuffleTable[MA_MAX_CHANNELS];
+
+        result = ma_channel_map_build_shuffle_table(pChannelMapIn, channelsIn, pChannelMapOut, channelsOut, shuffleTable);
+        if (result != MA_SUCCESS) {
+            return;
+        }
+
+        result = ma_channel_map_apply_shuffle_table_f32(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, shuffleTable);
+        if (result != MA_SUCCESS) {
+            return;
+        }
+    } else {
+        /* Fall back to silence. If you hit this, what are you doing with so many channels?! */
+        ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, channelsOut);
+    }
 }
 
 
@@ -3379,81 +3523,6 @@ static ma_result ma_mix_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frame
 }
 #endif
 
-
-/* Not used right now, but leaving here for reference. */
-#if 0
-static ma_result ma_mix_pcm_frames_ex(void* pDst, ma_format formatOut, ma_uint32 channelsOut, const void* pSrc, ma_format formatIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
-{
-    if (pDst == NULL || pSrc == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (formatOut == formatIn && channelsOut == channelsIn) {
-        /* Fast path. */
-        return ma_mix_pcm_frames(pDst, pSrc, frameCount, formatOut, channelsOut, volume);
-    } else {
-        /* Slow path. Data conversion required. */
-        ma_uint8  buffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-        ma_uint32 bufferCapInFrames = sizeof(buffer) / ma_get_bytes_per_frame(formatOut, channelsOut);
-        ma_uint64 totalFramesProcessed = 0;
-        /* */ void* pRunningDst = pDst;
-        const void* pRunningSrc = pSrc;
-
-        while (totalFramesProcessed < frameCount) {
-            ma_uint64 framesToProcess = frameCount - totalFramesProcessed;
-            if (framesToProcess > bufferCapInFrames) {
-                framesToProcess = bufferCapInFrames;
-            }
-
-            /* Conversion. */
-            ma_convert_pcm_frames_format_and_channels(buffer, formatOut, channelsOut, pRunningSrc, formatIn, channelsIn, framesToProcess, ma_dither_mode_none);
-
-            /* Mixing. */
-            ma_mix_pcm_frames(pRunningDst, buffer, framesToProcess, formatOut, channelsOut, volume);
-
-            totalFramesProcessed += framesToProcess;
-            pRunningDst = ma_offset_ptr(pRunningDst, framesToProcess * ma_get_accumulation_bytes_per_frame(formatOut, channelsOut));
-            pRunningSrc = ma_offset_ptr(pRunningSrc, framesToProcess * ma_get_bytes_per_frame(formatIn, channelsIn));
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_convert_pcm_frames_channels_and_mix_f32(float* pFramesOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount, float volume)
-{
-    if (pFramesOut == NULL || pFramesIn == NULL) {
-        return;
-    }
-
-    if (channelsOut == channelsIn) {
-        /* Fast path. No channel conversion required. */
-        ma_mix_pcm_frames_f32(pFramesOut, pFramesIn, frameCount, channelsIn, volume);
-    } else {
-        /* Slow path. Channel conversion required. Needs to be done in two steps with an intermediary buffer. */
-        float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];    /* In output channels. */
-        ma_uint64 tempCapInFrames = ma_countof(temp) / channelsOut;
-        ma_uint64 totalFramesProcessed = 0;
-    
-        while (totalFramesProcessed < frameCount) {
-            ma_uint64 framesToProcess;
-
-            framesToProcess = frameCount - totalFramesProcessed;
-            if (framesToProcess > tempCapInFrames) {
-                framesToProcess = tempCapInFrames;
-            }
-
-            /* Step 1: Convert channels. */
-            ma_convert_pcm_frames_channels_f32(temp, channelsOut, ma_offset_pcm_frames_const_ptr_f32(pFramesIn, totalFramesProcessed, channelsIn), channelsIn, framesToProcess);
-
-            /* Step 2: Mix. */
-            ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesProcessed, channelsIn), temp, framesToProcess, channelsOut, volume);
-
-            totalFramesProcessed += framesToProcess;
-        }
-    }
-}
-#endif
 
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
@@ -10787,6 +10856,15 @@ static ma_vec3f g_maChannelDirections[MA_CHANNEL_POSITION_COUNT] = {
     { 0.0f,     0.0f,    -1.0f    }   /* MA_CHANNEL_AUX_31 */
 };
 
+static ma_vec3f ma_get_channel_direction(ma_channel channel)
+{
+    if (channel >= MA_CHANNEL_POSITION_COUNT) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    } else {
+        return g_maChannelDirections[channel];
+    }
+}
+
 
 
 static float ma_attenuation_inverse(float distance, float minDistance, float maxDistance, float rolloff)
@@ -11432,7 +11510,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
         } else {
-            ma_convert_pcm_frames_channels_f32((float*)pFramesOut, pSpatializer->config.channelsOut, pChannelMapOut, (const float*)pFramesIn, pSpatializer->config.channelsIn, pChannelMapIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
+            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
         }
 
         /*
@@ -11682,7 +11760,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         }
 
         /* Convert to our output channel count. */
-        ma_convert_pcm_frames_channels_f32((float*)pFramesOut, channelsOut, pChannelMapOut, (const float*)pFramesIn, channelsIn, pChannelMapIn, frameCount);
+        ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount);
 
         /*
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
@@ -11696,7 +11774,15 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             unitPos.z *= distanceInv;
 
             for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
-                float d = ma_vec3f_dot(unitPos, g_maChannelDirections[pChannelMapOut[iChannel]]);
+                ma_channel channelOut;
+                float d;
+
+                channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannel);
+                if (ma_is_spatial_channel_position(channelOut)) {
+                    d = ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut));
+                } else {
+                    d = 1;  /* It's not a spatial channel so there's no real notion of direction. */
+                }
 
                 /*
                 In my testing, if the panning effect is too aggressive it makes spatialization feel uncomfortable.
@@ -12239,7 +12325,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
                 ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
-                ma_convert_pcm_frames_channels_f32(pRunningFramesOut, channelsOut, NULL, pWorkingBuffer, channelsIn, NULL, framesJustProcessedOut);
+                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut);
             }
         }
 
