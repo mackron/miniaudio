@@ -95,8 +95,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
     ma_decoding_backend_init_file__libvorbis,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libvorbis,
-    ma_decoding_backend_get_channel_map__libvorbis
+    ma_decoding_backend_uninit__libvorbis
 };
 
 
@@ -172,8 +171,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
     ma_decoding_backend_init_file__libopus,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libopus,
-    ma_decoding_backend_get_channel_map__libopus
+    ma_decoding_backend_uninit__libopus
 };
 
 
@@ -233,7 +231,7 @@ int main(int argc, char** argv)
 
 
     /* Initialize the device. */
-    result = ma_data_source_get_data_format(&decoder, &format, &channels, &sampleRate);
+    result = ma_data_source_get_data_format(&decoder, &format, &channels, &sampleRate, NULL, 0);
     if (result != MA_SUCCESS) {
         printf("Failed to retrieve decoder data format.");
         ma_decoder_uninit(&decoder);

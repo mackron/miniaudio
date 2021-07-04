@@ -5941,7 +5941,7 @@ typedef struct
 {
     ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
-    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
     ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
     ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
 } ma_data_source_vtable;
@@ -5973,7 +5973,7 @@ MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
@@ -6151,7 +6151,6 @@ typedef struct
     ma_result (* onInitFileW    )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
     ma_result (* onInitMemory   )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
     void      (* onUninit       )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
-    ma_result (* onGetChannelMap)(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap);
 } ma_decoding_backend_vtable;
 
 
@@ -42300,6 +42299,10 @@ static void ma_get_standard_channel_map_sndio(ma_uint32 channels, ma_channel* pC
 
 MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_uint32 channels, ma_channel* pChannelMap)
 {
+    if (pChannelMap == NULL || channels == 0) {
+        return;
+    }
+
     switch (standardChannelMap)
     {
         case ma_standard_channel_map_alsa:
@@ -43523,7 +43526,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     We need to know the data format so we can advance the output buffer as we read frames. If this
     fails, chaining will not work and we'll just read as much as we can from the current source.
     */
-    if (ma_data_source_get_data_format(pDataSource, &format, &channels, NULL) != MA_SUCCESS) {
+    if (ma_data_source_get_data_format(pDataSource, &format, &channels, NULL, NULL, 0) != MA_SUCCESS) {
         result = ma_data_source_resolve_current(pDataSource, (ma_data_source**)&pCurrentDataSource);
         if (result != MA_SUCCESS) {
             return result;
@@ -43650,7 +43653,7 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
     return pDataSourceBase->vtable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
 }
 
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_result result;
@@ -43658,16 +43661,18 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     ma_uint32 channels;
     ma_uint32 sampleRate;
 
+    /* Initialize to defaults for safety just in case the data source does not implement this callback. */
     if (pFormat != NULL) {
         *pFormat = ma_format_unknown;
     }
-
     if (pChannels != NULL) {
         *pChannels = 0;
     }
-
     if (pSampleRate != NULL) {
         *pSampleRate = 0;
+    }
+    if (pChannelMap != NULL) {
+        MA_ZERO_MEMORY(pChannelMap, sizeof(*pChannelMap) * channelMapCap);
     }
 
     if (pDataSourceBase == NULL) {
@@ -43678,7 +43683,7 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
         return MA_NOT_IMPLEMENTED;
     }
 
-    result = pDataSourceBase->vtable->onGetDataFormat(pDataSource, &format, &channels, &sampleRate);
+    result = pDataSourceBase->vtable->onGetDataFormat(pDataSource, &format, &channels, &sampleRate, pChannelMap, channelMapCap);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -43692,6 +43697,8 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     if (pSampleRate != NULL) {
         *pSampleRate = sampleRate;
     }
+
+    /* Channel map was passed in directly to the callback. This is safe due to the channelMapCap parameter. */
 
     return MA_SUCCESS;
 }
@@ -43988,13 +43995,14 @@ static ma_result ma_audio_buffer_ref__data_source_on_seek(ma_data_source* pDataS
     return ma_audio_buffer_ref_seek_to_pcm_frame((ma_audio_buffer_ref*)pDataSource, frameIndex);
 }
 
-static ma_result ma_audio_buffer_ref__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_audio_buffer_ref__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_audio_buffer_ref* pAudioBufferRef = (ma_audio_buffer_ref*)pDataSource;
 
     *pFormat     = pAudioBufferRef->format;
     *pChannels   = pAudioBufferRef->channels;
     *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
+    ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(pAudioBufferRef->channels, channelMapCap), pChannelMap);
 
     return MA_SUCCESS;
 }
@@ -46676,18 +46684,10 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     MA_ASSERT(pDecoder != NULL);
     MA_ASSERT(pConfig  != NULL);
 
-    result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, &internalSampleRate);
+    result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, &internalSampleRate, internalChannelMap, ma_countof(internalChannelMap));
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the internal data format. */
     }
-
-    /* Channel map needs to be retrieved separately. */
-    if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onGetChannelMap != NULL) {
-        pDecoder->pBackendVTable->onGetChannelMap(pDecoder->pBackendUserData, pDecoder->pBackend, internalChannelMap, ma_countof(internalChannelMap));
-    } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, ma_min(internalChannels, ma_countof(internalChannelMap)), internalChannelMap);
-    }
-
 
 
     /* Make sure we're not asking for too many channels. */
@@ -46877,9 +46877,9 @@ static ma_result ma_wav_ds_seek(ma_data_source* pDataSource, ma_uint64 frameInde
     return ma_wav_seek_to_pcm_frame((ma_wav*)pDataSource, frameIndex);
 }
 
-static ma_result ma_wav_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_wav_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_wav_get_data_format((ma_wav*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+    return ma_wav_get_data_format((ma_wav*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 static ma_result ma_wav_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -47452,23 +47452,13 @@ static void ma_decoding_backend_uninit__wav(void* pUserData, ma_data_source* pBa
     ma_free(pWav, pAllocationCallbacks);
 }
 
-static ma_result ma_decoding_backend_get_channel_map__wav(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_wav* pWav = (ma_wav*)pBackend;
-
-    (void)pUserData;
-
-    return ma_wav_get_data_format(pWav, NULL, NULL, NULL, pChannelMap, channelMapCap);
-}
-
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
 {
     ma_decoding_backend_init__wav,
     ma_decoding_backend_init_file__wav,
     ma_decoding_backend_init_file_w__wav,
     ma_decoding_backend_init_memory__wav,
-    ma_decoding_backend_uninit__wav,
-    ma_decoding_backend_get_channel_map__wav
+    ma_decoding_backend_uninit__wav
 };
 
 static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -47516,9 +47506,9 @@ static ma_result ma_flac_ds_seek(ma_data_source* pDataSource, ma_uint64 frameInd
     return ma_flac_seek_to_pcm_frame((ma_flac*)pDataSource, frameIndex);
 }
 
-static ma_result ma_flac_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_flac_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_flac_get_data_format((ma_flac*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+    return ma_flac_get_data_format((ma_flac*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 static ma_result ma_flac_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -48082,23 +48072,13 @@ static void ma_decoding_backend_uninit__flac(void* pUserData, ma_data_source* pB
     ma_free(pFlac, pAllocationCallbacks);
 }
 
-static ma_result ma_decoding_backend_get_channel_map__flac(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_flac* pFlac = (ma_flac*)pBackend;
-
-    (void)pUserData;
-
-    return ma_flac_get_data_format(pFlac, NULL, NULL, NULL, pChannelMap, channelMapCap);
-}
-
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
 {
     ma_decoding_backend_init__flac,
     ma_decoding_backend_init_file__flac,
     ma_decoding_backend_init_file_w__flac,
     ma_decoding_backend_init_memory__flac,
-    ma_decoding_backend_uninit__flac,
-    ma_decoding_backend_get_channel_map__flac
+    ma_decoding_backend_uninit__flac
 };
 
 static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -48146,9 +48126,9 @@ static ma_result ma_mp3_ds_seek(ma_data_source* pDataSource, ma_uint64 frameInde
     return ma_mp3_seek_to_pcm_frame((ma_mp3*)pDataSource, frameIndex);
 }
 
-static ma_result ma_mp3_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_mp3_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_mp3_get_data_format((ma_mp3*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+    return ma_mp3_get_data_format((ma_mp3*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 static ma_result ma_mp3_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -48712,23 +48692,13 @@ static void ma_decoding_backend_uninit__mp3(void* pUserData, ma_data_source* pBa
     ma_free(pMP3, pAllocationCallbacks);
 }
 
-static ma_result ma_decoding_backend_get_channel_map__mp3(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_mp3* pMP3 = (ma_mp3*)pBackend;
-
-    (void)pUserData;
-
-    return ma_mp3_get_data_format(pMP3, NULL, NULL, NULL, pChannelMap, channelMapCap);
-}
-
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
 {
     ma_decoding_backend_init__mp3,
     ma_decoding_backend_init_file__mp3,
     ma_decoding_backend_init_file_w__mp3,
     ma_decoding_backend_init_memory__mp3,
-    ma_decoding_backend_uninit__mp3,
-    ma_decoding_backend_get_channel_map__mp3
+    ma_decoding_backend_uninit__mp3
 };
 
 static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -48792,9 +48762,9 @@ static ma_result ma_stbvorbis_ds_seek(ma_data_source* pDataSource, ma_uint64 fra
     return ma_stbvorbis_seek_to_pcm_frame((ma_stbvorbis*)pDataSource, frameIndex);
 }
 
-static ma_result ma_stbvorbis_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_stbvorbis_ds_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_stbvorbis_get_data_format((ma_stbvorbis*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+    return ma_stbvorbis_get_data_format((ma_stbvorbis*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 static ma_result ma_stbvorbis_ds_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -49496,23 +49466,13 @@ static void ma_decoding_backend_uninit__stbvorbis(void* pUserData, ma_data_sourc
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
-static ma_result ma_decoding_backend_get_channel_map__stbvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_stbvorbis* pVorbis = (ma_stbvorbis*)pBackend;
-
-    (void)pUserData;
-
-    return ma_stbvorbis_get_data_format(pVorbis, NULL, NULL, NULL, pChannelMap, channelMapCap);
-}
-
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_stbvorbis =
 {
     ma_decoding_backend_init__stbvorbis,
     ma_decoding_backend_init_file__stbvorbis,
     NULL, /* onInitFileW() */
     ma_decoding_backend_init_memory__stbvorbis,
-    ma_decoding_backend_uninit__stbvorbis,
-    ma_decoding_backend_get_channel_map__stbvorbis
+    ma_decoding_backend_uninit__stbvorbis
 };
 
 static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -49545,9 +49505,9 @@ static ma_result ma_decoder__data_source_on_seek(ma_data_source* pDataSource, ma
     return ma_decoder_seek_to_pcm_frame((ma_decoder*)pDataSource, frameIndex);
 }
 
-static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_decoder__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
-    return ma_decoder_get_data_format((ma_decoder*)pDataSource, pFormat, pChannels, pSampleRate, NULL, 0);
+    return ma_decoder_get_data_format((ma_decoder*)pDataSource, pFormat, pChannels, pSampleRate, pChannelMap, channelMapCap);
 }
 
 static ma_result ma_decoder__data_source_on_get_cursor(ma_data_source* pDataSource, ma_uint64* pCursor)
@@ -49616,7 +49576,7 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
     {
         /* TODO: Remove this block once we remove MA_MIN_CHANNELS and MA_MAX_CHANNELS. */
         ma_uint32 internalChannels;
-        ma_data_source_get_data_format(pDecoder->pBackend, NULL, &internalChannels, NULL);
+        ma_data_source_get_data_format(pDecoder->pBackend, NULL, &internalChannels, NULL, NULL, 0);
 
         if (internalChannels < MA_MIN_CHANNELS || internalChannels > MA_MAX_CHANNELS) {
             result = MA_INVALID_DATA;
@@ -50363,7 +50323,7 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
             totalFramesReadIn  = 0;
             pRunningFramesOut  = pFramesOut;
 
-            result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, NULL);
+            result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, NULL, NULL, 0);
             if (result != MA_SUCCESS) {
                 return result;   /* Failed to retrieve the internal format and channel count. */
             }
@@ -50438,7 +50398,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         ma_uint64 internalFrameIndex;
         ma_uint32 internalSampleRate;
 
-        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
+        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate, NULL, 0);
         if (result != MA_SUCCESS) {
             return result;  /* Failed to retrieve the internal sample rate. */
         }
@@ -50525,7 +50485,7 @@ MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_ui
             return result;  /* Failed to retrieve the internal length. */
         }
         
-        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
+        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate, NULL, 0);
         if (result != MA_SUCCESS) {
             return result;   /* Failed to retrieve the internal sample rate. */
         }
@@ -51014,13 +50974,14 @@ static ma_result ma_waveform__data_source_on_seek(ma_data_source* pDataSource, m
     return ma_waveform_seek_to_pcm_frame((ma_waveform*)pDataSource, frameIndex);
 }
 
-static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_waveform* pWaveform = (ma_waveform*)pDataSource;
 
     *pFormat     = pWaveform->config.format;
     *pChannels   = pWaveform->config.channels;
     *pSampleRate = pWaveform->config.sampleRate;
+    ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channelMapCap, pWaveform->config.channels), pChannelMap);
 
     return MA_SUCCESS;
 }
@@ -51451,13 +51412,14 @@ static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_u
     return MA_SUCCESS;
 }
 
-static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
+static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
 {
     ma_noise* pNoise = (ma_noise*)pDataSource;
 
     *pFormat     = pNoise->config.format;
     *pChannels   = pNoise->config.channels;
     *pSampleRate = 0;   /* There is no notion of sample rate with noise generation. */
+    ma_get_standard_channel_map(ma_standard_channel_map_default, (ma_uint32)ma_min(channelMapCap, pNoise->config.channels), pChannelMap);
 
     return MA_SUCCESS;
 }

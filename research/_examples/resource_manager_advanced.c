@@ -73,7 +73,7 @@ MA_API ma_result ma_data_source_read_pcm_frames_f32(ma_data_source* pDataSource,
     ma_format format;
     ma_uint32 channels;
 
-    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL, NULL, 0);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the data format of the data source. */
     }
@@ -96,7 +96,7 @@ MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDat
         return MA_INVALID_ARGS;
     }
 
-    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL);
+    result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL, NULL, 0);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the data format of the data source. */
     }
