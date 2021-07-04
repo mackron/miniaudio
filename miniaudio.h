@@ -2768,9 +2768,6 @@ This is used in the shuffle table to indicate that the channel index is undefine
 */
 #define MA_CHANNEL_INDEX_NULL   255
 
-/* Retrieves the channel position of the specified channel based on miniaudio's default channel map. */
-MA_API ma_channel ma_channel_map_get_default_channel(ma_uint32 channelCount, ma_uint32 channelIndex);
-
 /*
 Retrieves the channel position of the specified channel in the given channel map.
 
@@ -41587,10 +41584,12 @@ MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* p
 Channel Maps
 
 **************************************************************************************************************************************************************/
+static ma_channel ma_get_standard_channel_map_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex);
+
 MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     if (pChannelMap == NULL) {
-        return ma_channel_map_get_default_channel(channelCount, channelIndex);
+        return ma_get_standard_channel_map_channel(ma_standard_channel_map_default, channelCount, channelIndex);
     } else {
         if (channelIndex >= channelCount) {
             return MA_CHANNEL_NONE;
@@ -42335,11 +42334,6 @@ MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelM
         pChannelMap   += 1;
         channelMapCap -= 1;
     }
-}
-
-MA_API ma_channel ma_channel_map_get_default_channel(ma_uint32 channelCount, ma_uint32 channelIndex)
-{
-    return ma_get_standard_channel_map_channel(ma_standard_channel_map_default, channelCount, channelIndex);
 }
 
 MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels)
