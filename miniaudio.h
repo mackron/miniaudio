@@ -3396,7 +3396,7 @@ struct ma_device_config
     ma_uint32 periodSizeInMilliseconds;
     ma_uint32 periods;
     ma_performance_profile performanceProfile;
-    ma_bool8 noPreZeroedOutputBuffer;   /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to zero. */
+    ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
     ma_device_callback_proc dataCallback;
     ma_stop_proc stopCallback;
@@ -4072,7 +4072,7 @@ struct ma_device
     ma_thread thread;
     ma_result workResult;                   /* This is set by the worker thread after it's finished doing a job. */
     ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
-    ma_bool8 noPreZeroedOutputBuffer;
+    ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     MA_ATOMIC float masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
@@ -4917,7 +4917,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         A hint to miniaudio as to the performance requirements of your program. Can be either `ma_performance_profile_low_latency` (default) or
         `ma_performance_profile_conservative`. This mainly affects the size of default buffers and can usually be left at it's default value.
 
-    noPreZeroedOutputBuffer
+    noPreSilencedOutputBuffer
         When set to true, the contents of the output buffer passed into the data callback will be left undefined. When set to false (default), the contents of
         the output buffer will be cleared the zero. You can use this to avoid the overhead of zeroing out the buffer if you can guarantee that your data
         callback will write to every sample in the output buffer, or if you are doing your own clearing.
@@ -12131,7 +12131,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
     ma_device_get_master_volume(pDevice, &masterVolumeFactor);  /* Use ma_device_get_master_volume() to ensure the volume is loaded atomically. */
 
     if (pDevice->onData) {
-        if (!pDevice->noPreZeroedOutputBuffer && pFramesOut != NULL) {
+        if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
             ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
         }
 
@@ -33423,9 +33423,9 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         MA_COPY_MEMORY(&pDevice->capture.id, pConfig->capture.pDeviceID, sizeof(pDevice->capture.id));
     }
 
-    pDevice->noPreZeroedOutputBuffer = pConfig->noPreZeroedOutputBuffer;
-    pDevice->noClip = pConfig->noClip;
-    pDevice->masterVolumeFactor = 1;
+    pDevice->noPreSilencedOutputBuffer  = pConfig->noPreSilencedOutputBuffer;
+    pDevice->noClip                     = pConfig->noClip;
+    pDevice->masterVolumeFactor         = 1;
 
     pDevice->type                       = pConfig->deviceType;
     pDevice->sampleRate                 = pConfig->sampleRate;

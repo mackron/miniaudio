@@ -12902,16 +12902,16 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         }
 
         deviceConfig = ma_device_config_init(ma_device_type_playback);
-        deviceConfig.playback.pDeviceID       = engineConfig.pPlaybackDeviceID;
-        deviceConfig.playback.format          = ma_format_f32;
-        deviceConfig.playback.channels        = engineConfig.channels;
-        deviceConfig.sampleRate               = engineConfig.sampleRate;
-        deviceConfig.dataCallback             = ma_engine_data_callback_internal;
-        deviceConfig.pUserData                = pEngine;
-        deviceConfig.periodSizeInFrames       = engineConfig.periodSizeInFrames;
-        deviceConfig.periodSizeInMilliseconds = engineConfig.periodSizeInMilliseconds;
-        deviceConfig.noPreZeroedOutputBuffer  = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
-        deviceConfig.noClip                   = MA_TRUE;    /* The mixing engine will do clipping itself. */
+        deviceConfig.playback.pDeviceID        = engineConfig.pPlaybackDeviceID;
+        deviceConfig.playback.format           = ma_format_f32;
+        deviceConfig.playback.channels         = engineConfig.channels;
+        deviceConfig.sampleRate                = engineConfig.sampleRate;
+        deviceConfig.dataCallback              = ma_engine_data_callback_internal;
+        deviceConfig.pUserData                 = pEngine;
+        deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
+        deviceConfig.periodSizeInMilliseconds  = engineConfig.periodSizeInMilliseconds;
+        deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
+        deviceConfig.noClip                    = MA_TRUE;    /* The mixing engine will do clipping itself. */
 
         if (engineConfig.pContext == NULL) {
             ma_context_config contextConfig = ma_context_config_init();
