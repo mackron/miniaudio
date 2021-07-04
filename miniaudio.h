@@ -11836,8 +11836,8 @@ typedef LONG (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, L
 #define MA_DEFAULT_CAPTURE_DEVICE_NAME     "Default Capture Device"
 
 
-/* Posts a log message. */
-static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
+/* Posts an log message. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode". */
+static ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
 {
     if (pContext == NULL) {
         if (pDevice != NULL) {
@@ -11846,16 +11846,11 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
     }
 
     if (pContext == NULL) {
-        return;
+        return resultCode;
     }
 
     ma_log_post(ma_context_get_log(pContext), logLevel, message);   /* <-- This will deal with MA_DEBUG_OUTPUT. */
-}
 
-/* Posts an log message. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode". */
-static ma_result ma_context_post_error(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message, ma_result resultCode)
-{
-    ma_post_log_message(pContext, pDevice, logLevel, message);
     return resultCode;
 }
 
@@ -15510,7 +15505,7 @@ done:
         }
 
         if (errorMsg != NULL && errorMsg[0] != '\0') {
-            ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_ERROR, errorMsg);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "%s", errorMsg);
         }
 
         return result;
@@ -16455,7 +16450,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                     pMappedDeviceBufferCapture = NULL;    /* <-- Important. Not doing this can result in an error once we leave this loop because it will use this to know whether or not a final ReleaseBuffer() needs to be called. */
                     mappedDeviceBufferSizeInFramesCapture = 0;
                     if (FAILED(hr)) {
-                        ma_post_log_message(ma_device_get_context(pDevice), pDevice, MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.");
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to release internal buffer from capture device after reading from the device.");
                         exitLoop = MA_TRUE;
                         break;
                     }
@@ -31774,7 +31769,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
     }
 
     if (pContext->opensl.libOpenSLES == NULL) {
-        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Could not find libOpenSLES.so");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL|ES] Could not find libOpenSLES.so");
         return MA_NO_BACKEND;
     }
 
@@ -31823,7 +31818,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
     pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(pContext, pContext->opensl.libOpenSLES, "slCreateEngine");
     if (pContext->opensl.slCreateEngine == NULL) {
         ma_dlclose(pContext, pContext->opensl.libOpenSLES);
-        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL|ES] Cannot find symbol slCreateEngine.");
         return MA_NO_BACKEND;
     }
 #else
@@ -31847,7 +31842,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
 
     if (result != MA_SUCCESS) {
         ma_dlclose(pContext, pContext->opensl.libOpenSLES);
-        ma_post_log_message(pContext, NULL, MA_LOG_LEVEL_INFO, "[OpenSL|ES] Failed to initialize OpenSL engine.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL|ES] Failed to initialize OpenSL engine.");
         return result;
     }
 
