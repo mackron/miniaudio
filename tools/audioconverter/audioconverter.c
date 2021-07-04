@@ -140,7 +140,7 @@ ma_bool32 try_parse_format(const char* str, ma_format* pValue)
         *pValue = format;
     }
 
-    return MA_TRUE;;
+    return MA_TRUE;
 }
 
 ma_bool32 try_parse_channels(const char* str, ma_uint32* pValue)
