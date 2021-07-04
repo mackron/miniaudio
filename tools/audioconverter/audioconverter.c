@@ -40,7 +40,7 @@ void print_usage()
     printf("    s32 32-bit signed integer\n");
     printf("    f32 32-bit floating point\n");
     printf("  [channels] is optional and in the range of %d and %d\n", MA_MIN_CHANNELS, MA_MAX_CHANNELS);
-    printf("  [rate] is optional and in the range of %d and %d\n", MA_MIN_SAMPLE_RATE, MA_MAX_SAMPLE_RATE);
+    printf("  [rate] is optional and in the range of %d and %d\n", ma_standard_sample_rate_min, ma_standard_sample_rate_max);
     printf("\n");
     printf("PARAMETERS:\n");
     printf("  --linear-order [0..%d]\n", MA_MAX_FILTER_ORDER);
@@ -150,7 +150,7 @@ ma_bool32 try_parse_channels(const char* str, ma_uint32* pValue)
 
 ma_bool32 try_parse_sample_rate(const char* str, ma_uint32* pValue)
 {
-    return try_parse_uint32_in_range(str, pValue, MA_MIN_SAMPLE_RATE, MA_MAX_SAMPLE_RATE);
+    return try_parse_uint32_in_range(str, pValue, ma_standard_sample_rate_min, ma_standard_sample_rate_max);
 }
 
 ma_bool32 try_parse_resample_algorithm(const char* str, ma_resample_algorithm* pValue)

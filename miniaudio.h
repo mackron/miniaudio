@@ -1909,10 +1909,6 @@ typedef enum
     ma_standard_sample_rate_count  = 14         /* Need to maintain the count manually. Make sure this is updated if items are added to enum. */
 } ma_standard_sample_rate;
 
-/* These are deprecated. Use ma_standard_sample_rate_min and ma_standard_sample_rate_max. */
-#define MA_MIN_SAMPLE_RATE  (ma_uint32)ma_standard_sample_rate_min
-#define MA_MAX_SAMPLE_RATE  (ma_uint32)ma_standard_sample_rate_max
-
 
 typedef enum
 {
