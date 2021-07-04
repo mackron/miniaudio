@@ -1686,11 +1686,6 @@ MA_LOG_LEVEL_ERROR
 #define MA_LOG_LEVEL_WARNING    2
 #define MA_LOG_LEVEL_ERROR      1
 
-/* Deprecated. */
-#ifndef MA_LOG_LEVEL
-#define MA_LOG_LEVEL            MA_LOG_LEVEL_ERROR
-#endif
-
 /*
 An annotation for variables which must be used atomically. This doesn't actually do anything - it's
 just used as a way for humans to identify variables that should be used atomically.
