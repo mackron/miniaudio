@@ -1687,9 +1687,6 @@ MA_LOG_LEVEL_ERROR
 #define MA_LOG_LEVEL_ERROR      1
 
 /* Deprecated. */
-#define MA_LOG_LEVEL_VERBOSE    MA_LOG_LEVEL_DEBUG
-
-/* Deprecated. */
 #ifndef MA_LOG_LEVEL
 #define MA_LOG_LEVEL            MA_LOG_LEVEL_ERROR
 #endif
