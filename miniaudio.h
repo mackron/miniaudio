@@ -6231,6 +6231,20 @@ Uninitializes a decoder.
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder);
 
 /*
+Reads PCM frames from the given decoder.
+
+This is not thread safe without your own synchronization.
+*/
+MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+
+/*
+Seeks to a PCM frame based on it's absolute index.
+
+This is not thread safe without your own synchronization.
+*/
+MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
+
+/*
 Retrieves the current position of the read cursor in PCM frames.
 */
 MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor);
@@ -6250,20 +6264,6 @@ For MP3's, this will decode the entire file. Do not call this in time critical s
 This function is not thread safe without your own synchronization.
 */
 MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength);
-
-/*
-Reads PCM frames from the given decoder.
-
-This is not thread safe without your own synchronization.
-*/
-MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
-
-/*
-Seeks to a PCM frame based on it's absolute index.
-
-This is not thread safe without your own synchronization.
-*/
-MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 frameIndex);
 
 /*
 Retrieves the number of frames that can be read before reaching the end.
@@ -50377,62 +50377,6 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor)
-{
-    if (pCursor == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pCursor = 0;
-
-    if (pDecoder == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pCursor = pDecoder->readPointerInPCMFrames;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength)
-{
-    if (pLength == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pLength = 0;
-
-    if (pDecoder == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pDecoder->pBackend != NULL) {
-        ma_result result;
-        ma_uint64 internalLengthInPCMFrames;
-        ma_uint32 internalSampleRate;
-
-        result = ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &internalLengthInPCMFrames);
-        if (result != MA_SUCCESS) {
-            return result;  /* Failed to retrieve the internal length. */
-        }
-        
-        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
-        if (result != MA_SUCCESS) {
-            return result;   /* Failed to retrieve the internal sample rate. */
-        }
-
-        if (internalSampleRate == pDecoder->outputSampleRate) {
-            *pLength = internalLengthInPCMFrames;
-        } else {
-            *pLength = ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, internalSampleRate, internalLengthInPCMFrames);
-        }
-
-        return MA_SUCCESS;
-    } else {
-        return MA_NO_BACKEND;
-    }
-}
-
 MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
@@ -50567,6 +50511,62 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
 
     /* Should never get here, but if we do it means onSeekToPCMFrame was not set by the backend. */
     return MA_INVALID_ARGS;
+}
+
+MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor)
+{
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = pDecoder->readPointerInPCMFrames;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength)
+{
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pDecoder->pBackend != NULL) {
+        ma_result result;
+        ma_uint64 internalLengthInPCMFrames;
+        ma_uint32 internalSampleRate;
+
+        result = ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &internalLengthInPCMFrames);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to retrieve the internal length. */
+        }
+        
+        result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
+        if (result != MA_SUCCESS) {
+            return result;   /* Failed to retrieve the internal sample rate. */
+        }
+
+        if (internalSampleRate == pDecoder->outputSampleRate) {
+            *pLength = internalLengthInPCMFrames;
+        } else {
+            *pLength = ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, internalSampleRate, internalLengthInPCMFrames);
+        }
+
+        return MA_SUCCESS;
+    } else {
+        return MA_NO_BACKEND;
+    }
 }
 
 MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames)
