@@ -573,7 +573,7 @@ An encoder can be initialized to write to a file with `ma_encoder_init_file()` o
 example for initializing an encoder to output to a file.
 
     ```c
-    ma_encoder_config config = ma_encoder_config_init(ma_resource_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
+    ma_encoder_config config = ma_encoder_config_init(ma_encoding_format_wav, FORMAT, CHANNELS, SAMPLE_RATE);
     ma_encoder encoder;
     ma_result result = ma_encoder_init_file("my_file.wav", &config, &encoder);
     if (result != MA_SUCCESS) {
@@ -591,7 +591,7 @@ sample format, output channel count and output sample rate. The following file t
     +------------------------+-------------+
     | Enum                   | Description |
     +------------------------+-------------+
-    | ma_resource_format_wav | WAV         |
+    | ma_encoding_format_wav | WAV         |
     +------------------------+-------------+
 
 If the format, channel count or sample rate is not supported by the output file type an error will be returned. The encoder will not perform data conversion so
@@ -6110,11 +6110,6 @@ typedef ma_result (* ma_tell_proc)(void* pUserData, ma_int64* pCursor);
 #if !defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING)
 typedef enum
 {
-    ma_resource_format_wav
-} ma_resource_format;
-
-typedef enum
-{
     ma_encoding_format_unknown = 0,
     ma_encoding_format_wav,
     ma_encoding_format_flac,
@@ -6348,14 +6343,14 @@ typedef ma_uint64 (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, con
 
 typedef struct
 {
-    ma_resource_format resourceFormat;
+    ma_encoding_format encodingFormat;
     ma_format format;
     ma_uint32 channels;
     ma_uint32 sampleRate;
     ma_allocation_callbacks allocationCallbacks;
 } ma_encoder_config;
 
-MA_API ma_encoder_config ma_encoder_config_init(ma_resource_format resourceFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
+MA_API ma_encoder_config ma_encoder_config_init(ma_encoding_format encodingFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate);
 
 struct ma_encoder
 {
@@ -51197,12 +51192,12 @@ static ma_uint64 ma_encoder__on_write_pcm_frames_wav(ma_encoder* pEncoder, const
 }
 #endif
 
-MA_API ma_encoder_config ma_encoder_config_init(ma_resource_format resourceFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
+MA_API ma_encoder_config ma_encoder_config_init(ma_encoding_format encodingFormat, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_encoder_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.resourceFormat = resourceFormat;
+    config.encodingFormat = encodingFormat;
     config.format = format;
     config.channels = channels;
     config.sampleRate = sampleRate;
@@ -51253,9 +51248,9 @@ MA_API ma_result ma_encoder_init__internal(ma_encoder_write_proc onWrite, ma_enc
     pEncoder->onSeek    = onSeek;
     pEncoder->pUserData = pUserData;
 
-    switch (pEncoder->config.resourceFormat)
+    switch (pEncoder->config.encodingFormat)
     {
-        case ma_resource_format_wav:
+        case ma_encoding_format_wav:
         {
         #if defined(MA_HAS_WAV)
             pEncoder->onInit           = ma_encoder__on_init_wav;
