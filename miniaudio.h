@@ -40206,7 +40206,7 @@ static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
         return MA_FALSE;
     }
 
-    if (channelPosition >= MA_CHANNEL_AUX_0 || channelPosition <= MA_CHANNEL_AUX_31) {
+    if (channelPosition >= MA_CHANNEL_AUX_0 && channelPosition <= MA_CHANNEL_AUX_31) {
         return MA_FALSE;
     }
 
@@ -42683,7 +42683,7 @@ MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pCha
     }
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
-        if (pChannelMapA[iChannel] != pChannelMapB[iChannel]) {
+        if (ma_channel_map_get_channel(pChannelMapA, channels, iChannel) != ma_channel_map_get_channel(pChannelMapB, channels, iChannel)) {
             return MA_FALSE;
         }
     }
@@ -42694,6 +42694,11 @@ MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pCha
 MA_API ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel* pChannelMap)
 {
     ma_uint32 iChannel;
+
+    /* A null channel map is equivalent to the default channel map. */
+    if (pChannelMap == NULL) {
+        return MA_FALSE;
+    }
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
         if (pChannelMap[iChannel] != MA_CHANNEL_NONE) {
@@ -42709,7 +42714,7 @@ MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, co
     ma_uint32 iChannel;
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
-        if (pChannelMap[iChannel] == channelPosition) {
+        if (ma_channel_map_get_channel(pChannelMap, channels, iChannel) == channelPosition) {
             return MA_TRUE;
         }
     }
