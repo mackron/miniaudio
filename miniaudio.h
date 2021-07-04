@@ -3378,23 +3378,6 @@ typedef struct
     char name[256];
     ma_bool32 isDefault;
 
-    /*
-    Detailed info. As much of this is filled as possible with ma_context_get_device_info(). Note that you are allowed to initialize
-    a device with settings outside of this range, but it just means the data will be converted using miniaudio's data conversion
-    pipeline before sending the data to/from the device. Most programs will need to not worry about these values, but it's provided
-    here mainly for informational purposes or in the rare case that someone might find it useful.
-
-    These will be set to 0 when returned by ma_context_enumerate_devices() or ma_context_get_devices().
-    */
-    ma_uint32 formatCount;
-    ma_format formats[ma_format_count];
-    ma_uint32 minChannels;
-    ma_uint32 maxChannels;
-    ma_uint32 minSampleRate;
-    ma_uint32 maxSampleRate;
-
-
-    /* Experimental. Don't use these right now. */
     ma_uint32 nativeDataFormatCount;
     struct
     {
@@ -14537,7 +14520,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                     The format returned by PKEY_AudioEngine_DeviceFormat is not supported, so fall back to a search. We assume the channel
                     count returned by MA_PKEY_AudioEngine_DeviceFormat is valid and correct. For simplicity we're only returning one format.
                     */
-                    ma_uint32 channels = pInfo->minChannels;
+                    ma_uint32 channels = pWF->nChannels;
                     ma_channel defaultChannelMap[MA_MAX_CHANNELS];
                     WAVEFORMATEXTENSIBLE wf;
                     ma_bool32 found;
@@ -17543,13 +17526,13 @@ static ma_result ma_context_get_device_info__dsound(ma_context* pContext, ma_dev
 
         /* The format is always an integer format and is based on the bits per sample. */
         if (bitsPerSample == 8) {
-            pDeviceInfo->formats[0] = ma_format_u8;
+            pDeviceInfo->nativeDataFormats[0].format = ma_format_u8;
         } else if (bitsPerSample == 16) {
-            pDeviceInfo->formats[0] = ma_format_s16;
+            pDeviceInfo->nativeDataFormats[0].format = ma_format_s16;
         } else if (bitsPerSample == 24) {
-            pDeviceInfo->formats[0] = ma_format_s24;
+            pDeviceInfo->nativeDataFormats[0].format = ma_format_s24;
         } else if (bitsPerSample == 32) {
-            pDeviceInfo->formats[0] = ma_format_s32;
+            pDeviceInfo->nativeDataFormats[0].format = ma_format_s32;
         } else {
             return MA_FORMAT_NOT_SUPPORTED;
         }
@@ -33345,81 +33328,6 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         result = pContext->callbacks.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
     }
     ma_mutex_unlock(&pContext->deviceInfoLock);
-
-    /*
-    If the backend is using the new device info system, do a pass to fill out the old settings for backwards compatibility. This will be removed in
-    the future when all backends have implemented the new device info system.
-    */
-    if (deviceInfo.nativeDataFormatCount > 0) {
-        ma_uint32 iNativeFormat;
-        ma_uint32 iSampleFormat;
-
-        deviceInfo.minChannels   = 0xFFFFFFFF;
-        deviceInfo.maxChannels   = 0;
-        deviceInfo.minSampleRate = 0xFFFFFFFF;
-        deviceInfo.maxSampleRate = 0;
-
-        for (iNativeFormat = 0; iNativeFormat < deviceInfo.nativeDataFormatCount; iNativeFormat += 1) {
-            /* Formats. */
-            if (deviceInfo.nativeDataFormats[iNativeFormat].format == ma_format_unknown) {
-                /* All formats are supported. */
-                deviceInfo.formats[0] = ma_format_u8;
-                deviceInfo.formats[1] = ma_format_s16;
-                deviceInfo.formats[2] = ma_format_s24;
-                deviceInfo.formats[3] = ma_format_s32;
-                deviceInfo.formats[4] = ma_format_f32;
-                deviceInfo.formatCount = 5;
-            } else {
-                /* Make sure the format isn't already in the list. If so, skip. */
-                ma_bool32 alreadyExists = MA_FALSE;
-                for (iSampleFormat = 0; iSampleFormat < deviceInfo.formatCount; iSampleFormat += 1) {
-                    if (deviceInfo.formats[iSampleFormat] == deviceInfo.nativeDataFormats[iNativeFormat].format) {
-                        alreadyExists = MA_TRUE;
-                        break;
-                    }
-                }
-
-                if (!alreadyExists) {
-                    deviceInfo.formats[deviceInfo.formatCount++] = deviceInfo.nativeDataFormats[iNativeFormat].format;
-                }
-            }
-
-            /* Channels. */
-            if (deviceInfo.nativeDataFormats[iNativeFormat].channels == 0) {
-                /* All channels supported. */
-                deviceInfo.minChannels = MA_MIN_CHANNELS;
-                deviceInfo.maxChannels = MA_MAX_CHANNELS;
-            } else {
-                if (deviceInfo.minChannels > deviceInfo.nativeDataFormats[iNativeFormat].channels) {
-                    deviceInfo.minChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
-                }
-                if (deviceInfo.maxChannels < deviceInfo.nativeDataFormats[iNativeFormat].channels) {
-                    deviceInfo.maxChannels = deviceInfo.nativeDataFormats[iNativeFormat].channels;
-                }
-            }
-
-            /* Sample rate. */
-            if (deviceInfo.nativeDataFormats[iNativeFormat].sampleRate == 0) {
-                /* All sample rates supported. */
-                deviceInfo.minSampleRate = (ma_uint32)ma_standard_sample_rate_min;
-                deviceInfo.maxSampleRate = (ma_uint32)ma_standard_sample_rate_max;
-            } else {
-                if (deviceInfo.minSampleRate > deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
-                    deviceInfo.minSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
-                }
-                if (deviceInfo.maxSampleRate < deviceInfo.nativeDataFormats[iNativeFormat].sampleRate) {
-                    deviceInfo.maxSampleRate = deviceInfo.nativeDataFormats[iNativeFormat].sampleRate;
-                }
-            }
-        }
-    }
-
-
-    /* Clamp ranges. */
-    deviceInfo.minChannels   = ma_max(deviceInfo.minChannels,   MA_MIN_CHANNELS);
-    deviceInfo.maxChannels   = ma_min(deviceInfo.maxChannels,   MA_MAX_CHANNELS);
-    deviceInfo.minSampleRate = ma_max(deviceInfo.minSampleRate, (ma_uint32)ma_standard_sample_rate_min);
-    deviceInfo.maxSampleRate = ma_min(deviceInfo.maxSampleRate, (ma_uint32)ma_standard_sample_rate_max);
 
     *pDeviceInfo = deviceInfo;
     return result;
