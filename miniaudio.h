@@ -8236,15 +8236,10 @@ static void* ma__malloc_from_callbacks(size_t sz, const ma_allocation_callbacks*
         return pAllocationCallbacks->onMalloc(sz, pAllocationCallbacks->pUserData);
     }
 
-    /* Try using realloc(). */
-    if (pAllocationCallbacks->onRealloc != NULL) {
-        return pAllocationCallbacks->onRealloc(NULL, sz, pAllocationCallbacks->pUserData);
-    }
-
     return NULL;
 }
 
-static void* ma__realloc_from_callbacks(void* p, size_t szNew, size_t szOld, const ma_allocation_callbacks* pAllocationCallbacks)
+static void* ma__realloc_from_callbacks(void* p, size_t szNew, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks == NULL) {
         return NULL;
@@ -8252,23 +8247,6 @@ static void* ma__realloc_from_callbacks(void* p, size_t szNew, size_t szOld, con
 
     if (pAllocationCallbacks->onRealloc != NULL) {
         return pAllocationCallbacks->onRealloc(p, szNew, pAllocationCallbacks->pUserData);
-    }
-
-    /* Try emulating realloc() in terms of malloc()/free(). */
-    if (pAllocationCallbacks->onMalloc != NULL && pAllocationCallbacks->onFree != NULL) {
-        void* p2;
-
-        p2 = pAllocationCallbacks->onMalloc(szNew, pAllocationCallbacks->pUserData);
-        if (p2 == NULL) {
-            return NULL;
-        }
-
-        if (p != NULL) {
-            MA_COPY_MEMORY(p2, p, szOld);
-            pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
-        }
-
-        return p2;
     }
 
     return NULL;
@@ -20141,9 +20119,8 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                     goto next_device;   /* The device has already been enumerated. Move on to the next one. */
                 } else {
                     /* The device has not yet been enumerated. Make sure it's added to our list so that it's not enumerated again. */
-                    size_t oldCapacity = sizeof(*pUniqueIDs) *  uniqueIDCount;
                     size_t newCapacity = sizeof(*pUniqueIDs) * (uniqueIDCount + 1);
-                    ma_device_id* pNewUniqueIDs = (ma_device_id*)ma__realloc_from_callbacks(pUniqueIDs, newCapacity, oldCapacity, &pContext->allocationCallbacks);
+                    ma_device_id* pNewUniqueIDs = (ma_device_id*)ma_realloc(pUniqueIDs, newCapacity, &pContext->allocationCallbacks);
                     if (pNewUniqueIDs == NULL) {
                         goto next_device;   /* Failed to allocate memory. */
                     }
@@ -26352,17 +26329,15 @@ static ma_result ma_device__track__coreaudio(ma_device* pDevice)
     {
         /* Allocate memory if required. */
         if (g_TrackedDeviceCap_CoreAudio <= g_TrackedDeviceCount_CoreAudio) {
-            ma_uint32 oldCap;
             ma_uint32 newCap;
             ma_device** ppNewDevices;
 
-            oldCap = g_TrackedDeviceCap_CoreAudio;
             newCap = g_TrackedDeviceCap_CoreAudio * 2;
             if (newCap == 0) {
                 newCap = 1;
             }
 
-            ppNewDevices = (ma_device**)ma__realloc_from_callbacks(g_ppTrackedDevices_CoreAudio, sizeof(*g_ppTrackedDevices_CoreAudio)*newCap, sizeof(*g_ppTrackedDevices_CoreAudio)*oldCap, &pDevice->pContext->allocationCallbacks);
+            ppNewDevices = (ma_device**)ma_realloc(g_ppTrackedDevices_CoreAudio, sizeof(*g_ppTrackedDevices_CoreAudio)*newCap, &pDevice->pContext->allocationCallbacks);
             if (ppNewDevices == NULL) {
                 ma_mutex_unlock(&g_DeviceTrackingMutex_CoreAudio);
                 return MA_OUT_OF_MEMORY;
@@ -33133,9 +33108,8 @@ static ma_bool32 ma_context_get_devices__enum_callback(ma_context* pContext, ma_
     const ma_uint32 totalDeviceInfoCount = pContext->playbackDeviceInfoCount + pContext->captureDeviceInfoCount;
 
     if (totalDeviceInfoCount >= pContext->deviceInfoCapacity) {
-        ma_uint32 oldCapacity = pContext->deviceInfoCapacity;
-        ma_uint32 newCapacity = oldCapacity + bufferExpansionCount;
-        ma_device_info* pNewInfos = (ma_device_info*)ma__realloc_from_callbacks(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity, sizeof(*pContext->pDeviceInfos)*oldCapacity, &pContext->allocationCallbacks);
+        ma_uint32 newCapacity = pContext->deviceInfoCapacity + bufferExpansionCount;
+        ma_device_info* pNewInfos = (ma_device_info*)ma_realloc(pContext->pDeviceInfos, sizeof(*pContext->pDeviceInfos)*newCapacity, &pContext->allocationCallbacks);
         if (pNewInfos == NULL) {
             return MA_FALSE;   /* Out of memory. */
         }
@@ -43339,11 +43313,7 @@ MA_API void* ma_malloc(size_t sz, const ma_allocation_callbacks* pAllocationCall
 MA_API void* ma_realloc(void* p, size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pAllocationCallbacks != NULL) {
-        if (pAllocationCallbacks->onRealloc != NULL) {
-            return pAllocationCallbacks->onRealloc(p, sz, pAllocationCallbacks->pUserData);
-        } else {
-            return NULL;    /* This requires a native implementation of realloc(). */
-        }
+        return ma__realloc_from_callbacks(p, sz, pAllocationCallbacks);
     } else {
         return ma__realloc_default(p, sz, NULL);
     }
@@ -50646,7 +50616,6 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
         /* Make room if there's not enough. */
         if (totalFrameCount == dataCapInFrames) {
             void* pNewPCMFramesOut;
-            ma_uint64 oldDataCapInFrames = dataCapInFrames;
             ma_uint64 newDataCapInFrames = dataCapInFrames*2;
             if (newDataCapInFrames == 0) {
                 newDataCapInFrames = 4096;
@@ -50657,8 +50626,7 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
                 return MA_TOO_BIG;
             }
 
-
-            pNewPCMFramesOut = (void*)ma__realloc_from_callbacks(pPCMFramesOut, (size_t)(newDataCapInFrames * bpf), (size_t)(oldDataCapInFrames * bpf), &pDecoder->allocationCallbacks);
+            pNewPCMFramesOut = (void*)ma_realloc(pPCMFramesOut, (size_t)(newDataCapInFrames * bpf), &pDecoder->allocationCallbacks);
             if (pNewPCMFramesOut == NULL) {
                 ma__free_from_callbacks(pPCMFramesOut, &pDecoder->allocationCallbacks);
                 return MA_OUT_OF_MEMORY;
