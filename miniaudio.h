@@ -8728,7 +8728,7 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
                 return MA_OUT_OF_MEMORY;
             }
 
-            length = vsnprintf(pFormattedMessageHeap, sizeof(pFormattedMessageHeap), pFormat, args);
+            length = vsnprintf(pFormattedMessageHeap, length + 1, pFormat, args);
             if (length < 0) {
                 ma_free(pFormattedMessageHeap, &pLog->allocationCallbacks);
                 return MA_INVALID_OPERATION;
