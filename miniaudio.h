@@ -2045,6 +2045,36 @@ Logging
 #define MA_MAX_LOG_CALLBACKS    4
 #endif
 
+
+/*
+The callback for handling log messages.
+
+
+Parameters
+----------
+pUserData (in)
+    The user data pointer that was passed into ma_log_register_callback().
+
+logLevel (in)
+    The log level. This can be one of the following:
+
+    +----------------------+
+    | Log Level            |
+    +----------------------+
+    | MA_LOG_LEVEL_DEBUG   |
+    | MA_LOG_LEVEL_INFO    |
+    | MA_LOG_LEVEL_WARNING |
+    | MA_LOG_LEVEL_ERROR   |
+    +----------------------+
+
+pMessage (in)
+    The log message.
+
+
+Remarks
+-------
+Do not modify the state of the device from inside the callback.
+*/
 typedef void (* ma_log_callback_proc)(void* pUserData, ma_uint32 level, const char* pMessage);
 
 typedef struct
@@ -3193,40 +3223,6 @@ Do not restart or uninitialize the device from the callback.
 */
 typedef void (* ma_stop_proc)(ma_device* pDevice);
 
-/*
-The callback for handling log messages.
-
-
-Parameters
-----------
-pContext (in)
-    A pointer to the context the log message originated from.
-
-pDevice (in)
-    A pointer to the device the log message originate from, if any. This can be null, in which case the message came from the context.
-
-logLevel (in)
-    The log level. This can be one of the following:
-
-    +----------------------+
-    | Log Level            |
-    +----------------------+
-    | MA_LOG_LEVEL_DEBUG   |
-    | MA_LOG_LEVEL_INFO    |
-    | MA_LOG_LEVEL_WARNING |
-    | MA_LOG_LEVEL_ERROR   |
-    +----------------------+
-
-message (in)
-    The log message.
-
-
-Remarks
--------
-Do not modify the state of the device from inside the callback.
-*/
-typedef void (* ma_log_proc)(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message);
-
 typedef enum
 {
     ma_device_type_playback = 1,
@@ -3591,7 +3587,6 @@ struct ma_backend_callbacks
 
 struct ma_context_config
 {
-    ma_log_proc logCallback;    /* Legacy logging callback. Will be removed in version 0.11. */
     ma_log* pLog;
     ma_thread_priority threadPriority;
     size_t threadStackSize;
@@ -3654,7 +3649,6 @@ struct ma_context
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
-    ma_log_proc logCallback;    /* Legacy callback. Will be removed in version 0.11. */
     ma_thread_priority threadPriority;
     size_t threadStackSize;
     void* pUserData;
@@ -11864,18 +11858,6 @@ static void ma_post_log_message(ma_context* pContext, ma_device* pDevice, ma_uin
     }
 
     ma_log_post(ma_context_get_log(pContext), logLevel, message);   /* <-- This will deal with MA_DEBUG_OUTPUT. */
-
-    /* Legacy. */
-#if defined(MA_LOG_LEVEL)
-    if (logLevel <= MA_LOG_LEVEL) {
-        ma_log_proc onLog;
-
-        onLog = pContext->logCallback;
-        if (onLog) {
-            onLog(pContext, pDevice, logLevel, message);
-        }
-    }
-#endif
 }
 
 /* Posts an log message. Throw a breakpoint in here if you're needing to debug. The return value is always "resultCode". */
@@ -32960,7 +32942,6 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         }
     }
 
-    pContext->logCallback     = pConfig->logCallback;
     pContext->threadPriority  = pConfig->threadPriority;
     pContext->threadStackSize = pConfig->threadStackSize;
     pContext->pUserData       = pConfig->pUserData;
@@ -33398,12 +33379,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->pUserData = pConfig->pUserData;
     pDevice->onData    = pConfig->dataCallback;
     pDevice->onStop    = pConfig->stopCallback;
-
-    if (((ma_uintptr)pDevice % sizeof(pDevice)) != 0) {
-        if (pContext->logCallback) {
-            pContext->logCallback(pContext, pDevice, MA_LOG_LEVEL_WARNING, "WARNING: ma_device_init() called for a device that is not properly aligned. Thread safety is not supported.");
-        }
-    }
 
     if (pConfig->playback.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->playback.id, pConfig->playback.pDeviceID, sizeof(pDevice->playback.id));
