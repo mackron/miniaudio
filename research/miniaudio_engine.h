@@ -2378,6 +2378,9 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
 
+#define ma_align(x, a) ((x + (a-1)) & ~(a-1))
+#define ma_align_64(x) ma_align(x, 8)
+
 MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData)
 {
     if (pData == NULL) {
@@ -2824,6 +2827,9 @@ static ma_result ma_gainer_get_heap_layout(const ma_gainer_config* pConfig, ma_g
     /* New gains. */
     pHeapLayout->newGainsOffset = pHeapLayout->sizeInBytes;
     pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+
+    /* Alignment. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -4306,7 +4312,7 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
     /* Input buses. */
     if (inputBusCount > MA_MAX_NODE_LOCAL_BUS_COUNT) {
         pHeapLayout->inputBusOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += sizeof(ma_node_input_bus) * inputBusCount;
+        pHeapLayout->sizeInBytes += ma_align_64(sizeof(ma_node_input_bus) * inputBusCount);
     } else {
         pHeapLayout->inputBusOffset = MA_SIZE_MAX;  /* MA_SIZE_MAX indicates that no heap allocation is required for the input bus. */
     }
@@ -4314,7 +4320,7 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
     /* Output buses. */
     if (outputBusCount > MA_MAX_NODE_LOCAL_BUS_COUNT) {
         pHeapLayout->outputBusOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += sizeof(ma_node_output_bus) * outputBusCount;
+        pHeapLayout->sizeInBytes += ma_align_64(sizeof(ma_node_output_bus) * outputBusCount);
     } else {
         pHeapLayout->outputBusOffset = MA_SIZE_MAX;
     }
@@ -4354,7 +4360,7 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
         }
 
         pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += cachedDataSizeInBytes;
+        pHeapLayout->sizeInBytes += ma_align_64(cachedDataSizeInBytes);
     }
 
 
@@ -10991,7 +10997,7 @@ static ma_result ma_spatializer_listener_get_heap_layout(const ma_spatializer_li
 
     /* Channel map. We always need this, even for passthroughs. */
     pHeapLayout->channelMapOutOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += sizeof(*pConfig->pChannelMapOut) * pConfig->channelsOut;
+    pHeapLayout->sizeInBytes += ma_align_64(sizeof(*pConfig->pChannelMapOut) * pConfig->channelsOut);
 
     return MA_SUCCESS;
 }
@@ -11306,12 +11312,12 @@ static ma_result ma_spatializer_get_heap_layout(const ma_spatializer_config* pCo
     pHeapLayout->channelMapInOffset = MA_SIZE_MAX;  /* <-- MA_SIZE_MAX indicates no allocation necessary. */
     if (pConfig->pChannelMapIn != NULL) {
         pHeapLayout->channelMapInOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += sizeof(*pConfig->pChannelMapIn) * pConfig->channelsIn;
+        pHeapLayout->sizeInBytes += ma_align_64(sizeof(*pConfig->pChannelMapIn) * pConfig->channelsIn);
     }
 
     /* New channel gains for output. */
     pHeapLayout->newChannelGainsOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channelsOut;
+    pHeapLayout->sizeInBytes += ma_align_64(sizeof(float) * pConfig->channelsOut);
 
     /* Gainer. */
     {
@@ -11326,7 +11332,7 @@ static ma_result ma_spatializer_get_heap_layout(const ma_spatializer_config* pCo
         }
 
         pHeapLayout->gainerOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += gainerHeapSizeInBytes;
+        pHeapLayout->sizeInBytes += ma_align_64(gainerHeapSizeInBytes);
     }
 
     return MA_SUCCESS;
@@ -12582,7 +12588,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     }
 
     pHeapLayout->baseNodeOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += tempHeapSize;
+    pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
 
 
     /* Spatializer. */
@@ -12594,7 +12600,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     }
 
     pHeapLayout->spatializerOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += tempHeapSize;
+    pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
 
 
     return MA_SUCCESS;
