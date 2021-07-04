@@ -6249,7 +6249,7 @@ For MP3's, this will decode the entire file. Do not call this in time critical s
 
 This function is not thread safe without your own synchronization.
 */
-MA_API ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder);
+MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength);
 
 /*
 Reads PCM frames from the given decoder.
@@ -49623,12 +49623,7 @@ static ma_result ma_decoder__data_source_on_get_length(ma_data_source* pDataSour
 {
     ma_decoder* pDecoder = (ma_decoder*)pDataSource;
 
-    *pLength = ma_decoder_get_length_in_pcm_frames(pDecoder);
-    if (*pLength == 0) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return MA_SUCCESS;
+    return ma_decoder_get_length_in_pcm_frames(pDecoder, pLength);
 }
 
 static ma_data_source_vtable g_ma_decoder_data_source_vtable =
@@ -50413,32 +50408,43 @@ MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_ui
     return MA_SUCCESS;
 }
 
-MA_API ma_uint64 ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder)
+MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength)
 {
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
     if (pDecoder == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     if (pDecoder->pBackend != NULL) {
         ma_result result;
-        ma_uint64 nativeLengthInPCMFrames;
+        ma_uint64 internalLengthInPCMFrames;
         ma_uint32 internalSampleRate;
 
-        ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &nativeLengthInPCMFrames);
+        result = ma_data_source_get_length_in_pcm_frames(pDecoder->pBackend, &internalLengthInPCMFrames);
+        if (result != MA_SUCCESS) {
+            return result;  /* Failed to retrieve the internal length. */
+        }
         
         result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate);
         if (result != MA_SUCCESS) {
-            return 0;   /* Failed to retrieve the internal sample rate. */
+            return result;   /* Failed to retrieve the internal sample rate. */
         }
 
         if (internalSampleRate == pDecoder->outputSampleRate) {
-            return nativeLengthInPCMFrames;
+            *pLength = internalLengthInPCMFrames;
         } else {
-            return ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, internalSampleRate, nativeLengthInPCMFrames);
+            *pLength = ma_calculate_frame_count_after_resampling(pDecoder->outputSampleRate, internalSampleRate, internalLengthInPCMFrames);
         }
-    }
 
-    return 0;
+        return MA_SUCCESS;
+    } else {
+        return MA_NO_BACKEND;
+    }
 }
 
 MA_API ma_uint64 ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount)
@@ -50571,6 +50577,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
 
 MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames)
 {
+    ma_result result;
     ma_uint64 totalFrameCount;
 
     if (pAvailableFrames == NULL) {
@@ -50583,9 +50590,9 @@ MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64
         return MA_INVALID_ARGS;
     }
 
-    totalFrameCount = ma_decoder_get_length_in_pcm_frames(pDecoder);
-    if (totalFrameCount == 0) {
-        return MA_NOT_IMPLEMENTED;
+    result = ma_decoder_get_length_in_pcm_frames(pDecoder, &totalFrameCount);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     if (totalFrameCount <= pDecoder->readPointerInPCMFrames) {
@@ -50594,7 +50601,7 @@ MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64
         *pAvailableFrames = totalFrameCount - pDecoder->readPointerInPCMFrames;
     }
 
-    return MA_SUCCESS;   /* No frames available. */
+    return MA_SUCCESS;
 }
 
 

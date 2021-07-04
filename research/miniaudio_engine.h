@@ -7736,7 +7736,11 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
     allocated buffer, whereas a paged buffer is a linked list of paged-sized buffers. The latter
     is used when the length of a sound is unknown until a full decode has been performed.
     */
-    totalFrameCount = ma_decoder_get_length_in_pcm_frames(pDecoder);
+    result = ma_decoder_get_length_in_pcm_frames(pDecoder, &totalFrameCount);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
     if (totalFrameCount > 0) {
         /* It's a known length. The data supply is a regular decoded buffer. */
         ma_uint64 dataSizeInBytes;
@@ -10200,7 +10204,10 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     }
 
     /* Retrieve the total length of the file before marking the decoder are loaded. */
-    pDataStream->totalLengthInPCMFrames = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder);
+    result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
+    if (result != MA_SUCCESS) {
+        goto done;  /* Failed to retrieve the length. */
+    }
 
     /*
     Only mark the decoder as initialized when the length of the decoder has been retrieved because that can possibly require a scan over the whole file
