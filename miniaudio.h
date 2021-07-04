@@ -4721,10 +4721,6 @@ deviceType (in)
 pDeviceID (in)
     The ID of the device being queried.
 
-shareMode (in)
-    The share mode to query for device capabilities. This should be set to whatever you're intending on using when initializing the device. If you're unsure,
-    set this to `ma_share_mode_shared`.
-
 pDeviceInfo (out)
     A pointer to the `ma_device_info` structure that will receive the device information.
 
@@ -4750,7 +4746,7 @@ the requested share mode is unsupported.
 
 This leaves pDeviceInfo unmodified in the result of an error.
 */
-MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo);
+MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
 
 /*
 Determines if the given context supports loopback mode.
@@ -33300,12 +33296,10 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
     return result;
 }
 
-MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_share_mode shareMode, ma_device_info* pDeviceInfo)
+MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_result result;
     ma_device_info deviceInfo;
-
-    (void)shareMode;    /* Unused. This parameter will be removed in version 0.11. */
 
     /* NOTE: Do not clear pDeviceInfo on entry. The reason is the pDeviceID may actually point to pDeviceInfo->id which will break things. */
     if (pContext == NULL || pDeviceInfo == NULL) {
@@ -33576,7 +33570,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_device_info deviceInfo;
 
         if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-            result = ma_context_get_device_info(pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, descriptorCapture.pDeviceID, descriptorCapture.shareMode, &deviceInfo);
+            result = ma_context_get_device_info(pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, descriptorCapture.pDeviceID, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
             } else {
@@ -33590,7 +33584,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
 
         if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, descriptorPlayback.shareMode, &deviceInfo);
+            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
             } else {
