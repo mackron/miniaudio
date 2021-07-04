@@ -76,8 +76,6 @@ static ma_data_source_vtable g_ma_libvorbis_ds_vtable =
 {
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_libvorbis_ds_get_data_format,
     ma_libvorbis_ds_get_cursor,
     ma_libvorbis_ds_get_length

@@ -5950,8 +5950,6 @@ typedef struct
 {
     ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
     ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
-    ma_result (* onMap)(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-    ma_result (* onUnmap)(ma_data_source* pDataSource, ma_uint64 frameCount);
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
     ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
     ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
@@ -5984,8 +5982,6 @@ MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
-MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount);   /* Returns MA_NOT_IMPLEMENTED if mapping is not supported. */
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount);       /* Returns MA_AT_END if the end has been reached. */
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
@@ -43780,34 +43776,6 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
     return pDataSourceBase->vtable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
 }
 
-MA_API ma_result ma_data_source_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
-    if (pDataSourceBase == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pDataSourceBase->vtable->onMap == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pDataSourceBase->vtable->onMap(pDataSource, ppFramesOut, pFrameCount);
-}
-
-MA_API ma_result ma_data_source_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
-{
-    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
-    if (pDataSourceBase == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pDataSourceBase->vtable->onUnmap == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pDataSourceBase->vtable->onUnmap(pDataSource, frameCount);
-}
-
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -44146,16 +44114,6 @@ static ma_result ma_audio_buffer_ref__data_source_on_seek(ma_data_source* pDataS
     return ma_audio_buffer_ref_seek_to_pcm_frame((ma_audio_buffer_ref*)pDataSource, frameIndex);
 }
 
-static ma_result ma_audio_buffer_ref__data_source_on_map(ma_data_source* pDataSource, void** ppFramesOut, ma_uint64* pFrameCount)
-{
-    return ma_audio_buffer_ref_map((ma_audio_buffer_ref*)pDataSource, ppFramesOut, pFrameCount);
-}
-
-static ma_result ma_audio_buffer_ref__data_source_on_unmap(ma_data_source* pDataSource, ma_uint64 frameCount)
-{
-    return ma_audio_buffer_ref_unmap((ma_audio_buffer_ref*)pDataSource, frameCount);
-}
-
 static ma_result ma_audio_buffer_ref__data_source_on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate)
 {
     ma_audio_buffer_ref* pAudioBufferRef = (ma_audio_buffer_ref*)pDataSource;
@@ -44189,8 +44147,6 @@ static ma_data_source_vtable g_ma_audio_buffer_ref_data_source_vtable =
 {
     ma_audio_buffer_ref__data_source_on_read,
     ma_audio_buffer_ref__data_source_on_seek,
-    ma_audio_buffer_ref__data_source_on_map,
-    ma_audio_buffer_ref__data_source_on_unmap,
     ma_audio_buffer_ref__data_source_on_get_data_format,
     ma_audio_buffer_ref__data_source_on_get_cursor,
     ma_audio_buffer_ref__data_source_on_get_length
@@ -47066,8 +47022,6 @@ static ma_data_source_vtable g_ma_wav_ds_vtable =
 {
     ma_wav_ds_read,
     ma_wav_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_wav_ds_get_data_format,
     ma_wav_ds_get_cursor,
     ma_wav_ds_get_length
@@ -47707,8 +47661,6 @@ static ma_data_source_vtable g_ma_flac_ds_vtable =
 {
     ma_flac_ds_read,
     ma_flac_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_flac_ds_get_data_format,
     ma_flac_ds_get_cursor,
     ma_flac_ds_get_length
@@ -48339,8 +48291,6 @@ static ma_data_source_vtable g_ma_mp3_ds_vtable =
 {
     ma_mp3_ds_read,
     ma_mp3_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_mp3_ds_get_data_format,
     ma_mp3_ds_get_cursor,
     ma_mp3_ds_get_length
@@ -48987,8 +48937,6 @@ static ma_data_source_vtable g_ma_stbvorbis_ds_vtable =
 {
     ma_stbvorbis_ds_read,
     ma_stbvorbis_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_stbvorbis_ds_get_data_format,
     ma_stbvorbis_ds_get_cursor,
     ma_stbvorbis_ds_get_length
@@ -49767,8 +49715,6 @@ static ma_data_source_vtable g_ma_decoder_data_source_vtable =
 {
     ma_decoder__data_source_on_read,
     ma_decoder__data_source_on_seek,
-    NULL,   /* onMap */
-    NULL,   /* onUnmap */
     ma_decoder__data_source_on_get_data_format,
     ma_decoder__data_source_on_get_cursor,
     ma_decoder__data_source_on_get_length
@@ -51544,8 +51490,6 @@ static ma_data_source_vtable g_ma_waveform_data_source_vtable =
 {
     ma_waveform__data_source_on_read,
     ma_waveform__data_source_on_seek,
-    NULL,   /* onMap */
-    NULL,   /* onUnmap */
     ma_waveform__data_source_on_get_data_format,
     ma_waveform__data_source_on_get_cursor,
     NULL   /* onGetLength. There's no notion of a length in waveforms. */
@@ -51964,8 +51908,6 @@ static ma_data_source_vtable g_ma_noise_data_source_vtable =
 {
     ma_noise__data_source_on_read,
     ma_noise__data_source_on_seek,  /* No-op for noise. */
-    NULL,   /* onMap */
-    NULL,   /* onUnmap */
     ma_noise__data_source_on_get_data_format,
     NULL,   /* onGetCursor. No notion of a cursor for noise. */
     NULL    /* onGetLength. No notion of a length for noise. */

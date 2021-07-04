@@ -75,8 +75,6 @@ static ma_data_source_vtable g_ma_libopus_ds_vtable =
 {
     ma_libopus_ds_read,
     ma_libopus_ds_seek,
-    NULL,   /* onMap() */
-    NULL,   /* onUnmap() */
     ma_libopus_ds_get_data_format,
     ma_libopus_ds_get_cursor,
     ma_libopus_ds_get_length
