@@ -2068,7 +2068,9 @@ typedef struct
     ma_log_callback callbacks[MA_MAX_LOG_CALLBACKS];
     ma_uint32 callbackCount;
     ma_allocation_callbacks allocationCallbacks;    /* Need to store these persistently because ma_log_postv() might need to allocate a buffer on the heap. */
+#ifndef MA_NO_THREADING
     ma_mutex lock;  /* For thread safety just to make it easier and safer for the logging implementation. */
+#endif
 } ma_log;
 
 MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks, ma_log* pLog);
@@ -8527,8 +8529,6 @@ MA_API ma_log_callback ma_log_callback_init(ma_log_callback_proc onLog, void* pU
 
 MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks, ma_log* pLog)
 {
-    ma_result result;
-
     if (pLog == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -8537,10 +8537,14 @@ MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks
     ma_allocation_callbacks_init_copy(&pLog->allocationCallbacks, pAllocationCallbacks);
 
     /* We need a mutex for thread safety. */
-    result = ma_mutex_init(&pLog->lock);
-    if (result != MA_SUCCESS) {
-        return result;
+    #ifndef MA_NO_THREADING
+    {
+        ma_result result = ma_mutex_init(&pLog->lock);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
+    #endif
     
     /* If we're using debug output, enable it. */
     #if defined(MA_DEBUG_OUTPUT)
@@ -8558,7 +8562,27 @@ MA_API void ma_log_uninit(ma_log* pLog)
         return;
     }
 
+#ifndef MA_NO_THREADING
     ma_mutex_uninit(&pLog->lock);
+#endif
+}
+
+static void ma_log_lock(ma_log* pLog)
+{
+#ifndef MA_NO_THREADING
+    ma_mutex_lock(&pLog->lock);
+#else
+    (void)pLog;
+#endif
+}
+
+static void ma_log_unlock(ma_log* pLog)
+{
+#ifndef MA_NO_THREADING
+    ma_mutex_unlock(&pLog->lock);
+#else
+    (void)pLog;
+#endif
 }
 
 MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback)
@@ -8569,7 +8593,7 @@ MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback
         return MA_INVALID_ARGS;
     }
 
-    ma_mutex_lock(&pLog->lock);
+    ma_log_lock(pLog);
     {
         if (pLog->callbackCount == ma_countof(pLog->callbacks)) {
             result = MA_OUT_OF_MEMORY;  /* Reached the maximum allowed log callbacks. */
@@ -8578,7 +8602,7 @@ MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback
             pLog->callbackCount += 1;
         }
     }
-    ma_mutex_unlock(&pLog->lock);
+    ma_log_unlock(pLog);
 
     return result;
 }
@@ -8589,7 +8613,7 @@ MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callba
         return MA_INVALID_ARGS;
     }
 
-    ma_mutex_lock(&pLog->lock);
+    ma_log_lock(pLog);
     {
         ma_uint32 iLog;
         for (iLog = 0; iLog < pLog->callbackCount; ) {
@@ -8607,7 +8631,7 @@ MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callba
             }
         }
     }
-    ma_mutex_unlock(&pLog->lock);
+    ma_log_unlock(pLog);
 
     return MA_SUCCESS;
 }
@@ -8627,7 +8651,7 @@ MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage
     }
     #endif
 
-    ma_mutex_lock(&pLog->lock);
+    ma_log_lock(pLog);
     {
         ma_uint32 iLog;
         for (iLog = 0; iLog < pLog->callbackCount; iLog += 1) {
@@ -8636,7 +8660,7 @@ MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage
             }
         }
     }
-    ma_mutex_unlock(&pLog->lock);
+    ma_log_unlock(pLog);
 
     return MA_SUCCESS;
 }
@@ -69271,6 +69295,7 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 0.10.37 - TBD
+  - Fix build when compiling with MA_NO_THREADING.
   - Minor updates to channel mapping.
 
 0.10.36 - 2021-07-03

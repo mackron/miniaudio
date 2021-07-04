@@ -326,5 +326,19 @@ int main(int argc, char** argv)
 
 
 /* stb_vorbis implementation must come after the implementation of miniaudio. */
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(push)
+    #pragma warning(disable:4100)   /* unreferenced formal parameter */
+    #pragma warning(disable:4244)   /* '=': conversion from '' to '', possible loss of data */
+    #pragma warning(disable:4245)   /* '=': conversion from '' to '', signed/unsigned mismatch */
+    #pragma warning(disable:4456)   /* declaration of '' hides previous local declaration */
+    #pragma warning(disable:4457)   /* declaration of '' hides function parameter */
+    #pragma warning(disable:4701)   /* potentially uninitialized local variable '' used */
+#else
+#endif
 #undef STB_VORBIS_HEADER_ONLY
 #include "../../extras/stb_vorbis.c"
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(pop)
+#else
+#endif
