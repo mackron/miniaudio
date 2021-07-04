@@ -3294,10 +3294,22 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_ch
     return MA_SUCCESS;
 }
 
-static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount)
+static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode)
 {
+    ma_bool32 passthrough = MA_FALSE;
+
+    if (channelsOut == channelsIn) {
+        if (pChannelMapOut == pChannelMapIn) {
+            passthrough = MA_TRUE;
+        } else {
+            if (ma_channel_map_equal(channelsOut, pChannelMapOut, pChannelMapIn)) {
+                passthrough = MA_TRUE;
+            }
+        }
+    }
+
     /* Optimized Path: Passthrough */
-    if (channelsOut == channelsIn && pChannelMapOut == pChannelMapIn) {
+    if (passthrough) {
         ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, channelsOut);
         return;
     }
@@ -3314,23 +3326,75 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
         return;
     }
 
-    /*
-    For now, we're doing channel conversion a bit different to the standard channel converter. Here
-    we're only going to do a shuffle. We can't do this if the channel count exceeds the maximum
-    channel count or else we won't be able to fit it in a stack-allocated shuffle table.
-    */
+
     if (channelsOut <= MA_MAX_CHANNELS) {
         ma_result result;
-        ma_channel shuffleTable[MA_MAX_CHANNELS];
 
-        result = ma_channel_map_build_shuffle_table(pChannelMapIn, channelsIn, pChannelMapOut, channelsOut, shuffleTable);
-        if (result != MA_SUCCESS) {
-            return;
-        }
+        if (mode == ma_channel_mix_mode_simple) {    
+            ma_channel shuffleTable[MA_MAX_CHANNELS];
 
-        result = ma_channel_map_apply_shuffle_table_f32(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, shuffleTable);
-        if (result != MA_SUCCESS) {
-            return;
+            result = ma_channel_map_build_shuffle_table(pChannelMapIn, channelsIn, pChannelMapOut, channelsOut, shuffleTable);
+            if (result != MA_SUCCESS) {
+                return;
+            }
+
+            result = ma_channel_map_apply_shuffle_table_f32(pFramesOut, channelsOut, pFramesIn, channelsIn, frameCount, shuffleTable);
+            if (result != MA_SUCCESS) {
+                return;
+            }
+        } else {
+            ma_uint32 iFrame;
+            ma_uint32 iChannelOut;
+            ma_uint32 iChannelIn;
+            float weights[32][32];  /* Do not use MA_MAX_CHANNELS here! */
+
+            /*
+            If we have a small enough number of channels, pre-compute the weights. Otherwise we'll just need to
+            fall back to a slower path because otherwise we'll run out of stack space.
+            */
+            if (channelsIn <= ma_countof(weights) && channelsOut <= ma_countof(weights)) {
+                /* Pre-compute weights. */
+                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                    for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                        ma_channel channelIn = ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn);
+                        weights[iChannelOut][iChannelIn] = ma_calculate_channel_position_rectangular_weight(channelOut, channelIn);
+                    }
+                }
+
+                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                        float accumulation = 0;
+
+                        for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                            accumulation += pFramesIn[iChannelIn] * weights[iChannelOut][iChannelIn];
+                        }
+
+                        pFramesOut[iChannelOut] = accumulation;
+                    }
+
+                    pFramesOut += channelsOut;
+                    pFramesIn  += channelsIn;
+                }
+            } else {
+                /* Cannot pre-compute weights because not enough room in stack-allocated buffer. */
+                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                        float accumulation = 0;
+                        ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+
+                        for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                            ma_channel channelIn = ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn);
+                            accumulation += pFramesIn[iChannelIn] * ma_calculate_channel_position_rectangular_weight(channelOut, channelIn);
+                        }
+
+                        pFramesOut[iChannelOut] = accumulation;
+                    }
+
+                    pFramesOut += channelsOut;
+                    pFramesIn  += channelsIn;
+                }
+            }
         }
     } else {
         /* Fall back to silence. If you hit this, what are you doing with so many channels?! */
@@ -11516,7 +11580,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
         } else {
-            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount);   /* Safe casts to float* because f32 is the only supported format. */
+            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular);   /* Safe casts to float* because f32 is the only supported format. */
         }
 
         /*
@@ -11766,7 +11830,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         }
 
         /* Convert to our output channel count. */
-        ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount);
+        ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular);
 
         /*
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
@@ -12331,7 +12395,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
                 ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
-                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut);
+                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple);
             }
         }
 
