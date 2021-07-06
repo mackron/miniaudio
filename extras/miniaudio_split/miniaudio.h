@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.36 - 2021-07-03
+miniaudio - v0.10.37 - 2021-07-06
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 36
+#define MA_VERSION_REVISION 37
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -590,7 +590,9 @@ typedef struct
     ma_log_callback callbacks[MA_MAX_LOG_CALLBACKS];
     ma_uint32 callbackCount;
     ma_allocation_callbacks allocationCallbacks;    /* Need to store these persistently because ma_log_postv() might need to allocate a buffer on the heap. */
+#ifndef MA_NO_THREADING
     ma_mutex lock;  /* For thread safety just to make it easier and safer for the logging implementation. */
+#endif
 } ma_log;
 
 MA_API ma_result ma_log_init(const ma_allocation_callbacks* pAllocationCallbacks, ma_log* pLog);
@@ -1268,6 +1270,20 @@ MA_API void ma_interleave_pcm_frames(ma_format format, ma_uint32 channels, ma_ui
 Channel Maps
 
 ************************************************************************************************************************************************************/
+/*
+This is used in the shuffle table to indicate that the channel index is undefined and should be ignored.
+*/
+#define MA_CHANNEL_INDEX_NULL   255
+
+/* Retrieves the channel position of the specified channel based on miniaudio's default channel map. */
+MA_API ma_channel ma_channel_map_get_default_channel(ma_uint32 channelCount, ma_uint32 channelIndex);
+
+/*
+Retrieves the channel position of the specified channel in the given channel map.
+
+The pChannelMap parameter can be null, in which case miniaudio's default channel map will be assumed.
+*/
+MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex);
 
 /*
 Initializes a blank channel map.
