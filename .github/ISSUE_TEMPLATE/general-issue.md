@@ -9,4 +9,6 @@ assignees: ''
 
 **DELETE ALL OF THIS TEXT BEFORE SUBMITTING**
 
-If you have a question about how to use the library, please read the documentation at the top of miniaudio.h and take a look at the examples. Otherwise, feel free to post your issue and we'll get to it as soon as possible!
+If you have a question about how to use the library, please read the documentation at the top of miniaudio.h and take a look at the examples. If that still doesn't answer your question, please post it in the Discussions section instead. Otherwise, feel free to post your issue and we'll get to it as soon as possible!
+
+If you have an issue with playback, please run the simple_playback_sine example first and check whether or not that is working. Likewise for capture, please run the simple_capture example. If these examples work, it probably (but not always) means you're doing something wrong and a question in the Discussions section is more appropriate.
