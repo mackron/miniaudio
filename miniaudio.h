@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.37 - 2021-07-06
+miniaudio - v0.10.38 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1496,7 +1496,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 37
+#define MA_VERSION_REVISION 38
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -31324,8 +31324,11 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
     SLDataLocator_AndroidSimpleBufferQueue queue;
     SLresult resultSL;
     size_t bufferSizeInBytes;
-    SLInterfaceID itfIDs1[1];
-    const SLboolean itfIDsRequired1[] = {SL_BOOLEAN_TRUE};
+    SLInterfaceID itfIDs[2];
+    const SLboolean itfIDsRequired[] = {
+        SL_BOOLEAN_TRUE,    /* SL_IID_ANDROIDSIMPLEBUFFERQUEUE */
+        SL_BOOLEAN_FALSE    /* SL_IID_ANDROIDCONFIGURATION */
+    };
 #endif
 
     MA_ASSERT(g_maOpenSLInitCounter > 0); /* <-- If you trigger this it means you've either not initialized the context, or you've uninitialized it and then attempted to initialize a new device. */
@@ -31343,7 +31346,8 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
     queues).
     */
 #ifdef MA_ANDROID
-    itfIDs1[0] = (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+    itfIDs[0] = (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE;
+    itfIDs[1] = (SLInterfaceID)pDevice->pContext->opensl.SL_IID_ANDROIDCONFIGURATION;
 
     /* No exclusive mode with OpenSL|ES. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
@@ -31379,7 +31383,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pLocator = &queue;
         sink.pFormat  = (SLDataFormat_PCM*)&pcm;
 
-        resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType    = SL_DATAFORMAT_PCM;
@@ -31388,7 +31392,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
             pcm.channelMask   = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
-            resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+            resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -31502,7 +31506,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pLocator = &outmixLocator;
         sink.pFormat  = NULL;
 
-        resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+        resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType = SL_DATAFORMAT_PCM;
@@ -31511,7 +31515,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
             pcm.channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
-            resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, 1, itfIDs1, itfIDsRequired1);
+            resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         }
 
         if (resultSL != SL_RESULT_SUCCESS) {
@@ -68586,6 +68590,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.38 - TBD
+  - OpenSL: Fix a bug with setting of stream types and recording presets.
+
 0.10.37 - 2021-07-06
   - Fix a bug with log message formatting.
   - Fix build when compiling with MA_NO_THREADING.
