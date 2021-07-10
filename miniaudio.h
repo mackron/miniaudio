@@ -50226,6 +50226,10 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
         *pFramesRead = totalFramesReadOut;
     }
 
+    if (totalFramesReadOut == 0) {
+        return MA_AT_END;
+    }
+
     return result;
 }
 
