@@ -4,24 +4,11 @@ USAGE: audioconverter [input file] [output file] [format] [channels] [rate]
 EXAMPLES:
     audioconverter my_file.flac my_file.wav
     audioconverter my_file.flac my_file.wav f32 44100 linear --linear-order 8
-    audioconverter my_file.flac my_file.wav s16 2 44100 speex --speex-quality 10
-*/
-
-/*
-Note about Speex resampling. If you decide to enable the Speex resampler with ENABLE_SPEEX, this program will use licensed third party code. If you compile and
-redistribute this program you need to include a copy of the license which can be found at https://github.com/xiph/opus-tools/blob/master/COPYING. You can also
-find a copy of this text in extras/speex_resampler/README.md in the miniaudio repository.
 */
 #define _CRT_SECURE_NO_WARNINGS /* For stb_vorbis' usage of fopen() instead of fopen_s(). */
 
 #define STB_VORBIS_HEADER_ONLY
 #include "../../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
-
-/* Enable Speex resampling, but only if requested on the command line at build time. */
-#if defined(ENABLE_SPEEX)
-    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
-    #include "../../extras/speex_resampler/ma_speex_resampler.h"
-#endif
 
 #define MA_NO_DEVICE_IO
 #define MA_NO_THREADING
@@ -44,7 +31,6 @@ void print_usage()
     printf("\n");
     printf("PARAMETERS:\n");
     printf("  --linear-order [0..%d]\n", MA_MAX_FILTER_ORDER);
-    printf("  --speex-quality [0..10]\n");
 }
 
 ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
@@ -64,9 +50,9 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
         ma_uint64 framesToReadThisIteration;
 
         framesToReadThisIteration = sizeof(pRawData) / ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
-        framesReadThisIteration = ma_decoder_read_pcm_frames(pDecoder, pRawData, framesToReadThisIteration);
-        if (framesReadThisIteration == 0) {
-            break;  /* Reached the end. */
+        result = ma_decoder_read_pcm_frames(pDecoder, pRawData, framesToReadThisIteration, &framesReadThisIteration);
+        if (result != MA_SUCCESS) {
+            break;  /* Reached the end, or an error occurred. */
         }
 
         /* At this point we have the raw data from the decoder. We now just need to write it to the encoder. */
@@ -159,8 +145,6 @@ ma_bool32 try_parse_resample_algorithm(const char* str, ma_resample_algorithm* p
 
     /*  */ if (strcmp(str, "linear") == 0) {
         algorithm = ma_resample_algorithm_linear;
-    } else if (strcmp(str, "speex") == 0) {
-        algorithm = ma_resample_algorithm_speex;
     } else {
         return MA_FALSE;    /* Not a valid algorithm */
     }
@@ -179,13 +163,12 @@ int main(int argc, char** argv)
     ma_decoder decoder;
     ma_encoder_config encoderConfig;
     ma_encoder encoder;
-    ma_resource_format outputResourceFormat;
+    ma_encoding_format outputEncodingFormat;
     ma_format format = ma_format_unknown;
     ma_uint32 channels = 0;
     ma_uint32 rate = 0;
     ma_resample_algorithm resampleAlgorithm;
     ma_uint32 linearOrder = 8;
-    ma_uint32 speexQuality = 3;
     int iarg;
     const char* pOutputFilePath;
 
@@ -204,12 +187,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    /* Default to Speex if it's enabled. */
-#if defined(ENABLE_SPEEX)
-    resampleAlgorithm = ma_resample_algorithm_speex;
-#else
     resampleAlgorithm = ma_resample_algorithm_linear;
-#endif
 
     /*
     The fourth and fifth arguments can be a format and/or rate specifier. It doesn't matter which order they are in as we can identify them by whether or
@@ -224,20 +202,6 @@ int main(int argc, char** argv)
 
             if (!try_parse_uint32_in_range(argv[iarg], &linearOrder, 0, 8)) {
                 printf("Expecting a number between 0 and %d for --linear-order.\n", MA_MAX_FILTER_ORDER);
-                return -1;
-            }
-            
-            continue;
-        }
-
-        if (strcmp(argv[iarg], "--speex-quality") == 0) {
-            iarg += 1;
-            if (iarg >= argc) {
-                break;
-            }
-
-            if (!try_parse_uint32_in_range(argv[iarg], &speexQuality, 0, 10)) {
-                printf("Expecting a number between 0 and 10 for --speex-quality.\n");
                 return -1;
             }
             
@@ -268,9 +232,6 @@ int main(int argc, char** argv)
     decoderConfig = ma_decoder_config_init(format, channels, rate);
     decoderConfig.resampling.algorithm = resampleAlgorithm;
     decoderConfig.resampling.linear.lpfOrder = linearOrder;
-#if defined(ENABLE_SPEEX)
-    decoderConfig.resampling.speex.quality = speexQuality;
-#endif
 
     result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {
@@ -296,15 +257,15 @@ int main(int argc, char** argv)
 
     pOutputFilePath = argv[2];
 
-    outputResourceFormat = ma_resource_format_wav;  /* Wave by default in case we don't know the file extension. */
+    outputEncodingFormat = ma_encoding_format_wav;  /* Wave by default in case we don't know the file extension. */
     if (ma_path_extension_equal(pOutputFilePath, "wav")) {
-        outputResourceFormat = ma_resource_format_wav;
+        outputEncodingFormat = ma_encoding_format_wav;
     } else {
         printf("Warning: Unknown file extension \"%s\". Encoding as WAV.\n", ma_path_extension(pOutputFilePath));
     }
 
     /* Initialize the encoder for the output file. */
-    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate);
+    encoderConfig = ma_encoder_config_init(outputEncodingFormat, decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate);
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);

@@ -826,18 +826,13 @@ The resampler supports multiple channels and is always interleaved (both input a
 The sample rates can be anything other than zero, and are always specified in hertz. They should be set to something like 44100, etc. The sample rate is the
 only configuration property that can be changed after initialization.
 
-The miniaudio resampler supports multiple algorithms:
+The miniaudio resampler has built-in support for the following algorithms:
 
     +-----------+------------------------------+
     | Algorithm | Enum Token                   |
     +-----------+------------------------------+
     | Linear    | ma_resample_algorithm_linear |
-    | Speex     | ma_resample_algorithm_speex  |
     +-----------+------------------------------+
-
-Because Speex is not public domain it is strictly opt-in and the code is stored in separate files. if you opt-in to the Speex backend you will need to consider
-it's license, the text of which can be found in it's source files in "extras/speex_resampler". Details on how to opt-in to the Speex resampler is explained in
-the Speex Resampler section below.
 
 The algorithm cannot be changed after initialization.
 
@@ -860,9 +855,7 @@ with `ma_resampler_get_input_latency()` and `ma_resampler_get_output_latency()`.
 
 6.3.1. Resampling Algorithms
 ----------------------------
-The choice of resampling algorithm depends on your situation and requirements. The linear resampler is the most efficient and has the least amount of latency,
-but at the expense of poorer quality. The Speex resampler is higher quality, but slower with more latency. It also performs several heap allocations internally
-for memory management.
+The choice of resampling algorithm depends on your situation and requirements.
 
 
 6.3.1.1. Linear Resampling
@@ -881,30 +874,6 @@ Values less than 1 will result in more washed out sound due to more of the highe
 and is a purely perceptual configuration.
 
 The API for the linear resampler is the same as the main resampler API, only it's called `ma_linear_resampler`.
-
-
-6.3.1.2. Speex Resampling
--------------------------
-The Speex resampler is made up of third party code which is released under the BSD license. Because it is licensed differently to miniaudio, which is public
-domain, it is strictly opt-in and all of it's code is stored in separate files. If you opt-in to the Speex resampler you must consider the license text in it's
-source files. To opt-in, you must first `#include` the following file before the implementation of miniaudio.h:
-
-    ```c
-    #include "extras/speex_resampler/ma_speex_resampler.h"
-    ```
-
-Both the header and implementation is contained within the same file. The implementation can be included in your program like so:
-
-    ```c
-    #define MINIAUDIO_SPEEX_RESAMPLER_IMPLEMENTATION
-    #include "extras/speex_resampler/ma_speex_resampler.h"
-    ```
-
-Note that even if you opt-in to the Speex backend, miniaudio won't use it unless you explicitly ask for it in the respective config of the object you are
-initializing. If you try to use the Speex resampler without opting in, initialization of the `ma_resampler` object will fail with `MA_NO_BACKEND`.
-
-The only configuration option to consider with the Speex resampler is the `speex.quality` config variable. This is a value between 0 and 10, with 0 being
-the fastest with the poorest quality and 10 being the slowest with the highest quality. The default value is 3.
 
 
 
@@ -2503,8 +2472,7 @@ MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resample
 
 typedef enum
 {
-    ma_resample_algorithm_linear = 0,   /* Fastest, lowest quality. Optional low-pass filtering. Default. */
-    ma_resample_algorithm_speex
+    ma_resample_algorithm_linear = 0    /* Fastest, lowest quality. Optional low-pass filtering. Default. */
 } ma_resample_algorithm;
 
 typedef struct
@@ -2519,10 +2487,6 @@ typedef struct
         ma_uint32 lpfOrder;
         double lpfNyquistFactor;
     } linear;
-    struct
-    {
-        int quality;    /* 0 to 10. Defaults to 3. */
-    } speex;
 } ma_resampler_config;
 
 MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm);
@@ -2533,10 +2497,6 @@ typedef struct
     union
     {
         ma_linear_resampler linear;
-        struct
-        {
-            void* pSpeexResamplerState;   /* SpeexResamplerState* */
-        } speex;
     } state;
 } ma_resampler;
 
@@ -2686,10 +2646,6 @@ typedef struct
             ma_uint32 lpfOrder;
             double lpfNyquistFactor;
         } linear;
-        struct
-        {
-            int quality;
-        } speex;
     } resampling;
 } ma_data_converter_config;
 
@@ -3398,10 +3354,6 @@ struct ma_device_config
         {
             ma_uint32 lpfOrder;
         } linear;
-        struct
-        {
-            int quality;
-        } speex;
     } resampling;
     struct
     {
@@ -4071,10 +4023,6 @@ struct ma_device
         {
             ma_uint32 lpfOrder;
         } linear;
-        struct
-        {
-            int quality;
-        } speex;
     } resampling;
     struct
     {
@@ -6171,10 +6119,6 @@ typedef struct
         {
             ma_uint32 lpfOrder;
         } linear;
-        struct
-        {
-            int quality;
-        } speex;
     } resampling;
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
@@ -32620,7 +32564,6 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
-        converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->capture.converter);
         if (result != MA_SUCCESS) {
@@ -32643,7 +32586,6 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
         converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
         converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
-        converterConfig.resampling.speex.quality   = pDevice->resampling.speex.quality;
 
         result = ma_data_converter_init(&converterConfig, &pDevice->playback.converter);
         if (result != MA_SUCCESS) {
@@ -33350,7 +33292,6 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
     /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
     config.resampling.algorithm       = ma_resample_algorithm_linear;
     config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
-    config.resampling.speex.quality   = 3;
 
     return config;
 }
@@ -33427,7 +33368,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->sampleRate                 = pConfig->sampleRate;
     pDevice->resampling.algorithm       = pConfig->resampling.algorithm;
     pDevice->resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
-    pDevice->resampling.speex.quality   = pConfig->resampling.speex.quality;
 
     pDevice->capture.shareMode          = pConfig->capture.shareMode;
     pDevice->capture.format             = pConfig->capture.format;
@@ -39361,24 +39301,6 @@ MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resample
 }
 
 
-#if defined(ma_speex_resampler_h)
-#define MA_HAS_SPEEX_RESAMPLER
-
-static ma_result ma_result_from_speex_err(int err)
-{
-    switch (err)
-    {
-        case RESAMPLER_ERR_SUCCESS:      return MA_SUCCESS;
-        case RESAMPLER_ERR_ALLOC_FAILED: return MA_OUT_OF_MEMORY;
-        case RESAMPLER_ERR_BAD_STATE:    return MA_ERROR;
-        case RESAMPLER_ERR_INVALID_ARG:  return MA_INVALID_ARGS;
-        case RESAMPLER_ERR_PTR_OVERLAP:  return MA_INVALID_ARGS;
-        case RESAMPLER_ERR_OVERFLOW:     return MA_ERROR;
-        default: return MA_ERROR;
-    }
-}
-#endif  /* ma_speex_resampler_h */
-
 MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
 {
     ma_resampler_config config;
@@ -39393,9 +39315,6 @@ MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 
     /* Linear. */
     config.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
     config.linear.lpfNyquistFactor = 1;
-
-    /* Speex. */
-    config.speex.quality = 3;   /* Cannot leave this as 0 as that is actually a valid value for Speex resampling quality. */
 
     return config;
 }
@@ -39435,20 +39354,6 @@ MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resamp
             }
         } break;
 
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            int speexErr;
-            pResampler->state.speex.pSpeexResamplerState = speex_resampler_init(pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->speex.quality, &speexErr);
-            if (pResampler->state.speex.pSpeexResamplerState == NULL) {
-                return ma_result_from_speex_err(speexErr);
-            }
-        #else
-            /* Speex resampler not available. */
-            return MA_NO_BACKEND;
-        #endif
-        } break;
-
         default: return MA_INVALID_ARGS;
     }
 
@@ -39464,88 +39369,12 @@ MA_API void ma_resampler_uninit(ma_resampler* pResampler)
     if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
         ma_linear_resampler_uninit(&pResampler->state.linear);
     }
-
-#if defined(MA_HAS_SPEEX_RESAMPLER)
-    if (pResampler->config.algorithm == ma_resample_algorithm_speex) {
-        speex_resampler_destroy((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
-    }
-#endif
 }
 
 static ma_result ma_resampler_process_pcm_frames__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
 }
-
-#if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process_pcm_frames__read__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    int speexErr;
-    ma_uint64 frameCountOut;
-    ma_uint64 frameCountIn;
-    ma_uint64 framesProcessedOut;
-    ma_uint64 framesProcessedIn;
-    unsigned int framesPerIteration = UINT_MAX;
-
-    MA_ASSERT(pResampler     != NULL);
-    MA_ASSERT(pFramesOut     != NULL);
-    MA_ASSERT(pFrameCountOut != NULL);
-    MA_ASSERT(pFrameCountIn  != NULL);
-
-    /*
-    Reading from the Speex resampler requires a bit of dancing around for a few reasons. The first thing is that it's frame counts
-    are in unsigned int's whereas ours is in ma_uint64. We therefore need to run the conversion in a loop. The other, more complicated
-    problem, is that we need to keep track of the input time, similar to what we do with the linear resampler. The reason we need to
-    do this is for ma_resampler_get_required_input_frame_count() and ma_resampler_get_expected_output_frame_count().
-    */
-    frameCountOut      = *pFrameCountOut;
-    frameCountIn       = *pFrameCountIn;
-    framesProcessedOut = 0;
-    framesProcessedIn  = 0;
-
-    while (framesProcessedOut < frameCountOut && framesProcessedIn < frameCountIn) {
-        unsigned int frameCountInThisIteration;
-        unsigned int frameCountOutThisIteration;
-        const void* pFramesInThisIteration;
-        void* pFramesOutThisIteration;
-
-        frameCountInThisIteration = framesPerIteration;
-        if ((ma_uint64)frameCountInThisIteration > (frameCountIn - framesProcessedIn)) {
-            frameCountInThisIteration = (unsigned int)(frameCountIn - framesProcessedIn);
-        }
-
-        frameCountOutThisIteration = framesPerIteration;
-        if ((ma_uint64)frameCountOutThisIteration > (frameCountOut - framesProcessedOut)) {
-            frameCountOutThisIteration = (unsigned int)(frameCountOut - framesProcessedOut);
-        }
-
-        pFramesInThisIteration  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
-        pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels));
-
-        if (pResampler->config.format == ma_format_f32) {
-            speexErr = speex_resampler_process_interleaved_float((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (const float*)pFramesInThisIteration, &frameCountInThisIteration, (float*)pFramesOutThisIteration, &frameCountOutThisIteration);
-        } else if (pResampler->config.format == ma_format_s16) {
-            speexErr = speex_resampler_process_interleaved_int((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, (const spx_int16_t*)pFramesInThisIteration, &frameCountInThisIteration, (spx_int16_t*)pFramesOutThisIteration, &frameCountOutThisIteration);
-        } else {
-            /* Format not supported. Should never get here. */
-            MA_ASSERT(MA_FALSE);
-            return MA_INVALID_OPERATION;
-        }
-
-        if (speexErr != RESAMPLER_ERR_SUCCESS) {
-            return ma_result_from_speex_err(speexErr);
-        }
-
-        framesProcessedIn  += frameCountInThisIteration;
-        framesProcessedOut += frameCountOutThisIteration;
-    }
-
-    *pFrameCountOut = framesProcessedOut;
-    *pFrameCountIn  = framesProcessedIn;
-
-    return MA_SUCCESS;
-}
-#endif
 
 static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
@@ -39569,15 +39398,6 @@ static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler,
             return ma_resampler_process_pcm_frames__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
         }
 
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process_pcm_frames__read__speex(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        #else
-            break;
-        #endif
-        }
-
         default: break;
     }
 
@@ -39595,81 +39415,6 @@ static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pRe
     return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
 }
 
-#if defined(MA_HAS_SPEEX_RESAMPLER)
-static ma_result ma_resampler_process_pcm_frames__seek__speex(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    /* The generic seek method is implemented in on top of ma_resampler_process_pcm_frames__read() by just processing into a dummy buffer. */
-    float devnull[4096];
-    ma_uint64 totalOutputFramesToProcess;
-    ma_uint64 totalOutputFramesProcessed;
-    ma_uint64 totalInputFramesProcessed;
-    ma_uint32 bpf;
-    ma_result result;
-
-    MA_ASSERT(pResampler != NULL);
-
-    totalOutputFramesProcessed = 0;
-    totalInputFramesProcessed = 0;
-    bpf = ma_get_bytes_per_frame(pResampler->config.format, pResampler->config.channels);
-
-    if (pFrameCountOut != NULL) {
-        /* Seek by output frames. */
-        totalOutputFramesToProcess = *pFrameCountOut;
-    } else {
-        /* Seek by input frames. */
-        MA_ASSERT(pFrameCountIn != NULL);
-        totalOutputFramesToProcess = ma_resampler_get_expected_output_frame_count(pResampler, *pFrameCountIn);
-    }
-
-    if (pFramesIn != NULL) {
-        /* Process input data. */
-        MA_ASSERT(pFrameCountIn != NULL);
-        while (totalOutputFramesProcessed < totalOutputFramesToProcess && totalInputFramesProcessed < *pFrameCountIn) {
-            ma_uint64 inputFramesToProcessThisIteration  = (*pFrameCountIn - totalInputFramesProcessed);
-            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
-            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
-                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
-            }
-
-            result = ma_resampler_process_pcm_frames__read(pResampler, ma_offset_ptr(pFramesIn, totalInputFramesProcessed*bpf), &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
-            if (result != MA_SUCCESS) {
-                return result;
-            }
-
-            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
-            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
-        }
-    } else {
-        /* Don't process input data - just update timing and filter state as if zeroes were passed in. */
-        while (totalOutputFramesProcessed < totalOutputFramesToProcess) {
-            ma_uint64 inputFramesToProcessThisIteration  = 16384;
-            ma_uint64 outputFramesToProcessThisIteration = (totalOutputFramesToProcess - totalOutputFramesProcessed);
-            if (outputFramesToProcessThisIteration > sizeof(devnull) / bpf) {
-                outputFramesToProcessThisIteration = sizeof(devnull) / bpf;
-            }
-
-            result = ma_resampler_process_pcm_frames__read(pResampler, NULL, &inputFramesToProcessThisIteration, ma_offset_ptr(devnull, totalOutputFramesProcessed*bpf), &outputFramesToProcessThisIteration);
-            if (result != MA_SUCCESS) {
-                return result;
-            }
-
-            totalOutputFramesProcessed += outputFramesToProcessThisIteration;
-            totalInputFramesProcessed  += inputFramesToProcessThisIteration;
-        }
-    }
-
-
-    if (pFrameCountIn != NULL) {
-        *pFrameCountIn = totalInputFramesProcessed;
-    }
-    if (pFrameCountOut != NULL) {
-        *pFrameCountOut = totalOutputFramesProcessed;
-    }
-
-    return MA_SUCCESS;
-}
-#endif
-
 static ma_result ma_resampler_process_pcm_frames__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
 {
     MA_ASSERT(pResampler != NULL);
@@ -39680,15 +39425,6 @@ static ma_result ma_resampler_process_pcm_frames__seek(ma_resampler* pResampler,
         {
             return ma_resampler_process_pcm_frames__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
         } break;
-
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_resampler_process_pcm_frames__seek__speex(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-        #else
-            break;
-        #endif
-        };
 
         default: break;
     }
@@ -39737,15 +39473,6 @@ MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampl
         {
             return ma_linear_resampler_set_rate(&pResampler->state.linear, sampleRateIn, sampleRateOut);
         } break;
-
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return ma_result_from_speex_err(speex_resampler_set_rate((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, sampleRateIn, sampleRateOut));
-        #else
-            break;
-        #endif
-        };
 
         default: break;
     }
@@ -39798,21 +39525,6 @@ MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler*
             return ma_linear_resampler_get_required_input_frame_count(&pResampler->state.linear, outputFrameCount);
         }
 
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            spx_uint64_t count;
-            int speexErr = ma_speex_resampler_get_required_input_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, outputFrameCount, &count);
-            if (speexErr != RESAMPLER_ERR_SUCCESS) {
-                return 0;
-            }
-
-            return (ma_uint64)count;
-        #else
-            break;
-        #endif
-        }
-
         default: break;
     }
 
@@ -39838,21 +39550,6 @@ MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler
             return ma_linear_resampler_get_expected_output_frame_count(&pResampler->state.linear, inputFrameCount);
         }
 
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            spx_uint64_t count;
-            int speexErr = ma_speex_resampler_get_expected_output_frame_count((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState, inputFrameCount, &count);
-            if (speexErr != RESAMPLER_ERR_SUCCESS) {
-                return 0;
-            }
-
-            return (ma_uint64)count;
-        #else
-            break;
-        #endif
-        }
-
         default: break;
     }
 
@@ -39874,15 +39571,6 @@ MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler)
             return ma_linear_resampler_get_input_latency(&pResampler->state.linear);
         }
 
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return (ma_uint64)ma_speex_resampler_get_input_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
-        #else
-            break;
-        #endif
-        }
-
         default: break;
     }
 
@@ -39902,15 +39590,6 @@ MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler)
         case ma_resample_algorithm_linear:
         {
             return ma_linear_resampler_get_output_latency(&pResampler->state.linear);
-        }
-
-        case ma_resample_algorithm_speex:
-        {
-        #if defined(MA_HAS_SPEEX_RESAMPLER)
-            return (ma_uint64)ma_speex_resampler_get_output_latency((SpeexResamplerState*)pResampler->state.speex.pSpeexResamplerState);
-        #else
-            break;
-        #endif
         }
 
         default: break;
@@ -40825,9 +40504,6 @@ MA_API ma_data_converter_config ma_data_converter_config_init_default()
     config.resampling.linear.lpfOrder = 1;
     config.resampling.linear.lpfNyquistFactor = 1;
 
-    /* Speex resampling defaults. */
-    config.resampling.speex.quality = 3;
-
     return config;
 }
 
@@ -40928,7 +40604,6 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
         resamplerConfig.linear.lpfOrder         = pConverter->config.resampling.linear.lpfOrder;
         resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
-        resamplerConfig.speex.quality           = pConverter->config.resampling.speex.quality;
 
         result = ma_resampler_init(&resamplerConfig, &pConverter->resampler);
         if (result != MA_SUCCESS) {
@@ -46793,7 +46468,6 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
     config.sampleRate = outputSampleRate;
     config.resampling.algorithm = ma_resample_algorithm_linear;
     config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
-    config.resampling.speex.quality = 3;
     config.encodingFormat = ma_encoding_format_unknown;
 
     /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
@@ -46885,7 +46559,6 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
     converterConfig.resampling.algorithm       = pConfig->resampling.algorithm;
     converterConfig.resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
-    converterConfig.resampling.speex.quality   = pConfig->resampling.speex.quality;
 
     return ma_data_converter_init(&converterConfig, &pDecoder->converter);
 }
