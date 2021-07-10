@@ -43428,7 +43428,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                     emptyLoopCounter = 0;
                 }
 
-                if (ma_data_source_seek_to_pcm_frame(pCurrentDataSource, pCurrentDataSource->loopBegInFrames) != MA_SUCCESS) {
+                result = ma_data_source_seek_to_pcm_frame(pCurrentDataSource, pCurrentDataSource->loopBegInFrames);
+                if (result != MA_SUCCESS) {
                     break;  /* Failed to loop. Abort. */
                 }
 
@@ -43448,7 +43449,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 }
 
                 /* The next data source needs to be rewound to ensure data is read in looping scenarios. */
-                ma_data_source_seek_to_pcm_frame(pDataSourceBase->pCurrent, 0);
+                result = ma_data_source_seek_to_pcm_frame(pDataSourceBase->pCurrent, 0);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
 
                 /*
                 We need to make sure we clear the MA_AT_END result so we don't accidentally return
