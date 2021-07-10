@@ -33296,10 +33296,7 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
     ma_device_config config;
     MA_ZERO_OBJECT(&config);
     config.deviceType = deviceType;
-
-    /* Resampling defaults. We must never use the Speex backend by default because it uses licensed third party code. */
-    config.resampling.algorithm       = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
+    config.resampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate don't matter here. */
 
     return config;
 }
@@ -46487,11 +46484,10 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
 {
     ma_decoder_config config;
     MA_ZERO_OBJECT(&config);
-    config.format     = outputFormat;
-    config.channels   = ma_min(outputChannels, ma_countof(config.channelMap));
-    config.sampleRate = outputSampleRate;
-    config.resampling.algorithm = ma_resample_algorithm_linear;
-    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
+    config.format         = outputFormat;
+    config.channels       = ma_min(outputChannels, ma_countof(config.channelMap));
+    config.sampleRate     = outputSampleRate;
+    config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
     config.encodingFormat = ma_encoding_format_unknown;
 
     /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
