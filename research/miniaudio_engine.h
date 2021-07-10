@@ -12683,7 +12683,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     resamplerConfig = ma_resampler_config_init(ma_format_f32, baseNodeConfig.pInputChannels[0], pEngineNode->sampleRate, ma_engine_get_sample_rate(pEngineNode->pEngine), ma_resample_algorithm_linear);
     resamplerConfig.linear.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
-    result = ma_resampler_init(&resamplerConfig, &pEngineNode->resampler);
+    result = ma_resampler_init(&resamplerConfig, &pEngineNode->pEngine->allocationCallbacks, &pEngineNode->resampler);  /* TODO: Use pre-allocation here. */
     if (result != MA_SUCCESS) {
         goto error1;
     }
@@ -12725,7 +12725,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     return MA_SUCCESS;
 
 error3: ma_spatializer_uninit(&pEngineNode->spatializer, NULL); /* <-- No need for allocation callbacks here because we use a preallocated heap. */
-error2: ma_resampler_uninit(&pEngineNode->resampler);
+error2: ma_resampler_uninit(&pEngineNode->resampler, &pConfig->pEngine->allocationCallbacks);   /* TODO: Remove this when we have support for preallocated heaps with resamplers. */
 error1: ma_node_uninit(&pEngineNode->baseNode, NULL);           /* <-- No need for allocation callbacks here because we use a preallocated heap. */
 error0: return result;
 }
@@ -12766,11 +12766,11 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     The base node always needs to be uninitialized first to ensure it's detached from the graph completely before we
     destroy anything that might be in the middle of being used by the processing function.
     */
-    ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
+    ma_node_uninit(&pEngineNode->baseNode, NULL);
 
     /* Now that the node has been uninitialized we can safely uninitialize the rest. */
     ma_spatializer_uninit(&pEngineNode->spatializer, NULL);
-    ma_resampler_uninit(&pEngineNode->resampler);
+    ma_resampler_uninit(&pEngineNode->resampler, NULL);
 
     /* Free the heap last. */
     if (pEngineNode->_pHeap != NULL && pEngineNode->_ownsHeap) {
@@ -14286,7 +14286,7 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
         }
 
         if (pSampleRate != NULL) {
-            *pSampleRate = pSound->engineNode.resampler.config.sampleRateIn;
+            *pSampleRate = pSound->engineNode.resampler.sampleRateIn;
         }
 
         if (pChannelMap != NULL) {

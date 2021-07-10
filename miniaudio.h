@@ -2465,50 +2465,75 @@ MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler);
 MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
-MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
-MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
 MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler);
 MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler);
+MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
+MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
+
+
+typedef struct ma_resampler_config ma_resampler_config;
+
+typedef void ma_resampling_backend;
+typedef struct
+{
+    ma_result (* onInit                       )(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend);
+    void      (* onUninit                     )(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onRead                       )(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+    ma_result (* onSetRate                    )(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut); /* Optional. Rate changes will be disabled. */
+    ma_uint64 (* onGetInputLatency            )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
+    ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
+    ma_uint64 (* onGetRequiredInputFrameCount )(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount);                /* Optional. Latency mitigation will be disabled. */
+    ma_uint64 (* onGetExpectedOutputFrameCount)(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount);                 /* Optional. Latency mitigation will be disabled. */
+} ma_resampling_backend_vtable;
 
 typedef enum
 {
-    ma_resample_algorithm_linear = 0    /* Fastest, lowest quality. Optional low-pass filtering. Default. */
+    ma_resample_algorithm_linear = 0,    /* Fastest, lowest quality. Optional low-pass filtering. Default. */
+    ma_resample_algorithm_custom,
 } ma_resample_algorithm;
 
-typedef struct
+struct ma_resampler_config
 {
     ma_format format;   /* Must be either ma_format_f32 or ma_format_s16. */
     ma_uint32 channels;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
-    ma_resample_algorithm algorithm;
+    ma_resample_algorithm algorithm;    /* When set to ma_resample_algorithm_custom, pBackendVTable will be used. */
+    ma_resampling_backend_vtable* pBackendVTable;
+    void* pBackendUserData;
     struct
     {
         ma_uint32 lpfOrder;
         double lpfNyquistFactor;
     } linear;
-} ma_resampler_config;
+};
 
 MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm);
 
 typedef struct
 {
-    ma_resampler_config config;
+    ma_resampling_backend* pBackend;
+    ma_resampling_backend_vtable* pBackendVTable;
+    void* pBackendUserData;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
     union
     {
         ma_linear_resampler linear;
-    } state;
+    } state;    /* State for stock resamplers so we can avoid a malloc. For stock resamplers, pBackend will point here. */
 } ma_resampler;
 
 /*
 Initializes a new resampler object from a config.
 */
-MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler);
+MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampler* pResampler);
 
 /*
 Uninitializes a resampler.
 */
-MA_API void ma_resampler_uninit(ma_resampler* pResampler);
+MA_API void ma_resampler_uninit(ma_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks);
 
 /*
 Converts the given input data.
@@ -2547,6 +2572,15 @@ The ration is in/out.
 */
 MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio);
 
+/*
+Retrieves the latency introduced by the resampler in input frames.
+*/
+MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler);
+
+/*
+Retrieves the latency introduced by the resampler in output frames.
+*/
+MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler);
 
 /*
 Calculates the number of whole input frames that would need to be read from the client in order to output the specified
@@ -2562,18 +2596,6 @@ Calculates the number of whole output frames that would be output after fully re
 input frames.
 */
 MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount);
-
-
-/*
-Retrieves the latency introduced by the resampler in input frames.
-*/
-MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler);
-
-/*
-Retrieves the latency introduced by the resampler in output frames.
-*/
-MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler);
-
 
 
 /**************************************************************************************************************************************************************
@@ -2637,16 +2659,8 @@ typedef struct
     ma_dither_mode ditherMode;
     ma_channel_mix_mode channelMixMode;
     float channelWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when channelMixMode is set to ma_channel_mix_mode_custom_weights. */
-    struct
-    {
-        ma_resample_algorithm algorithm;
-        ma_bool32 allowDynamicSampleRate;
-        struct
-        {
-            ma_uint32 lpfOrder;
-            double lpfNyquistFactor;
-        } linear;
-    } resampling;
+    ma_bool32 allowDynamicSampleRate;
+    ma_resampler_config resampling;
 } ma_data_converter_config;
 
 MA_API ma_data_converter_config ma_data_converter_config_init_default(void);
@@ -2664,8 +2678,8 @@ typedef struct
     ma_bool8 isPassthrough;
 } ma_data_converter;
 
-MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_data_converter* pConverter);
-MA_API void ma_data_converter_uninit(ma_data_converter* pConverter);
+MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_converter* pConverter);
+MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_data_converter_set_rate(ma_data_converter* pConverter, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter, float ratioInOut);
@@ -3347,14 +3361,7 @@ struct ma_device_config
     ma_device_callback_proc dataCallback;
     ma_stop_proc stopCallback;
     void* pUserData;
-    struct
-    {
-        ma_resample_algorithm algorithm;
-        struct
-        {
-            ma_uint32 lpfOrder;
-        } linear;
-    } resampling;
+    ma_resampler_config resampling;
     struct
     {
         const ma_device_id* pDeviceID;
@@ -4019,6 +4026,8 @@ struct ma_device
     struct
     {
         ma_resample_algorithm algorithm;
+        ma_resampling_backend_vtable* pBackendVTable;
+        void* pBackendUserData;
         struct
         {
             ma_uint32 lpfOrder;
@@ -6112,14 +6121,7 @@ typedef struct
     ma_channel channelMap[MA_MAX_CHANNELS];
     ma_channel_mix_mode channelMixMode;
     ma_dither_mode ditherMode;
-    struct
-    {
-        ma_resample_algorithm algorithm;
-        struct
-        {
-            ma_uint32 lpfOrder;
-        } linear;
-    } resampling;
+    ma_resampler_config resampling;
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_decoding_backend_vtable** ppCustomBackendVTables;
@@ -10456,6 +10458,8 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 
 MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
+    /* TODO: Change this so we're not initializing a resampler because this will introduce a malloc. */
+
     /* For robustness we're going to use a resampler object to calculate this since that already has a way of calculating this. */
     ma_result result;
     ma_uint64 frameCountOut;
@@ -10467,14 +10471,14 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
     }
 
     config = ma_resampler_config_init(ma_format_s16, 1, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
-    result = ma_resampler_init(&config, &resampler);
+    result = ma_resampler_init(&config, NULL, &resampler);
     if (result != MA_SUCCESS) {
         return 0;
     }
 
     frameCountOut = ma_resampler_get_expected_output_frame_count(&resampler, frameCountIn);
 
-    ma_resampler_uninit(&resampler);
+    ma_resampler_uninit(&resampler, NULL);
     return frameCountOut;
 }
 
@@ -32552,20 +32556,22 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         /* Converting from internal device format to client format. */
         ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
-        converterConfig.formatIn                   = pDevice->capture.internalFormat;
-        converterConfig.channelsIn                 = pDevice->capture.internalChannels;
-        converterConfig.sampleRateIn               = pDevice->capture.internalSampleRate;
+        converterConfig.formatIn                    = pDevice->capture.internalFormat;
+        converterConfig.channelsIn                  = pDevice->capture.internalChannels;
+        converterConfig.sampleRateIn                = pDevice->capture.internalSampleRate;
         ma_channel_map_copy(converterConfig.channelMapIn, pDevice->capture.internalChannelMap, ma_min(pDevice->capture.internalChannels, MA_MAX_CHANNELS));
-        converterConfig.formatOut                  = pDevice->capture.format;
-        converterConfig.channelsOut                = pDevice->capture.channels;
-        converterConfig.sampleRateOut              = pDevice->sampleRate;
+        converterConfig.formatOut                   = pDevice->capture.format;
+        converterConfig.channelsOut                 = pDevice->capture.channels;
+        converterConfig.sampleRateOut               = pDevice->sampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, ma_min(pDevice->capture.channels, MA_MAX_CHANNELS));
-        converterConfig.channelMixMode             = pDevice->capture.channelMixMode;
-        converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
-        converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
+        converterConfig.channelMixMode              = pDevice->capture.channelMixMode;
+        converterConfig.allowDynamicSampleRate      = MA_FALSE;
+        converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
+        converterConfig.resampling.linear.lpfOrder  = pDevice->resampling.linear.lpfOrder;
+        converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
+        converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
-        result = ma_data_converter_init(&converterConfig, &pDevice->capture.converter);
+        result = ma_data_converter_init(&converterConfig, &pDevice->pContext->allocationCallbacks, &pDevice->capture.converter);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -32574,20 +32580,22 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         /* Converting from client format to device format. */
         ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
-        converterConfig.formatIn                   = pDevice->playback.format;
-        converterConfig.channelsIn                 = pDevice->playback.channels;
-        converterConfig.sampleRateIn               = pDevice->sampleRate;
+        converterConfig.formatIn                    = pDevice->playback.format;
+        converterConfig.channelsIn                  = pDevice->playback.channels;
+        converterConfig.sampleRateIn                = pDevice->sampleRate;
         ma_channel_map_copy(converterConfig.channelMapIn, pDevice->playback.channelMap, ma_min(pDevice->playback.channels, MA_MAX_CHANNELS));
-        converterConfig.formatOut                  = pDevice->playback.internalFormat;
-        converterConfig.channelsOut                = pDevice->playback.internalChannels;
-        converterConfig.sampleRateOut              = pDevice->playback.internalSampleRate;
+        converterConfig.formatOut                   = pDevice->playback.internalFormat;
+        converterConfig.channelsOut                 = pDevice->playback.internalChannels;
+        converterConfig.sampleRateOut               = pDevice->playback.internalSampleRate;
         ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, ma_min(pDevice->playback.internalChannels, MA_MAX_CHANNELS));
-        converterConfig.channelMixMode             = pDevice->playback.channelMixMode;
-        converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;
-        converterConfig.resampling.algorithm       = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfOrder = pDevice->resampling.linear.lpfOrder;
+        converterConfig.channelMixMode              = pDevice->playback.channelMixMode;
+        converterConfig.allowDynamicSampleRate      = MA_FALSE;
+        converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
+        converterConfig.resampling.linear.lpfOrder  = pDevice->resampling.linear.lpfOrder;
+        converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
+        converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
-        result = ma_data_converter_init(&converterConfig, &pDevice->playback.converter);
+        result = ma_data_converter_init(&converterConfig, &pDevice->pContext->allocationCallbacks, &pDevice->playback.converter);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -33360,26 +33368,28 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         MA_COPY_MEMORY(&pDevice->capture.id, pConfig->capture.pDeviceID, sizeof(pDevice->capture.id));
     }
 
-    pDevice->noPreSilencedOutputBuffer  = pConfig->noPreSilencedOutputBuffer;
-    pDevice->noClip                     = pConfig->noClip;
-    pDevice->masterVolumeFactor         = 1;
+    pDevice->noPreSilencedOutputBuffer   = pConfig->noPreSilencedOutputBuffer;
+    pDevice->noClip                      = pConfig->noClip;
+    pDevice->masterVolumeFactor          = 1;
 
-    pDevice->type                       = pConfig->deviceType;
-    pDevice->sampleRate                 = pConfig->sampleRate;
-    pDevice->resampling.algorithm       = pConfig->resampling.algorithm;
-    pDevice->resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
+    pDevice->type                        = pConfig->deviceType;
+    pDevice->sampleRate                  = pConfig->sampleRate;
+    pDevice->resampling.algorithm        = pConfig->resampling.algorithm;
+    pDevice->resampling.linear.lpfOrder  = pConfig->resampling.linear.lpfOrder;
+    pDevice->resampling.pBackendVTable   = pConfig->resampling.pBackendVTable;
+    pDevice->resampling.pBackendUserData = pConfig->resampling.pBackendUserData;
 
-    pDevice->capture.shareMode          = pConfig->capture.shareMode;
-    pDevice->capture.format             = pConfig->capture.format;
-    pDevice->capture.channels           = pConfig->capture.channels;
+    pDevice->capture.shareMode           = pConfig->capture.shareMode;
+    pDevice->capture.format              = pConfig->capture.format;
+    pDevice->capture.channels            = pConfig->capture.channels;
     ma_channel_map_copy(pDevice->capture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
-    pDevice->capture.channelMixMode     = pConfig->capture.channelMixMode;
+    pDevice->capture.channelMixMode      = pConfig->capture.channelMixMode;
 
-    pDevice->playback.shareMode         = pConfig->playback.shareMode;
-    pDevice->playback.format            = pConfig->playback.format;
-    pDevice->playback.channels          = pConfig->playback.channels;
+    pDevice->playback.shareMode          = pConfig->playback.shareMode;
+    pDevice->playback.format             = pConfig->playback.format;
+    pDevice->playback.channels           = pConfig->playback.channels;
     ma_channel_map_copy(pDevice->playback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
-    pDevice->playback.channelMixMode    = pConfig->playback.channelMixMode;
+    pDevice->playback.channelMixMode     = pConfig->playback.channelMixMode;
 
 
     result = ma_mutex_init(&pDevice->startStopLock);
@@ -38783,6 +38793,10 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
         return MA_INVALID_ARGS;
     }
 
+    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
         return MA_INVALID_ARGS;
     }
@@ -39221,6 +39235,23 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
     return ma_linear_resampler_set_rate(pResampler, n, d);
 }
 
+MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    return 1 + ma_lpf_get_latency(&pResampler->lpf);
+}
+
+MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    return ma_linear_resampler_get_input_latency(pResampler) * pResampler->config.sampleRateOut / pResampler->config.sampleRateIn;
+}
 
 MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
 {
@@ -39282,23 +39313,93 @@ MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_li
     return outputFrameCount;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler)
+
+/* Linear resampler backend vtable. */
+static ma_result ma_resampling_backend_init__linear(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend)
 {
-    if (pResampler == NULL) {
-        return 0;
+    ma_resampler* pResampler = (ma_resampler*)pUserData;
+    ma_result result;
+    ma_linear_resampler_config linearConfig;
+
+    /* No need for a malloc for the linear resampler because we store the state inside the ma_resampler object itself. */
+    (void)pAllocationCallbacks;
+
+    linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
+    linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
+    linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
+
+    result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    return 1 + ma_lpf_get_latency(&pResampler->lpf);
+    *ppBackend = &pResampler->state.linear;
+
+    return MA_SUCCESS;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler)
+static void ma_resampling_backend_uninit__linear(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
 {
-    if (pResampler == NULL) {
-        return 0;
-    }
+    (void)pUserData;
+    (void)pAllocationCallbacks;
 
-    return ma_linear_resampler_get_input_latency(pResampler) * pResampler->config.sampleRateOut / pResampler->config.sampleRateIn;
+    ma_linear_resampler_uninit((ma_linear_resampler*)pBackend);
 }
+
+static ma_result ma_resampling_backend_read__linear(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_process_pcm_frames((ma_linear_resampler*)pBackend, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+}
+
+static ma_result ma_resampling_backend_set_rate__linear(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_set_rate((ma_linear_resampler*)pBackend, sampleRateIn, sampleRateOut);
+}
+
+static ma_uint64 ma_resampling_backend_get_input_latency__linear(void* pUserData, const ma_resampling_backend* pBackend)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_get_input_latency((const ma_linear_resampler*)pBackend);
+}
+
+static ma_uint64 ma_resampling_backend_get_output_latency__linear(void* pUserData, const ma_resampling_backend* pBackend)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_get_output_latency((const ma_linear_resampler*)pBackend);
+}
+
+static ma_uint64 ma_resampling_backend_get_required_input_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_get_required_input_frame_count((const ma_linear_resampler*)pBackend, outputFrameCount);
+}
+
+static ma_uint64 ma_resampling_backend_get_expected_output_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_get_expected_output_frame_count((const ma_linear_resampler*)pBackend, inputFrameCount);
+}
+
+static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
+{
+    ma_resampling_backend_init__linear,
+    ma_resampling_backend_uninit__linear,
+    ma_resampling_backend_read__linear,
+    ma_resampling_backend_set_rate__linear,
+    ma_resampling_backend_get_input_latency__linear,
+    ma_resampling_backend_get_output_latency__linear,
+    ma_resampling_backend_get_required_input_frame_count__linear,
+    ma_resampling_backend_get_expected_output_frame_count__linear
+};
+
 
 
 MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_resample_algorithm algorithm)
@@ -39319,7 +39420,7 @@ MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 
     return config;
 }
 
-MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resampler* pResampler)
+MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampler* pResampler)
 {
     ma_result result;
 
@@ -39333,107 +39434,52 @@ MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, ma_resamp
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->format != ma_format_f32 && pConfig->format != ma_format_s16) {
-        return MA_INVALID_ARGS;
-    }
-
-    pResampler->config = *pConfig;
+    pResampler->format        = pConfig->format;
+    pResampler->channels      = pConfig->channels;
+    pResampler->sampleRateIn  = pConfig->sampleRateIn;
+    pResampler->sampleRateOut = pConfig->sampleRateOut;
 
     switch (pConfig->algorithm)
     {
         case ma_resample_algorithm_linear:
         {
-            ma_linear_resampler_config linearConfig;
-            linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
-            linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
-            linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
+            pResampler->pBackendVTable   = &g_ma_linear_resampler_vtable;
+            pResampler->pBackendUserData = pResampler;
+        } break;
 
-            result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
-            if (result != MA_SUCCESS) {
-                return result;
-            }
+        case ma_resample_algorithm_custom:
+        {
+            pResampler->pBackendVTable   = pConfig->pBackendVTable;
+            pResampler->pBackendUserData = pConfig->pBackendUserData;
         } break;
 
         default: return MA_INVALID_ARGS;
     }
 
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onInit == NULL) {
+        return MA_NOT_IMPLEMENTED;  /* onInit not implemented. */
+    }
+
+    result = pResampler->pBackendVTable->onInit(pResampler->pBackendUserData, pConfig, pAllocationCallbacks, &pResampler->pBackend);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
     return MA_SUCCESS;
 }
 
-MA_API void ma_resampler_uninit(ma_resampler* pResampler)
+MA_API void ma_resampler_uninit(ma_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pResampler == NULL) {
         return;
     }
 
-    if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
-        ma_linear_resampler_uninit(&pResampler->state.linear);
-    }
-}
-
-static ma_result ma_resampler_process_pcm_frames__read__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-}
-
-static ma_result ma_resampler_process_pcm_frames__read(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
-{
-    MA_ASSERT(pResampler != NULL);
-    MA_ASSERT(pFramesOut != NULL);
-
-    /* pFramesOut is not NULL, which means we must have a capacity. */
-    if (pFrameCountOut == NULL) {
-        return MA_INVALID_ARGS;
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onUninit == NULL) {
+        return;
     }
 
-    /* It doesn't make sense to not have any input frames to process. */
-    if (pFrameCountIn == NULL || pFramesIn == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_resampler_process_pcm_frames__read__linear(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        }
-
-        default: break;
-    }
-
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return MA_INVALID_ARGS;
+    pResampler->pBackendVTable->onUninit(pResampler->pBackendUserData, pResampler->pBackend, pAllocationCallbacks);
 }
-
-
-static ma_result ma_resampler_process_pcm_frames__seek__linear(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    MA_ASSERT(pResampler != NULL);
-
-    /* Seeking is supported natively by the linear resampler. */
-    return ma_linear_resampler_process_pcm_frames(&pResampler->state.linear, pFramesIn, pFrameCountIn, NULL, pFrameCountOut);
-}
-
-static ma_result ma_resampler_process_pcm_frames__seek(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, ma_uint64* pFrameCountOut)
-{
-    MA_ASSERT(pResampler != NULL);
-
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_resampler_process_pcm_frames__seek__linear(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
-        } break;
-
-        default: break;
-    }
-
-    /* Should never hit this. */
-    MA_ASSERT(MA_FALSE);
-    return MA_INVALID_ARGS;
-}
-
 
 MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
@@ -39445,17 +39491,17 @@ MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const
         return MA_INVALID_ARGS;
     }
 
-    if (pFramesOut != NULL) {
-        /* Reading. */
-        return ma_resampler_process_pcm_frames__read(pResampler, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    } else {
-        /* Seeking. */
-        return ma_resampler_process_pcm_frames__seek(pResampler, pFramesIn, pFrameCountIn, pFrameCountOut);
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onRead == NULL) {
+        return MA_NOT_IMPLEMENTED;
     }
+
+    return pResampler->pBackendVTable->onRead(pResampler->pBackendUserData, pResampler->pBackend, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
 }
 
 MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
 {
+    ma_result result;
+
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -39464,48 +39510,66 @@ MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampl
         return MA_INVALID_ARGS;
     }
 
-    pResampler->config.sampleRateIn  = sampleRateIn;
-    pResampler->config.sampleRateOut = sampleRateOut;
-
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_linear_resampler_set_rate(&pResampler->state.linear, sampleRateIn, sampleRateOut);
-        } break;
-
-        default: break;
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onSetRate == NULL) {
+        return MA_NOT_IMPLEMENTED;
     }
 
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return MA_INVALID_OPERATION;
+    result = pResampler->pBackendVTable->onSetRate(pResampler->pBackendUserData, pResampler->pBackend, sampleRateIn, sampleRateOut);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pResampler->sampleRateIn  = sampleRateIn;
+    pResampler->sampleRateOut = sampleRateOut;
+    
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float ratio)
 {
+    ma_uint32 n;
+    ma_uint32 d;
+
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pResampler->config.algorithm == ma_resample_algorithm_linear) {
-        return ma_linear_resampler_set_rate_ratio(&pResampler->state.linear, ratio);
-    } else {
-        /* Getting here means the backend does not have native support for setting the rate as a ratio so we just do it generically. */
-        ma_uint32 n;
-        ma_uint32 d;
+    d = 1000;
+    n = (ma_uint32)(ratio * d);
 
-        d = 1000;
-        n = (ma_uint32)(ratio * d);
-
-        if (n == 0) {
-            return MA_INVALID_ARGS; /* Ratio too small. */
-        }
-
-        MA_ASSERT(n != 0);
-
-        return ma_resampler_set_rate(pResampler, n, d);
+    if (n == 0) {
+        return MA_INVALID_ARGS; /* Ratio too small. */
     }
+
+    MA_ASSERT(n != 0);
+
+    return ma_resampler_set_rate(pResampler, n, d);
+}
+
+MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetInputLatency == NULL) {
+        return 0;
+    }
+
+    return pResampler->pBackendVTable->onGetInputLatency(pResampler->pBackendUserData, pResampler->pBackend);
+}
+
+MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return 0;
+    }
+
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetOutputLatency == NULL) {
+        return 0;
+    }
+
+    return pResampler->pBackendVTable->onGetOutputLatency(pResampler->pBackendUserData, pResampler->pBackend);
 }
 
 MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount)
@@ -39518,86 +39582,28 @@ MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler*
         return 0;
     }
 
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_linear_resampler_get_required_input_frame_count(&pResampler->state.linear, outputFrameCount);
-        }
-
-        default: break;
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetRequiredInputFrameCount == NULL) {
+        return 0;
     }
 
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
+    return pResampler->pBackendVTable->onGetRequiredInputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, outputFrameCount);
 }
 
 MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount)
 {
     if (pResampler == NULL) {
-        return 0;   /* Invalid args. */
+        return 0;
     }
 
     if (inputFrameCount == 0) {
         return 0;
     }
 
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_linear_resampler_get_expected_output_frame_count(&pResampler->state.linear, inputFrameCount);
-        }
-
-        default: break;
-    }
-
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
-}
-
-MA_API ma_uint64 ma_resampler_get_input_latency(const ma_resampler* pResampler)
-{
-    if (pResampler == NULL) {
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetExpectedOutputFrameCount == NULL) {
         return 0;
     }
 
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_linear_resampler_get_input_latency(&pResampler->state.linear);
-        }
-
-        default: break;
-    }
-
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
-}
-
-MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler)
-{
-    if (pResampler == NULL) {
-        return 0;
-    }
-
-    switch (pResampler->config.algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            return ma_linear_resampler_get_output_latency(&pResampler->state.linear);
-        }
-
-        default: break;
-    }
-
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
+    return pResampler->pBackendVTable->onGetExpectedOutputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, inputFrameCount);
 }
 
 /**************************************************************************************************************************************************************
@@ -40498,7 +40504,7 @@ MA_API ma_data_converter_config ma_data_converter_config_init_default()
 
     config.ditherMode = ma_dither_mode_none;
     config.resampling.algorithm = ma_resample_algorithm_linear;
-    config.resampling.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
+    config.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
 
     /* Linear resampling defaults. */
     config.resampling.linear.lpfOrder = 1;
@@ -40520,10 +40526,11 @@ MA_API ma_data_converter_config ma_data_converter_config_init(ma_format formatIn
     return config;
 }
 
-MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, ma_data_converter* pConverter)
+MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_converter* pConverter)
 {
     ma_result result;
     ma_format midFormat;
+    ma_bool32 isResamplingRequired;
 
     if (pConverter == NULL) {
         return MA_INVALID_ARGS;
@@ -40544,18 +40551,33 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
     }
 
     /*
-    We want to avoid as much data conversion as possible. The channel converter and resampler both support s16 and f32 natively. We need to decide
-    on the format to use for this stage. We call this the mid format because it's used in the middle stage of the conversion pipeline. If the output
-    format is either s16 or f32 we use that one. If that is not the case it will do the same thing for the input format. If it's neither we just
-    use f32.
+    Determine if resampling is required. We need to do this so we can determine an appropriate
+    mid format to use. If resampling is required, the mid format must be ma_format_f32 since
+    that is the only one that is guaranteed to supported by custom resampling backends.
     */
-    /*  */ if (pConverter->config.formatOut == ma_format_s16 || pConverter->config.formatOut == ma_format_f32) {
-        midFormat = pConverter->config.formatOut;
-    } else if (pConverter->config.formatIn  == ma_format_s16 || pConverter->config.formatIn  == ma_format_f32) {
-        midFormat = pConverter->config.formatIn;
+    isResamplingRequired = pConfig->allowDynamicSampleRate || pConfig->sampleRateIn != pConfig->sampleRateOut;
+
+    /*
+    We want to avoid as much data conversion as possible. The channel converter and linear
+    resampler both support s16 and f32 natively. We need to decide on the format to use for this
+    stage. We call this the mid format because it's used in the middle stage of the conversion
+    pipeline. If the output format is either s16 or f32 we use that one. If that is not the case it
+    will do the same thing for the input format. If it's neither we just use f32. If we are using a
+    custom resampling backend, we can only guarantee that f32 will be supported so we'll be forced
+    to use that if resampling is required.
+    */
+    if (isResamplingRequired && pConfig->resampling.algorithm != ma_resample_algorithm_linear) {
+        midFormat = ma_format_f32;  /* <-- Force f32 since that is the only one we can guarantee will be supported by the resampler. */
     } else {
-        midFormat = ma_format_f32;
+        /*  */ if (pConverter->config.formatOut == ma_format_s16 || pConverter->config.formatOut == ma_format_f32) {
+            midFormat = pConverter->config.formatOut;
+        } else if (pConverter->config.formatIn  == ma_format_s16 || pConverter->config.formatIn  == ma_format_f32) {
+            midFormat = pConverter->config.formatIn;
+        } else {
+            midFormat = ma_format_f32;
+        }
     }
+
 
     /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
     {
@@ -40585,12 +40607,12 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
 
 
     /* Always enable dynamic sample rates if the input sample rate is different because we're always going to need a resampler in this case anyway. */
-    if (pConverter->config.resampling.allowDynamicSampleRate == MA_FALSE) {
-        pConverter->config.resampling.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
+    if (pConverter->config.allowDynamicSampleRate == MA_FALSE) {
+        pConverter->config.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
     }
 
     /* Resampler. */
-    if (pConverter->config.resampling.allowDynamicSampleRate) {
+    if (isResamplingRequired) {
         ma_resampler_config resamplerConfig;
         ma_uint32 resamplerChannels;
 
@@ -40604,8 +40626,10 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
         resamplerConfig.linear.lpfOrder         = pConverter->config.resampling.linear.lpfOrder;
         resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
+        resamplerConfig.pBackendVTable          = pConverter->config.resampling.pBackendVTable;
+        resamplerConfig.pBackendUserData        = pConverter->config.resampling.pBackendUserData;
 
-        result = ma_resampler_init(&resamplerConfig, &pConverter->resampler);
+        result = ma_resampler_init(&resamplerConfig, pAllocationCallbacks, &pConverter->resampler);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -40629,7 +40653,7 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
     } else {
         /* We have a channel converter and/or resampler so we'll need channel conversion based on the mid format. */
         if (pConverter->config.formatIn != midFormat) {
-            pConverter->hasPreFormatConversion = MA_TRUE;
+            pConverter->hasPreFormatConversion  = MA_TRUE;
         }
         if (pConverter->config.formatOut != midFormat) {
             pConverter->hasPostFormatConversion = MA_TRUE;
@@ -40647,14 +40671,14 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
     return MA_SUCCESS;
 }
 
-MA_API void ma_data_converter_uninit(ma_data_converter* pConverter)
+MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pConverter == NULL) {
         return;
     }
 
     if (pConverter->hasResampler) {
-        ma_resampler_uninit(&pConverter->resampler);
+        ma_resampler_uninit(&pConverter->resampler, pAllocationCallbacks);
     }
 }
 
@@ -40760,7 +40784,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
 
     while (framesProcessedOut < frameCountOut) {
         ma_uint8 pTempBufferOut[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-        const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+        const ma_uint32 tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.format, pConverter->resampler.channels);
         const void* pFramesInThisIteration;
         /* */ void* pFramesOutThisIteration;
         ma_uint64 frameCountInThisIteration;
@@ -40781,7 +40805,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
         /* Do a pre format conversion if necessary. */
         if (pConverter->hasPreFormatConversion) {
             ma_uint8 pTempBufferIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-            const ma_uint32 tempBufferInCap = sizeof(pTempBufferIn) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+            const ma_uint32 tempBufferInCap = sizeof(pTempBufferIn) / ma_get_bytes_per_frame(pConverter->resampler.format, pConverter->resampler.channels);
 
             frameCountInThisIteration  = (frameCountIn - framesProcessedIn);
             if (frameCountInThisIteration > tempBufferInCap) {
@@ -40795,7 +40819,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
             }
 
             if (pFramesInThisIteration != NULL) {
-                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.config.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
             } else {
                 MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
             }
@@ -40836,7 +40860,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
         /* If we are doing a post format conversion we need to do that now. */
         if (pConverter->hasPostFormatConversion) {
             if (pFramesOutThisIteration != NULL) {
-                ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->resampler.config.format, frameCountOutThisIteration, pConverter->resampler.config.channels, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->resampler.channels, pConverter->config.ditherMode);
             }
         }
 
@@ -41008,9 +41032,9 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
     ma_uint64 tempBufferOutCap;
 
     MA_ASSERT(pConverter != NULL);
-    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
-    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsIn);
-    MA_ASSERT(pConverter->resampler.config.channels <  pConverter->channelConverter.channelsOut);
+    MA_ASSERT(pConverter->resampler.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.channels == pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.channels <  pConverter->channelConverter.channelsOut);
 
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
@@ -41025,8 +41049,8 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
     framesProcessedIn  = 0;
     framesProcessedOut = 0;
 
-    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
-    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.format, pConverter->resampler.channels);
+    tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->resampler.format, pConverter->resampler.channels);
     tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
 
     while (framesProcessedOut < frameCountOut) {
@@ -41075,7 +41099,7 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
 
         if (pConverter->hasPreFormatConversion) {
             if (pFramesIn != NULL) {
-                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.config.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
                 pResampleBufferIn = pTempBufferIn;
             } else {
                 pResampleBufferIn = NULL;
@@ -41149,9 +41173,9 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
     ma_uint64 tempBufferOutCap;
 
     MA_ASSERT(pConverter != NULL);
-    MA_ASSERT(pConverter->resampler.config.format   == pConverter->channelConverter.format);
-    MA_ASSERT(pConverter->resampler.config.channels == pConverter->channelConverter.channelsOut);
-    MA_ASSERT(pConverter->resampler.config.channels <  pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.format   == pConverter->channelConverter.format);
+    MA_ASSERT(pConverter->resampler.channels == pConverter->channelConverter.channelsOut);
+    MA_ASSERT(pConverter->resampler.channels <  pConverter->channelConverter.channelsIn);
 
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
@@ -41168,7 +41192,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
 
     tempBufferInCap  = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsIn);
     tempBufferMidCap = sizeof(pTempBufferIn)  / ma_get_bytes_per_frame(pConverter->channelConverter.format, pConverter->channelConverter.channelsOut);
-    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.config.format, pConverter->resampler.config.channels);
+    tempBufferOutCap = sizeof(pTempBufferOut) / ma_get_bytes_per_frame(pConverter->resampler.format, pConverter->resampler.channels);
 
     while (framesProcessedOut < frameCountOut) {
         ma_uint64 frameCountInThisIteration;
@@ -41254,7 +41278,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
         /* Finally we can do the post format conversion. */
         if (pConverter->hasPostFormatConversion) {
             if (pRunningFramesOut != NULL) {
-                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.config.format, frameCountOutThisIteration, pConverter->config.channelsOut, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->config.channelsOut, pConverter->config.ditherMode);
             }
         }
 
@@ -42285,7 +42309,7 @@ MA_API ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const
         return 0;
     }
 
-    result = ma_data_converter_init(pConfig, &converter);
+    result = ma_data_converter_init(pConfig, NULL, &converter);
     if (result != MA_SUCCESS) {
         return 0;   /* Failed to initialize the data converter. */
     }
@@ -42299,7 +42323,7 @@ MA_API ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const
         }
     }
 
-    ma_data_converter_uninit(&converter);
+    ma_data_converter_uninit(&converter, NULL);
     return frameCountOut;
 }
 
@@ -46554,13 +46578,12 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     );
     ma_channel_map_copy(converterConfig.channelMapIn,  internalChannelMap,         internalChannels);
     ma_channel_map_copy(converterConfig.channelMapOut, pDecoder->outputChannelMap, pDecoder->outputChannels);
-    converterConfig.channelMixMode             = pConfig->channelMixMode;
-    converterConfig.ditherMode                 = pConfig->ditherMode;
-    converterConfig.resampling.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
-    converterConfig.resampling.algorithm       = pConfig->resampling.algorithm;
-    converterConfig.resampling.linear.lpfOrder = pConfig->resampling.linear.lpfOrder;
+    converterConfig.channelMixMode         = pConfig->channelMixMode;
+    converterConfig.ditherMode             = pConfig->ditherMode;
+    converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
+    converterConfig.resampling             = pConfig->resampling;
 
-    return ma_data_converter_init(&converterConfig, &pDecoder->converter);
+    return ma_data_converter_init(&converterConfig, &pDecoder->allocationCallbacks, &pDecoder->converter);
 }
 
 
@@ -50098,7 +50121,7 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         pDecoder->data.vfs.file = NULL;
     }
 
-    ma_data_converter_uninit(&pDecoder->converter);
+    ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
     ma_data_source_uninit(&pDecoder->ds);
 
     return MA_SUCCESS;
