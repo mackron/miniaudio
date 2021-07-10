@@ -2478,7 +2478,7 @@ typedef struct
 {
     ma_result (* onInit                       )(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend);
     void      (* onUninit                     )(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
-    ma_result (* onRead                       )(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
+    ma_result (* onProcess                    )(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
     ma_result (* onSetRate                    )(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut); /* Optional. Rate changes will be disabled. */
     ma_uint64 (* onGetInputLatency            )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
     ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
@@ -39346,7 +39346,7 @@ static void ma_resampling_backend_uninit__linear(void* pUserData, ma_resampling_
     ma_linear_resampler_uninit((ma_linear_resampler*)pBackend);
 }
 
-static ma_result ma_resampling_backend_read__linear(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_resampling_backend_process__linear(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     (void)pUserData;
 
@@ -39392,7 +39392,7 @@ static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
 {
     ma_resampling_backend_init__linear,
     ma_resampling_backend_uninit__linear,
-    ma_resampling_backend_read__linear,
+    ma_resampling_backend_process__linear,
     ma_resampling_backend_set_rate__linear,
     ma_resampling_backend_get_input_latency__linear,
     ma_resampling_backend_get_output_latency__linear,
@@ -39491,11 +39491,11 @@ MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const
         return MA_INVALID_ARGS;
     }
 
-    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onRead == NULL) {
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onProcess == NULL) {
         return MA_NOT_IMPLEMENTED;
     }
 
-    return pResampler->pBackendVTable->onRead(pResampler->pBackendUserData, pResampler->pBackend, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+    return pResampler->pBackendVTable->onProcess(pResampler->pBackendUserData, pResampler->pBackend, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
 }
 
 MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
