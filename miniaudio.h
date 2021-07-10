@@ -2467,8 +2467,8 @@ MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, m
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
 MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler* pResampler);
 MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler);
-MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount);
-MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount);
+MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
+MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 
 
 typedef struct ma_resampler_config ma_resampler_config;
@@ -2479,11 +2479,11 @@ typedef struct
     ma_result (* onInit                       )(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend);
     void      (* onUninit                     )(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
     ma_result (* onProcess                    )(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
-    ma_result (* onSetRate                    )(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut); /* Optional. Rate changes will be disabled. */
-    ma_uint64 (* onGetInputLatency            )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
-    ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                            /* Optional. Latency will be reported as 0. */
-    ma_uint64 (* onGetRequiredInputFrameCount )(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount);                /* Optional. Latency mitigation will be disabled. */
-    ma_uint64 (* onGetExpectedOutputFrameCount)(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount);                 /* Optional. Latency mitigation will be disabled. */
+    ma_result (* onSetRate                    )(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);                 /* Optional. Rate changes will be disabled. */
+    ma_uint64 (* onGetInputLatency            )(void* pUserData, const ma_resampling_backend* pBackend);                                                            /* Optional. Latency will be reported as 0. */
+    ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                                            /* Optional. Latency will be reported as 0. */
+    ma_result (* onGetRequiredInputFrameCount )(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);   /* Optional. Latency mitigation will be disabled. */
+    ma_result (* onGetExpectedOutputFrameCount)(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);   /* Optional. Latency mitigation will be disabled. */
 } ma_resampling_backend_vtable;
 
 typedef enum
@@ -2589,13 +2589,13 @@ number of output frames.
 The returned value does not include cached input frames. It only returns the number of extra frames that would need to be
 read from the input buffer in order to output the specified number of output frames.
 */
-MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount);
+MA_API ma_result ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
 
 /*
 Calculates the number of whole output frames that would be output after fully reading and consuming the specified number of
 input frames.
 */
-MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount);
+MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 
 
 /**************************************************************************************************************************************************************
@@ -39251,16 +39251,22 @@ MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resample
     return ma_linear_resampler_get_input_latency(pResampler) * pResampler->config.sampleRateOut / pResampler->config.sampleRateIn;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount)
+MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount)
 {
     ma_uint64 inputFrameCount;
 
+    if (pInputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pInputFrameCount = 0;
+
     if (pResampler == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     if (outputFrameCount == 0) {
-        return 0;
+        return MA_SUCCESS;
     }
 
     /* Any whole input frames are consumed before the first output frame is generated. */
@@ -39271,17 +39277,25 @@ MA_API ma_uint64 ma_linear_resampler_get_required_input_frame_count(const ma_lin
     inputFrameCount += outputFrameCount * pResampler->inAdvanceInt;
     inputFrameCount += (pResampler->inTimeFrac + (outputFrameCount * pResampler->inAdvanceFrac)) / pResampler->config.sampleRateOut;
 
-    return inputFrameCount;
+    *pInputFrameCount = inputFrameCount;
+
+    return MA_SUCCESS;
 }
 
-MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount)
+MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
 {
     ma_uint64 outputFrameCount;
     ma_uint64 preliminaryInputFrameCountFromFrac;
     ma_uint64 preliminaryInputFrameCount;
 
+    if (pOutputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pOutputFrameCount = 0;
+
     if (pResampler == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     /*
@@ -39308,7 +39322,9 @@ MA_API ma_uint64 ma_linear_resampler_get_expected_output_frame_count(const ma_li
         outputFrameCount += 1;
     }
 
-    return outputFrameCount;
+    *pOutputFrameCount = outputFrameCount;
+
+    return MA_SUCCESS;
 }
 
 
@@ -39372,18 +39388,18 @@ static ma_uint64 ma_resampling_backend_get_output_latency__linear(void* pUserDat
     return ma_linear_resampler_get_output_latency((const ma_linear_resampler*)pBackend);
 }
 
-static ma_uint64 ma_resampling_backend_get_required_input_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount)
+static ma_result ma_resampling_backend_get_required_input_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount)
 {
     (void)pUserData;
 
-    return ma_linear_resampler_get_required_input_frame_count((const ma_linear_resampler*)pBackend, outputFrameCount);
+    return ma_linear_resampler_get_required_input_frame_count((const ma_linear_resampler*)pBackend, outputFrameCount, pInputFrameCount);
 }
 
-static ma_uint64 ma_resampling_backend_get_expected_output_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount)
+static ma_result ma_resampling_backend_get_expected_output_frame_count__linear(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
 {
     (void)pUserData;
 
-    return ma_linear_resampler_get_expected_output_frame_count((const ma_linear_resampler*)pBackend, inputFrameCount);
+    return ma_linear_resampler_get_expected_output_frame_count((const ma_linear_resampler*)pBackend, inputFrameCount, pOutputFrameCount);
 }
 
 static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
@@ -39570,38 +39586,42 @@ MA_API ma_uint64 ma_resampler_get_output_latency(const ma_resampler* pResampler)
     return pResampler->pBackendVTable->onGetOutputLatency(pResampler->pBackendUserData, pResampler->pBackend);
 }
 
-MA_API ma_uint64 ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount)
+MA_API ma_result ma_resampler_get_required_input_frame_count(const ma_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount)
 {
-    if (pResampler == NULL) {
-        return 0;
+    if (pInputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    if (outputFrameCount == 0) {
-        return 0;
+    *pInputFrameCount = 0;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
     }
 
     if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetRequiredInputFrameCount == NULL) {
-        return 0;
+        return MA_NOT_IMPLEMENTED;
     }
 
-    return pResampler->pBackendVTable->onGetRequiredInputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, outputFrameCount);
+    return pResampler->pBackendVTable->onGetRequiredInputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, outputFrameCount, pInputFrameCount);
 }
 
-MA_API ma_uint64 ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount)
+MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
 {
-    if (pResampler == NULL) {
-        return 0;
+    if (pOutputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
     }
 
-    if (inputFrameCount == 0) {
-        return 0;
+    *pOutputFrameCount = 0;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
     }
 
     if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onGetExpectedOutputFrameCount == NULL) {
-        return 0;
+        return MA_NOT_IMPLEMENTED;
     }
 
-    return pResampler->pBackendVTable->onGetExpectedOutputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, inputFrameCount);
+    return pResampler->pBackendVTable->onGetExpectedOutputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, inputFrameCount, pOutputFrameCount);
 }
 
 /**************************************************************************************************************************************************************
@@ -41089,7 +41109,9 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
 
         /* We need to ensure we don't try to process too many input frames that we run out of room in the output buffer. If this happens we'll end up glitching. */
         {
-            ma_uint64 requiredInputFrameCount = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration);
+            ma_uint64 requiredInputFrameCount;
+
+            ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
             if (frameCountInThisIteration > requiredInputFrameCount) {
                 frameCountInThisIteration = requiredInputFrameCount;
             }
@@ -41249,7 +41271,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
                 frameCountOutThisIteration = tempBufferOutCap;
             }
 
-            requiredInputFrameCount = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration);
+            ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
             if (frameCountInThisIteration > requiredInputFrameCount) {
                 frameCountInThisIteration = requiredInputFrameCount;
             }
@@ -41378,12 +41400,15 @@ MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter,
 
 MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount)
 {
+    ma_uint64 inputFrameCount;
+
     if (pConverter == NULL) {
         return 0;
     }
 
     if (pConverter->hasResampler) {
-        return ma_resampler_get_required_input_frame_count(&pConverter->resampler, outputFrameCount);
+        ma_resampler_get_required_input_frame_count(&pConverter->resampler, outputFrameCount, &inputFrameCount);
+        return inputFrameCount;
     } else {
         return outputFrameCount;    /* 1:1 */
     }
@@ -41391,12 +41416,15 @@ MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_
 
 MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount)
 {
+    ma_uint64 outputFrameCount;
+
     if (pConverter == NULL) {
         return 0;
     }
 
     if (pConverter->hasResampler) {
-        return ma_resampler_get_expected_output_frame_count(&pConverter->resampler, inputFrameCount);
+        ma_resampler_get_expected_output_frame_count(&pConverter->resampler, inputFrameCount, &outputFrameCount);
+        return outputFrameCount;
     } else {
         return inputFrameCount;     /* 1:1 */
     }
