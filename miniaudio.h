@@ -2460,8 +2460,8 @@ typedef struct
     ma_lpf lpf;
 } ma_linear_resampler;
 
-MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler);
-MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler);
+MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_linear_resampler* pResampler);
+MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut);
@@ -38777,9 +38777,11 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, ma_linear_resampler* pResampler)
+MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_linear_resampler* pResampler)
 {
     ma_result result;
+
+    (void)pAllocationCallbacks;
 
     if (pResampler == NULL) {
         return MA_INVALID_ARGS;
@@ -38813,11 +38815,13 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
     return MA_SUCCESS;
 }
 
-MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler)
+MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pResampler == NULL) {
         return;
     }
+
+    (void)pAllocationCallbacks;
 }
 
 static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma_int32 a, const ma_int32 shift)
@@ -39335,14 +39339,11 @@ static ma_result ma_resampling_backend_init__linear(void* pUserData, const ma_re
     ma_result result;
     ma_linear_resampler_config linearConfig;
 
-    /* No need for a malloc for the linear resampler because we store the state inside the ma_resampler object itself. */
-    (void)pAllocationCallbacks;
-
     linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
     linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
     linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
 
-    result = ma_linear_resampler_init(&linearConfig, &pResampler->state.linear);
+    result = ma_linear_resampler_init(&linearConfig, pAllocationCallbacks, &pResampler->state.linear);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -39355,9 +39356,8 @@ static ma_result ma_resampling_backend_init__linear(void* pUserData, const ma_re
 static void ma_resampling_backend_uninit__linear(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     (void)pUserData;
-    (void)pAllocationCallbacks;
 
-    ma_linear_resampler_uninit((ma_linear_resampler*)pBackend);
+    ma_linear_resampler_uninit((ma_linear_resampler*)pBackend, pAllocationCallbacks);
 }
 
 static ma_result ma_resampling_backend_process__linear(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
