@@ -10458,28 +10458,29 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 
 MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
 {
-    /* TODO: Change this so we're not initializing a resampler because this will introduce a malloc. */
+    /* This is based on the calculation in ma_linear_resampler_get_expected_output_frame_count(). */
+    ma_uint64 outputFrameCount;
+    ma_uint64 preliminaryInputFrameCountFromFrac;
+    ma_uint64 preliminaryInputFrameCount;
 
-    /* For robustness we're going to use a resampler object to calculate this since that already has a way of calculating this. */
-    ma_result result;
-    ma_uint64 frameCountOut;
-    ma_resampler_config config;
-    ma_resampler resampler;
+    if (sampleRateIn == 0 || sampleRateOut == 0) {
+        return 0;
+    }
 
     if (sampleRateOut == sampleRateIn) {
         return frameCountIn;
     }
 
-    config = ma_resampler_config_init(ma_format_s16, 1, sampleRateIn, sampleRateOut, ma_resample_algorithm_linear);
-    result = ma_resampler_init(&config, NULL, &resampler);
-    if (result != MA_SUCCESS) {
-        return 0;
+    outputFrameCount = (frameCountIn * sampleRateOut) / sampleRateIn;
+
+    preliminaryInputFrameCountFromFrac = (outputFrameCount * (sampleRateIn / sampleRateOut)) / sampleRateOut;
+    preliminaryInputFrameCount         = (outputFrameCount * (sampleRateIn % sampleRateOut)) + preliminaryInputFrameCountFromFrac;
+
+    if (preliminaryInputFrameCount <= frameCountIn) {
+        outputFrameCount += 1;
     }
 
-    frameCountOut = ma_resampler_get_expected_output_frame_count(&resampler, frameCountIn);
-
-    ma_resampler_uninit(&resampler, NULL);
-    return frameCountOut;
+    return outputFrameCount;
 }
 
 #ifndef MA_DATA_CONVERTER_STACK_BUFFER_SIZE
