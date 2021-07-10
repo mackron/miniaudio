@@ -3166,7 +3166,7 @@ callback. The following APIs cannot be called from inside the callback:
 
 The proper way to stop the device is to call `ma_device_stop()` from a different thread, normally the main application thread.
 */
-typedef void (* ma_device_callback_proc)(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
+typedef void (* ma_device_data_proc)(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
 /*
 The callback for when the device has been stopped.
@@ -3358,7 +3358,7 @@ struct ma_device_config
     ma_performance_profile performanceProfile;
     ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
-    ma_device_callback_proc dataCallback;
+    ma_device_data_proc dataCallback;
     ma_stop_proc stopCallback;
     void* pUserData;
     ma_resampler_config resampling;
@@ -4009,7 +4009,7 @@ struct ma_device
     ma_device_type type;
     ma_uint32 sampleRate;
     MA_ATOMIC ma_uint32 state;              /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
-    ma_device_callback_proc onData;         /* Set once at initialization time and should not be changed after. */
+    ma_device_data_proc onData;         /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
     ma_mutex startStopLock;
