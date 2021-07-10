@@ -13368,7 +13368,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
         ma_uint32 soundFlags = 0;
 
         for (pNextSound = pEngine->pInlinedSoundHead; pNextSound != NULL; pNextSound = pNextSound->pNext) {
-            if (c89atomic_load_8(&pNextSound->sound.atEnd)) {
+            if (ma_sound_at_end(&pNextSound->sound)) {
                 /*
                 The sound is at the end which means it's available for recycling. All we need to do
                 is uninitialize it and reinitialize it. All we're doing is recycling memory.
@@ -13384,6 +13384,10 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
             We actually want to detach the sound from the list here. The reason is because we want the sound
             to be in a consistent state at the non-recycled case to simplify the logic below.
             */
+            if (pEngine->pInlinedSoundHead == pSound) {
+                pEngine->pInlinedSoundHead =  pSound->pNext;
+            }
+
             if (pSound->pPrev != NULL) {
                 pSound->pPrev->pNext = pSound->pNext;
             }
@@ -13441,7 +13445,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
     result = ma_sound_start(&pSound->sound);
     if (result != MA_SUCCESS) {
         /* Failed to start the sound. We need to mark it for recycling and return an error. */
-        pSound->sound.atEnd = MA_TRUE;
+        c89atomic_exchange_8(&pSound->sound.atEnd, MA_TRUE);
         return result;
     }
 
