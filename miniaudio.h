@@ -12211,7 +12211,6 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
             pDevice->playback.inputCacheConsumed  += framesConvertedIn;
             pDevice->playback.inputCacheRemaining -= framesConvertedIn;
 
-            /*totalFramesReadFromClient += (ma_uint32)framesConvertedIn;*/  /* Safe cast. */
             totalFramesReadOut        += (ma_uint32)framesConvertedOut; /* Safe cast. */
             pFramesInInternalFormat    = ma_offset_ptr(pFramesInInternalFormat, framesConvertedOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         }
@@ -12223,7 +12222,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 
             inputFrameCount = (ma_uint32)pDevice->playback.inputCacheCap;
             result = ma_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
-            if (result != MA_SUCCESS) {
+            if (result == MA_SUCCESS) {
                 if (inputFrameCount > 0) {
                     ma_device__on_data(pDevice, pDevice->playback.pInputCache, pInputFrames, inputFrameCount);
                 } else {
@@ -12239,6 +12238,11 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 
             pDevice->playback.inputCacheConsumed  = 0;
             pDevice->playback.inputCacheRemaining = inputFrameCount;
+
+            result = ma_pcm_rb_commit_read(pRB, inputFrameCount);
+            if (result != MA_SUCCESS) {
+                return result;  /* Should never happen. */
+            }
         }
     }
 
@@ -23259,9 +23263,13 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     onDeviceDataLoop callback is NULL, which is not the case for PulseAudio.
     */
     if (pConfig->deviceType == ma_device_type_duplex) {
-        result = ma_duplex_rb_init(format, channels, sampleRate, pDescriptorCapture->sampleRate, pDescriptorCapture->periodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
+        ma_format rbFormat     = (format != ma_format_unknown) ? format     : pDescriptorCapture->format;
+        ma_uint32 rbChannels   = (channels   > 0)              ? channels   : pDescriptorCapture->channels;
+        ma_uint32 rbSampleRate = (sampleRate > 0)              ? sampleRate : pDescriptorCapture->sampleRate;
+
+        result = ma_duplex_rb_init(rbFormat, rbChannels, rbSampleRate, pDescriptorCapture->sampleRate, pDescriptorCapture->periodSizeInFrames, &pDevice->pContext->allocationCallbacks, &pDevice->duplexRB);
         if (result != MA_SUCCESS) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to initialize ring buffer.");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Failed to initialize ring buffer. %s.\n", ma_result_description(result));
             goto on_error4;
         }
     }
@@ -32665,14 +32673,13 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     In playback mode, iff the data converter does not support retrieval of the required number of
     input frames given a number of output frames, we need to fall back to a heap-allocated cache.
     */
-    if (deviceType == ma_device_type_playback) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint64 unused;
 
         pDevice->playback.inputCacheConsumed  = 0;
         pDevice->playback.inputCacheRemaining = 0;
 
-        result = ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused);
-        if (result != MA_SUCCESS) {
+        if (deviceType == ma_device_type_duplex || ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS) {
             /* We need a heap allocated cache. We want to size this based on the period size. */
             void* pNewInputCache;
             ma_uint64 newInputCacheCap;
