@@ -50291,6 +50291,14 @@ static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decod
             }
         }
 
+        /*
+        If we get to this point and we still haven't found a decoder, and the caller has requested a
+        specific encoding format, there's no hope for it. Abort.
+        */
+        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+            return MA_NO_BACKEND;
+        }
+
     #ifdef MA_HAS_WAV
         if (result != MA_SUCCESS) {
             result = ma_decoder_init_wav__internal(pConfig, pDecoder);
@@ -50808,6 +50816,26 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
 
     if (result != MA_SUCCESS) {
         /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
+
+        /*
+        We use trial and error to open a decoder. We prioritize custom decoders so that if they
+        implement the same encoding format they take priority over the built-in decoders.
+        */
+        if (result != MA_SUCCESS) {
+            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
+        }
+
+        /*
+        If we get to this point and we still haven't found a decoder, and the caller has requested a
+        specific encoding format, there's no hope for it. Abort.
+        */
+        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+            return MA_NO_BACKEND;
+        }
+
     #ifdef MA_HAS_WAV
         if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
             result = ma_decoder_init_wav__internal(&config, pDecoder);
@@ -50994,6 +51022,26 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
 
     if (result != MA_SUCCESS) {
         /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
+
+        /*
+        We use trial and error to open a decoder. We prioritize custom decoders so that if they
+        implement the same encoding format they take priority over the built-in decoders.
+        */
+        if (result != MA_SUCCESS) {
+            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+            if (result != MA_SUCCESS) {
+                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
+            }
+        }
+
+        /*
+        If we get to this point and we still haven't found a decoder, and the caller has requested a
+        specific encoding format, there's no hope for it. Abort.
+        */
+        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+            return MA_NO_BACKEND;
+        }
+
     #ifdef MA_HAS_WAV
         if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
             result = ma_decoder_init_wav__internal(&config, pDecoder);
