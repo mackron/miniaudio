@@ -2666,9 +2666,21 @@ typedef struct
 MA_API ma_data_converter_config ma_data_converter_config_init_default(void);
 MA_API ma_data_converter_config ma_data_converter_config_init(ma_format formatIn, ma_format formatOut, ma_uint32 channelsIn, ma_uint32 channelsOut, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 
+
+typedef enum
+{
+    ma_data_converter_execution_path_passthrough,       /* No conversion. */
+    ma_data_converter_execution_path_format_only,       /* Only format conversion. */
+    ma_data_converter_execution_path_channels_only,     /* Only channel conversion. */
+    ma_data_converter_execution_path_resample_only,     /* Only resampling. */
+    ma_data_converter_execution_path_resample_first,    /* All conversions, but resample as the first step. */
+    ma_data_converter_execution_path_channels_first     /* All conversions, but channels as the first step. */
+} ma_data_converter_execution_path;
+
 typedef struct
 {
     ma_data_converter_config config;
+    ma_data_converter_execution_path executionPath; /* The execution path the data converter will follow when processing. */
     ma_channel_converter channelConverter;
     ma_resampler resampler;
     ma_bool8 hasPreFormatConversion;
@@ -40686,6 +40698,39 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         pConverter->isPassthrough = MA_TRUE;
     }
 
+
+    /* We now need to determine our execution path. */
+    if (pConverter->isPassthrough) {
+        pConverter->executionPath = ma_data_converter_execution_path_passthrough;
+    } else {
+        if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
+            /* Do resampling first, if necessary. */
+            MA_ASSERT(pConverter->hasChannelConverter == MA_TRUE);
+
+            if (pConverter->hasResampler) {
+                pConverter->executionPath = ma_data_converter_execution_path_resample_first;
+            } else {
+                pConverter->executionPath = ma_data_converter_execution_path_channels_only;
+            }
+        } else {
+            /* Do channel conversion first, if necessary. */
+            if (pConverter->hasChannelConverter) {
+                if (pConverter->hasResampler) {
+                    pConverter->executionPath = ma_data_converter_execution_path_channels_first;
+                } else {
+                    pConverter->executionPath = ma_data_converter_execution_path_channels_only;
+                }
+            } else {
+                /* Channel routing not required. */
+                if (pConverter->hasResampler) {
+                    pConverter->executionPath = ma_data_converter_execution_path_resample_only;
+                } else {
+                    pConverter->executionPath = ma_data_converter_execution_path_format_only;
+                }
+            }
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -41035,7 +41080,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_con
     return MA_SUCCESS;
 }
 
-static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
+static ma_result ma_data_converter_process_pcm_frames__resample_first(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
 {
     ma_result result;
     ma_uint64 frameCountIn;
@@ -41108,14 +41153,27 @@ static ma_result ma_data_converter_process_pcm_frames__resampling_first(ma_data_
         }
 
         /* We need to ensure we don't try to process too many input frames that we run out of room in the output buffer. If this happens we'll end up glitching. */
+
+        /*
+        We need to try to predict how many input frames will be required for the resampler. If the
+        resampler can tell us, we'll use that. Otherwise we'll need to make a best guess. The further
+        off we are from this, the more wasted format conversions we'll end up doing.
+        */
+        #if 1
         {
             ma_uint64 requiredInputFrameCount;
 
-            ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
+            result = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
+            if (result != MA_SUCCESS) {
+                /* Fall back to a best guess. */
+                requiredInputFrameCount = (frameCountOutThisIteration * pConverter->resampler.sampleRateIn) / pConverter->resampler.sampleRateOut;
+            }
+
             if (frameCountInThisIteration > requiredInputFrameCount) {
                 frameCountInThisIteration = requiredInputFrameCount;
             }
         }
+        #endif
 
         if (pConverter->hasPreFormatConversion) {
             if (pFramesIn != NULL) {
@@ -41229,14 +41287,59 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
             pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
         }
 
-        /* Run input data through the channel converter and output it to the temporary buffer. */
-        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
+        /*
+        Before doing any processing we need to determine how many frames we should try processing
+        this iteration, for both input and output. The resampler requires us to perform format and
+        channel conversion before passing any data into it. If we get our input count wrong, we'll
+        end up peforming redundant pre-processing. This isn't the end of the world, but it does
+        result in some inefficiencies proportionate to how far our estimates are off.
 
+        If the resampler has a means to calculate exactly how much we'll need, we'll use that.
+        Otherwise we'll make a best guess. In order to do this, we'll need to calculate the output
+        frame count first.
+        */
+        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
+        if (frameCountOutThisIteration > tempBufferMidCap) {
+            frameCountOutThisIteration = tempBufferMidCap;
+        }
+
+        if (pConverter->hasPostFormatConversion) {
+            if (frameCountOutThisIteration > tempBufferOutCap) {
+                frameCountOutThisIteration = tempBufferOutCap;
+            }
+        }
+
+        /* Now that we have the output frame count we can determine the input frame count. */
+        frameCountInThisIteration = (frameCountIn - framesProcessedIn);
         if (pConverter->hasPreFormatConversion) {
             if (frameCountInThisIteration > tempBufferInCap) {
                 frameCountInThisIteration = tempBufferInCap;
             }
+        }
 
+        if (frameCountInThisIteration > tempBufferMidCap) {
+            frameCountInThisIteration = tempBufferMidCap;
+        }
+
+        #if 1
+        {
+            ma_uint64 requiredInputFrameCount;
+
+            result = ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
+            if (result != MA_SUCCESS) {
+                /* Fall back to a best guess. */
+                requiredInputFrameCount = (frameCountOutThisIteration * pConverter->resampler.sampleRateIn) / pConverter->resampler.sampleRateOut;
+            }
+
+            if (frameCountInThisIteration > requiredInputFrameCount) {
+                frameCountInThisIteration = requiredInputFrameCount;
+            }
+        }
+        #endif
+
+
+        /* Pre format conversion. */
+        if (pConverter->hasPreFormatConversion) {
             if (pRunningFramesIn != NULL) {
                 ma_convert_pcm_frames_format(pTempBufferIn, pConverter->channelConverter.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
                 pChannelsBufferIn = pTempBufferIn;
@@ -41247,43 +41350,15 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
             pChannelsBufferIn = pRunningFramesIn;
         }
 
-        /*
-        We can't convert more frames than will fit in the output buffer. We shouldn't actually need to do this check because the channel count is always reduced
-        in this case which means we should always have capacity, but I'm leaving it here just for safety for future maintenance.
-        */
-        if (frameCountInThisIteration > tempBufferMidCap) {
-            frameCountInThisIteration = tempBufferMidCap;
-        }
 
-        /*
-        Make sure we don't read any more input frames than we need to fill the output frame count. If we do this we will end up in a situation where we lose some
-        input samples and will end up glitching.
-        */
-        frameCountOutThisIteration = (frameCountOut - framesProcessedOut);
-        if (frameCountOutThisIteration > tempBufferMidCap) {
-            frameCountOutThisIteration = tempBufferMidCap;
-        }
-
-        if (pConverter->hasPostFormatConversion) {
-            ma_uint64 requiredInputFrameCount;
-
-            if (frameCountOutThisIteration > tempBufferOutCap) {
-                frameCountOutThisIteration = tempBufferOutCap;
-            }
-
-            ma_resampler_get_required_input_frame_count(&pConverter->resampler, frameCountOutThisIteration, &requiredInputFrameCount);
-            if (frameCountInThisIteration > requiredInputFrameCount) {
-                frameCountInThisIteration = requiredInputFrameCount;
-            }
-        }
-
+        /* Channel conversion. */
         result = ma_channel_converter_process_pcm_frames(&pConverter->channelConverter, pTempBufferMid, pChannelsBufferIn, frameCountInThisIteration);
         if (result != MA_SUCCESS) {
             return result;
         }
 
 
-        /* At this point we have converted the channels to the output channel count which we now need to resample. */
+        /* Resampling. */
         if (pConverter->hasPostFormatConversion) {
             pResampleBufferOut = pTempBufferOut;
         } else {
@@ -41295,12 +41370,14 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
             return result;
         }
 
-        /* Finally we can do the post format conversion. */
+
+        /* Post format conversion. */
         if (pConverter->hasPostFormatConversion) {
             if (pRunningFramesOut != NULL) {
                 ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->config.channelsOut, pConverter->config.ditherMode);
             }
         }
+
 
         framesProcessedIn  += frameCountInThisIteration;
         framesProcessedOut += frameCountOutThisIteration;
@@ -41329,46 +41406,15 @@ MA_API ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConver
         return MA_INVALID_ARGS;
     }
 
-    if (pConverter->isPassthrough) {
-        return ma_data_converter_process_pcm_frames__passthrough(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-    }
-
-    /*
-    Here is where the real work is done. Getting here means we're not using a passthrough and we need to move the data through each of the relevant stages. The order
-    of our stages depends on the input and output channel count. If the input channels is less than the output channels we want to do sample rate conversion first so
-    that it has less work (resampling is the most expensive part of format conversion).
-    */
-    if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
-        /* Do resampling first, if necessary. */
-        MA_ASSERT(pConverter->hasChannelConverter == MA_TRUE);
-
-        if (pConverter->hasResampler) {
-            /* Resampling first. */
-            return ma_data_converter_process_pcm_frames__resampling_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        } else {
-            /* Resampling not required. */
-            return ma_data_converter_process_pcm_frames__channels_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-        }
-    } else {
-        /* Do channel conversion first, if necessary. */
-        if (pConverter->hasChannelConverter) {
-            if (pConverter->hasResampler) {
-                /* Channel routing first. */
-                return ma_data_converter_process_pcm_frames__channels_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-            } else {
-                /* Resampling not required. */
-                return ma_data_converter_process_pcm_frames__channels_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-            }
-        } else {
-            /* Channel routing not required. */
-            if (pConverter->hasResampler) {
-                /* Resampling only. */
-                return ma_data_converter_process_pcm_frames__resample_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-            } else {
-                /* No channel routing nor resampling required. Just format conversion. */
-                return ma_data_converter_process_pcm_frames__format_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
-            }
-        }
+    switch (pConverter->executionPath)
+    {
+        case ma_data_converter_execution_path_passthrough:    return ma_data_converter_process_pcm_frames__passthrough(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        case ma_data_converter_execution_path_format_only:    return ma_data_converter_process_pcm_frames__format_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        case ma_data_converter_execution_path_channels_only:  return ma_data_converter_process_pcm_frames__channels_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        case ma_data_converter_execution_path_resample_only:  return ma_data_converter_process_pcm_frames__resample_only(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        case ma_data_converter_execution_path_resample_first: return ma_data_converter_process_pcm_frames__resample_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        case ma_data_converter_execution_path_channels_first: return ma_data_converter_process_pcm_frames__channels_first(pConverter, pFramesIn, pFrameCountIn, pFramesOut, pFrameCountOut);
+        default: return MA_INVALID_OPERATION;   /* Should never hit this. */
     }
 }
 
