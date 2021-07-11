@@ -50175,7 +50175,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
         implement the same encoding format they take priority over the built-in decoders.
         */
         if (result != MA_SUCCESS) {
-            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+            result = ma_decoder_init_custom__internal(&config, pDecoder);
             if (result != MA_SUCCESS) {
                 ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
             }
@@ -50185,7 +50185,7 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
         If we get to this point and we still haven't found a decoder, and the caller has requested a
         specific encoding format, there's no hope for it. Abort.
         */
-        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+        if (config.encodingFormat != ma_encoding_format_unknown) {
             return MA_NO_BACKEND;
         }
 
@@ -50308,7 +50308,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
         implement the same encoding format they take priority over the built-in decoders.
         */
         if (result != MA_SUCCESS) {
-            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
+            result = ma_decoder_init_custom__internal(&config, pDecoder);
             if (result != MA_SUCCESS) {
                 ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
             }
@@ -50318,7 +50318,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
         If we get to this point and we still haven't found a decoder, and the caller has requested a
         specific encoding format, there's no hope for it. Abort.
         */
-        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
+        if (config.encodingFormat != ma_encoding_format_unknown) {
             return MA_NO_BACKEND;
         }
 
