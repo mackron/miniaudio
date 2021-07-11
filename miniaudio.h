@@ -6124,9 +6124,8 @@ typedef struct
 } ma_decoding_backend_vtable;
 
 
-/* TODO: Convert read and seek to be consistent with the VFS API (ma_result return value, bytes read moved to an output parameter). */
-typedef size_t    (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead);         /* Returns the number of bytes read. */
-typedef ma_bool32 (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_decoder_read_proc)(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead);         /* Returns the number of bytes read. */
+typedef ma_result (* ma_decoder_seek_proc)(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_decoder_tell_proc)(ma_decoder* pDecoder, ma_int64* pCursor);
 
 typedef struct
@@ -46622,37 +46621,16 @@ Decoding
 
 static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
-    size_t bytesRead;
+    MA_ASSERT(pDecoder != NULL);
 
-    MA_ASSERT(pDecoder    != NULL);
-    MA_ASSERT(pBufferOut  != NULL);
-    MA_ASSERT(bytesToRead > 0); /* It's an error to call this with a byte count of zero. */
-
-    bytesRead = pDecoder->onRead(pDecoder, pBufferOut, bytesToRead);
-
-    if (pBytesRead != NULL) {
-        *pBytesRead = bytesRead;
-    }
-
-    if (bytesRead == 0) {
-        return MA_AT_END;
-    }
-
-    return MA_SUCCESS;
+    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead, pBytesRead);
 }
 
 static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
-    ma_bool32 wasSuccessful;
-
     MA_ASSERT(pDecoder != NULL);
 
-    wasSuccessful = pDecoder->onSeek(pDecoder, byteOffset, origin);
-    if (wasSuccessful) {
-        return MA_SUCCESS;
-    } else {
-        return MA_ERROR;
-    }
+    return pDecoder->onSeek(pDecoder, byteOffset, origin);
 }
 
 static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
@@ -49782,7 +49760,7 @@ MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_pr
 }
 
 
-static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+static ma_result ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
     size_t bytesRemaining;
 
@@ -49793,18 +49771,26 @@ static size_t ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferOut,
         bytesToRead = bytesRemaining;
     }
 
+    if (bytesRemaining == 0) {
+        return MA_AT_END;
+    }
+
     if (bytesToRead > 0) {
         MA_COPY_MEMORY(pBufferOut, pDecoder->data.memory.pData + pDecoder->data.memory.currentReadPos, bytesToRead);
         pDecoder->data.memory.currentReadPos += bytesToRead;
     }
 
-    return bytesToRead;
+    if (pBytesRead != NULL) {
+        *pBytesRead = bytesToRead;
+    }
+
+    return MA_SUCCESS;
 }
 
-static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
+static ma_result ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
 {
     if (byteOffset > 0 && (ma_uint64)byteOffset > MA_SIZE_MAX) {
-        return MA_FALSE;    /* Too far. */
+        return MA_BAD_SEEK;
     }
 
     if (origin == ma_seek_origin_current) {
@@ -49841,7 +49827,7 @@ static ma_bool32 ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteO
         }
     }
 
-    return MA_TRUE;
+    return MA_SUCCESS;
 }
 
 static ma_result ma_decoder__on_tell_memory(ma_decoder* pDecoder, ma_int64* pCursor)
@@ -50068,30 +50054,19 @@ static ma_bool32 ma_path_extension_equal_w(const wchar_t* path, const wchar_t* e
 
 
 
-static size_t ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead)
+static ma_result ma_decoder__on_read_vfs(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
-    size_t bytesRead;
-
     MA_ASSERT(pDecoder   != NULL);
     MA_ASSERT(pBufferOut != NULL);
 
-    ma_vfs_or_default_read(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, pBufferOut, bytesToRead, &bytesRead);
-
-    return bytesRead;
+    return ma_vfs_or_default_read(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, pBufferOut, bytesToRead, pBytesRead);
 }
 
-static ma_bool32 ma_decoder__on_seek_vfs(ma_decoder* pDecoder, ma_int64 offset, ma_seek_origin origin)
+static ma_result ma_decoder__on_seek_vfs(ma_decoder* pDecoder, ma_int64 offset, ma_seek_origin origin)
 {
-    ma_result result;
-
     MA_ASSERT(pDecoder != NULL);
 
-    result = ma_vfs_or_default_seek(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, offset, origin);
-    if (result != MA_SUCCESS) {
-        return MA_FALSE;
-    }
-
-    return MA_TRUE;
+    return ma_vfs_or_default_seek(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file, offset, origin);
 }
 
 static ma_result ma_decoder__on_tell_vfs(ma_decoder* pDecoder, ma_int64* pCursor)
