@@ -2695,10 +2695,10 @@ MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_all
 MA_API ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
 MA_API ma_result ma_data_converter_set_rate(ma_data_converter* pConverter, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter, float ratioInOut);
-MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount);
-MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount);
 MA_API ma_uint64 ma_data_converter_get_input_latency(const ma_data_converter* pConverter);
 MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* pConverter);
+MA_API ma_result ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
+MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 
 
 /************************************************************************************************************************************************************
@@ -4061,6 +4061,10 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
+        void* pInputCache;                  /* In external format. Can be null. */
+        ma_uint64 inputCacheCap;
+        ma_uint64 inputCacheConsumed;
+        ma_uint64 inputCacheRemaining;
     } playback;
     struct
     {
@@ -6156,7 +6160,11 @@ struct ma_decoder
     ma_uint32 outputChannels;
     ma_uint32 outputSampleRate;
     ma_channel outputChannelMap[MA_MAX_CHANNELS];
-    ma_data_converter converter;   /* <-- Data conversion is achieved by running frames through this. */
+    ma_data_converter converter;    /* Data conversion is achieved by running frames through this. */
+    void* pInputCache;              /* In input format. Can be null if it's not needed. */
+    ma_uint64 inputCacheCap;        /* The capacity of the input cache. */
+    ma_uint64 inputCacheConsumed;   /* The number of frames that have been consumed in the cache. Used for determining the next valid frame. */
+    ma_uint64 inputCacheRemaining;  /* The number of valid frames remaining in the cahce. */
     ma_allocation_callbacks allocationCallbacks;
     union
     {
@@ -11976,54 +11984,95 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
     } else {
         ma_result result;
         ma_uint64 totalFramesReadOut;
-        ma_uint64 totalFramesReadIn;
         void* pRunningFramesOut;
 
         totalFramesReadOut = 0;
-        totalFramesReadIn  = 0;
         pRunningFramesOut  = pFramesOut;
 
-        while (totalFramesReadOut < frameCount) {
-            ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In client format. */
-            ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            ma_uint64 framesToReadThisIterationIn;
-            ma_uint64 framesReadThisIterationIn;
-            ma_uint64 framesToReadThisIterationOut;
-            ma_uint64 framesReadThisIterationOut;
-            ma_uint64 requiredInputFrameCount;
+        /*
+        We run slightly different logic depending on whether or not we're using a heap-allocated
+        buffer for caching input data. This will be the case if the data converter does not have
+        the ability to retrieve the required input frame count for a given output frame count.
+        */
+        if (pDevice->playback.pInputCache != NULL) {
+            while (totalFramesReadOut < frameCount) {
+                ma_uint64 framesToReadThisIterationIn;
+                ma_uint64 framesToReadThisIterationOut;
 
-            framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
-            framesToReadThisIterationIn = framesToReadThisIterationOut;
-            if (framesToReadThisIterationIn > intermediaryBufferCap) {
-                framesToReadThisIterationIn = intermediaryBufferCap;
+                /* If there's any data available in the cache, that needs to get processed first. */
+                if (pDevice->playback.inputCacheRemaining > 0) {
+                    framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                    framesToReadThisIterationIn  = framesToReadThisIterationOut;
+                    if (framesToReadThisIterationIn > pDevice->playback.inputCacheRemaining) {
+                        framesToReadThisIterationIn = pDevice->playback.inputCacheRemaining;
+                    }
+
+                    result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, ma_offset_pcm_frames_ptr(pDevice->playback.pInputCache, pDevice->playback.inputCacheConsumed, pDevice->playback.format, pDevice->playback.channels), &framesToReadThisIterationIn, pRunningFramesOut, &framesToReadThisIterationOut);
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
+
+                    pDevice->playback.inputCacheConsumed  += framesToReadThisIterationIn;
+                    pDevice->playback.inputCacheRemaining -= framesToReadThisIterationIn;
+
+                    totalFramesReadOut += framesToReadThisIterationOut;
+                    pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesToReadThisIterationOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+
+                    if (framesToReadThisIterationIn == 0 && framesToReadThisIterationOut == 0) {
+                        break;  /* We're done. */
+                    }
+                }
+
+                /* Getting here means there's no data in the cache and we need to fill it up with data from the client. */
+                if (pDevice->playback.inputCacheRemaining == 0) {
+                    ma_device__on_data(pDevice, pDevice->playback.pInputCache, NULL, (ma_uint32)pDevice->playback.inputCacheCap);
+
+                    pDevice->playback.inputCacheConsumed  = 0;
+                    pDevice->playback.inputCacheRemaining = pDevice->playback.inputCacheCap;
+                }
             }
+        } else {
+            while (totalFramesReadOut < frameCount) {
+                ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In client format. */
+                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                ma_uint64 framesToReadThisIterationIn;
+                ma_uint64 framesReadThisIterationIn;
+                ma_uint64 framesToReadThisIterationOut;
+                ma_uint64 framesReadThisIterationOut;
+                ma_uint64 requiredInputFrameCount;
 
-            requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, framesToReadThisIterationOut);
-            if (framesToReadThisIterationIn > requiredInputFrameCount) {
-                framesToReadThisIterationIn = requiredInputFrameCount;
-            }
+                framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                framesToReadThisIterationIn = framesToReadThisIterationOut;
+                if (framesToReadThisIterationIn > intermediaryBufferCap) {
+                    framesToReadThisIterationIn = intermediaryBufferCap;
+                }
 
-            if (framesToReadThisIterationIn > 0) {
-                ma_device__on_data(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
-                totalFramesReadIn += framesToReadThisIterationIn;
-            }
+                ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, framesToReadThisIterationOut, &requiredInputFrameCount);
+                if (framesToReadThisIterationIn > requiredInputFrameCount) {
+                    framesToReadThisIterationIn = requiredInputFrameCount;
+                }
 
-            /*
-            At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
-            input frames, we still want to try processing frames because there may some output frames generated from cached input data.
-            */
-            framesReadThisIterationIn  = framesToReadThisIterationIn;
-            framesReadThisIterationOut = framesToReadThisIterationOut;
-            result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
-            if (result != MA_SUCCESS) {
-                break;
-            }
+                if (framesToReadThisIterationIn > 0) {
+                    ma_device__on_data(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
+                }
 
-            totalFramesReadOut += framesReadThisIterationOut;
-            pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+                /*
+                At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
+                input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+                */
+                framesReadThisIterationIn  = framesToReadThisIterationIn;
+                framesReadThisIterationOut = framesToReadThisIterationOut;
+                result = ma_data_converter_process_pcm_frames(&pDevice->playback.converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
+                if (result != MA_SUCCESS) {
+                    break;
+                }
 
-            if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
-                break;  /* We're done. */
+                totalFramesReadOut += framesReadThisIterationOut;
+                pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+
+                if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
+                    break;  /* We're done. */
+                }
             }
         }
     }
@@ -12134,16 +12183,14 @@ static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, m
 static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, ma_uint32 frameCount, void* pFramesInInternalFormat, ma_pcm_rb* pRB)
 {
     ma_result result;
-    ma_uint8 playbackFramesInExternalFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint8 silentInputFrames[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-    ma_uint32 totalFramesToReadFromClient;
-    ma_uint32 totalFramesReadFromClient;
     ma_uint32 totalFramesReadOut = 0;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(frameCount > 0);
     MA_ASSERT(pFramesInInternalFormat != NULL);
     MA_ASSERT(pRB != NULL);
+    MA_ASSERT(pDevice->playback.pInputCache != NULL);
 
     /*
     Sitting in the ring buffer should be captured data from the capture callback in external format. If there's not enough data in there for
@@ -12151,58 +12198,47 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
     */
     MA_ZERO_MEMORY(silentInputFrames, sizeof(silentInputFrames));
 
-    /* We need to calculate how many output frames are required to be read from the client to completely fill frameCount internal frames. */
-    totalFramesToReadFromClient = (ma_uint32)ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, frameCount);
-    totalFramesReadFromClient = 0;
-    while (totalFramesReadFromClient < totalFramesToReadFromClient && ma_device_is_started(pDevice)) {
-        ma_uint32 framesRemainingFromClient;
-        ma_uint32 framesToProcessFromClient;
-        ma_uint32 inputFrameCount;
-        void* pInputFrames;
-
-        framesRemainingFromClient = (totalFramesToReadFromClient - totalFramesReadFromClient);
-        framesToProcessFromClient = sizeof(playbackFramesInExternalFormat) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        if (framesToProcessFromClient > framesRemainingFromClient) {
-            framesToProcessFromClient = framesRemainingFromClient;
-        }
-
-        /* We need to grab captured samples before firing the callback. If there's not enough input samples we just pass silence. */
-        inputFrameCount = framesToProcessFromClient;
-        result = ma_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
-        if (result == MA_SUCCESS) {
-            if (inputFrameCount > 0) {
-                /* Use actual input frames. */
-                ma_device__on_data(pDevice, playbackFramesInExternalFormat, pInputFrames, inputFrameCount);
-            } else {
-                if (ma_pcm_rb_pointer_distance(pRB) == 0) {
-                    break;  /* Underrun. */
-                }
-            }
-
-            /* We're done with the captured samples. */
-            result = ma_pcm_rb_commit_read(pRB, inputFrameCount);
-            if (result != MA_SUCCESS) {
-                break; /* Don't know what to do here... Just abandon ship. */
-            }
-        } else {
-            /* Use silent input frames. */
-            inputFrameCount = ma_min(
-                sizeof(playbackFramesInExternalFormat) / ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels),
-                sizeof(silentInputFrames)              / ma_get_bytes_per_frame(pDevice->capture.format,  pDevice->capture.channels)
-            );
-
-            ma_device__on_data(pDevice, playbackFramesInExternalFormat, silentInputFrames, inputFrameCount);
-        }
-
-        /* We have samples in external format so now we need to convert to internal format and output to the device. */
-        {
-            ma_uint64 framesConvertedIn  = inputFrameCount;
+    while (totalFramesReadOut < frameCount && ma_device_is_started(pDevice)) {
+        /*
+        We should have a buffer allocated on the heap. Any playback frames still sitting in there
+        need to be sent to the internal device before we process any more data from the client.
+        */
+        if (pDevice->playback.inputCacheRemaining > 0) {
+            ma_uint64 framesConvertedIn  = pDevice->playback.inputCacheRemaining;
             ma_uint64 framesConvertedOut = (frameCount - totalFramesReadOut);
-            ma_data_converter_process_pcm_frames(&pDevice->playback.converter, playbackFramesInExternalFormat, &framesConvertedIn, pFramesInInternalFormat, &framesConvertedOut);
+            ma_data_converter_process_pcm_frames(&pDevice->playback.converter, ma_offset_pcm_frames_ptr(pDevice->playback.pInputCache, pDevice->playback.inputCacheConsumed, pDevice->playback.format, pDevice->playback.channels), &framesConvertedIn, pFramesInInternalFormat, &framesConvertedOut);
 
-            totalFramesReadFromClient += (ma_uint32)framesConvertedIn;  /* Safe cast. */
+            pDevice->playback.inputCacheConsumed  += framesConvertedIn;
+            pDevice->playback.inputCacheRemaining -= framesConvertedIn;
+
+            /*totalFramesReadFromClient += (ma_uint32)framesConvertedIn;*/  /* Safe cast. */
             totalFramesReadOut        += (ma_uint32)framesConvertedOut; /* Safe cast. */
             pFramesInInternalFormat    = ma_offset_ptr(pFramesInInternalFormat, framesConvertedOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
+        }
+
+        /* If there's no more data in the cache we'll need to fill it with some. */
+        if (totalFramesReadOut < frameCount && pDevice->playback.inputCacheRemaining == 0) {
+            ma_uint32 inputFrameCount;
+            void* pInputFrames;
+
+            inputFrameCount = (ma_uint32)pDevice->playback.inputCacheCap;
+            result = ma_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
+            if (result != MA_SUCCESS) {
+                if (inputFrameCount > 0) {
+                    ma_device__on_data(pDevice, pDevice->playback.pInputCache, pInputFrames, inputFrameCount);
+                } else {
+                    if (ma_pcm_rb_pointer_distance(pRB) == 0) {
+                        break;  /* Underrun. */
+                    }
+                }
+            } else {
+                /* No capture data available. Feed in silence. */
+                inputFrameCount = (ma_uint32)ma_min(pDevice->playback.inputCacheCap, sizeof(silentInputFrames) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                ma_device__on_data(pDevice, pDevice->playback.pInputCache, silentInputFrames, inputFrameCount);
+            }
+
+            pDevice->playback.inputCacheConsumed  = 0;
+            pDevice->playback.inputCacheRemaining = inputFrameCount;
         }
     }
 
@@ -32584,6 +32620,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
         converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
+        /* Make sure the old converter is uninitialized first. */
+        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+            ma_data_converter_uninit(&pDevice->capture.converter, &pDevice->pContext->allocationCallbacks);
+        }
+
         result = ma_data_converter_init(&converterConfig, &pDevice->pContext->allocationCallbacks, &pDevice->capture.converter);
         if (result != MA_SUCCESS) {
             return result;
@@ -32608,9 +32649,50 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
         converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
+        /* Make sure the old converter is uninitialized first. */
+        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+            ma_data_converter_uninit(&pDevice->playback.converter, &pDevice->pContext->allocationCallbacks);
+        }
+
         result = ma_data_converter_init(&converterConfig, &pDevice->pContext->allocationCallbacks, &pDevice->playback.converter);
         if (result != MA_SUCCESS) {
             return result;
+        }
+    }
+
+
+    /*
+    In playback mode, iff the data converter does not support retrieval of the required number of
+    input frames given a number of output frames, we need to fall back to a heap-allocated cache.
+    */
+    if (deviceType == ma_device_type_playback) {
+        ma_uint64 unused;
+
+        pDevice->playback.inputCacheConsumed  = 0;
+        pDevice->playback.inputCacheRemaining = 0;
+
+        result = ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused);
+        if (result != MA_SUCCESS) {
+            /* We need a heap allocated cache. We want to size this based on the period size. */
+            void* pNewInputCache;
+            ma_uint64 newInputCacheCap;
+
+            newInputCacheCap = ma_calculate_frame_count_after_resampling(pDevice->playback.internalSampleRate, pDevice->sampleRate, pDevice->playback.internalPeriodSizeInFrames);
+            pNewInputCache   = ma_realloc(pDevice->playback.pInputCache, newInputCacheCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels), &pDevice->pContext->allocationCallbacks);
+            if (pNewInputCache == NULL) {
+                ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
+                pDevice->playback.pInputCache   = NULL;
+                pDevice->playback.inputCacheCap = 0;
+                return MA_OUT_OF_MEMORY;
+            }
+
+            pDevice->playback.pInputCache   = pNewInputCache;
+            pDevice->playback.inputCacheCap = newInputCacheCap;
+        } else {
+            /* Heap allocation not required. Make sure we clear out the old cache just in case this function was called in response to a route change. */
+            ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
+            pDevice->playback.pInputCache   = NULL;
+            pDevice->playback.inputCacheCap = 0;
         }
     }
 
@@ -33718,6 +33800,10 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         if (pDevice->type == ma_device_type_duplex) {
             ma_duplex_rb_uninit(&pDevice->duplexRB);
         }
+    }
+
+    if (pDevice->playback.pInputCache != NULL) {
+        ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
     }
 
     if (pDevice->isOwnerOfContext) {
@@ -41444,38 +41530,6 @@ MA_API ma_result ma_data_converter_set_rate_ratio(ma_data_converter* pConverter,
     return ma_resampler_set_rate_ratio(&pConverter->resampler, ratioInOut);
 }
 
-MA_API ma_uint64 ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount)
-{
-    ma_uint64 inputFrameCount;
-
-    if (pConverter == NULL) {
-        return 0;
-    }
-
-    if (pConverter->hasResampler) {
-        ma_resampler_get_required_input_frame_count(&pConverter->resampler, outputFrameCount, &inputFrameCount);
-        return inputFrameCount;
-    } else {
-        return outputFrameCount;    /* 1:1 */
-    }
-}
-
-MA_API ma_uint64 ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount)
-{
-    ma_uint64 outputFrameCount;
-
-    if (pConverter == NULL) {
-        return 0;
-    }
-
-    if (pConverter->hasResampler) {
-        ma_resampler_get_expected_output_frame_count(&pConverter->resampler, inputFrameCount, &outputFrameCount);
-        return outputFrameCount;
-    } else {
-        return inputFrameCount;     /* 1:1 */
-    }
-}
-
 MA_API ma_uint64 ma_data_converter_get_input_latency(const ma_data_converter* pConverter)
 {
     if (pConverter == NULL) {
@@ -41500,6 +41554,46 @@ MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* p
     }
 
     return 0;   /* No latency without a resampler. */
+}
+
+MA_API ma_result ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount)
+{
+    if (pInputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pInputFrameCount = 0;
+
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_required_input_frame_count(&pConverter->resampler, outputFrameCount, pInputFrameCount);
+    } else {
+        *pInputFrameCount = outputFrameCount;   /* 1:1 */
+        return MA_SUCCESS;
+    }
+}
+
+MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount)
+{
+    if (pOutputFrameCount == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pOutputFrameCount = 0;
+
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConverter->hasResampler) {
+        return ma_resampler_get_expected_output_frame_count(&pConverter->resampler, inputFrameCount, pOutputFrameCount);
+    } else {
+        *pOutputFrameCount = inputFrameCount;   /* 1:1 */
+        return MA_SUCCESS;
+    }
 }
 
 
@@ -42387,7 +42481,25 @@ MA_API ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const
     }
 
     if (pOut == NULL) {
-        frameCountOut = ma_data_converter_get_expected_output_frame_count(&converter, frameCountIn);
+        result = ma_data_converter_get_expected_output_frame_count(&converter, frameCountIn, &frameCountOut);
+        if (result != MA_SUCCESS) {
+            if (result == MA_NOT_IMPLEMENTED) {
+                /* No way to calculate the number of frames, so we'll need to brute force it and loop. */
+                frameCountOut = 0;
+
+                while (frameCountIn > 0) {
+                    ma_uint64 framesProcessedIn  = frameCountIn;
+                    ma_uint64 framesProcessedOut = 0xFFFFFFFF;
+
+                    result = ma_data_converter_process_pcm_frames(&converter, pIn, &framesProcessedIn, NULL, &framesProcessedOut);
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
+
+                    frameCountIn  -= framesProcessedIn;
+                }
+            }
+        }
     } else {
         result = ma_data_converter_process_pcm_frames(&converter, pIn, &frameCountIn, pOut, &frameCountOut);
         if (result != MA_SUCCESS) {
@@ -46658,7 +46770,35 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
     converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
     converterConfig.resampling             = pConfig->resampling;
 
-    return ma_data_converter_init(&converterConfig, &pDecoder->allocationCallbacks, &pDecoder->converter);
+    result = ma_data_converter_init(&converterConfig, &pDecoder->allocationCallbacks, &pDecoder->converter);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /*
+    Now that we have the decoder we need to determine whether or not we need a heap-allocated cache. We'll
+    need this if the data converter does not support calculation of the required input frame count. To
+    determine support for this we'll just run a test.
+    */
+    {
+        ma_uint64 unused;
+
+        result = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, 1, &unused);
+        if (result != MA_SUCCESS) {
+            /*
+            We were unable to calculate the required input frame count which means we'll need to use
+            a heap-allocated cache.
+            */
+            pDecoder->inputCacheCap = MA_DATA_CONVERTER_STACK_BUFFER_SIZE / ma_get_bytes_per_frame(internalFormat, internalChannels);
+            pDecoder->pInputCache = ma_malloc(pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels), &pDecoder->allocationCallbacks);
+            if (pDecoder->pInputCache == NULL) {
+                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 
@@ -50190,7 +50330,6 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
         }
     }
 
-    /* Legacy. */
     if (pDecoder->onRead == ma_decoder__on_read_vfs) {
         ma_vfs_or_default_close(pDecoder->data.vfs.pVFS, pDecoder->data.vfs.file);
         pDecoder->data.vfs.file = NULL;
@@ -50199,6 +50338,10 @@ MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
     ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
     ma_data_source_uninit(&pDecoder->ds);
 
+    if (pDecoder->pInputCache != NULL) {
+        ma_free(pDecoder->pInputCache, &pDecoder->allocationCallbacks);
+    }
+
     return MA_SUCCESS;
 }
 
@@ -50206,7 +50349,6 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 {
     ma_result result = MA_SUCCESS;
     ma_uint64 totalFramesReadOut;
-    ma_uint64 totalFramesReadIn;
     void* pRunningFramesOut;
 
     if (pFramesRead != NULL) {
@@ -50237,7 +50379,6 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
             ma_uint32 internalChannels;
 
             totalFramesReadOut = 0;
-            totalFramesReadIn  = 0;
             pRunningFramesOut  = pFramesOut;
 
             result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, NULL, NULL, 0);
@@ -50245,51 +50386,102 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                 return result;   /* Failed to retrieve the internal format and channel count. */
             }
 
-            while (totalFramesReadOut < frameCount) {
-                ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
-                ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(internalFormat, internalChannels);
-                ma_uint64 framesToReadThisIterationIn;
-                ma_uint64 framesReadThisIterationIn;
-                ma_uint64 framesToReadThisIterationOut;
-                ma_uint64 framesReadThisIterationOut;
-                ma_uint64 requiredInputFrameCount;
+            /*
+            We run a different path depending on whether or not we are using a heap-allocated
+            intermediary buffer or not. If the data converter does not support the calculation of
+            the required number of input frames, we'll use the heap-allocated path. Otherwise we'll
+            use the stack-allocated path.
+            */
+            if (pDecoder->pInputCache != NULL) {
+                /* We don't have a way of determining the required number of input frames, so need to persistently store input data in a cache. */
+                while (totalFramesReadOut < frameCount) {
+                    ma_uint64 framesToReadThisIterationIn;
+                    ma_uint64 framesToReadThisIterationOut;
 
-                framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
-                framesToReadThisIterationIn = framesToReadThisIterationOut;
-                if (framesToReadThisIterationIn > intermediaryBufferCap) {
-                    framesToReadThisIterationIn = intermediaryBufferCap;
+                    /* If there's any data available in the cache, that needs to get processed first. */
+                    if (pDecoder->inputCacheRemaining > 0) {
+                        framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                        framesToReadThisIterationIn  = framesToReadThisIterationOut;
+                        if (framesToReadThisIterationIn > pDecoder->inputCacheRemaining) {
+                            framesToReadThisIterationIn = pDecoder->inputCacheRemaining;
+                        }
+
+                        result = ma_data_converter_process_pcm_frames(&pDecoder->converter, ma_offset_pcm_frames_ptr(pDecoder->pInputCache, pDecoder->inputCacheConsumed, internalFormat, internalChannels), &framesToReadThisIterationIn, pRunningFramesOut, &framesToReadThisIterationOut);
+                        if (result != MA_SUCCESS) {
+                            break;
+                        }
+
+                        pDecoder->inputCacheConsumed  += framesToReadThisIterationIn;
+                        pDecoder->inputCacheRemaining -= framesToReadThisIterationIn;
+
+                        totalFramesReadOut += framesToReadThisIterationOut;
+
+                        if (pRunningFramesOut != NULL) {
+                            pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesToReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+                        }
+
+                        if (framesToReadThisIterationIn == 0 && framesToReadThisIterationOut == 0) {
+                            break;  /* We're done. */
+                        }
+                    }
+
+                    /* Getting here means there's no data in the cache and we need to fill it up from the data source. */
+                    if (pDecoder->inputCacheRemaining == 0) {
+                        pDecoder->inputCacheConsumed = 0;
+
+                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pDecoder->pInputCache, pDecoder->inputCacheCap, &pDecoder->inputCacheRemaining, MA_FALSE);
+                        if (result != MA_SUCCESS) {
+                            break;
+                        }
+                    }
                 }
+            } else {
+                /* We have a way of determining the required number of input frames so just use the stack. */
+                while (totalFramesReadOut < frameCount) {
+                    ma_uint8 pIntermediaryBuffer[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];  /* In internal format. */
+                    ma_uint64 intermediaryBufferCap = sizeof(pIntermediaryBuffer) / ma_get_bytes_per_frame(internalFormat, internalChannels);
+                    ma_uint64 framesToReadThisIterationIn;
+                    ma_uint64 framesReadThisIterationIn;
+                    ma_uint64 framesToReadThisIterationOut;
+                    ma_uint64 framesReadThisIterationOut;
+                    ma_uint64 requiredInputFrameCount;
 
-                requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut);
-                if (framesToReadThisIterationIn > requiredInputFrameCount) {
-                    framesToReadThisIterationIn = requiredInputFrameCount;
-                }
+                    framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
+                    framesToReadThisIterationIn = framesToReadThisIterationOut;
+                    if (framesToReadThisIterationIn > intermediaryBufferCap) {
+                        framesToReadThisIterationIn = intermediaryBufferCap;
+                    }
 
-                if (requiredInputFrameCount > 0) {
-                    result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
-                    totalFramesReadIn += framesReadThisIterationIn;
-                } else {
-                    framesReadThisIterationIn = 0;
-                }
+                    ma_data_converter_get_required_input_frame_count(&pDecoder->converter, framesToReadThisIterationOut, &requiredInputFrameCount);
+                    if (framesToReadThisIterationIn > requiredInputFrameCount) {
+                        framesToReadThisIterationIn = requiredInputFrameCount;
+                    }
 
-                /*
-                At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
-                input frames, we still want to try processing frames because there may some output frames generated from cached input data.
-                */
-                framesReadThisIterationOut = framesToReadThisIterationOut;
-                result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
-                if (result != MA_SUCCESS) {
-                    break;
-                }
+                    if (requiredInputFrameCount > 0) {
+                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
+                    } else {
+                        framesReadThisIterationIn = 0;
+                    }
 
-                totalFramesReadOut += framesReadThisIterationOut;
+                    /*
+                    At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
+                    input frames, we still want to try processing frames because there may some output frames generated from cached input data.
+                    */
+                    framesReadThisIterationOut = framesToReadThisIterationOut;
+                    result = ma_data_converter_process_pcm_frames(&pDecoder->converter, pIntermediaryBuffer, &framesReadThisIterationIn, pRunningFramesOut, &framesReadThisIterationOut);
+                    if (result != MA_SUCCESS) {
+                        break;
+                    }
 
-                if (pRunningFramesOut != NULL) {
-                    pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
-                }
+                    totalFramesReadOut += framesReadThisIterationOut;
 
-                if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
-                    break;  /* We're done. */
+                    if (pRunningFramesOut != NULL) {
+                        pRunningFramesOut = ma_offset_ptr(pRunningFramesOut, framesReadThisIterationOut * ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels));
+                    }
+
+                    if (framesReadThisIterationIn == 0 && framesReadThisIterationOut == 0) {
+                        break;  /* We're done. */
+                    }
                 }
             }
         }
