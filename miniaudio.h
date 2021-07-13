@@ -8811,6 +8811,8 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
                     ma_free(pFormattedMessage, &pLog->allocationCallbacks);
 
                     return result;
+                } else {
+                    return MA_OUT_OF_MEMORY;
                 }
             } else {
                 return MA_INVALID_OPERATION;
