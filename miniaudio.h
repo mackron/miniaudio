@@ -8789,34 +8789,34 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
             va_end(args2);
 
-            if (formattedLen > 0) {
-                char* pFormattedMessage = NULL;
-
-                pFormattedMessage = (char*)ma_malloc(formattedLen + 1, &pLog->allocationCallbacks);
-                if (pFormattedMessage != NULL) {
-                    ma_result result;
-
-                    /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
-                    #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
-                    {
-                        vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
-                    }
-                    #else
-                    {
-                        vsprintf(pFormattedMessage, pFormat, args);
-                    }
-                    #endif
-
-                    result = ma_log_post(pLog, level, pFormattedMessage);
-                    ma_free(pFormattedMessage, &pLog->allocationCallbacks);
-
-                    return result;
-                } else {
-                    return MA_OUT_OF_MEMORY;
-                }
-            } else {
+            if (formattedLen <= 0) {
                 return MA_INVALID_OPERATION;
             }
+
+            char* pFormattedMessage = NULL;
+
+            pFormattedMessage = (char*)ma_malloc(formattedLen + 1, &pLog->allocationCallbacks);
+            if (pFormattedMessage == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            ma_result result;
+
+            /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
+            #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
+            {
+                vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
+            }
+            #else
+            {
+                vsprintf(pFormattedMessage, pFormat, args);
+            }
+            #endif
+
+            result = ma_log_post(pLog, level, pFormattedMessage);
+            ma_free(pFormattedMessage, &pLog->allocationCallbacks);
+
+            return result;
         }
         #else
         {
