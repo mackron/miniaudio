@@ -3370,6 +3370,7 @@ struct ma_device_config
     ma_performance_profile performanceProfile;
     ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
+    ma_bool8 noDisableDenormals;        /* Do not disable denormals when firing the data callback. */
     ma_device_data_proc dataCallback;
     ma_stop_proc stopCallback;
     void* pUserData;
@@ -4033,6 +4034,7 @@ struct ma_device
     ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
+    ma_bool8 noDisableDenormals;
     MA_ATOMIC float masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
@@ -4887,6 +4889,9 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. When set to false (default), the
         contents of the output buffer are left alone after returning and it will be left up to the backend itself to decide whether or not the clip. This only
         applies when the playback sample format is f32.
+
+    noDisableDenormals
+        By default, miniaudio will disable denormals when the data callback is called. Setting this to true will prevent the disabling of denormals.
 
     dataCallback
         The callback to fire whenever data is ready to be delivered to or from the device.
@@ -6911,6 +6916,32 @@ static MA_INLINE void ma_yield()
     #endif
 #else
     /* Unknown or unsupported architecture. No-op. */
+#endif
+}
+
+
+static MA_INLINE unsigned int ma_disable_denormals()
+{
+    unsigned int prevState;
+
+#if defined(MA_X86) || defined(MA_X64)
+    prevState = _mm_getcsr();
+    _mm_setcsr(prevState | _MM_DENORMALS_ZERO_MASK | _MM_FLUSH_ZERO_MASK);
+#else
+    /* Unknown or unsupported architecture. No-op. */
+    prevState = 0;
+#endif
+
+    return prevState;
+}
+
+static MA_INLINE void ma_restore_denormals(unsigned int prevState)
+{
+#if defined(MA_X86) || defined(MA_X64)
+    _mm_setcsr(prevState);
+#else
+    /* Unknown or unsupported architecture. No-op. */
+    (void)prevState;
 #endif
 }
 
@@ -11921,6 +11952,29 @@ static ma_uint32 ma_get_closest_standard_sample_rate(ma_uint32 sampleRateIn)
 #endif
 
 
+static MA_INLINE unsigned int ma_device_disable_denormals(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->noDisableDenormals) {
+        return ma_disable_denormals();
+    } else {
+        return 0;
+    }
+}
+
+static MA_INLINE void ma_device_restore_denormals(ma_device* pDevice, unsigned int prevState)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->noDisableDenormals) {
+        ma_restore_denormals(prevState);
+    } else {
+        /* Do nothing. */
+        (void)prevState;
+    }
+}
+
 static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     float masterVolumeFactor;
@@ -11928,44 +11982,48 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
     ma_device_get_master_volume(pDevice, &masterVolumeFactor);  /* Use ma_device_get_master_volume() to ensure the volume is loaded atomically. */
 
     if (pDevice->onData) {
-        if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
-            ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
-        }
+        unsigned int prevDenormalState = ma_device_disable_denormals(pDevice);
+        {
+            if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
+                ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            }
 
-        /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
-        if (pFramesIn != NULL && masterVolumeFactor < 1) {
-            ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
-            ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-            ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            ma_uint32 totalFramesProcessed = 0;
-            while (totalFramesProcessed < frameCount) {
-                ma_uint32 framesToProcessThisIteration = frameCount - totalFramesProcessed;
-                if (framesToProcessThisIteration > sizeof(tempFramesIn)/bpfCapture) {
-                    framesToProcessThisIteration = sizeof(tempFramesIn)/bpfCapture;
+            /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
+            if (pFramesIn != NULL && masterVolumeFactor < 1) {
+                ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+                ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+                ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+                ma_uint32 totalFramesProcessed = 0;
+                while (totalFramesProcessed < frameCount) {
+                    ma_uint32 framesToProcessThisIteration = frameCount - totalFramesProcessed;
+                    if (framesToProcessThisIteration > sizeof(tempFramesIn)/bpfCapture) {
+                        framesToProcessThisIteration = sizeof(tempFramesIn)/bpfCapture;
+                    }
+
+                    ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, masterVolumeFactor);
+
+                    pDevice->onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
+
+                    totalFramesProcessed += framesToProcessThisIteration;
+                }
+            } else {
+                pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
+            }
+
+            /* Volume control and clipping for playback devices. */
+            if (pFramesOut != NULL) {
+                if (masterVolumeFactor < 1) {
+                    if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
+                        ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
+                    }
                 }
 
-                ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, masterVolumeFactor);
-
-                pDevice->onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
-
-                totalFramesProcessed += framesToProcessThisIteration;
-            }
-        } else {
-            pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
-        }
-
-        /* Volume control and clipping for playback devices. */
-        if (pFramesOut != NULL) {
-            if (masterVolumeFactor < 1) {
-                if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
-                    ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
+                if (!pDevice->noClip && pDevice->playback.format == ma_format_f32) {
+                    ma_clip_pcm_frames_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount, pDevice->playback.channels);   /* Intentionally specifying the same pointer for both input and output for in-place processing. */
                 }
             }
-
-            if (!pDevice->noClip && pDevice->playback.format == ma_format_f32) {
-                ma_clip_pcm_frames_f32((float*)pFramesOut, (const float*)pFramesOut, frameCount, pDevice->playback.channels);   /* Intentionally specifying the same pointer for both input and output for in-place processing. */
-            }
         }
+        ma_device_restore_denormals(pDevice, prevDenormalState);
     }
 }
 
