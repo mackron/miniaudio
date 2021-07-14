@@ -8477,8 +8477,6 @@ static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst
 Logging
 
 **************************************************************************************************************************************************************/
-#if defined(MA_DEBUG_OUTPUT)
-
 MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 {
     switch (logLevel)
@@ -8490,6 +8488,8 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
         default:                   return "ERROR";
     }
 }
+
+#if defined(MA_DEBUG_OUTPUT)
 
 /* Customize this to use a specific tag in __android_log_print() for debug output messages. */
 #ifndef MA_ANDROID_LOG_TAG
