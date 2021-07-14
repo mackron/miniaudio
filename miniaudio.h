@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.38 - TBD
+miniaudio - v0.10.38 - 2021-07-14
 
 David Reid - mackron@gmail.com
 
@@ -3798,6 +3798,8 @@ struct ma_context
             ma_proc pa_stream_get_device_name;
             ma_proc pa_stream_set_write_callback;
             ma_proc pa_stream_set_read_callback;
+            ma_proc pa_stream_set_suspended_callback;
+            ma_proc pa_stream_is_suspended;
             ma_proc pa_stream_flush;
             ma_proc pa_stream_drain;
             ma_proc pa_stream_is_corked;
@@ -8264,8 +8266,6 @@ static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst
 Logging
 
 **************************************************************************************************************************************************************/
-#if defined(MA_DEBUG_OUTPUT)
-
 MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 {
     switch (logLevel)
@@ -8277,6 +8277,8 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
         default:                   return "ERROR";
     }
 }
+
+#if defined(MA_DEBUG_OUTPUT)
 
 /* Customize this to use a specific tag in __android_log_print() for debug output messages. */
 #ifndef MA_ANDROID_LOG_TAG
@@ -8560,7 +8562,9 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         */
         #if defined(_MSC_VER) && _MSC_VER >= 1200   /* 1200 = VC6 */
         {
+            ma_result result;
             int formattedLen;
+            char* pFormattedMessage = NULL;
             va_list args2;
 
             #if _MSC_VER >= 1800
@@ -8576,32 +8580,30 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
             va_end(args2);
 
-            if (formattedLen > 0) {
-                char* pFormattedMessage = NULL;
-
-                pFormattedMessage = (char*)ma_malloc(formattedLen + 1, &pLog->allocationCallbacks);
-                if (pFormattedMessage != NULL) {
-                    ma_result result;
-
-                    /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
-                    #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
-                    {
-                        vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
-                    }
-                    #else
-                    {
-                        vsprintf(pFormattedMessage, pFormat, args);
-                    }
-                    #endif
-
-                    result = ma_log_post(pLog, level, pFormattedMessage);
-                    ma_free(pFormattedMessage, &pLog->allocationCallbacks);
-
-                    return result;
-                }
-            } else {
+            if (formattedLen <= 0) {
                 return MA_INVALID_OPERATION;
             }
+
+            pFormattedMessage = (char*)ma_malloc(formattedLen + 1, &pLog->allocationCallbacks);
+            if (pFormattedMessage == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
+            #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
+            {
+                vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
+            }
+            #else
+            {
+                vsprintf(pFormattedMessage, pFormat, args);
+            }
+            #endif
+
+            result = ma_log_post(pLog, level, pFormattedMessage);
+            ma_free(pFormattedMessage, &pLog->allocationCallbacks);
+
+            return result;
         }
         #else
         {
@@ -21631,6 +21633,7 @@ to check for type safety. We cannot do this when linking at run time because the
 #define MA_PA_ERR_ACCESS                               PA_ERR_ACCESS
 #define MA_PA_ERR_INVALID                              PA_ERR_INVALID
 #define MA_PA_ERR_NOENTITY                             PA_ERR_NOENTITY
+#define MA_PA_ERR_NOTSUPPORTED                         PA_ERR_NOTSUPPORTED
 
 #define MA_PA_CHANNELS_MAX                             PA_CHANNELS_MAX
 #define MA_PA_RATE_MAX                                 PA_RATE_MAX
@@ -21826,12 +21829,14 @@ typedef pa_sink_info_cb_t       ma_pa_sink_info_cb_t;
 typedef pa_source_info_cb_t     ma_pa_source_info_cb_t;
 typedef pa_stream_success_cb_t  ma_pa_stream_success_cb_t;
 typedef pa_stream_request_cb_t  ma_pa_stream_request_cb_t;
+typedef pa_stream_notify_cb_t   ma_pa_stream_notify_cb_t;
 typedef pa_free_cb_t            ma_pa_free_cb_t;
 #else
 #define MA_PA_OK                                       0
 #define MA_PA_ERR_ACCESS                               1
 #define MA_PA_ERR_INVALID                              2
 #define MA_PA_ERR_NOENTITY                             5
+#define MA_PA_ERR_NOTSUPPORTED                         19
 
 #define MA_PA_CHANNELS_MAX                             32
 #define MA_PA_RATE_MAX                                 384000
@@ -22105,6 +22110,7 @@ typedef void (* ma_pa_sink_info_cb_t)     (ma_pa_context* c, const ma_pa_sink_in
 typedef void (* ma_pa_source_info_cb_t)   (ma_pa_context* c, const ma_pa_source_info* i, int eol, void* userdata);
 typedef void (* ma_pa_stream_success_cb_t)(ma_pa_stream* s, int success, void* userdata);
 typedef void (* ma_pa_stream_request_cb_t)(ma_pa_stream* s, size_t nbytes, void* userdata);
+typedef void (* ma_pa_stream_notify_cb_t) (ma_pa_stream* s, void* userdata);
 typedef void (* ma_pa_free_cb_t)          (void* p);
 #endif
 
@@ -22156,6 +22162,8 @@ typedef ma_pa_operation*         (* ma_pa_stream_set_buffer_attr_proc)         (
 typedef const char*              (* ma_pa_stream_get_device_name_proc)         (ma_pa_stream* s);
 typedef void                     (* ma_pa_stream_set_write_callback_proc)      (ma_pa_stream* s, ma_pa_stream_request_cb_t cb, void* userdata);
 typedef void                     (* ma_pa_stream_set_read_callback_proc)       (ma_pa_stream* s, ma_pa_stream_request_cb_t cb, void* userdata);
+typedef void                     (* ma_pa_stream_set_suspended_callback_proc)  (ma_pa_stream* s, ma_pa_stream_notify_cb_t cb, void* userdata);
+typedef int                      (* ma_pa_stream_is_suspended_proc)            (const ma_pa_stream* s);
 typedef ma_pa_operation*         (* ma_pa_stream_flush_proc)                   (ma_pa_stream* s, ma_pa_stream_success_cb_t cb, void* userdata);
 typedef ma_pa_operation*         (* ma_pa_stream_drain_proc)                   (ma_pa_stream* s, ma_pa_stream_success_cb_t cb, void* userdata);
 typedef int                      (* ma_pa_stream_is_corked_proc)               (ma_pa_stream* s);
@@ -23030,6 +23038,36 @@ static void ma_device_on_write__pulse(ma_pa_stream* pStream, size_t byteCount, v
     }
 }
 
+static void ma_device_on_suspended__pulse(ma_pa_stream* pStream, void* pUserData)
+{
+    ma_device* pDevice = (ma_device*)pUserData;
+    int suspended;
+
+    (void)pStream;
+
+    suspended = ((ma_pa_stream_is_suspended_proc)pDevice->pContext->pulse.pa_stream_is_suspended)(pStream);
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. pa_stream_is_suspended() returned %d.\n", suspended);
+
+    if (suspended < 0) {
+        return;
+    }
+
+    if (suspended == 1) {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Suspended.\n");
+        
+        /* Locking this behind MA_DEBUG_OUTPUT for the moment while this is still in an experimental state. */
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            if (pDevice->onStop) {
+                pDevice->onStop(pDevice);
+            }
+        }
+        #endif
+    } else {
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Resumed.\n");
+    }   
+}
+
 static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     /*
@@ -23251,6 +23289,9 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         device state of MA_STATE_UNINITIALIZED.
         */
         ((ma_pa_stream_set_write_callback_proc)pDevice->pContext->pulse.pa_stream_set_write_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_write__pulse, pDevice);
+
+        /* State callback for checking when the device has been corked. */
+        ((ma_pa_stream_set_suspended_callback_proc)pDevice->pContext->pulse.pa_stream_set_suspended_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_suspended__pulse, pDevice);
 
 
         /* Connect after we've got all of our internal state set up. */
@@ -23576,6 +23617,8 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
     pContext->pulse.pa_stream_get_device_name          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_device_name");
     pContext->pulse.pa_stream_set_write_callback       = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_write_callback");
     pContext->pulse.pa_stream_set_read_callback        = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_read_callback");
+    pContext->pulse.pa_stream_set_suspended_callback   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_suspended_callback");
+    pContext->pulse.pa_stream_is_suspended             = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_is_suspended");
     pContext->pulse.pa_stream_flush                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_flush");
     pContext->pulse.pa_stream_drain                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_drain");
     pContext->pulse.pa_stream_is_corked                = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_is_corked");
@@ -23636,6 +23679,8 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
     ma_pa_stream_get_device_name_proc          _pa_stream_get_device_name         = pa_stream_get_device_name;
     ma_pa_stream_set_write_callback_proc       _pa_stream_set_write_callback      = pa_stream_set_write_callback;
     ma_pa_stream_set_read_callback_proc        _pa_stream_set_read_callback       = pa_stream_set_read_callback;
+    ma_pa_stream_set_suspended_callback_proc   _pa_stream_set_suspended_callback  = pa_stream_set_suspended_callback;
+    ma_pa_stream_is_suspended_proc             _pa_stream_is_suspended            = pa_stream_is_suspended;
     ma_pa_stream_flush_proc                    _pa_stream_flush                   = pa_stream_flush;
     ma_pa_stream_drain_proc                    _pa_stream_drain                   = pa_stream_drain;
     ma_pa_stream_is_corked_proc                _pa_stream_is_corked               = pa_stream_is_corked;
@@ -23695,6 +23740,8 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
     pContext->pulse.pa_stream_get_device_name          = (ma_proc)_pa_stream_get_device_name;
     pContext->pulse.pa_stream_set_write_callback       = (ma_proc)_pa_stream_set_write_callback;
     pContext->pulse.pa_stream_set_read_callback        = (ma_proc)_pa_stream_set_read_callback;
+    pContext->pulse.pa_stream_set_suspended_callback   = (ma_proc)_pa_stream_set_suspended_callback;
+    pContext->pulse.pa_stream_is_suspended             = (ma_proc)_pa_stream_is_suspended;
     pContext->pulse.pa_stream_flush                    = (ma_proc)_pa_stream_flush;
     pContext->pulse.pa_stream_drain                    = (ma_proc)_pa_stream_drain;
     pContext->pulse.pa_stream_is_corked                = (ma_proc)_pa_stream_is_corked;
@@ -68645,7 +68692,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.38 - TBD
+v0.10.38 - 2021-07-14
+  - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
+  - Fix an error where ma_log_postv() does not return a value.
   - OpenSL: Fix a bug with setting of stream types and recording presets.
 
 0.10.37 - 2021-07-06
