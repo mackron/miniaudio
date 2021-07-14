@@ -8773,7 +8773,9 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         */
         #if defined(_MSC_VER) && _MSC_VER >= 1200   /* 1200 = VC6 */
         {
+            ma_result result;
             int formattedLen;
+            char* pFormattedMessage = NULL;
             va_list args2;
 
             #if _MSC_VER >= 1800
@@ -8793,14 +8795,10 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
                 return MA_INVALID_OPERATION;
             }
 
-            char* pFormattedMessage = NULL;
-
             pFormattedMessage = (char*)ma_malloc(formattedLen + 1, &pLog->allocationCallbacks);
             if (pFormattedMessage == NULL) {
                 return MA_OUT_OF_MEMORY;
             }
-
-            ma_result result;
 
             /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
             #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
