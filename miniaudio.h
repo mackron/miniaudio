@@ -69347,6 +69347,8 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.38 - TBD
+  - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
+  - Fix an error where ma_log_postv() does not return a value.
   - OpenSL: Fix a bug with setting of stream types and recording presets.
 
 0.10.37 - 2021-07-06
