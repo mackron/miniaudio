@@ -34538,12 +34538,12 @@ MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, c
 
 MA_API float ma_factor_to_gain_db(float factor)
 {
-    return (float)(20*ma_log10f(factor));
+    return 20*ma_log10f(factor);
 }
 
 MA_API float ma_gain_db_to_factor(float gain)
 {
-    return (float)ma_powf(10, gain/20.0f);
+    return ma_powf(10, gain/20.0f);
 }
 
 
