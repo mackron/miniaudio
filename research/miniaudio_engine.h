@@ -305,7 +305,6 @@ system means the no matter how many job threads are executing, decoding of an in
 multiple threads comes into play when loading multiple sounds at the time time.
 */
 MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
-MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
 
 
 typedef struct
@@ -2925,12 +2924,6 @@ MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, c
         }
     }
 }
-
-MA_API void ma_apply_volume_factor_per_channel_f32(float* pFramesOut, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
-{
-    ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOut, pFramesOut, frameCount, channels, pChannelGains);
-}
-
 
 
 static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
