@@ -304,34 +304,6 @@ job will be posted back onto the job queue for later processing. When the job fi
 system means the no matter how many job threads are executing, decoding of an individual sound will always get processed serially. The advantage to having
 multiple threads comes into play when loading multiple sounds at the time time.
 */
-typedef struct
-{
-    ma_uint32 channels;
-    ma_uint32 smoothTimeInFrames;
-} ma_gainer_config;
-
-MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames);
-
-
-typedef struct
-{
-    ma_gainer_config config;
-    ma_uint32 t;
-    float* pOldGains;
-    float* pNewGains;
-
-    /* Memory management. */
-    void* _pHeap;
-    ma_bool32 _ownsHeap;
-} ma_gainer;
-
-MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer);
-MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer);
-MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
-MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
-MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
 
 
 /*
@@ -1529,6 +1501,38 @@ typedef struct ma_engine ma_engine;
 typedef struct ma_sound  ma_sound;
 
 
+/* Gainer for smooth volume changes. */
+typedef struct
+{
+    ma_uint32 channels;
+    ma_uint32 smoothTimeInFrames;
+} ma_gainer_config;
+
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames);
+
+
+typedef struct
+{
+    ma_gainer_config config;
+    ma_uint32 t;
+    float* pOldGains;
+    float* pNewGains;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
+} ma_gainer;
+
+MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer);
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer);
+MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
+
+
+
 /* Stereo panner. */
 typedef enum
 {
@@ -2285,278 +2289,6 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 
 
 #if defined(MA_IMPLEMENTATION) || defined(MINIAUDIO_IMPLEMENTATION)
-
-
-MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames)
-{
-    ma_gainer_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.channels           = channels;
-    config.smoothTimeInFrames = smoothTimeInFrames;
-
-    return config;
-}
-
-
-typedef struct
-{
-    size_t sizeInBytes;
-    size_t oldGainsOffset;
-    size_t newGainsOffset;
-} ma_gainer_heap_layout;
-
-static ma_result ma_gainer_get_heap_layout(const ma_gainer_config* pConfig, ma_gainer_heap_layout* pHeapLayout)
-{
-    MA_ASSERT(pHeapLayout != NULL);
-
-    MA_ZERO_OBJECT(pHeapLayout);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pConfig->channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    pHeapLayout->sizeInBytes = 0;
-
-    /* Old gains. */
-    pHeapLayout->oldGainsOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
-
-    /* New gains. */
-    pHeapLayout->newGainsOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
-
-    /* Alignment. */
-    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
-
-    return MA_SUCCESS;
-}
-
-
-MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes)
-{
-    ma_result result;
-    ma_gainer_heap_layout heapLayout;
-
-    if (pHeapSizeInBytes == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pHeapSizeInBytes = 0;
-
-    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
-    if (result != MA_SUCCESS) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pHeapSizeInBytes = heapLayout.sizeInBytes;
-
-    return MA_SUCCESS;
-}
-
-
-MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer)
-{
-    ma_result result;
-    ma_gainer_heap_layout heapLayout;
-    ma_uint32 iChannel;
-
-    if (pGainer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pGainer);
-
-    if (pConfig == NULL || pHeap == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pGainer->_pHeap    = pHeap;
-    pGainer->pOldGains = (float*)ma_offset_ptr(pHeap, heapLayout.oldGainsOffset);
-    pGainer->pNewGains = (float*)ma_offset_ptr(pHeap, heapLayout.newGainsOffset);
-
-    pGainer->config = *pConfig;
-    pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
-
-    for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
-        pGainer->pOldGains[iChannel] = 1;
-        pGainer->pNewGains[iChannel] = 1;
-    }
-    
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer)
-{
-    ma_result result;
-    size_t heapSizeInBytes;
-    void* pHeap;
-
-    result = ma_gainer_get_heap_size(pConfig, &heapSizeInBytes);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to retrieve the size of the heap allocation. */
-    }
-
-    if (heapSizeInBytes > 0) {
-        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-    } else {
-        pHeap = NULL;
-    }
-
-    result = ma_gainer_init_preallocated(pConfig, pHeap, pGainer);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pGainer->_ownsHeap = MA_TRUE;
-    return MA_SUCCESS;
-}
-
-MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pGainer == NULL) {
-        return;
-    }
-
-    if (pGainer->_pHeap != NULL && pGainer->_ownsHeap) {
-        ma_free(pGainer->_pHeap, pAllocationCallbacks);
-    }
-}
-
-static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint32 channel)
-{
-    float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
-    return ma_mix_f32_fast(pGainer->pOldGains[channel], pGainer->pNewGains[channel], a);
-}
-
-MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
-{
-    ma_uint64 iFrame;
-    ma_uint32 iChannel;
-    float* pFramesOutF32 = (float*)pFramesOut;
-    const float* pFramesInF32 = (const float*)pFramesIn;
-
-    if (pGainer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
-        /* Fast path. No gain calculation required. */
-        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->pNewGains);
-
-        /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
-        if (pGainer->t == (ma_uint32)-1) {
-            pGainer->t = pGainer->config.smoothTimeInFrames;
-        }
-    } else {
-        /* Slow path. Need to interpolate the gain for each channel individually. */
-
-        /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
-        if (pFramesOut != NULL && pFramesIn != NULL) {
-            float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
-            float d = 1.0f / pGainer->config.smoothTimeInFrames;
-            ma_uint32 channelCount = pGainer->config.channels;
-
-            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
-                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
-                }
-
-                pFramesOutF32 += channelCount;
-                pFramesInF32  += channelCount;
-
-                a += d;
-                if (a > 1) {
-                    a = 1;
-                }
-            }   
-        }
-
-        pGainer->t = (ma_uint32)ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
-
-    #if 0   /* Reference implementation. */
-        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
-            if (pFramesOut != NULL && pFramesIn != NULL) {
-                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
-                }
-            }
-
-            /* Move interpolation time forward, but don't go beyond our smoothing time. */
-            pGainer->t = ma_min(pGainer->t + 1, pGainer->config.smoothTimeInFrames);
-        }
-    #endif
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_gainer_set_gain_by_index(ma_gainer* pGainer, float newGain, ma_uint32 iChannel)
-{
-    pGainer->pOldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
-    pGainer->pNewGains[iChannel] = newGain;
-}
-
-static void ma_gainer_reset_smoothing_time(ma_gainer* pGainer)
-{
-    if (pGainer->t == (ma_uint32)-1) {
-        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
-    } else {
-        pGainer->t = 0;
-    }
-}
-
-MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain)
-{
-    ma_uint32 iChannel;
-
-    if (pGainer == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-        ma_gainer_set_gain_by_index(pGainer, newGain, iChannel);
-    }
-
-    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
-    ma_gainer_reset_smoothing_time(pGainer);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
-{
-    ma_uint32 iChannel;
-
-    if (pGainer == NULL || pNewGains == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-        ma_gainer_set_gain_by_index(pGainer, pNewGains[iChannel], iChannel);
-    }
-
-    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
-    ma_gainer_reset_smoothing_time(pGainer);
-    
-    return MA_SUCCESS;
-}
-
-
-
 
 /* 10ms @ 48K = 480. Must never exceed 65535. */
 #ifndef MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS
@@ -9286,6 +9018,274 @@ MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pReso
 
 
 
+
+MA_API ma_gainer_config ma_gainer_config_init(ma_uint32 channels, ma_uint32 smoothTimeInFrames)
+{
+    ma_gainer_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.channels           = channels;
+    config.smoothTimeInFrames = smoothTimeInFrames;
+
+    return config;
+}
+
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t oldGainsOffset;
+    size_t newGainsOffset;
+} ma_gainer_heap_layout;
+
+static ma_result ma_gainer_get_heap_layout(const ma_gainer_config* pConfig, ma_gainer_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Old gains. */
+    pHeapLayout->oldGainsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+
+    /* New gains. */
+    pHeapLayout->newGainsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+
+    /* Alignment. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_gainer_get_heap_size(const ma_gainer_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_gainer_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+
+MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, void* pHeap, ma_gainer* pGainer)
+{
+    ma_result result;
+    ma_gainer_heap_layout heapLayout;
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pGainer);
+
+    if (pConfig == NULL || pHeap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_gainer_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pGainer->_pHeap    = pHeap;
+    pGainer->pOldGains = (float*)ma_offset_ptr(pHeap, heapLayout.oldGainsOffset);
+    pGainer->pNewGains = (float*)ma_offset_ptr(pHeap, heapLayout.newGainsOffset);
+
+    pGainer->config = *pConfig;
+    pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
+
+    for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+        pGainer->pOldGains[iChannel] = 1;
+        pGainer->pNewGains[iChannel] = 1;
+    }
+    
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_init(const ma_gainer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_gainer* pGainer)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_gainer_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap allocation. */
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_gainer_init_preallocated(pConfig, pHeap, pGainer);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pGainer->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pGainer == NULL) {
+        return;
+    }
+
+    if (pGainer->_pHeap != NULL && pGainer->_ownsHeap) {
+        ma_free(pGainer->_pHeap, pAllocationCallbacks);
+    }
+}
+
+static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint32 channel)
+{
+    float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
+    return ma_mix_f32_fast(pGainer->pOldGains[channel], pGainer->pNewGains[channel], a);
+}
+
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    ma_uint64 iFrame;
+    ma_uint32 iChannel;
+    float* pFramesOutF32 = (float*)pFramesOut;
+    const float* pFramesInF32 = (const float*)pFramesIn;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
+        /* Fast path. No gain calculation required. */
+        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->pNewGains);
+
+        /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
+        if (pGainer->t == (ma_uint32)-1) {
+            pGainer->t = pGainer->config.smoothTimeInFrames;
+        }
+    } else {
+        /* Slow path. Need to interpolate the gain for each channel individually. */
+
+        /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
+        if (pFramesOut != NULL && pFramesIn != NULL) {
+            float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
+            float d = 1.0f / pGainer->config.smoothTimeInFrames;
+            ma_uint32 channelCount = pGainer->config.channels;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
+                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
+                }
+
+                pFramesOutF32 += channelCount;
+                pFramesInF32  += channelCount;
+
+                a += d;
+                if (a > 1) {
+                    a = 1;
+                }
+            }   
+        }
+
+        pGainer->t = (ma_uint32)ma_min(pGainer->t + frameCount, pGainer->config.smoothTimeInFrames);
+
+    #if 0   /* Reference implementation. */
+        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+            /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
+            if (pFramesOut != NULL && pFramesIn != NULL) {
+                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
+                }
+            }
+
+            /* Move interpolation time forward, but don't go beyond our smoothing time. */
+            pGainer->t = ma_min(pGainer->t + 1, pGainer->config.smoothTimeInFrames);
+        }
+    #endif
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_gainer_set_gain_by_index(ma_gainer* pGainer, float newGain, ma_uint32 iChannel)
+{
+    pGainer->pOldGains[iChannel] = ma_gainer_calculate_current_gain(pGainer, iChannel);
+    pGainer->pNewGains[iChannel] = newGain;
+}
+
+static void ma_gainer_reset_smoothing_time(ma_gainer* pGainer)
+{
+    if (pGainer->t == (ma_uint32)-1) {
+        pGainer->t = pGainer->config.smoothTimeInFrames;    /* No smoothing required for initial gains setting. */
+    } else {
+        pGainer->t = 0;
+    }
+}
+
+MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        ma_gainer_set_gain_by_index(pGainer, newGain, iChannel);
+    }
+
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
+    ma_gainer_reset_smoothing_time(pGainer);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
+{
+    ma_uint32 iChannel;
+
+    if (pGainer == NULL || pNewGains == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+        ma_gainer_set_gain_by_index(pGainer, pNewGains[iChannel], iChannel);
+    }
+
+    /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
+    ma_gainer_reset_smoothing_time(pGainer);
+    
+    return MA_SUCCESS;
+}
 
 
 MA_API ma_panner_config ma_panner_config_init(ma_format format, ma_uint32 channels)
