@@ -5822,13 +5822,6 @@ Utiltities
 ************************************************************************************************************************************************************/
 
 /*
-Adjust buffer size based on a scaling factor.
-
-This just multiplies the base size by the scaling factor, making sure it's a size of at least 1.
-*/
-MA_API ma_uint32 ma_scale_buffer_size(ma_uint32 baseBufferSize, float scale);
-
-/*
 Calculates a buffer size in milliseconds from the specified number of frames and sample rate.
 */
 MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 bufferSizeInFrames, ma_uint32 sampleRate);
@@ -34275,11 +34268,6 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 }
 #endif  /* MA_NO_DEVICE_IO */
 
-
-MA_API ma_uint32 ma_scale_buffer_size(ma_uint32 baseBufferSize, float scale)
-{
-    return ma_max(1, (ma_uint32)(baseBufferSize*scale));
-}
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 bufferSizeInFrames, ma_uint32 sampleRate)
 {
