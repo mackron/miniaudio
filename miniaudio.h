@@ -5900,6 +5900,8 @@ MA_API void ma_apply_volume_factor_pcm_frames_s32(ma_int32* pFrames, ma_uint64 f
 MA_API void ma_apply_volume_factor_pcm_frames_f32(float* pFrames, ma_uint64 frameCount, ma_uint32 channels, float factor);
 MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float factor);
 
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
+
 
 /*
 Helper for converting a linear factor to gain in decibels.
@@ -34514,6 +34516,24 @@ MA_API void ma_apply_volume_factor_pcm_frames(void* pPCMFrames, ma_uint64 frameC
 {
     ma_copy_and_apply_volume_factor_pcm_frames(pPCMFrames, pPCMFrames, frameCount, format, channels, factor);
 }
+
+
+MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
+{
+    ma_uint64 iFrame;
+
+    if (channels == 2) {
+        /* TODO: Do an optimized implementation for stereo and mono. Can do a SIMD optimized implementation as well. */
+    }
+
+    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+        ma_uint32 iChannel;
+        for (iChannel = 0; iChannel < channels; iChannel += 1) {
+            pFramesOut[iFrame * channels + iChannel] = pFramesIn[iFrame * channels + iChannel] * pChannelGains[iChannel];
+        }
+    }
+}
+
 
 
 MA_API float ma_factor_to_gain_db(float factor)

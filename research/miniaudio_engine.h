@@ -304,9 +304,6 @@ job will be posted back onto the job queue for later processing. When the job fi
 system means the no matter how many job threads are executing, decoding of an individual sound will always get processed serially. The advantage to having
 multiple threads comes into play when loading multiple sounds at the time time.
 */
-MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
-
-
 typedef struct
 {
     ma_uint32 channels;
@@ -2907,23 +2904,6 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
     }
 }
 
-
-
-MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains)
-{
-    ma_uint64 iFrame;
-
-    if (channels == 2) {
-        /* TODO: Do an optimized implementation for stereo and mono. Can do a SIMD optimized implementation as well. */
-    }
-
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        ma_uint32 iChannel;
-        for (iChannel = 0; iChannel < channels; iChannel += 1) {
-            pFramesOut[iFrame * channels + iChannel] = pFramesIn[iFrame * channels + iChannel] * pChannelGains[iChannel];
-        }
-    }
-}
 
 
 static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
@@ -14360,7 +14340,7 @@ static ma_node_vtable g_ma_delay_node_vtable =
     NULL,
     1,  /* 1 input channels. */
     1,  /* 1 output channel. */
-    MA_NODE_FLAG_CONTINUOUS_PROCESSING  /* Reverb requires continuous processing to ensure the tail get's processed. */
+    MA_NODE_FLAG_CONTINUOUS_PROCESSING  /* Delay requires continuous processing to ensure the tail get's processed. */
 };
 
 MA_API ma_result ma_delay_node_init(ma_node_graph* pNodeGraph, const ma_delay_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_delay_node* pDelayNode)
