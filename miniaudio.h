@@ -5889,9 +5889,15 @@ static MA_INLINE const float* ma_offset_pcm_frames_const_ptr_f32(const float* p,
 
 
 /*
-Clips f32 samples.
+Clips samples.
 */
+MA_API void ma_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count);
+MA_API void ma_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count);
+MA_API void ma_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count);
+MA_API void ma_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count);
 MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count);
+MA_API void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels);
+
 static MA_INLINE void ma_clip_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels) { ma_clip_samples_f32(pDst, pSrc, frameCount*channels); }
 
 /*
@@ -8798,13 +8804,40 @@ MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat
 
 
 
-/* Clamps an f32 sample to -1..1 */
+
+static MA_INLINE ma_uint8 ma_clip_u8(ma_int16 x)
+{
+    return (ma_uint8)(ma_clamp(x, -128, 127) + 128);
+}
+
+static MA_INLINE ma_int16 ma_clip_s16(ma_int32 x)
+{
+    return (ma_int16)ma_clamp(x, -32768, 32767);
+}
+
+static MA_INLINE ma_int64 ma_clip_s24(ma_int64 x)
+{
+    return (ma_int64)ma_clamp(x, -8388608, 8388607);
+}
+
+static MA_INLINE ma_int32 ma_clip_s32(ma_int64 x)
+{
+    /* This dance is to silence warnings with -std=c89. A good compiler should be able to optimize this away. */
+    ma_int64 clipMin;
+    ma_int64 clipMax;
+    clipMin = -((ma_int64)2147483647 + 1);
+    clipMax =   (ma_int64)2147483647;
+
+    return (ma_int32)ma_clamp(x, clipMin, clipMax);
+}
+
 static MA_INLINE float ma_clip_f32(float x)
 {
     if (x < -1) return -1;
     if (x > +1) return +1;
     return x;
 }
+
 
 static MA_INLINE float ma_mix_f32(float x, float y, float a)
 {
@@ -34566,6 +34599,57 @@ MA_API const void* ma_offset_pcm_frames_const_ptr(const void* p, ma_uint64 offse
 }
 
 
+MA_API void ma_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count)
+{
+    ma_uint64 iSample;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_u8(pSrc[iSample]);
+    }
+}
+
+MA_API void ma_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count)
+{
+    ma_uint64 iSample;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_s16(pSrc[iSample]);
+    }
+}
+
+MA_API void ma_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count)
+{
+    ma_uint64 iSample;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        ma_int64 s = ma_clip_s24(pSrc[iSample]);
+        pDst[iSample*3 + 0] = (ma_uint8)((s & 0x000000FF) >>  0);
+        pDst[iSample*3 + 1] = (ma_uint8)((s & 0x0000FF00) >>  8);
+        pDst[iSample*3 + 2] = (ma_uint8)((s & 0x00FF0000) >> 16);
+    }
+}
+
+MA_API void ma_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count)
+{
+    ma_uint64 iSample;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_s32(pSrc[iSample]);
+    }
+}
+
 MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count)
 {
     ma_uint64 iSample;
@@ -34575,6 +34659,29 @@ MA_API void ma_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count)
 
     for (iSample = 0; iSample < count; iSample += 1) {
         pDst[iSample] = ma_clip_f32(pSrc[iSample]);
+    }
+}
+
+MA_API void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
+{
+    ma_uint64 sampleCount;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    sampleCount = frameCount * channels;
+
+    switch (format) {
+        case ma_format_u8:  ma_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount); break;
+        case ma_format_s16: ma_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount); break;
+        case ma_format_s24: ma_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount); break;
+        case ma_format_s32: ma_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount); break;
+        case ma_format_f32: ma_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount); break;
+        
+        /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+        case ma_format_unknown:
+        case ma_format_count:
+            break;
     }
 }
 
@@ -35058,33 +35165,6 @@ static MA_INLINE void ma_pcm_sample_s32_to_s24_no_scale(ma_int64 x, ma_uint8* s2
     s24[0] = (ma_uint8)((x & 0x000000FF) >>  0);
     s24[1] = (ma_uint8)((x & 0x0000FF00) >>  8);
     s24[2] = (ma_uint8)((x & 0x00FF0000) >> 16);
-}
-
-
-static MA_INLINE ma_uint8 ma_clip_u8(ma_int16 x)
-{
-    return (ma_uint8)(ma_clamp(x, -128, 127) + 128);
-}
-
-static MA_INLINE ma_int16 ma_clip_s16(ma_int32 x)
-{
-    return (ma_int16)ma_clamp(x, -32768, 32767);
-}
-
-static MA_INLINE ma_int64 ma_clip_s24(ma_int64 x)
-{
-    return (ma_int64)ma_clamp(x, -8388608, 8388607);
-}
-
-static MA_INLINE ma_int32 ma_clip_s32(ma_int64 x)
-{
-    /* This dance is to silence warnings with -std=c89. A good compiler should be able to optimize this away. */
-    ma_int64 clipMin;
-    ma_int64 clipMax;
-    clipMin = -((ma_int64)2147483647 + 1);
-    clipMax =   (ma_int64)2147483647;
-
-    return (ma_int32)ma_clamp(x, clipMin, clipMax);
 }
 
 

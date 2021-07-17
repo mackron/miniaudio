@@ -4599,60 +4599,6 @@ MA_API void ma_splitter_node_uninit(ma_splitter_node* pSplitterNode, const ma_al
 #define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS   1000
 #endif
 
-
-static void ma_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_u8(pSrc[iSample]);
-    }
-}
-
-static void ma_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_s16(pSrc[iSample]);
-    }
-}
-
-static void ma_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        ma_int64 s = ma_clip_s24(pSrc[iSample]);
-        pDst[iSample*3 + 0] = (ma_uint8)((s & 0x000000FF) >>  0);
-        pDst[iSample*3 + 1] = (ma_uint8)((s & 0x0000FF00) >>  8);
-        pDst[iSample*3 + 2] = (ma_uint8)((s & 0x00FF0000) >> 16);
-    }
-}
-
-static void ma_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_s32(pSrc[iSample]);
-    }
-}
-
-
-
 static void ma_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume)
 {
     ma_uint64 iSample;
@@ -4727,29 +4673,6 @@ static void ma_volume_and_clip_samples_f32(float* pDst, const float* pSrc, ma_ui
 
     for (iSample = 0; iSample < count; iSample += 1) {
         pDst[iSample] = ma_clip_f32(ma_apply_volume_unclipped_f32(pSrc[iSample], volume));
-    }
-}
-
-static void ma_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels)
-{
-    ma_uint64 sampleCount;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    sampleCount = frameCount * channels;
-
-    switch (format) {
-        case ma_format_u8:  ma_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount); break;
-        case ma_format_s16: ma_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount); break;
-        case ma_format_s24: ma_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount); break;
-        case ma_format_s32: ma_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount); break;
-        case ma_format_f32: ma_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount); break;
-        
-        /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
-        case ma_format_unknown:
-        case ma_format_count:
-            break;
     }
 }
 
