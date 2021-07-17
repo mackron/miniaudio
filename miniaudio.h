@@ -44818,6 +44818,10 @@ MA_API void* ma_realloc(void* p, size_t sz, const ma_allocation_callbacks* pAllo
 
 MA_API void ma_free(void* p, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    if (p == NULL) {
+        return;
+    }
+
     if (pAllocationCallbacks != NULL) {
         if (pAllocationCallbacks->onFree != NULL) {
             pAllocationCallbacks->onFree(p, pAllocationCallbacks->pUserData);
