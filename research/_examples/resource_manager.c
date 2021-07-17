@@ -8,9 +8,9 @@ You can control whether or not you want to load the sound asynchronously and whe
 in-memory or stream it. When storing the sound in-memory you can also control whether or not it is decoded. To do this,
 specify a combination of the following options in `ma_resource_manager_data_source_init()`:
 
-    * MA_DATA_SOURCE_FLAG_ASYNC  - Load asynchronously.
-    * MA_DATA_SOURCE_FLAG_DECODE - Store the sound in-memory in uncompressed/decoded format.
-    * MA_DATA_SOURCE_FLAG_STREAM - Stream the sound from disk rather than storing entirely in memory. Useful for music.
+    * MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC  - Load asynchronously.
+    * MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE - Store the sound in-memory in uncompressed/decoded format.
+    * MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM - Stream the sound from disk rather than storing entirely in memory. Useful for music.
 
 The object returned by the resource manager is just a standard data source which means it can be plugged into any of
 `ma_data_source_*()` APIs just like any other data source and it should just work.
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
     result = ma_resource_manager_data_source_init(
         &resourceManager,
         argv[1],
-        MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC | MA_DATA_SOURCE_FLAG_STREAM,
+        MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM,
         NULL,   /* Async notification. */
         &dataSource);
     if (result != MA_SUCCESS) {

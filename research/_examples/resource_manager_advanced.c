@@ -160,15 +160,15 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
 
     for (;;) {
         ma_result result;
-        ma_job job;
+        ma_resource_manager_job job;
 
         /*
         Retrieve a job from the queue first. This defines what it is you're about to do. By default this will be
         blocking. You can initialize the resource manager with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING to not block in
         which case MA_NO_DATA_AVAILABLE will be returned if no jobs are available.
 
-        When the quit job is returned (MA_JOB_QUIT), the return value will always be MA_CANCELLED. If you don't want
-        to check the return value (you should), you can instead check if the job code is MA_JOB_QUIT and use that
+        When the quit job is returned (MA_RESOURCE_MANAGER_JOB_QUIT), the return value will always be MA_CANCELLED. If you don't want
+        to check the return value (you should), you can instead check if the job code is MA_RESOURCE_MANAGER_JOB_QUIT and use that
         instead.
         */
         result = ma_resource_manager_next_job(pResourceManager, &job);
@@ -188,12 +188,12 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         remains in the queue and will continue to be returned by future calls to ma_resource_manager_next_job(). The
         reason for this is to give every job thread visibility to the quit job so they have a chance to exit.
 
-        We won't actually be hitting this code because the call above will return MA_CANCELLED when the MA_JOB_QUIT
+        We won't actually be hitting this code because the call above will return MA_CANCELLED when the MA_RESOURCE_MANAGER_JOB_QUIT
         event is received which means the `result != MA_SUCCESS` logic above will catch it. If you do not check the
-        return value of ma_resource_manager_next_job() you will want to check for MA_JOB_QUIT like the code below.
+        return value of ma_resource_manager_next_job() you will want to check for MA_RESOURCE_MANAGER_JOB_QUIT like the code below.
         */
-        if (job.toc.breakup.code == MA_JOB_QUIT) {
-            printf("CUSTOM JOB THREAD TERMINATING VIA MA_JOB_QUIT... ");
+        if (job.toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
+            printf("CUSTOM JOB THREAD TERMINATING VIA MA_RESOURCE_MANAGER_JOB_QUIT... ");
             break;
         }
 
@@ -274,7 +274,7 @@ int main(int argc, char** argv)
         result = ma_resource_manager_data_source_init(
             &resourceManager,
             argv[iFile+1],
-            MA_DATA_SOURCE_FLAG_DECODE | MA_DATA_SOURCE_FLAG_ASYNC /*| MA_DATA_SOURCE_FLAG_STREAM*/,
+            MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC /*| MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM*/,
             NULL,   /* Async notification. */
             &g_dataSources[iFile]);
 
