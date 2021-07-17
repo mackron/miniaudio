@@ -2359,38 +2359,6 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
 
 
 
-static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
-{
-    return (ma_int16)(x * (1 << 8));
-}
-
-
-static MA_INLINE ma_int16 ma_apply_volume_unclipped_u8(ma_int16 x, ma_int16 volume)
-{
-    return (ma_int16)(((ma_int32)x * (ma_int32)volume) >> 8);
-}
-
-static MA_INLINE ma_int32 ma_apply_volume_unclipped_s16(ma_int32 x, ma_int16 volume)
-{
-    return (ma_int32)((x * volume) >> 8);
-}
-
-static MA_INLINE ma_int64 ma_apply_volume_unclipped_s24(ma_int64 x, ma_int16 volume)
-{
-    return (ma_int64)((x * volume) >> 8);
-}
-
-static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 volume)
-{
-    return (ma_int64)((x * volume) >> 8);
-}
-
-static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
-{
-    return x * volume;
-}
-
-
 
 
 static ma_result ma_channel_map_build_shuffle_table(const ma_channel* pChannelMapIn, ma_uint32 channelCountIn, const ma_channel* pChannelMapOut, ma_uint32 channelCountOut, ma_uint8* pShuffleTable)
@@ -4598,113 +4566,6 @@ MA_API void ma_splitter_node_uninit(ma_splitter_node* pSplitterNode, const ma_al
 #ifndef MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS
 #define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS   1000
 #endif
-
-static void ma_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume)
-{
-    ma_uint64 iSample;
-    ma_int16  volumeFixed;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    volumeFixed = ma_float_to_fixed_16(volume);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_u8(ma_apply_volume_unclipped_u8(pSrc[iSample], volumeFixed));
-    }
-}
-
-static void ma_volume_and_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count, float volume)
-{
-    ma_uint64 iSample;
-    ma_int16  volumeFixed;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    volumeFixed = ma_float_to_fixed_16(volume);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_s16(ma_apply_volume_unclipped_s16(pSrc[iSample], volumeFixed));
-    }
-}
-
-static void ma_volume_and_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count, float volume)
-{
-    ma_uint64 iSample;
-    ma_int16  volumeFixed;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    volumeFixed = ma_float_to_fixed_16(volume);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        ma_int64 s = ma_clip_s24(ma_apply_volume_unclipped_s24(pSrc[iSample], volumeFixed));
-        pDst[iSample*3 + 0] = (ma_uint8)((s & 0x000000FF) >>  0);
-        pDst[iSample*3 + 1] = (ma_uint8)((s & 0x0000FF00) >>  8);
-        pDst[iSample*3 + 2] = (ma_uint8)((s & 0x00FF0000) >> 16);
-    }
-}
-
-static void ma_volume_and_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count, float volume)
-{
-    ma_uint64 iSample;
-    ma_int16  volumeFixed;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    volumeFixed = ma_float_to_fixed_16(volume);
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_s32(ma_apply_volume_unclipped_s32(pSrc[iSample], volumeFixed));
-    }
-}
-
-static void ma_volume_and_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count, float volume)
-{
-    ma_uint64 iSample;
-
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    /* For the f32 case we need to make sure this supports in-place processing where the input and output buffers are the same. */
-
-    for (iSample = 0; iSample < count; iSample += 1) {
-        pDst[iSample] = ma_clip_f32(ma_apply_volume_unclipped_f32(pSrc[iSample], volume));
-    }
-}
-
-static void ma_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume)
-{
-    MA_ASSERT(pDst != NULL);
-    MA_ASSERT(pSrc != NULL);
-
-    if (volume == 1) {
-        ma_clip_pcm_frames(pDst, pSrc, frameCount, format, channels);   /* Optimized case for volume = 1. */
-    } else if (volume == 0) {
-        ma_silence_pcm_frames(pDst, frameCount, format, channels);      /* Optimized case for volume = 0. */
-    } else {
-        ma_uint64 sampleCount = frameCount * channels;
-
-        switch (format) {
-            case ma_format_u8:  ma_volume_and_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount, volume); break;
-            case ma_format_s16: ma_volume_and_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount, volume); break;
-            case ma_format_s24: ma_volume_and_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
-            case ma_format_s32: ma_volume_and_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
-            case ma_format_f32: ma_volume_and_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount, volume); break;
-            
-            /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
-            case ma_format_unknown:
-            case ma_format_count:
-                break;
-        }
-    }
-}
-
-
-
 
 MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification)
 {
@@ -9361,13 +9222,13 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels);
         } else {
             /* Copy with volume. */
-            ma_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
+            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
         }
     } else {
         /* Slower path. Volumes are different, so may need to do an interpolation. */
         if (pFader->cursorInFrames >= pFader->lengthInFrames) {
             /* Fast path. We've gone past the end of the fade period so just apply the end volume to all samples. */
-            ma_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
+            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
         } else {
             /* Slow path. This is where we do the actual fading. */
             ma_uint64 iFrame;

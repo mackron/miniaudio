@@ -5932,6 +5932,14 @@ MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint64 frameCoun
 MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
 
 
+MA_API void ma_copy_and_apply_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume);
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count, float volume);
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count, float volume);
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count, float volume);
+MA_API void ma_copy_and_apply_volume_and_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count, float volume);
+MA_API void ma_copy_and_apply_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume);
+
+
 /*
 Helper for converting a linear factor to gain in decibels.
 */
@@ -8801,8 +8809,6 @@ MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat
 
 
 
-
-
 static MA_INLINE ma_uint8 ma_clip_u8(ma_int16 x)
 {
     return (ma_uint8)(ma_clamp(x, -128, 127) + 128);
@@ -8916,6 +8922,12 @@ static ma_uint32 ma_ffs_32(ma_uint32 x)
 
     return i;
 }
+
+static MA_INLINE ma_int16 ma_float_to_fixed_16(float x)
+{
+    return (ma_int16)(x * (1 << 8));
+}
+
 
 
 /*
@@ -34867,6 +34879,138 @@ MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, c
         ma_uint32 iChannel;
         for (iChannel = 0; iChannel < channels; iChannel += 1) {
             pFramesOut[iFrame * channels + iChannel] = pFramesIn[iFrame * channels + iChannel] * pChannelGains[iChannel];
+        }
+    }
+}
+
+
+
+static MA_INLINE ma_int16 ma_apply_volume_unclipped_u8(ma_int16 x, ma_int16 volume)
+{
+    return (ma_int16)(((ma_int32)x * (ma_int32)volume) >> 8);
+}
+
+static MA_INLINE ma_int32 ma_apply_volume_unclipped_s16(ma_int32 x, ma_int16 volume)
+{
+    return (ma_int32)((x * volume) >> 8);
+}
+
+static MA_INLINE ma_int64 ma_apply_volume_unclipped_s24(ma_int64 x, ma_int16 volume)
+{
+    return (ma_int64)((x * volume) >> 8);
+}
+
+static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 volume)
+{
+    return (ma_int64)((x * volume) >> 8);
+}
+
+static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
+{
+    return x * volume;
+}
+
+
+MA_API void ma_copy_and_apply_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume)
+{
+    ma_uint64 iSample;
+    ma_int16  volumeFixed;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    volumeFixed = ma_float_to_fixed_16(volume);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_u8(ma_apply_volume_unclipped_u8(pSrc[iSample], volumeFixed));
+    }
+}
+
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count, float volume)
+{
+    ma_uint64 iSample;
+    ma_int16  volumeFixed;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    volumeFixed = ma_float_to_fixed_16(volume);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_s16(ma_apply_volume_unclipped_s16(pSrc[iSample], volumeFixed));
+    }
+}
+
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count, float volume)
+{
+    ma_uint64 iSample;
+    ma_int16  volumeFixed;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    volumeFixed = ma_float_to_fixed_16(volume);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        ma_int64 s = ma_clip_s24(ma_apply_volume_unclipped_s24(pSrc[iSample], volumeFixed));
+        pDst[iSample*3 + 0] = (ma_uint8)((s & 0x000000FF) >>  0);
+        pDst[iSample*3 + 1] = (ma_uint8)((s & 0x0000FF00) >>  8);
+        pDst[iSample*3 + 2] = (ma_uint8)((s & 0x00FF0000) >> 16);
+    }
+}
+
+MA_API void ma_copy_and_apply_volume_and_clip_samples_s32(ma_int32* pDst, const ma_int64* pSrc, ma_uint64 count, float volume)
+{
+    ma_uint64 iSample;
+    ma_int16  volumeFixed;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    volumeFixed = ma_float_to_fixed_16(volume);
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_s32(ma_apply_volume_unclipped_s32(pSrc[iSample], volumeFixed));
+    }
+}
+
+MA_API void ma_copy_and_apply_volume_and_clip_samples_f32(float* pDst, const float* pSrc, ma_uint64 count, float volume)
+{
+    ma_uint64 iSample;
+
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    /* For the f32 case we need to make sure this supports in-place processing where the input and output buffers are the same. */
+
+    for (iSample = 0; iSample < count; iSample += 1) {
+        pDst[iSample] = ma_clip_f32(ma_apply_volume_unclipped_f32(pSrc[iSample], volume));
+    }
+}
+
+MA_API void ma_copy_and_apply_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint64 frameCount, ma_format format, ma_uint32 channels, float volume)
+{
+    MA_ASSERT(pDst != NULL);
+    MA_ASSERT(pSrc != NULL);
+
+    if (volume == 1) {
+        ma_clip_pcm_frames(pDst, pSrc, frameCount, format, channels);   /* Optimized case for volume = 1. */
+    } else if (volume == 0) {
+        ma_silence_pcm_frames(pDst, frameCount, format, channels);      /* Optimized case for volume = 0. */
+    } else {
+        ma_uint64 sampleCount = frameCount * channels;
+
+        switch (format) {
+            case ma_format_u8:  ma_copy_and_apply_volume_and_clip_samples_u8( (ma_uint8*)pDst, (const ma_int16*)pSrc, sampleCount, volume); break;
+            case ma_format_s16: ma_copy_and_apply_volume_and_clip_samples_s16((ma_int16*)pDst, (const ma_int32*)pSrc, sampleCount, volume); break;
+            case ma_format_s24: ma_copy_and_apply_volume_and_clip_samples_s24((ma_uint8*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+            case ma_format_s32: ma_copy_and_apply_volume_and_clip_samples_s32((ma_int32*)pDst, (const ma_int64*)pSrc, sampleCount, volume); break;
+            case ma_format_f32: ma_copy_and_apply_volume_and_clip_samples_f32((   float*)pDst, (const    float*)pSrc, sampleCount, volume); break;
+            
+            /* Do nothing if we don't know the format. We're including these here to silence a compiler warning about enums not being handled by the switch. */
+            case ma_format_unknown:
+            case ma_format_count:
+                break;
         }
     }
 }
