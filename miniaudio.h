@@ -6275,7 +6275,7 @@ struct ma_decoder
 };
 
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
-MA_API ma_decoder_config ma_decoder_config_init_default();
+MA_API ma_decoder_config ma_decoder_config_init_default(void);
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
@@ -26675,23 +26675,23 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
         case AVAudioSessionRouteChangeReasonWakeFromSleep:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonOverride:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOverride\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOverride\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonCategoryChange:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonCategoryChange\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonCategoryChange\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonUnknown:
         default:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
         } break;
     }
 
