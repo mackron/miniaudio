@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.38 - 2021-07-14
+miniaudio - v0.10.39 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1498,7 +1498,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 38
+#define MA_VERSION_REVISION 39
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -69393,6 +69393,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.39 - TBD
+  - Fix compilation errors on macOS and iOS.
+
 v0.10.38 - 2021-07-14
   - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
   - Fix an error where ma_log_postv() does not return a value.
