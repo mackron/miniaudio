@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.38 - 2021-07-14
+miniaudio - v0.10.39 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1465,7 +1465,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 38
+#define MA_VERSION_REVISION 39
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -6247,7 +6247,7 @@ struct ma_decoder
 };
 
 MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate);
-MA_API ma_decoder_config ma_decoder_config_init_default();
+MA_API ma_decoder_config ma_decoder_config_init_default(void);
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
 MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder);
@@ -23113,14 +23113,9 @@ static void ma_device_on_suspended__pulse(ma_pa_stream* pStream, void* pUserData
     if (suspended == 1) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Suspended.\n");
         
-        /* Locking this behind MA_DEBUG_OUTPUT for the moment while this is still in an experimental state. */
-        #if defined(MA_DEBUG_OUTPUT)
-        {
-            if (pDevice->onStop) {
-                pDevice->onStop(pDevice);
-            }
+        if (pDevice->onStop) {
+            pDevice->onStop(pDevice);
         }
-        #endif
     } else {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Resumed.\n");
     }   
@@ -26326,6 +26321,12 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
+    /* Don't do anything if it looks like we're just reinitializing due to a device switch. */
+    if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isSwitchingPlaybackDevice) ||
+        ((audioUnit == pDevice->coreaudio.audioUnitCapture)  && pDevice->coreaudio.isSwitchingCaptureDevice)) {
+        return;
+    }
+
     /*
     There's been a report of a deadlock here when triggered by ma_device_uninit(). It looks like
     AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in ma_device_uninit)
@@ -26653,23 +26654,23 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 
         case AVAudioSessionRouteChangeReasonWakeFromSleep:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonWakeFromSleep\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonOverride:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOverride\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonOverride\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonCategoryChange:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonCategoryChange\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonCategoryChange\n");
         } break;
 
         case AVAudioSessionRouteChangeReasonUnknown:
         default:
         {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Route Changed: AVAudioSessionRouteChangeReasonUnknown\n");
         } break;
     }
 
@@ -32888,7 +32889,8 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
     ma_event_signal(&pDevice->stopEvent);
 
     for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
-        ma_stop_proc onStop;
+        ma_result startResult;
+        ma_result stopResult;   /* <-- This will store the result from onDeviceStop(). If it returns an error, we don't fire the onStop callback. */
 
         /* We wait on an event to know when something has requested that the device be started and the main loop entered. */
         ma_event_wait(&pDevice->wakeupEvent);
@@ -32910,10 +32912,14 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 
         /* If the device has a start callback, start it now. */
         if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-            ma_result result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
-            if (result != MA_SUCCESS) {
-                pDevice->workResult = result;   /* Failed to start the device. */
-            }
+            startResult = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+        } else {
+            startResult = MA_SUCCESS;
+        }
+
+        if (startResult != MA_SUCCESS) {
+            pDevice->workResult = startResult;
+            continue;   /* Failed to start. Loop back to the start and wait for something to happen (pDevice->wakeupEvent). */
         }
 
         /* Make sure the state is set appropriately. */
@@ -32927,36 +32933,26 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             ma_device_audio_thread__default_read_write(pDevice);
         }
 
-        /*
-        Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
-        may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
-        don't want to be doing this a second time.
-        */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                pDevice->pContext->callbacks.onDeviceStop(pDevice);
-            }
-        }
-
-        /* After the device has stopped, make sure an event is posted. */
-        onStop = pDevice->onStop;
-        if (onStop) {
-            onStop(pDevice);
+        /* Getting here means we have broken from the main loop which happens the application has requested that device be stopped. */
+        if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+            stopResult = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+        } else {
+            stopResult = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
         }
 
         /*
-        A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. Note that
-        it's possible that the device has been uninitialized which means we need to _not_ change the status to stopped. We cannot go from an
-        uninitialized state to stopped state.
+        After the device has stopped, make sure an event is posted. Don't post an onStop event if
+        stopping failed. This can happen on some backends when the underlying stream has been
+        stopped due to the device being physically unplugged or disabled via an OS setting.
         */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            ma_device__set_state(pDevice, MA_STATE_STOPPED);
-            ma_event_signal(&pDevice->stopEvent);
+        if (pDevice->onStop && stopResult != MA_SUCCESS) {
+            pDevice->onStop(pDevice);
         }
+
+        /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
+        ma_device__set_state(pDevice, MA_STATE_STOPPED);
+        ma_event_signal(&pDevice->stopEvent);
     }
-
-    /* Make sure we aren't continuously waiting on a stop event. */
-    ma_event_signal(&pDevice->stopEvent);  /* <-- Is this still needed? */
 
 #ifdef MA_WIN32
     ma_CoUninitialize(pDevice->pContext);
@@ -69147,6 +69143,10 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.39 - TBD
+  - Core Audio: Fix compilation errors on macOS and iOS.
+  - PulseAudio: Fix a bug where the stop callback is not fired when a device is unplugged.
+
 v0.10.38 - 2021-07-14
   - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
   - Fix an error where ma_log_postv() does not return a value.
