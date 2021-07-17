@@ -10573,7 +10573,7 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
     ma_uint64 preliminaryInputFrameCountFromFrac;
     ma_uint64 preliminaryInputFrameCount;
 
-    if (sampleRateIn == 0 || sampleRateOut == 0) {
+    if (sampleRateIn == 0 || sampleRateOut == 0 || frameCountIn == 0) {
         return 0;
     }
 
