@@ -1116,15 +1116,33 @@ The slot index is stored in the low 32 bits. The reference counter is stored in 
 */
 typedef struct
 {
-    struct
-    {
-        MA_ATOMIC ma_uint32 bitfield;                           /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
-    } groups[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY/32];
-    ma_uint32 slots[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY];    /* 32 bits for reference counting for ABA mitigation. */
-    ma_uint32 count;    /* Allocation count. */
+    ma_uint32 capacity;    /* The number of slots to make available. */
+} ma_slot_allocator_config;
+
+MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity);
+
+
+typedef struct
+{
+    MA_ATOMIC ma_uint32 bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
+} ma_slot_allocator_group;
+
+typedef struct
+{
+    ma_slot_allocator_group* pGroups;   /* Slots are grouped in chunks of 32. */
+    ma_uint32* pSlots;                  /* 32 bits for reference counting for ABA mitigation. */
+    ma_uint32 count;                    /* Allocation count. */
+    ma_uint32 capacity;
+
+    /* Memory management. */
+    ma_bool32 _ownsHeap;
+    void* _pHeap;
 } ma_slot_allocator;
 
-MA_API ma_result ma_slot_allocator_init(ma_slot_allocator* pAllocator);
+MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator);
+MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator);
+MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot);
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
@@ -1329,8 +1347,8 @@ typedef struct
     ma_resource_manager_job jobs[MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY];
 } ma_resource_manager_job_queue;
 
-MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, ma_resource_manager_job_queue* pQueue);
-MA_API ma_result ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue);
+MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, const ma_allocation_callbacks* pAllocationCallbacks, ma_resource_manager_job_queue* pQueue);
+MA_API ma_result ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queue* pQueue, const ma_resource_manager_job* pJob);
 MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queue* pQueue, ma_resource_manager_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
 
@@ -4836,20 +4854,158 @@ static void ma_volume_and_clip_pcm_frames(void* pDst, const void* pSrc, ma_uint6
 
 
 
-MA_API ma_result ma_slot_allocator_init(ma_slot_allocator* pAllocator)
+MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity)
 {
+    ma_slot_allocator_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.capacity = capacity;
+
+    return config;
+}
+
+
+static MA_INLINE ma_uint32 ma_slot_allocator_calculate_group_capacity(ma_uint32 slotCapacity)
+{
+    ma_uint32 cap = slotCapacity / 32;
+    if ((slotCapacity % 32) != 0) {
+        cap += 1;
+    }
+
+    return cap;
+}
+
+static MA_INLINE ma_uint32 ma_slot_allocator_group_capacity(const ma_slot_allocator* pAllocator)
+{
+    return ma_slot_allocator_calculate_group_capacity(pAllocator->capacity);
+}
+
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t groupsOffset;
+    size_t slotsOffset;
+} ma_slot_allocator_heap_layout;
+
+static ma_result ma_slot_allocator_get_heap_layout(const ma_slot_allocator_config* pConfig, ma_slot_allocator_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->capacity == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Groups. */
+    pHeapLayout->groupsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_slot_allocator_calculate_group_capacity(pConfig->capacity) * sizeof(ma_slot_allocator_group);
+    
+    /* Slots. */
+    pHeapLayout->slotsOffset  = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += pConfig->capacity * sizeof(ma_uint32);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_slot_allocator_heap_layout layout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_slot_allocator_get_heap_layout(pConfig, &layout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = layout.sizeInBytes;
+
+    return result;
+}
+
+MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator)
+{
+    ma_result result;
+    ma_slot_allocator_heap_layout heapLayout;
+
     if (pAllocator == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pAllocator);
 
+    if (pHeap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_slot_allocator_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pAllocator->_pHeap   = pHeap;
+    pAllocator->pGroups  = (ma_slot_allocator_group*)ma_offset_ptr(pHeap, heapLayout.groupsOffset);
+    pAllocator->pSlots   = (ma_uint32*)ma_offset_ptr(pHeap, heapLayout.slotsOffset);
+    pAllocator->capacity = pConfig->capacity;
+
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_slot_allocator_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap allocation. */
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_slot_allocator_init_preallocated(pConfig, pHeap, pAllocator);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pAllocator->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pAllocator == NULL) {
+        return;
+    }
+
+    if (pAllocator->_ownsHeap && pAllocator->_pHeap != NULL) {
+        ma_free(pAllocator->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot)
 {
-    ma_uint32 capacity;
     ma_uint32 iAttempt;
     const ma_uint32 maxAttempts = 2;    /* The number of iterations to perform until returning MA_OUT_OF_MEMORY if no slots can be found. */
 
@@ -4857,19 +5013,17 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
         return MA_INVALID_ARGS;
     }
 
-    capacity = ma_countof(pAllocator->groups) * 32;
-
     for (iAttempt = 0; iAttempt < maxAttempts; iAttempt += 1) {
         /* We need to acquire a suitable bitfield first. This is a bitfield that's got an available slot within it. */
         ma_uint32 iGroup;
-        for (iGroup = 0; iGroup < ma_countof(pAllocator->groups); iGroup += 1) {
+        for (iGroup = 0; iGroup < ma_slot_allocator_group_capacity(pAllocator); iGroup += 1) {
             /* CAS */
             for (;;) {
                 ma_uint32 oldBitfield;
                 ma_uint32 newBitfield;
                 ma_uint32 bitOffset;
 
-                oldBitfield = c89atomic_load_32(&pAllocator->groups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
+                oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
 
                 /* Fast check to see if anything is available. */
                 if (oldBitfield == 0xFFFFFFFF) {
@@ -4881,7 +5035,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 
                 newBitfield = oldBitfield | (1 << bitOffset);
 
-                if (c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
+                if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
                     ma_uint32 slotIndex;
 
                     /* Increment the counter as soon as possible to have other threads report out-of-memory sooner than later. */
@@ -4891,10 +5045,10 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
                     slotIndex = (iGroup << 5) + bitOffset;  /* iGroup << 5 = iGroup * 32 */
 
                     /* Increment the reference count before constructing the output value. */
-                    pAllocator->slots[slotIndex] += 1;  
+                    pAllocator->pSlots[slotIndex] += 1;  
 
                     /* Construct the output value. */
-                    *pSlot = ((ma_uint64)pAllocator->slots[slotIndex] << 32 | slotIndex);
+                    *pSlot = ((ma_uint64)pAllocator->pSlots[slotIndex] << 32 | slotIndex);
 
                     return MA_SUCCESS;
                 }
@@ -4902,7 +5056,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
         }
 
         /* We weren't able to find a slot. If it's because we've reached our capacity we need to return MA_OUT_OF_MEMORY. Otherwise we need to do another iteration and try again. */
-        if (pAllocator->count < capacity) {
+        if (pAllocator->count < pAllocator->capacity) {
             ma_yield();
         } else {
             return MA_OUT_OF_MEMORY;
@@ -4925,7 +5079,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
     iGroup = (slot & 0xFFFFFFFF) >> 5;   /* slot / 32 */
     iBit   = (slot & 0xFFFFFFFF) & 31;   /* slot % 32 */
 
-    if (iGroup >= ma_countof(pAllocator->groups)) {
+    if (iGroup >= ma_slot_allocator_group_capacity(pAllocator)) {
         return MA_INVALID_ARGS;
     }
 
@@ -4936,10 +5090,10 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
         ma_uint32 oldBitfield;
         ma_uint32 newBitfield;
 
-        oldBitfield = c89atomic_load_32(&pAllocator->groups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
+        oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
         newBitfield = oldBitfield & ~(1 << iBit);
 
-        if (c89atomic_compare_and_swap_32(&pAllocator->groups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
+        if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
             c89atomic_fetch_sub_32(&pAllocator->count, 1);
             return MA_SUCCESS;
         }
@@ -5256,8 +5410,11 @@ MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code)
 /*
 Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
 */
-MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, ma_resource_manager_job_queue* pQueue)
+MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, const ma_allocation_callbacks* pAllocationCallbacks, ma_resource_manager_job_queue* pQueue)
 {
+    ma_result result;
+    ma_slot_allocator_config allocatorConfig;
+
     if (pQueue == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -5265,7 +5422,11 @@ MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, ma_resource
     MA_ZERO_OBJECT(pQueue);
     pQueue->flags = flags;
 
-    ma_slot_allocator_init(&pQueue->allocator); /* Will not fail. */
+    allocatorConfig = ma_slot_allocator_config_init(MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY);
+    result = ma_slot_allocator_init(&allocatorConfig, pAllocationCallbacks, &pQueue->allocator);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     /* We need a semaphore if we're running in synchronous mode. */
     if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
@@ -5283,7 +5444,7 @@ MA_API ma_result ma_resource_manager_job_queue_init(ma_uint32 flags, ma_resource
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue)
+MA_API ma_result ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pQueue == NULL) {
         return MA_INVALID_ARGS;
@@ -5293,6 +5454,8 @@ MA_API ma_result ma_resource_manager_job_queue_uninit(ma_resource_manager_job_qu
     if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
         ma_semaphore_uninit(&pQueue->sem);
     }
+
+    ma_slot_allocator_uninit(&pQueue->allocator, pAllocationCallbacks);
 
     return MA_SUCCESS;
 }
@@ -6070,7 +6233,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         jobQueueFlags |= MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING;
     }
 
-    result = ma_resource_manager_job_queue_init(jobQueueFlags, &pResourceManager->jobQueue);
+    result = ma_resource_manager_job_queue_init(jobQueueFlags, &pResourceManager->config.allocationCallbacks, &pResourceManager->jobQueue);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -6082,7 +6245,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
-            ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue);
+            ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -6099,7 +6262,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         /* Data buffer lock. */
         result = ma_mutex_init(&pResourceManager->dataBufferBSTLock);
         if (result != MA_SUCCESS) {
-            ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue);
+            ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return result;
         }
 
@@ -6108,7 +6271,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager, &pResourceManager->config.allocationCallbacks);
             if (result != MA_SUCCESS) {
                 ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
-                ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue);
+                ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
                 return result;
             }
         }
@@ -6157,7 +6320,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     ma_resource_manager_delete_all_data_buffer_nodes(pResourceManager);
 
     /* The job queue is no longer needed. */
-    ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue);
+    ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
 
     /* We're no longer doing anything with data buffers so the lock can now be uninitialized. */
     if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
