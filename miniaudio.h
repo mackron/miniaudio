@@ -32810,7 +32810,8 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
     ma_event_signal(&pDevice->stopEvent);
 
     for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
-        ma_stop_proc onStop;
+        ma_result startResult;
+        ma_result stopResult;   /* <-- This will store the result from onDeviceStop(). If it returns an error, we don't fire the onStop callback. */
 
         /* We wait on an event to know when something has requested that the device be started and the main loop entered. */
         ma_event_wait(&pDevice->wakeupEvent);
@@ -32832,10 +32833,14 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 
         /* If the device has a start callback, start it now. */
         if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-            ma_result result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
-            if (result != MA_SUCCESS) {
-                pDevice->workResult = result;   /* Failed to start the device. */
-            }
+            startResult = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+        } else {
+            startResult = MA_SUCCESS;
+        }
+
+        if (startResult != MA_SUCCESS) {
+            pDevice->workResult = startResult;
+            continue;   /* Failed to start. Loop back to the start and wait for something to happen (pDevice->wakeupEvent). */
         }
 
         /* Make sure the state is set appropriately. */
@@ -32849,36 +32854,26 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             ma_device_audio_thread__default_read_write(pDevice);
         }
 
-        /*
-        Getting here means we have broken from the main loop which happens the application has requested that device be stopped. Note that this
-        may have actually already happened above if the device was lost and miniaudio has attempted to re-initialize the device. In this case we
-        don't want to be doing this a second time.
-        */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                pDevice->pContext->callbacks.onDeviceStop(pDevice);
-            }
-        }
-
-        /* After the device has stopped, make sure an event is posted. */
-        onStop = pDevice->onStop;
-        if (onStop) {
-            onStop(pDevice);
+        /* Getting here means we have broken from the main loop which happens the application has requested that device be stopped. */
+        if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+            stopResult = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+        } else {
+            stopResult = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
         }
 
         /*
-        A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. Note that
-        it's possible that the device has been uninitialized which means we need to _not_ change the status to stopped. We cannot go from an
-        uninitialized state to stopped state.
+        After the device has stopped, make sure an event is posted. Don't post an onStop event if
+        stopping failed. This can happen on some backends when the underlying stream has been
+        stopped due to the device being physically unplugged or disabled via an OS setting.
         */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
-            ma_device__set_state(pDevice, MA_STATE_STOPPED);
-            ma_event_signal(&pDevice->stopEvent);
+        if (pDevice->onStop && stopResult != MA_SUCCESS) {
+            pDevice->onStop(pDevice);
         }
+
+        /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
+        ma_device__set_state(pDevice, MA_STATE_STOPPED);
+        ma_event_signal(&pDevice->stopEvent);
     }
-
-    /* Make sure we aren't continuously waiting on a stop event. */
-    ma_event_signal(&pDevice->stopEvent);  /* <-- Is this still needed? */
 
 #ifdef MA_WIN32
     ma_CoUninitialize(pDevice->pContext);
