@@ -26347,6 +26347,12 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
+    /* Don't do anything if it looks like we're just reinitializing due to a device switch. */
+    if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isSwitchingPlaybackDevice) ||
+        ((audioUnit == pDevice->coreaudio.audioUnitCapture)  && pDevice->coreaudio.isSwitchingCaptureDevice)) {
+        return;
+    }
+
     /*
     There's been a report of a deadlock here when triggered by ma_device_uninit(). It looks like
     AudioUnitGetProprty (called below) and AudioComponentInstanceDispose (called in ma_device_uninit)
