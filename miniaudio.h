@@ -23159,14 +23159,9 @@ static void ma_device_on_suspended__pulse(ma_pa_stream* pStream, void* pUserData
     if (suspended == 1) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Suspended.\n");
         
-        /* Locking this behind MA_DEBUG_OUTPUT for the moment while this is still in an experimental state. */
-        #if defined(MA_DEBUG_OUTPUT)
-        {
-            if (pDevice->onStop) {
-                pDevice->onStop(pDevice);
-            }
+        if (pDevice->onStop) {
+            pDevice->onStop(pDevice);
         }
-        #endif
     } else {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Resumed.\n");
     }   
@@ -69395,7 +69390,8 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.39 - TBD
-  - Fix compilation errors on macOS and iOS.
+  - Core Audio: Fix compilation errors on macOS and iOS.
+  - PulseAudio: Fix a bug where the stop callback is not fired when a device is unplugged.
 
 v0.10.38 - 2021-07-14
   - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
