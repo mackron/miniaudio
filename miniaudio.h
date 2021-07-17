@@ -5815,6 +5815,38 @@ MA_API ma_result ma_event_signal(ma_event* pEvent);
 #endif  /* MA_NO_THREADING */
 
 
+/*
+Fence
+=====
+This locks while the counter is larger than 0. Counter can be incremented and decremented by any
+thread, but care needs to be taken when waiting. It is possible for one thread to acquire the
+fence just as another thread returns from ma_fence_wait().
+
+The idea behind a fence is to allow you to wait for a group of operations to complete. When an
+operation starts, the counter is incremented which locks the fence. When the operation completes,
+the fence will be released which decrements the counter. ma_fence_wait() will block until the
+counter hits zero.
+
+If threading is disabled, ma_fence_wait() will spin on the counter.
+*/
+typedef struct
+{
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+    ma_uint32 counter;
+} ma_fence;
+
+MA_API ma_result ma_fence_init(ma_fence* pFence);
+MA_API void ma_fence_uninit(ma_fence* pFence);
+MA_API ma_result ma_fence_acquire(ma_fence* pFence);    /* Increment counter. */
+MA_API ma_result ma_fence_release(ma_fence* pFence);    /* Decrement counter. */
+MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to reach 0. */
+
+
+
+
+
 /************************************************************************************************************************************************************
 
 Utiltities
@@ -11362,6 +11394,150 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
 #error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
 #endif
 #endif  /* MA_NO_THREADING */
+
+
+
+#define MA_FENCE_COUNTER_MAX    0x7FFFFFFF
+
+MA_API ma_result ma_fence_init(ma_fence* pFence)
+{
+    if (pFence == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pFence);
+    pFence->counter = 0;
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_result result;
+
+        result = ma_event_init(&pFence->e);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+    #endif
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_fence_uninit(ma_fence* pFence)
+{
+    if (pFence == NULL) {
+        return;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_event_uninit(&pFence->e);
+    }
+    #endif
+
+    MA_ZERO_OBJECT(pFence);
+}
+
+MA_API ma_result ma_fence_acquire(ma_fence* pFence)
+{
+    if (pFence == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        ma_uint32 oldCounter = c89atomic_load_32(&pFence->counter);
+        ma_uint32 newCounter = oldCounter + 1;
+
+        /* Make sure we're not about to exceed our maximum value. */
+        if (newCounter > MA_FENCE_COUNTER_MAX) {
+            MA_ASSERT(MA_FALSE);
+            return MA_OUT_OF_RANGE;
+        }
+
+        if (c89atomic_compare_exchange_weak_32(&pFence->counter, &oldCounter, newCounter)) {
+            return MA_SUCCESS;
+        } else {
+            if (oldCounter == MA_FENCE_COUNTER_MAX) {
+                MA_ASSERT(MA_FALSE);
+                return MA_OUT_OF_RANGE; /* The other thread took the last available slot. Abort. */
+            }
+        }
+    }
+
+    /* Should never get here. */
+    /*return MA_SUCCESS;*/
+}
+
+MA_API ma_result ma_fence_release(ma_fence* pFence)
+{
+    if (pFence == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        ma_uint32 oldCounter = c89atomic_load_32(&pFence->counter);
+        ma_uint32 newCounter = oldCounter - 1;
+
+        if (oldCounter == 0) {
+            MA_ASSERT(MA_FALSE);
+            return MA_INVALID_OPERATION;    /* Acquire/release mismatch. */
+        }
+
+        if (c89atomic_compare_exchange_weak_32(&pFence->counter, &oldCounter, newCounter)) {
+            #ifndef MA_NO_THREADING
+            {
+                if (newCounter == 0) {
+                    ma_event_signal(&pFence->e);    /* <-- ma_fence_wait() will be waiting on this. */
+                }
+            }
+            #endif
+
+            return MA_SUCCESS;
+        } else {
+            if (oldCounter == 0) {
+                MA_ASSERT(MA_FALSE);
+                return MA_INVALID_OPERATION;    /* Another thread has taken the 0 slot. Acquire/release mismatch. */
+            }
+        }
+    }
+
+    /* Should never get here. */
+    /*return MA_SUCCESS;*/
+}
+
+MA_API ma_result ma_fence_wait(ma_fence* pFence)
+{
+    if (pFence == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (;;) {
+        ma_uint32 counter;
+
+        counter = c89atomic_load_32(&pFence->counter);
+        if (counter == 0) {
+            /*
+            Counter has hit zero. By the time we get here some other thread may have acquired the
+            fence again, but that is where the caller needs to take care with how they se the fence.
+            */
+            return MA_SUCCESS;
+        }
+
+        /* Getting here means the counter is > 0. We'll need to wait for something to happen. */
+        #ifndef MA_NO_THREADING
+        {
+            ma_result result;
+
+            result = ma_event_wait(&pFence->e);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+        }
+        #endif
+    }
+
+    /* Should never get here. */
+    /*return MA_INVALID_OPERATION;*/
+}
 
 
 
