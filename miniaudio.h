@@ -6631,10 +6631,6 @@ typedef struct ma_resource_manager_data_source      ma_resource_manager_data_sou
 #define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC      0x00000004  /* When set, the resource manager will load the data source asynchronously. */
 #define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT  0x00000008  /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
 
-#ifndef MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY
-#define MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY  1024
-#endif
-
 #define MA_RESOURCE_MANAGER_JOB_QUIT                    0x00000000
 #define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE   0x00000001
 #define MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE   0x00000002
@@ -6649,7 +6645,7 @@ typedef struct ma_resource_manager_data_source      ma_resource_manager_data_sou
 
 
 /*
-Pipeline notifications used by the resource manager. Made up of both an async notification and a fence, both of which are optionally.
+Pipeline notifications used by the resource manager. Made up of both an async notification and a fence, both of which are optional.
 */
 typedef struct
 {
@@ -53844,6 +53840,10 @@ MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma
 #ifndef MA_NO_RESOURCE_MANAGER
 #ifndef MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS
 #define MA_RESOURCE_MANAGER_PAGE_SIZE_IN_MILLISECONDS   1000
+#endif
+
+#ifndef MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY
+#define MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY          1024
 #endif
 
 MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_notifications_init(void)
