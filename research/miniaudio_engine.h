@@ -1048,6 +1048,7 @@ MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSource
 typedef struct
 {
     ma_node_config nodeConfig;
+    ma_uint32 channels;
 } ma_splitter_node_config;
 
 MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels);
@@ -1131,8 +1132,6 @@ MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notifica
 
 /*
 Event Notification
-
-This notification signals an event internally on the MA_NOTIFICATION_COMPLETE and MA_NOTIFICATION_FAILED codes. All other codes are ignored.
 */
 typedef struct
 {
@@ -1146,19 +1145,22 @@ MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* p
 MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
 
 
+/*
+Pipeline notifications used by the resource manager. Made up of both an async notification and a fence, both of which are optionally.
+*/
 typedef struct
 {
     ma_async_notification* pNotification;
     ma_fence* pFence;
-} ma_pipeline_stage_notification;
+} ma_resource_manager_pipeline_stage_notification;
 
 typedef struct
 {
-    ma_pipeline_stage_notification init;    /* Initialization of the decoder. */
-    ma_pipeline_stage_notification done;    /* Decoding fully completed. */
-} ma_pipeline_notifications;
+    ma_resource_manager_pipeline_stage_notification init;    /* Initialization of the decoder. */
+    ma_resource_manager_pipeline_stage_notification done;    /* Decoding fully completed. */
+} ma_resource_manager_pipeline_notifications;
 
-MA_API ma_pipeline_notifications ma_pipeline_notifications_init(void);
+MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_notifications_init(void);
 
 
 typedef struct
@@ -1467,8 +1469,8 @@ MA_API ma_result ma_resource_manager_unregister_data(ma_resource_manager* pResou
 MA_API ma_result ma_resource_manager_unregister_data_w(ma_resource_manager* pResourceManager, const wchar_t* pName);
 
 /* Data Buffers. */
-MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
-MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
+MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_buffer* pExistingDataBuffer, ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -1482,8 +1484,8 @@ MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_m
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
 
 /* Data Streams. */
-MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
-MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
+MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_manager_data_stream* pDataStream, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex);
@@ -1496,8 +1498,8 @@ MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_m
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
-MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
-MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
+MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_init_copy(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source* pExistingDataSource, ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_uninit(ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_read_pcm_frames(ma_resource_manager_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -4471,18 +4473,10 @@ MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSource
 MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels)
 {
     ma_splitter_node_config config;
-    ma_uint32 inputChannels[1];
-    ma_uint32 outputChannels[2];
-
-    /* Same channel count between inputs and outputs are required for splitters. */
-    inputChannels[0]  = channels;
-    outputChannels[0] = channels;
-    outputChannels[1] = channels;
 
     MA_ZERO_OBJECT(&config);
     config.nodeConfig = ma_node_config_init();
-    config.nodeConfig.pInputChannels  = inputChannels;
-    config.nodeConfig.pOutputChannels = outputChannels;
+    config.channels   = channels;
 
     return config;
 }
@@ -4523,6 +4517,8 @@ MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_split
 {
     ma_result result;
     ma_node_config baseConfig;
+    ma_uint32 pInputChannels[1];
+    ma_uint32 pOutputChannels[2];
 
     if (pSplitterNode == NULL) {
         return MA_INVALID_ARGS;
@@ -4534,17 +4530,15 @@ MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_split
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->nodeConfig.pInputChannels == NULL || pConfig->nodeConfig.pOutputChannels == NULL) {
-        return MA_INVALID_ARGS; /* No channel counts specified. */
-    }
-
     /* Splitters require the same number of channels between inputs and outputs. */
-    if (pConfig->nodeConfig.pInputChannels[0] != pConfig->nodeConfig.pOutputChannels[0]) {
-        return MA_INVALID_ARGS;
-    }
+    pInputChannels[0]  = pConfig->channels;
+    pOutputChannels[0] = pConfig->channels;
+    pOutputChannels[1] = pConfig->channels;
 
     baseConfig = pConfig->nodeConfig;
     baseConfig.vtable = &g_ma_splitter_node_vtable;
+    baseConfig.pInputChannels  = pInputChannels;
+    baseConfig.pOutputChannels = pOutputChannels;
 
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pSplitterNode->base);
     if (result != MA_SUCCESS) {
@@ -4664,16 +4658,16 @@ MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event*
 
 
 
-MA_API ma_pipeline_notifications ma_pipeline_notifications_init(void)
+MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_notifications_init(void)
 {
-    ma_pipeline_notifications notifications;
+    ma_resource_manager_pipeline_notifications notifications;
 
     MA_ZERO_OBJECT(&notifications);
 
     return notifications;
 }
 
-static void ma_pipeline_notifications_signal_all_notifications(const ma_pipeline_notifications* pPipelineNotifications)
+static void ma_resource_manager_pipeline_notifications_signal_all_notifications(const ma_resource_manager_pipeline_notifications* pPipelineNotifications)
 {
     if (pPipelineNotifications == NULL) {
         return;
@@ -4683,7 +4677,7 @@ static void ma_pipeline_notifications_signal_all_notifications(const ma_pipeline
     if (pPipelineNotifications->done.pNotification) { ma_async_notification_signal(pPipelineNotifications->done.pNotification); }
 }
 
-static void ma_pipeline_notifications_acquire_all_fences(const ma_pipeline_notifications* pPipelineNotifications)
+static void ma_resource_manager_pipeline_notifications_acquire_all_fences(const ma_resource_manager_pipeline_notifications* pPipelineNotifications)
 {
     if (pPipelineNotifications == NULL) {
         return;
@@ -4693,7 +4687,7 @@ static void ma_pipeline_notifications_acquire_all_fences(const ma_pipeline_notif
     if (pPipelineNotifications->done.pFence != NULL) { ma_fence_acquire(pPipelineNotifications->done.pFence); }
 }
 
-static void ma_pipeline_notifications_release_all_fences(const ma_pipeline_notifications* pPipelineNotifications)
+static void ma_resource_manager_pipeline_notifications_release_all_fences(const ma_resource_manager_pipeline_notifications* pPipelineNotifications)
 {
     if (pPipelineNotifications == NULL) {
         return;
@@ -6569,13 +6563,13 @@ static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
     ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames
 };
 
-static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
+static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
     ma_data_source_config dataSourceConfig;
     ma_bool32 async;
-    ma_pipeline_notifications notifications;
+    ma_resource_manager_pipeline_notifications notifications;
 
     if (pNotifications != NULL) {
         notifications = *pNotifications;
@@ -6585,7 +6579,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
     }
 
     if (pDataBuffer == NULL) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_INVALID_ARGS;
     }
 
@@ -6610,12 +6604,12 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
     acquired a second if loading asynchronously. This double acquisition system is just done to
     simplify code maintanence.
     */
-    ma_pipeline_notifications_acquire_all_fences(&notifications);
+    ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
     {
         /* We first need to acquire a node. If ASYNC is not set, this will not return until the entire sound has been loaded. */
         result = ma_resource_manager_data_buffer_node_acquire(pResourceManager, pFilePath, pFilePathW, hashedName32, flags, NULL, notifications.init.pFence, notifications.done.pFence, &pDataBufferNode);
         if (result != MA_SUCCESS) {
-            ma_pipeline_notifications_signal_all_notifications(&notifications);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
             goto done;
         }
 
@@ -6625,7 +6619,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
         result = ma_data_source_init(&dataSourceConfig, &pDataBuffer->ds);
         if (result != MA_SUCCESS) {
             ma_resource_manager_data_buffer_node_unacquire(pResourceManager, pDataBufferNode, NULL, NULL);
-            ma_pipeline_notifications_signal_all_notifications(&notifications);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
             goto done;
         }
 
@@ -6640,7 +6634,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, NULL, NULL);
             c89atomic_exchange_i32(&pDataBuffer->result, result);
 
-            ma_pipeline_notifications_signal_all_notifications(&notifications);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
             goto done;
         } else {
             /* The node's data supply isn't initialized yet. The caller has requested that we load asynchronously so we need to post a job to do this. */
@@ -6659,7 +6653,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
             c89atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
 
             /* Acquire fences a second time. These will be released by the async thread. */
-            ma_pipeline_notifications_acquire_all_fences(&notifications);
+            ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
 
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
@@ -6676,7 +6670,7 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
                 c89atomic_exchange_i32(&pDataBuffer->result, result);
 
                 /* Release the fences after the result has been set on the data buffer. */
-                ma_pipeline_notifications_release_all_fences(&notifications);
+                ma_resource_manager_pipeline_notifications_release_all_fences(&notifications);
             } else {
                 if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                     ma_resource_manager_inline_notification_wait(&initNotification);
@@ -6706,17 +6700,17 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
         }
     }
 done:
-    ma_pipeline_notifications_release_all_fences(&notifications);
+    ma_resource_manager_pipeline_notifications_release_all_fences(&notifications);
 
     return result;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
 {
     return ma_resource_manager_data_buffer_init_internal(pResourceManager, pFilePath, NULL, 0, flags, pNotifications, pDataBuffer);
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
+MA_API ma_result ma_resource_manager_data_buffer_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
 {
     return ma_resource_manager_data_buffer_init_internal(pResourceManager, NULL, pFilePath, 0, flags, pNotifications, pDataBuffer);
 }
@@ -7241,7 +7235,7 @@ static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
     ma_resource_manager_data_stream_cb__get_length_in_pcm_frames
 };
 
-static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
+static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
     ma_data_source_config dataSourceConfig;
@@ -7250,7 +7244,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     ma_resource_manager_job job;
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
-    ma_pipeline_notifications notifications;
+    ma_resource_manager_pipeline_notifications notifications;
 
     if (pNotifications != NULL) {
         notifications = *pNotifications;
@@ -7260,7 +7254,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     }
 
     if (pDataStream == NULL) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_INVALID_ARGS;
     }
 
@@ -7271,7 +7265,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
 
     result = ma_data_source_init(&dataSourceConfig, &pDataStream->ds);
     if (result != MA_SUCCESS) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return result;
     }
 
@@ -7280,7 +7274,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     pDataStream->result           = MA_BUSY;
 
     if (pResourceManager == NULL || (pFilePath == NULL && pFilePathW == NULL)) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_INVALID_ARGS;
     }
 
@@ -7294,7 +7288,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     }
 
     if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
         return MA_OUT_OF_MEMORY;
     }
 
@@ -7307,7 +7301,7 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
         ma_resource_manager_inline_notification_init(pResourceManager, &waitNotification);
     }
 
-    ma_pipeline_notifications_acquire_all_fences(&notifications);
+    ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
 
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM);
@@ -7319,8 +7313,8 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     job.loadDataStream.pInitFence        = notifications.init.pFence;
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
-        ma_pipeline_notifications_signal_all_notifications(&notifications);
-        ma_pipeline_notifications_release_all_fences(&notifications);
+        ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+        ma_resource_manager_pipeline_notifications_release_all_fences(&notifications);
 
         if (waitBeforeReturning) {
             ma_resource_manager_inline_notification_uninit(&waitNotification);
@@ -7345,12 +7339,12 @@ static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manag
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
+MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pResourceManager, const char* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
 {
     return ma_resource_manager_data_stream_init_internal(pResourceManager, pFilePath, NULL, flags, pNotifications, pDataStream);
 }
 
-MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
+MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pResourceManager, const wchar_t* pFilePath, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
 {
     return ma_resource_manager_data_stream_init_internal(pResourceManager, NULL, pFilePath, flags, pNotifications, pDataStream);
 }
@@ -7885,7 +7879,7 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pResourceManager, const char* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource)
 {
     ma_result result;
 
@@ -7902,7 +7896,7 @@ MA_API ma_result ma_resource_manager_data_source_init(ma_resource_manager* pReso
     }
 }
 
-MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, const ma_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource)
+MA_API ma_result ma_resource_manager_data_source_init_w(ma_resource_manager* pResourceManager, const wchar_t* pName, ma_uint32 flags, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_source* pDataSource)
 {
     ma_result result;
 
@@ -12121,7 +12115,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     ma_result result = MA_SUCCESS;
     ma_uint32 flags;
     ma_sound_config config;
-    ma_pipeline_notifications notifications;
+    ma_resource_manager_pipeline_notifications notifications;
 
     /*
     The engine requires knowledge of the channel count of the underlying data source before it can
@@ -12140,7 +12134,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         return MA_OUT_OF_MEMORY;
     }
 
-    notifications = ma_pipeline_notifications_init();
+    notifications = ma_resource_manager_pipeline_notifications_init();
     notifications.done.pFence = pConfig->pDoneFence;
 
     /*
