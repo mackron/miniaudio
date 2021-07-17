@@ -5845,6 +5845,53 @@ MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to r
 
 
 
+/*
+Notification callback for asynchronous operations.
+*/
+typedef void ma_async_notification;
+
+typedef struct
+{
+    void (* onSignal)(ma_async_notification* pNotification);
+} ma_async_notification_callbacks;
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
+
+
+/*
+Simple polling notification.
+
+This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_bool32 signalled;
+} ma_async_notification_poll;
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
+
+
+/*
+Event Notification
+
+This uses an ma_event. If threading is disabled (MA_NO_THREADING), initialization will fail.
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+} ma_async_notification_event;
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
+
+
 
 
 /************************************************************************************************************************************************************
@@ -11653,6 +11700,135 @@ MA_API ma_result ma_fence_wait(ma_fence* pFence)
     /* Should never get here. */
     /*return MA_INVALID_OPERATION;*/
 }
+
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification)
+{
+    ma_async_notification_callbacks* pNotificationCallbacks = (ma_async_notification_callbacks*)pNotification;
+
+    if (pNotification == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pNotificationCallbacks->onSignal == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    pNotificationCallbacks->onSignal(pNotification);
+    return MA_INVALID_ARGS;
+}
+
+
+static void ma_async_notification_poll__on_signal(ma_async_notification* pNotification)
+{
+    ((ma_async_notification_poll*)pNotification)->signalled = MA_TRUE;
+}
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll)
+{
+    if (pNotificationPoll == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNotificationPoll->cb.onSignal = ma_async_notification_poll__on_signal;
+    pNotificationPoll->signalled = MA_FALSE;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll)
+{
+    if (pNotificationPoll == NULL) {
+        return MA_FALSE;
+    }
+
+    return pNotificationPoll->signalled;
+}
+
+
+static void ma_async_notification_event__on_signal(ma_async_notification* pNotification)
+{
+    ma_async_notification_event_signal((ma_async_notification_event*)pNotification);
+}
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pNotificationEvent->cb.onSignal = ma_async_notification_event__on_signal;
+    
+    #ifndef MA_NO_THREADING
+    {
+        ma_result result;
+
+        result = ma_event_init(&pNotificationEvent->e);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        return MA_NOT_IMPLEMENTED;  /* Threading is disabled. */
+    }
+    #endif
+}
+
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        ma_event_uninit(&pNotificationEvent->e);
+        return MA_SUCCESS;
+    }
+    #else
+    {
+        return MA_NOT_IMPLEMENTED;  /* Threading is disabled. */
+    }
+    #endif
+}
+
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        return ma_event_wait(&pNotificationEvent->e);
+    }
+    #else
+    {
+        return MA_NOT_IMPLEMENTED;  /* Threading is disabled. */
+    }
+    #endif
+}
+
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent)
+{
+    if (pNotificationEvent == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    #ifndef MA_NO_THREADING
+    {
+        return ma_event_signal(&pNotificationEvent->e);
+    }
+    #else
+    {
+        return MA_NOT_IMPLEMENTED;  /* Threading is disabled. */
+    }
+    #endif
+}
+
 
 
 
