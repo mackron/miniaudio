@@ -6558,7 +6558,7 @@ typedef struct
 
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform);
 MA_API void ma_waveform_uninit(ma_waveform* pWaveform);
-MA_API ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount);
+MA_API ma_result ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64 frameIndex);
 MA_API ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplitude);
 MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
@@ -54096,17 +54096,7 @@ MA_API ma_waveform_config ma_waveform_config_init(ma_format format, ma_uint32 ch
 
 static ma_result ma_waveform__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_uint64 framesRead = ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount);
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
-    }
-
-    if (framesRead == 0) {
-        return MA_AT_END;
-    }
-
-    return MA_SUCCESS;
+    return ma_waveform_read_pcm_frames((ma_waveform*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
 static ma_result ma_waveform__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -54460,10 +54450,18 @@ static void ma_waveform_read_pcm_frames__sawtooth(ma_waveform* pWaveform, void* 
     }
 }
 
-MA_API ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
+MA_API ma_result ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pWaveform == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     if (pFramesOut != NULL) {
@@ -54489,13 +54487,17 @@ MA_API ma_uint64 ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFram
                 ma_waveform_read_pcm_frames__sawtooth(pWaveform, pFramesOut, frameCount);
             } break;
 
-            default: return 0;
+            default: return MA_INVALID_OPERATION;   /* Unknown waveform type. */
         }
     } else {
         pWaveform->time += pWaveform->advance * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
     }
 
-    return frameCount;
+    if (pFramesRead != NULL) {
+        *pFramesRead = frameCount;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64 frameIndex)
@@ -59149,7 +59151,7 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
 
         waveformConfig = ma_waveform_config_init(format, channels, sampleRate, ma_waveform_type_sine, 1.0, 400);
         ma_waveform_init(&waveformConfig, &waveform);
-        ma_waveform_read_pcm_frames(&waveform, pFramesOut, frameCount);
+        ma_waveform_read_pcm_frames(&waveform, pFramesOut, frameCount, NULL);
     }
     #else
     {
