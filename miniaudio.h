@@ -47546,7 +47546,7 @@ MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t 
 {
     ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
     ma_result result;
-    ma_uint64 bytesRead;
+    size_t bytesRead;
 
     if (pBytesRead != NULL) {
         *pBytesRead = 0;
