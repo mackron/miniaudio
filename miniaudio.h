@@ -52780,6 +52780,10 @@ static ma_result ma_decoder__on_read_memory(ma_decoder* pDecoder, void* pBufferO
 
     MA_ASSERT(pDecoder->data.memory.dataSize >= pDecoder->data.memory.currentReadPos);
 
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
     bytesRemaining = pDecoder->data.memory.dataSize - pDecoder->data.memory.currentReadPos;
     if (bytesToRead > bytesRemaining) {
         bytesToRead = bytesRemaining;
