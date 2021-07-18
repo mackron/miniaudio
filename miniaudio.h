@@ -46029,54 +46029,59 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
 static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
-    
+    ma_result result;
+    ma_uint64 framesRead = 0;
+
     if (pDataSourceBase == NULL) {
         return MA_AT_END;
     }
 
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE)) {
         /* No range is set - just read like normal. The data source itself will tell us when the end is reached. */
-        return pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
+        result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
     } else {
         /* Need to clamp to within the range. */
-        ma_result result;
         ma_uint64 cursor;
-        ma_uint64 framesRead = 0;
-        ma_uint64 rangeEnd;
 
         result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &cursor);
         if (result != MA_SUCCESS) {
             /* Failed to retrieve the cursor. Cannot read within a range or loop points. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
-            return pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
-        }
+            result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+        } else {
+            ma_uint64 rangeEnd;
 
-        /* We have the cursor. We need to make sure we don't read beyond our range. */
-        rangeEnd = pDataSourceBase->rangeEndInFrames;
+            /* We have the cursor. We need to make sure we don't read beyond our range. */
+            rangeEnd = pDataSourceBase->rangeEndInFrames;
 
-        /* If looping, make sure we're within range. */
-        if (loop) {
-            if (pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) {
-                rangeEnd = ma_min(rangeEnd, pDataSourceBase->rangeBegInFrames + pDataSourceBase->loopEndInFrames);
+            /* If looping, make sure we're within range. */
+            if (loop) {
+                if (pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) {
+                    rangeEnd = ma_min(rangeEnd, pDataSourceBase->rangeBegInFrames + pDataSourceBase->loopEndInFrames);
+                }
             }
+
+            if (frameCount > (rangeEnd - cursor) && rangeEnd != ~((ma_uint64)0)) {
+                frameCount = (rangeEnd - cursor);
+            }
+
+            result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
         }
-
-        if (frameCount > (rangeEnd - cursor) && rangeEnd != ~((ma_uint64)0)) {
-            frameCount = (rangeEnd - cursor);
-        }
-
-        result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
-
-        if (pFramesRead != NULL) {
-            *pFramesRead = framesRead;
-        }
-
-        /* We need to make sure MA_AT_END is returned if we hit the end of the range. */
-        if (result != MA_AT_END && framesRead == 0) {
-            result  = MA_AT_END;
-        }
-
-        return result;
     }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    /* We need to make sure MA_AT_END is returned if we hit the end of the range. */
+    if (result == MA_SUCCESS && framesRead == 0) {
+        result  = MA_AT_END;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
@@ -46092,6 +46097,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
     }
 
     if (pDataSourceBase == NULL) {
@@ -46204,6 +46213,10 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 
     if (pFramesRead != NULL) {
         *pFramesRead = totalFramesProcessed;
+    }
+
+    if (result == MA_SUCCESS && totalFramesProcessed == 0) {
+        result  = MA_AT_END;
     }
 
     return result;
@@ -50111,6 +50124,14 @@ MA_API void ma_wav_uninit(ma_wav* pWav, const ma_allocation_callbacks* pAllocati
 
 MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pWav == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -50156,6 +50177,10 @@ MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint6
 
         if (pFramesRead != NULL) {
             *pFramesRead = totalFramesRead;
+        }
+
+        if (result == MA_SUCCESS && totalFramesRead == 0) {
+            result  = MA_AT_END;
         }
 
         return result;
@@ -50736,6 +50761,14 @@ MA_API void ma_flac_uninit(ma_flac* pFlac, const ma_allocation_callbacks* pAlloc
 
 MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pFlac == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -50782,6 +50815,10 @@ MA_API ma_result ma_flac_read_pcm_frames(ma_flac* pFlac, void* pFramesOut, ma_ui
 
         if (pFramesRead != NULL) {
             *pFramesRead = totalFramesRead;
+        }
+
+        if (result == MA_SUCCESS && totalFramesRead == 0) {
+            result  = MA_AT_END;
         }
 
         return result;
@@ -51360,6 +51397,14 @@ MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocati
 
 MA_API ma_result ma_mp3_read_pcm_frames(ma_mp3* pMP3, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pMP3 == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -52013,6 +52058,14 @@ MA_API void ma_stbvorbis_uninit(ma_stbvorbis* pVorbis, const ma_allocation_callb
 
 MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pVorbis == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -52146,6 +52199,10 @@ MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFram
 
         if (pFramesRead != NULL) {
             *pFramesRead = totalFramesRead;
+        }
+
+        if (result == MA_SUCCESS && totalFramesRead == 0) {
+            result  = MA_AT_END;
         }
 
         return result;
@@ -53308,6 +53365,10 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;   /* Safety. */
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
     }
 
     if (pDecoder == NULL) {
@@ -57145,6 +57206,10 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         *pFramesRead = 0;
     }
 
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     /*
     We cannot be using the data buffer after it's been uninitialized. If you trigger this assert it means you're trying to read from the data buffer after
     it's been uninitialized or is in the process of uninitializing.
@@ -57221,6 +57286,10 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 
     if (pFramesRead != NULL) {
         *pFramesRead = framesRead;
+    }
+
+    if (result == MA_SUCCESS && framesRead == 0) {
+        result  = MA_AT_END;
     }
 
     return result;
@@ -57940,6 +58009,10 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
         *pFramesRead = 0;
     }
 
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
 
@@ -57985,6 +58058,10 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
 
     if (pFramesRead != NULL) {
         *pFramesRead = totalFramesProcessed;
+    }
+
+    if (result == MA_SUCCESS && totalFramesProcessed == 0) {
+        result  = MA_AT_END;
     }
 
     return result;
@@ -61089,6 +61166,9 @@ static void ma_data_source_node_process_pcm_frames(ma_node* pNode, const float**
     (void)pFrameCountIn;
 
     frameCount = *pFrameCountOut;
+
+    /* miniaudio should never be calling this with a frame count of zero. */
+    MA_ASSERT(frameCount > 0);
 
     if (ma_data_source_get_data_format(pDataSourceNode->pDataSource, &format, &channels, NULL, NULL, 0) == MA_SUCCESS) { /* <-- Don't care about sample rate here. */
         /* The node graph system requires samples be in floating point format. This is checked in ma_data_source_node_init(). */

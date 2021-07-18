@@ -268,6 +268,14 @@ MA_API void ma_libopus_uninit(ma_libopus* pOpus, const ma_allocation_callbacks* 
 
 MA_API ma_result ma_libopus_read_pcm_frames(ma_libopus* pOpus, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pOpus == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -315,6 +323,10 @@ MA_API ma_result ma_libopus_read_pcm_frames(ma_libopus* pOpus, void* pFramesOut,
 
         if (pFramesRead != NULL) {
             *pFramesRead = totalFramesRead;
+        }
+
+        if (result == MA_SUCCESS && totalFramesRead == 0) {
+            result = MA_AT_END;
         }
 
         return result;

@@ -263,6 +263,14 @@ MA_API void ma_libvorbis_uninit(ma_libvorbis* pVorbis, const ma_allocation_callb
 
 MA_API ma_result ma_libvorbis_read_pcm_frames(ma_libvorbis* pVorbis, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pVorbis == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -325,6 +333,10 @@ MA_API ma_result ma_libvorbis_read_pcm_frames(ma_libvorbis* pVorbis, void* pFram
 
         if (pFramesRead != NULL) {
             *pFramesRead = totalFramesRead;
+        }
+
+        if (result == MA_SUCCESS && totalFramesRead == 0) {
+            result = MA_AT_END;
         }
 
         return result;
