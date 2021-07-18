@@ -6606,7 +6606,7 @@ typedef struct
 
 MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
 MA_API void ma_noise_uninit(ma_noise* pNoise);
-MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount);
+MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
 MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
@@ -54531,17 +54531,7 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 
 static ma_result ma_noise__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_uint64 framesRead = ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount);
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
-    }
-
-    if (framesRead == 0) {
-        return MA_AT_END;
-    }
-
-    return MA_SUCCESS;
+    return ma_noise_read_pcm_frames((ma_noise*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
 static ma_result ma_noise__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -54935,32 +54925,39 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
     return frameCount;
 }
 
-MA_API ma_uint64 ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount)
+MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
+    ma_uint64 framesRead = 0;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
     if (pNoise == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
     /* The output buffer is allowed to be NULL. Since we aren't tracking cursors or anything we can just do nothing and pretend to be successful. */
     if (pFramesOut == NULL) {
-        return frameCount;
+        framesRead = frameCount;
+    } else {
+        switch (pNoise->config.type) {
+            case ma_noise_type_white:    framesRead = ma_noise_read_pcm_frames__white   (pNoise, pFramesOut, frameCount); break;
+            case ma_noise_type_pink:     framesRead = ma_noise_read_pcm_frames__pink    (pNoise, pFramesOut, frameCount); break;
+            case ma_noise_type_brownian: framesRead = ma_noise_read_pcm_frames__brownian(pNoise, pFramesOut, frameCount); break;
+            default: return MA_INVALID_OPERATION;   /* Unknown noise type. */
+        }
     }
 
-    if (pNoise->config.type == ma_noise_type_white) {
-        return ma_noise_read_pcm_frames__white(pNoise, pFramesOut, frameCount);
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
     }
 
-    if (pNoise->config.type == ma_noise_type_pink) {
-        return ma_noise_read_pcm_frames__pink(pNoise, pFramesOut, frameCount);
-    }
-
-    if (pNoise->config.type == ma_noise_type_brownian) {
-        return ma_noise_read_pcm_frames__brownian(pNoise, pFramesOut, frameCount);
-    }
-
-    /* Should never get here. */
-    MA_ASSERT(MA_FALSE);
-    return 0;
+    return MA_SUCCESS;
 }
 #endif /* MA_NO_GENERATION */
 
