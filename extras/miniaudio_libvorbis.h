@@ -90,6 +90,11 @@ static size_t ma_libvorbis_vf_callback__read(void* pBufferOut, size_t size, size
     size_t bytesToRead;
     size_t bytesRead;
 
+    /* For consistency with fread(). If `size` of `count` is 0, return 0 immediately without changing anything. */
+    if (size == 0 || count == 0) {
+        return 0;
+    }
+
     bytesToRead = size * count;
     result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
 
