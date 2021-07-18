@@ -34779,9 +34779,19 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             /* We need a heap allocated cache. We want to size this based on the period size. */
             void* pNewInputCache;
             ma_uint64 newInputCacheCap;
+            ma_uint64 newInputCacheSizeInBytes;
 
             newInputCacheCap = ma_calculate_frame_count_after_resampling(pDevice->playback.internalSampleRate, pDevice->sampleRate, pDevice->playback.internalPeriodSizeInFrames);
-            pNewInputCache   = ma_realloc(pDevice->playback.pInputCache, newInputCacheCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels), &pDevice->pContext->allocationCallbacks);
+            
+            newInputCacheSizeInBytes = newInputCacheCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+            if (newInputCacheSizeInBytes > MA_SIZE_MAX) {
+                ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
+                pDevice->playback.pInputCache   = NULL;
+                pDevice->playback.inputCacheCap = 0;
+                return MA_OUT_OF_MEMORY;    /* Allocation too big. Should never hit this, but makes the cast below safer for 32-bit builds. */
+            }
+
+            pNewInputCache   = ma_realloc(pDevice->playback.pInputCache, (size_t)newInputCacheSizeInBytes, &pDevice->pContext->allocationCallbacks);
             if (pNewInputCache == NULL) {
                 ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
                 pDevice->playback.pInputCache   = NULL;
@@ -49724,8 +49734,18 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
             We were unable to calculate the required input frame count which means we'll need to use
             a heap-allocated cache.
             */
+            ma_uint64 inputCacheCapSizeInBytes;
+
             pDecoder->inputCacheCap = MA_DATA_CONVERTER_STACK_BUFFER_SIZE / ma_get_bytes_per_frame(internalFormat, internalChannels);
-            pDecoder->pInputCache = ma_malloc(pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels), &pDecoder->allocationCallbacks);
+
+            /* Not strictly necessary, but keeping here for safety in case we change the default value of pDecoder->inputCacheCap. */
+            inputCacheCapSizeInBytes = pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels);
+            if (inputCacheCapSizeInBytes > MA_SIZE_MAX) {
+                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            pDecoder->pInputCache = ma_malloc((size_t)inputCacheCapSizeInBytes, &pDecoder->allocationCallbacks);    /* Safe cast to size_t. */
             if (pDecoder->pInputCache == NULL) {
                 ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
                 return MA_OUT_OF_MEMORY;
