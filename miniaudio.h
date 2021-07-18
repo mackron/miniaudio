@@ -47201,7 +47201,7 @@ MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_
         return MA_OUT_OF_MEMORY;    /* Too big. */
     }
 
-    pPage = (ma_paged_audio_buffer_page*)ma_malloc((size_t)allocationSize, pAllocationCallbacks);	/* Safe cast to size_t. */
+    pPage = (ma_paged_audio_buffer_page*)ma_malloc((size_t)allocationSize, pAllocationCallbacks);   /* Safe cast to size_t. */
     if (pPage == NULL) {
         return MA_OUT_OF_MEMORY;
     }
@@ -56556,15 +56556,19 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
                 framesToTryReading = framesRemaining;
             }
 
-            pDst = ma_offset_ptr(
-                pDataBufferNode->data.decoded.pData,
-                pDataBufferNode->data.decoded.decodedFrameCount * ma_get_bytes_per_frame(pDataBufferNode->data.decoded.format, pDataBufferNode->data.decoded.channels)
-            );
-            MA_ASSERT(pDst != NULL);
+            if (framesToTryReading > 0) {
+                pDst = ma_offset_ptr(
+                    pDataBufferNode->data.decoded.pData,
+                    pDataBufferNode->data.decoded.decodedFrameCount * ma_get_bytes_per_frame(pDataBufferNode->data.decoded.format, pDataBufferNode->data.decoded.channels)
+                );
+                MA_ASSERT(pDst != NULL);
 
-            result = ma_decoder_read_pcm_frames(pDecoder, pDst, framesToTryReading, &framesRead);
-            if (framesRead > 0) {
-                pDataBufferNode->data.decoded.decodedFrameCount += framesRead;
+                result = ma_decoder_read_pcm_frames(pDecoder, pDst, framesToTryReading, &framesRead);
+                if (framesRead > 0) {
+                    pDataBufferNode->data.decoded.decodedFrameCount += framesRead;
+                }
+            } else {
+                framesRead = 0;
             }
         } break;
 
@@ -56932,10 +56936,10 @@ stage2:
             /* The sound is still loading. We need to delay the freeing of the node to a safe time. */
             ma_resource_manager_job job;
 
-			/* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
-			c89atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
+            /* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
+            c89atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
 
-			job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
+            job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
             job.freeDataBufferNode.pDataBufferNode = pDataBufferNode;
 
@@ -57126,11 +57130,11 @@ static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manag
 
                     /* NOTE: Do not release the init fence here. It will have been done by the job. */
 
-				    /* Make sure we return an error if initialization failed on the async thread. */
-				    result = ma_resource_manager_data_buffer_result(pDataBuffer);
-				    if (result == MA_BUSY) {
-					    result  = MA_SUCCESS;
-				    }
+                    /* Make sure we return an error if initialization failed on the async thread. */
+                    result = ma_resource_manager_data_buffer_result(pDataBuffer);
+                    if (result == MA_BUSY) {
+                        result  = MA_SUCCESS;
+                    }
                 }
             }
 
@@ -58767,7 +58771,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
     /* Don't do any more decoding if the data buffer has started the uninitialization process. */
     if (ma_resource_manager_data_buffer_node_result(pJob->pageDataBufferNode.pDataBufferNode) != MA_BUSY) {
         result = ma_resource_manager_data_buffer_node_result(pJob->pageDataBufferNode.pDataBufferNode);
-		goto done;
+        goto done;
     }
 
     if (pJob->order != pJob->pageDataBufferNode.pDataBufferNode->executionPointer) {
@@ -58885,18 +58889,18 @@ done:
         ma_fence_release(pJob->loadDataBuffer.pDoneFence);
     }
 
-	/*
-	If at this point the data buffer has not had it's connector initialized, it means the
-	notification event was never signalled which means we need to signal it here.
-	*/
-	if (pJob->loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
-		if (pJob->loadDataBuffer.pInitNotification != NULL) {
-		    ma_async_notification_signal(pJob->loadDataBuffer.pInitNotification);
-		}
+    /*
+    If at this point the data buffer has not had it's connector initialized, it means the
+    notification event was never signalled which means we need to signal it here.
+    */
+    if (pJob->loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
+        if (pJob->loadDataBuffer.pInitNotification != NULL) {
+            ma_async_notification_signal(pJob->loadDataBuffer.pInitNotification);
+        }
         if (pJob->loadDataBuffer.pInitFence != NULL) {
             ma_fence_release(pJob->loadDataBuffer.pInitFence);
         }
-	}
+    }
 
     c89atomic_fetch_add_32(&pJob->loadDataBuffer.pDataBuffer->executionPointer, 1);
     return result;
