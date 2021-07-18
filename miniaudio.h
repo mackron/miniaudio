@@ -47545,6 +47545,8 @@ MA_API ma_result ma_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
 MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t sizeInBytes, size_t* pBytesRead)
 {
     ma_vfs_callbacks* pCallbacks = (ma_vfs_callbacks*)pVFS;
+    ma_result result;
+    ma_uint64 bytesRead;
 
     if (pBytesRead != NULL) {
         *pBytesRead = 0;
@@ -47558,7 +47560,17 @@ MA_API ma_result ma_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst, size_t 
         return MA_NOT_IMPLEMENTED;
     }
 
-    return pCallbacks->onRead(pVFS, file, pDst, sizeInBytes, pBytesRead);
+    result = pCallbacks->onRead(pVFS, file, pDst, sizeInBytes, &bytesRead);
+
+    if (pBytesRead != NULL) {
+        *pBytesRead = bytesRead;
+    }
+
+    if (result == MA_SUCCESS && bytesRead == 0 && sizeInBytes > 0) {
+        result  = MA_AT_END;
+    }
+
+    return result;
 }
 
 MA_API ma_result ma_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void* pSrc, size_t sizeInBytes, size_t* pBytesWritten)
