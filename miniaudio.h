@@ -6487,7 +6487,7 @@ typedef size_t    (* ma_encoder_write_proc)           (ma_encoder* pEncoder, con
 typedef ma_bool32 (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin);
 typedef ma_result (* ma_encoder_init_proc)            (ma_encoder* pEncoder);
 typedef void      (* ma_encoder_uninit_proc)          (ma_encoder* pEncoder);
-typedef ma_uint64 (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount);
+typedef ma_result (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten);
 
 typedef struct
 {
@@ -6517,7 +6517,7 @@ MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_
 MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API void ma_encoder_uninit(ma_encoder* pEncoder);
-MA_API ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten);
 
 #endif /* MA_NO_ENCODING */
 
@@ -53869,16 +53869,23 @@ static void ma_encoder__on_uninit_wav(ma_encoder* pEncoder)
     ma_free(pWav, &pEncoder->config.allocationCallbacks);
 }
 
-static ma_uint64 ma_encoder__on_write_pcm_frames_wav(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount)
+static ma_result ma_encoder__on_write_pcm_frames_wav(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten)
 {
     drwav* pWav;
+    ma_uint64 framesWritten;
 
     MA_ASSERT(pEncoder != NULL);
 
     pWav = (drwav*)pEncoder->pInternalEncoder;
     MA_ASSERT(pWav != NULL);
 
-    return drwav_write_pcm_frames(pWav, frameCount, pFramesIn);
+    framesWritten = drwav_write_pcm_frames(pWav, frameCount, pFramesIn);
+
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = framesWritten;
+    }
+
+    return MA_SUCCESS;
 }
 #endif
 
@@ -54050,13 +54057,17 @@ MA_API void ma_encoder_uninit(ma_encoder* pEncoder)
 }
 
 
-MA_API ma_uint64 ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount)
+MA_API ma_result ma_encoder_write_pcm_frames(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten)
 {
-    if (pEncoder == NULL || pFramesIn == NULL) {
-        return 0;
+    if (pFramesWritten != NULL) {
+        *pFramesWritten = 0;
     }
 
-    return pEncoder->onWritePCMFrames(pEncoder, pFramesIn, frameCount);
+    if (pEncoder == NULL || pFramesIn == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return pEncoder->onWritePCMFrames(pEncoder, pFramesIn, frameCount, pFramesWritten);
 }
 #endif  /* MA_NO_ENCODING */
 
