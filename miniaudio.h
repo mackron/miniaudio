@@ -14903,7 +14903,7 @@ static MA_INLINE unsigned int ma_device_disable_denormals(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    if (pDevice->noDisableDenormals) {
+    if (!pDevice->noDisableDenormals) {
         return ma_disable_denormals();
     } else {
         return 0;
@@ -14914,7 +14914,7 @@ static MA_INLINE void ma_device_restore_denormals(ma_device* pDevice, unsigned i
 {
     MA_ASSERT(pDevice != NULL);
 
-    if (pDevice->noDisableDenormals) {
+    if (!pDevice->noDisableDenormals) {
         ma_restore_denormals(prevState);
     } else {
         /* Do nothing. */
