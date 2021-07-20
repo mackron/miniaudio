@@ -9049,6 +9049,9 @@ IMPLEMENTATION
     #include <strings.h>    /* For strcasecmp(). */
     #include <wchar.h>      /* For wcslen(), wcsrtombs() */
 #endif
+#ifdef _MSC_VER
+    #include <float.h>      /* For _controlfp_s constants */
+#endif
 
 #ifdef MA_WIN32
 #include <windows.h>
@@ -9544,6 +9547,10 @@ static MA_INLINE unsigned int ma_disable_denormals()
 #if defined(MA_X86) || defined(MA_X64)
     prevState = _mm_getcsr();
     _mm_setcsr(prevState | _MM_DENORMALS_ZERO_MASK | _MM_FLUSH_ZERO_MASK);
+#elif defined(_MSC_VER)
+    unsigned int unused;
+    _controlfp_s(&prevState, 0, 0);
+    _controlfp_s(&unused, prevState | _DN_FLUSH, _MCW_DN);
 #else
     /* Unknown or unsupported architecture. No-op. */
     prevState = 0;
@@ -9556,6 +9563,9 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 {
 #if defined(MA_X86) || defined(MA_X64)
     _mm_setcsr(prevState);
+#elif defined(_MSC_VER)
+    unsigned int unused;
+    _controlfp_s(&unused, prevState, _MCW_DN);
 #else
     /* Unknown or unsupported architecture. No-op. */
     (void)prevState;
