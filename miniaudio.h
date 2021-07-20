@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.39 - TBD
+miniaudio - v0.10.39 - 2021-07-20
 
 David Reid - mackron@gmail.com
 
@@ -69396,7 +69396,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.39 - TBD
+v0.10.39 - 2021-07-20
   - Core Audio: Fix a deadlock when the default device is changed.
   - Core Audio: Fix compilation errors on macOS and iOS.
   - PulseAudio: Fix a bug where the stop callback is not fired when a device is unplugged.
