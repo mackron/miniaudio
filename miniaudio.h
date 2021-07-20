@@ -22896,18 +22896,25 @@ static ma_result ma_context_get_device_info__pulse(ma_context* pContext, ma_devi
     ma_result result = MA_SUCCESS;
     ma_context_get_device_info_callback_data__pulse callbackData;
     ma_pa_operation* pOP = NULL;
+    const char* pDeviceName = NULL;
 
     MA_ASSERT(pContext != NULL);
 
     callbackData.pDeviceInfo = pDeviceInfo;
     callbackData.foundDevice = MA_FALSE;
 
+    if (pDeviceID != NULL) {
+        pDeviceName = pDeviceID->pulse;
+    } else {
+        pDeviceName = NULL;
+    }
+
     result = ma_context_get_default_device_index__pulse(pContext, deviceType, &callbackData.defaultDeviceIndex);
 
     if (deviceType == ma_device_type_playback) {
-        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceID->pulse, ma_context_get_device_info_sink_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_sink_info_by_name_proc)pContext->pulse.pa_context_get_sink_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceName, ma_context_get_device_info_sink_callback__pulse, &callbackData);
     } else {
-        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceID->pulse, ma_context_get_device_info_source_callback__pulse, &callbackData);
+        pOP = ((ma_pa_context_get_source_info_by_name_proc)pContext->pulse.pa_context_get_source_info_by_name)((ma_pa_context*)(pContext->pulse.pPulseContext), pDeviceName, ma_context_get_device_info_source_callback__pulse, &callbackData);
     }
 
     if (pOP != NULL) {
@@ -69390,8 +69397,10 @@ The following miscellaneous changes have also been made.
 REVISION HISTORY
 ================
 v0.10.39 - TBD
+  - Core Audio: Fix a deadlock when the default device is changed.
   - Core Audio: Fix compilation errors on macOS and iOS.
   - PulseAudio: Fix a bug where the stop callback is not fired when a device is unplugged.
+  - PulseAudio: Fix a null pointer dereference.
 
 v0.10.38 - 2021-07-14
   - Fix a linking error when MA_DEBUG_OUTPUT is not enabled.
