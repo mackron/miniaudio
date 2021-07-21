@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.39 - 2021-07-20
+miniaudio - v0.10.40 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1498,7 +1498,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 39
+#define MA_VERSION_REVISION 40
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -40881,7 +40881,7 @@ static ma_result ma_channel_converter_process_pcm_frames__stereo_to_mono(ma_chan
             const float* pFramesInF32  = (const float*)pFramesIn;
 
             for (iFrame = 0; iFrame < frameCount; ++iFrame) {
-                pFramesOutF32[iFrame] = (pFramesInF32[iFrame*2+0] + pFramesInF32[iFrame*2+0]) * 0.5f;
+                pFramesOutF32[iFrame] = (pFramesInF32[iFrame*2+0] + pFramesInF32[iFrame*2+1]) * 0.5f;
             }
         } break;
 
@@ -69396,6 +69396,9 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
+v0.10.40 - TBD
+  - Fix a bug when converting from stereo to mono.
+
 v0.10.39 - 2021-07-20
   - Core Audio: Fix a deadlock when the default device is changed.
   - Core Audio: Fix compilation errors on macOS and iOS.
