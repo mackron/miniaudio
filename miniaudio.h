@@ -23075,10 +23075,11 @@ static ma_result ma_device_write_to_stream__pulse(ma_device* pDevice, ma_pa_stre
 
             framesMapped = bytesMapped / bpf;
 
-            if (deviceState == MA_STATE_STARTED) {
+            if (deviceState == MA_STATE_STARTED || deviceState == MA_STATE_STARTING) {  /* Check for starting state just in case this is being used to do the initial fill. */
                 ma_device_handle_backend_data_callback(pDevice, pMappedPCMFrames, NULL, framesMapped);
             } else {
-                /* Device is not started. Don't write anything to it. */
+                /* Device is not started. Write silence. */
+                ma_silence_pcm_frames(pMappedPCMFrames, framesMapped, pDevice->playback.format, pDevice->playback.channels);
             }
 
             pulseResult = ((ma_pa_stream_write_proc)pDevice->pContext->pulse.pa_stream_write)(pStream, pMappedPCMFrames, bytesMapped, NULL, 0, MA_PA_SEEK_RELATIVE);
@@ -23286,6 +23287,9 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         /* The callback needs to be set before connecting the stream. */
         ((ma_pa_stream_set_read_callback_proc)pDevice->pContext->pulse.pa_stream_set_read_callback)((ma_pa_stream*)pDevice->pulse.pStreamCapture, ma_device_on_read__pulse, pDevice);
 
+        /* State callback for checking when the device has been corked. */
+        ((ma_pa_stream_set_suspended_callback_proc)pDevice->pContext->pulse.pa_stream_set_suspended_callback)((ma_pa_stream*)pDevice->pulse.pStreamCapture, ma_device_on_suspended__pulse, pDevice);
+
 
         /* Connect after we've got all of our internal state set up. */
         streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
@@ -23377,7 +23381,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodCount, &ss);
 
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[PulseAudio] Playback attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
 
         pDevice->pulse.pStreamPlayback = ma_context__pa_stream_new__pulse(pDevice->pContext, pConfig->pulse.pStreamNamePlayback, &ss, &cmap);
