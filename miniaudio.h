@@ -69401,6 +69401,7 @@ REVISION HISTORY
 ================
 v0.10.40 - TBD
   - Fix a bug when converting from stereo to mono.
+  - PulseAudio: Fix a glitch when pausing and resuming a device.
 
 v0.10.39 - 2021-07-20
   - Core Audio: Fix a deadlock when the default device is changed.
