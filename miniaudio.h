@@ -3044,11 +3044,18 @@ typedef struct
     ma_biquad_coefficient b2;
     ma_biquad_coefficient a1;
     ma_biquad_coefficient a2;
-    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
-    ma_biquad_coefficient r2[MA_MAX_CHANNELS];
+    ma_biquad_coefficient* pR1;
+    ma_biquad_coefficient* pR2;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_biquad;
 
-MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+MA_API ma_result ma_biquad_get_heap_size(const ma_biquad_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_biquad_init_preallocated(const ma_biquad_config* pConfig, void* pHeap, ma_biquad* pBQ);
+MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad* pBQ);
+MA_API void ma_biquad_uninit(ma_biquad* pBQ, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
 MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_biquad_get_latency(const ma_biquad* pBQ);
@@ -3079,7 +3086,8 @@ typedef struct
     ma_biquad_coefficient r1[MA_MAX_CHANNELS];
 } ma_lpf1;
 
-MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
+MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF);
+MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf1_get_latency(const ma_lpf1* pLPF);
@@ -3089,7 +3097,8 @@ typedef struct
     ma_biquad bq;   /* The second order low-pass filter is implemented as a biquad filter. */
 } ma_lpf2;
 
-MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
+MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF);
+MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
 MA_API ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf2_get_latency(const ma_lpf2* pLPF);
@@ -3117,7 +3126,8 @@ typedef struct
     ma_lpf2 lpf2[MA_MAX_FILTER_ORDER/2];
 } ma_lpf;
 
-MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF);
+MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
 MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf_get_latency(const ma_lpf* pLPF);
@@ -3148,7 +3158,8 @@ typedef struct
     ma_biquad_coefficient r1[MA_MAX_CHANNELS];
 } ma_hpf1;
 
-MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
+MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf1* pHPF);
+MA_API void ma_hpf1_uninit(ma_hpf1* pHPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
 MA_API ma_result ma_hpf1_process_pcm_frames(ma_hpf1* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_hpf1_get_latency(const ma_hpf1* pHPF);
@@ -3158,7 +3169,8 @@ typedef struct
     ma_biquad bq;   /* The second order high-pass filter is implemented as a biquad filter. */
 } ma_hpf2;
 
-MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
+MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf2* pHPF);
+MA_API void ma_hpf2_uninit(ma_hpf2* pHPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
 MA_API ma_result ma_hpf2_process_pcm_frames(ma_hpf2* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_hpf2_get_latency(const ma_hpf2* pHPF);
@@ -3186,7 +3198,8 @@ typedef struct
     ma_hpf2 hpf2[MA_MAX_FILTER_ORDER/2];
 } ma_hpf;
 
-MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF);
+MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf* pHPF);
+MA_API void ma_hpf_uninit(ma_hpf* pHPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF);
 MA_API ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_hpf_get_latency(const ma_hpf* pHPF);
@@ -3213,7 +3226,8 @@ typedef struct
     ma_biquad bq;   /* The second order band-pass filter is implemented as a biquad filter. */
 } ma_bpf2;
 
-MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
+MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf2* pBPF);
+MA_API void ma_bpf2_uninit(ma_bpf2* pBPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
 MA_API ma_result ma_bpf2_process_pcm_frames(ma_bpf2* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_bpf2_get_latency(const ma_bpf2* pBPF);
@@ -3238,7 +3252,8 @@ typedef struct
     ma_bpf2 bpf2[MA_MAX_FILTER_ORDER/2];
 } ma_bpf;
 
-MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF);
+MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf* pBPF);
+MA_API void ma_bpf_uninit(ma_bpf* pBPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF);
 MA_API ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_bpf_get_latency(const ma_bpf* pBPF);
@@ -3265,7 +3280,8 @@ typedef struct
     ma_biquad bq;
 } ma_notch2;
 
-MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter);
+MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch2* pFilter);
+MA_API void ma_notch2_uninit(ma_notch2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter);
 MA_API ma_result ma_notch2_process_pcm_frames(ma_notch2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_notch2_get_latency(const ma_notch2* pFilter);
@@ -3293,7 +3309,8 @@ typedef struct
     ma_biquad bq;
 } ma_peak2;
 
-MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter);
+MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak2* pFilter);
+MA_API void ma_peak2_uninit(ma_peak2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter);
 MA_API ma_result ma_peak2_process_pcm_frames(ma_peak2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_peak2_get_latency(const ma_peak2* pFilter);
@@ -3321,7 +3338,8 @@ typedef struct
     ma_biquad bq;
 } ma_loshelf2;
 
-MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
+MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf2* pFilter);
+MA_API void ma_loshelf2_uninit(ma_loshelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
 MA_API ma_result ma_loshelf2_process_pcm_frames(ma_loshelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_loshelf2_get_latency(const ma_loshelf2* pFilter);
@@ -3349,7 +3367,8 @@ typedef struct
     ma_biquad bq;
 } ma_hishelf2;
 
-MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter);
+MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf2* pFilter);
+MA_API void ma_hishelf2_uninit(ma_hishelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hishelf2_reinit(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter);
 MA_API ma_result ma_hishelf2_process_pcm_frames(ma_hishelf2* pFilter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_hishelf2_get_latency(const ma_hishelf2* pFilter);
@@ -40304,23 +40323,124 @@ MA_API ma_biquad_config ma_biquad_config_init(ma_format format, ma_uint32 channe
     return config;
 }
 
-MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, ma_biquad* pBQ)
+
+typedef struct
 {
+    size_t sizeInBytes;
+    size_t r1Offset;
+    size_t r2Offset;
+} ma_biquad_heap_layout;
+
+static ma_result ma_biquad_get_heap_layout(const ma_biquad_config* pConfig, ma_biquad_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* R0 */
+    pHeapLayout->r1Offset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
+
+    /* R1 */
+    pHeapLayout->r2Offset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_biquad_get_heap_size(const ma_biquad_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_biquad_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_biquad_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_biquad_init_preallocated(const ma_biquad_config* pConfig, void* pHeap, ma_biquad* pBQ)
+{
+    ma_result result;
+    ma_biquad_heap_layout heapLayout;
+
     if (pBQ == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pBQ);
 
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
+    result = ma_biquad_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
+    pBQ->_pHeap = pHeap;
+    pBQ->pR1 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r1Offset);
+    pBQ->pR2 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r2Offset);
 
     return ma_biquad_reinit(pConfig, pBQ);
+}
+
+MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad* pBQ)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_biquad_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_biquad_init_preallocated(pConfig, pHeap, pBQ);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pBQ->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_biquad_uninit(ma_biquad* pBQ, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pBQ == NULL) {
+        return;
+    }
+
+    if (pBQ->_ownsHeap) {
+        ma_free(pBQ->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ)
@@ -40382,8 +40502,8 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        float r1 = pBQ->r1[c].f32;
-        float r2 = pBQ->r2[c].f32;
+        float r1 = pBQ->pR1[c].f32;
+        float r2 = pBQ->pR2[c].f32;
         float x  = pX[c];
         float y;
 
@@ -40391,9 +40511,9 @@ static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(
         r1 = b1*x - a1*y + r2;
         r2 = b2*x - a2*y;
 
-        pY[c]          = y;
-        pBQ->r1[c].f32 = r1;
-        pBQ->r2[c].f32 = r2;
+        pY[c]           = y;
+        pBQ->pR1[c].f32 = r1;
+        pBQ->pR2[c].f32 = r2;
     }
 }
 
@@ -40414,8 +40534,8 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        ma_int32 r1 = pBQ->r1[c].s32;
-        ma_int32 r2 = pBQ->r2[c].s32;
+        ma_int32 r1 = pBQ->pR1[c].s32;
+        ma_int32 r2 = pBQ->pR2[c].s32;
         ma_int32 x  = pX[c];
         ma_int32 y;
 
@@ -40423,9 +40543,9 @@ static MA_INLINE void ma_biquad_process_pcm_frame_s16__direct_form_2_transposed(
         r1 = (b1*x - a1*y + r2);
         r2 = (b2*x - a2*y);
 
-        pY[c]          = (ma_int16)ma_clamp(y, -32768, 32767);
-        pBQ->r1[c].s32 = r1;
-        pBQ->r2[c].s32 = r2;
+        pY[c]           = (ma_int16)ma_clamp(y, -32768, 32767);
+        pBQ->pR1[c].s32 = r1;
+        pBQ->pR2[c].s32 = r2;
     }
 }
 
@@ -40519,11 +40639,13 @@ MA_API ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, 
 }
 
 
-MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
+MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF)
 {
     if (pLPF == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
 
     MA_ZERO_OBJECT(pLPF);
 
@@ -40536,6 +40658,15 @@ MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
     }
 
     return ma_lpf1_reinit(pConfig, pLPF);
+}
+
+MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pLPF == NULL) {
+        return;
+    }
+
+    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
 }
 
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
@@ -40690,7 +40821,7 @@ static MA_INLINE ma_biquad_config ma_lpf2__get_biquad_config(const ma_lpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
+MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -40706,12 +40837,21 @@ MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
     }
 
     bqConfig = ma_lpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pLPF->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pLPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pLPF == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pLPF->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
@@ -40775,7 +40915,7 @@ MA_API ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma
     return config;
 }
 
-static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* pLPF, ma_bool32 isNew)
+static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF, ma_bool32 isNew)
 {
     ma_result result;
     ma_uint32 lpf1Count;
@@ -40823,7 +40963,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         ma_lpf1_config lpf1Config = ma_lpf1_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
 
         if (isNew) {
-            result = ma_lpf1_init(&lpf1Config, &pLPF->lpf1[ilpf1]);
+            result = ma_lpf1_init(&lpf1Config, pAllocationCallbacks, &pLPF->lpf1[ilpf1]);
         } else {
             result = ma_lpf1_reinit(&lpf1Config, &pLPF->lpf1[ilpf1]);
         }
@@ -40849,7 +40989,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
         lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
-            result = ma_lpf2_init(&lpf2Config, &pLPF->lpf2[ilpf2]);
+            result = ma_lpf2_init(&lpf2Config, pAllocationCallbacks, &pLPF->lpf2[ilpf2]);
         } else {
             result = ma_lpf2_reinit(&lpf2Config, &pLPF->lpf2[ilpf2]);
         }
@@ -40868,7 +41008,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, ma_lpf* p
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
+MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF)
 {
     if (pLPF == NULL) {
         return MA_INVALID_ARGS;
@@ -40880,12 +41020,30 @@ MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, ma_lpf* pLPF)
         return MA_INVALID_ARGS;
     }
 
-    return ma_lpf_reinit__internal(pConfig, pLPF, /*isNew*/MA_TRUE);
+    return ma_lpf_reinit__internal(pConfig, pAllocationCallbacks, pLPF, /*isNew*/MA_TRUE);
+}
+
+MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
+
+    if (pLPF == NULL) {
+        return;
+    }
+
+    for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+        ma_lpf1_uninit(&pLPF->lpf1[ilpf1], pAllocationCallbacks);
+    }
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_uninit(&pLPF->lpf2[ilpf2], pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
 {
-    return ma_lpf_reinit__internal(pConfig, pLPF, /*isNew*/MA_FALSE);
+    return ma_lpf_reinit__internal(pConfig, NULL, pLPF, /*isNew*/MA_FALSE);
 }
 
 static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, const void* pX)
@@ -41030,11 +41188,13 @@ MA_API ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, 
 }
 
 
-MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
+MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf1* pHPF)
 {
     if (pHPF == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
 
     MA_ZERO_OBJECT(pHPF);
 
@@ -41047,6 +41207,15 @@ MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
     }
 
     return ma_hpf1_reinit(pConfig, pHPF);
+}
+
+MA_API void ma_hpf1_uninit(ma_hpf1* pHPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pHPF == NULL) {
+        return;
+    }
+
+    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
 }
 
 MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
@@ -41201,7 +41370,7 @@ static MA_INLINE ma_biquad_config ma_hpf2__get_biquad_config(const ma_hpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
+MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf2* pHPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41217,12 +41386,21 @@ MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
     }
 
     bqConfig = ma_hpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pHPF->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pHPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_hpf2_uninit(ma_hpf2* pHPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pHPF == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pHPF->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
@@ -41286,7 +41464,7 @@ MA_API ma_hpf_config ma_hpf_config_init(ma_format format, ma_uint32 channels, ma
     return config;
 }
 
-static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* pHPF, ma_bool32 isNew)
+static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf* pHPF, ma_bool32 isNew)
 {
     ma_result result;
     ma_uint32 hpf1Count;
@@ -41334,7 +41512,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         ma_hpf1_config hpf1Config = ma_hpf1_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
 
         if (isNew) {
-            result = ma_hpf1_init(&hpf1Config, &pHPF->hpf1[ihpf1]);
+            result = ma_hpf1_init(&hpf1Config, pAllocationCallbacks, &pHPF->hpf1[ihpf1]);
         } else {
             result = ma_hpf1_reinit(&hpf1Config, &pHPF->hpf1[ihpf1]);
         }
@@ -41360,7 +41538,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
         hpf2Config = ma_hpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
-            result = ma_hpf2_init(&hpf2Config, &pHPF->hpf2[ihpf2]);
+            result = ma_hpf2_init(&hpf2Config, pAllocationCallbacks, &pHPF->hpf2[ihpf2]);
         } else {
             result = ma_hpf2_reinit(&hpf2Config, &pHPF->hpf2[ihpf2]);
         }
@@ -41379,7 +41557,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, ma_hpf* p
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
+MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf* pHPF)
 {
     if (pHPF == NULL) {
         return MA_INVALID_ARGS;
@@ -41391,12 +41569,30 @@ MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, ma_hpf* pHPF)
         return MA_INVALID_ARGS;
     }
 
-    return ma_hpf_reinit__internal(pConfig, pHPF, /*isNew*/MA_TRUE);
+    return ma_hpf_reinit__internal(pConfig, pAllocationCallbacks, pHPF, /*isNew*/MA_TRUE);
+}
+
+MA_API void ma_hpf_uninit(ma_hpf* pHPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_uint32 ihpf1;
+    ma_uint32 ihpf2;
+
+    if (pHPF == NULL) {
+        return;
+    }
+
+    for (ihpf1 = 0; ihpf1 < pHPF->hpf1Count; ihpf1 += 1) {
+        ma_hpf1_uninit(&pHPF->hpf1[ihpf1], pAllocationCallbacks);
+    }
+
+    for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
+        ma_hpf2_uninit(&pHPF->hpf2[ihpf2], pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
 {
-    return ma_hpf_reinit__internal(pConfig, pHPF, /*isNew*/MA_FALSE);
+    return ma_hpf_reinit__internal(pConfig, NULL, pHPF, /*isNew*/MA_FALSE);
 }
 
 MA_API ma_result ma_hpf_process_pcm_frames(ma_hpf* pHPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
@@ -41540,7 +41736,7 @@ static MA_INLINE ma_biquad_config ma_bpf2__get_biquad_config(const ma_bpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
+MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf2* pBPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41556,12 +41752,21 @@ MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
     }
 
     bqConfig = ma_bpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pBPF->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pBPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_bpf2_uninit(ma_bpf2* pBPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pBPF == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pBPF->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
@@ -41625,7 +41830,7 @@ MA_API ma_bpf_config ma_bpf_config_init(ma_format format, ma_uint32 channels, ma
     return config;
 }
 
-static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* pBPF, ma_bool32 isNew)
+static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf* pBPF, ma_bool32 isNew)
 {
     ma_result result;
     ma_uint32 bpf2Count;
@@ -41680,7 +41885,7 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* p
         bpf2Config = ma_bpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
-            result = ma_bpf2_init(&bpf2Config, &pBPF->bpf2[ibpf2]);
+            result = ma_bpf2_init(&bpf2Config, pAllocationCallbacks, &pBPF->bpf2[ibpf2]);
         } else {
             result = ma_bpf2_reinit(&bpf2Config, &pBPF->bpf2[ibpf2]);
         }
@@ -41697,7 +41902,7 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, ma_bpf* p
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
+MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf* pBPF)
 {
     if (pBPF == NULL) {
         return MA_INVALID_ARGS;
@@ -41709,12 +41914,25 @@ MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, ma_bpf* pBPF)
         return MA_INVALID_ARGS;
     }
 
-    return ma_bpf_reinit__internal(pConfig, pBPF, /*isNew*/MA_TRUE);
+    return ma_bpf_reinit__internal(pConfig, pAllocationCallbacks, pBPF, /*isNew*/MA_TRUE);
+}
+
+MA_API void ma_bpf_uninit(ma_bpf* pBPF, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_uint32 ibpf2;
+
+    if (pBPF == NULL) {
+        return;
+    }
+
+    for (ibpf2 = 0; ibpf2 < pBPF->bpf2Count; ibpf2 += 1) {
+        ma_bpf2_uninit(&pBPF->bpf2[ibpf2], pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_bpf_reinit(const ma_bpf_config* pConfig, ma_bpf* pBPF)
 {
-    return ma_bpf_reinit__internal(pConfig, pBPF, /*isNew*/MA_FALSE);
+    return ma_bpf_reinit__internal(pConfig, NULL, pBPF, /*isNew*/MA_FALSE);
 }
 
 MA_API ma_result ma_bpf_process_pcm_frames(ma_bpf* pBPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
@@ -41841,7 +42059,7 @@ static MA_INLINE ma_biquad_config ma_notch2__get_biquad_config(const ma_notch2_c
     return bqConfig;
 }
 
-MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFilter)
+MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41857,12 +42075,21 @@ MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, ma_notch2* pFil
     }
 
     bqConfig = ma_notch2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_notch2_uninit(ma_notch2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pFilter == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter)
@@ -41970,7 +42197,7 @@ static MA_INLINE ma_biquad_config ma_peak2__get_biquad_config(const ma_peak2_con
     return bqConfig;
 }
 
-MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter)
+MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41986,12 +42213,21 @@ MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, ma_peak2* pFilter
     }
 
     bqConfig = ma_peak2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_peak2_uninit(ma_peak2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pFilter == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter)
@@ -42096,7 +42332,7 @@ static MA_INLINE ma_biquad_config ma_loshelf2__get_biquad_config(const ma_loshel
     return bqConfig;
 }
 
-MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter)
+MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42112,12 +42348,21 @@ MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, ma_loshelf2
     }
 
     bqConfig = ma_loshelf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_loshelf2_uninit(ma_loshelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pFilter == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter)
@@ -42222,7 +42467,7 @@ static MA_INLINE ma_biquad_config ma_hishelf2__get_biquad_config(const ma_hishel
     return bqConfig;
 }
 
-MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter)
+MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42238,12 +42483,21 @@ MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, ma_hishelf2
     }
 
     bqConfig = ma_hishelf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, &pFilter->bq);
+    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
     return MA_SUCCESS;
+}
+
+MA_API void ma_hishelf2_uninit(ma_hishelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pFilter == NULL) {
+        return;
+    }
+
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
 }
 
 MA_API ma_result ma_hishelf2_reinit(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter)
@@ -42331,7 +42585,7 @@ static void ma_linear_resampler_adjust_timer_for_new_rate(ma_linear_resampler* p
     pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
 }
 
-static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
+static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
 {
     ma_result result;
     ma_uint32 gcf;
@@ -42375,7 +42629,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     if (isResamplerAlreadyInitialized) {
         result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf);
     } else {
-        result = ma_lpf_init(&lpfConfig, &pResampler->lpf);
+        result = ma_lpf_init(&lpfConfig, pAllocationCallbacks, &pResampler->lpf);   
     }
 
     if (result != MA_SUCCESS) {
@@ -42412,6 +42666,7 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
         return MA_INVALID_ARGS;
     }
 
+    /* TOOD: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
     if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
         return MA_INVALID_ARGS;
     }
@@ -42419,7 +42674,7 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
     pResampler->config = *pConfig;
 
     /* Setting the rate will set up the filter and time advances for us. */
-    result = ma_linear_resampler_set_rate_internal(pResampler, pConfig->sampleRateIn, pConfig->sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_FALSE);
+    result = ma_linear_resampler_set_rate_internal(pResampler, pAllocationCallbacks, pConfig->sampleRateIn, pConfig->sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_FALSE);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -42832,7 +43087,7 @@ MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pRe
 
 MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
 {
-    return ma_linear_resampler_set_rate_internal(pResampler, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
+    return ma_linear_resampler_set_rate_internal(pResampler, NULL, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
 }
 
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut)
@@ -62422,7 +62677,7 @@ MA_API ma_result ma_biquad_node_init(ma_node_graph* pNodeGraph, const ma_biquad_
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_biquad_init(&pConfig->biquad, &pNode->biquad);
+    result = ma_biquad_init(&pConfig->biquad, pAllocationCallbacks, &pNode->biquad);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62451,7 +62706,14 @@ MA_API ma_result ma_biquad_node_reinit(const ma_biquad_config* pConfig, ma_biqua
 
 MA_API void ma_biquad_node_uninit(ma_biquad_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_biquad_node* pLPFNode = (ma_biquad_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_biquad_uninit(&pLPFNode->biquad, pAllocationCallbacks);
 }
 
 
@@ -62507,7 +62769,7 @@ MA_API ma_result ma_lpf_node_init(ma_node_graph* pNodeGraph, const ma_lpf_node_c
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_lpf_init(&pConfig->lpf, &pNode->lpf);
+    result = ma_lpf_init(&pConfig->lpf, pAllocationCallbacks, &pNode->lpf);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62529,14 +62791,23 @@ MA_API ma_result ma_lpf_node_reinit(const ma_lpf_config* pConfig, ma_lpf_node* p
 {
     ma_lpf_node* pLPFNode = (ma_lpf_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
     return ma_lpf_reinit(pConfig, &pLPFNode->lpf);
 }
 
 MA_API void ma_lpf_node_uninit(ma_lpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_lpf_node* pLPFNode = (ma_lpf_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_lpf_uninit(&pLPFNode->lpf, pAllocationCallbacks);
 }
 
 
@@ -62592,7 +62863,7 @@ MA_API ma_result ma_hpf_node_init(ma_node_graph* pNodeGraph, const ma_hpf_node_c
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_hpf_init(&pConfig->hpf, &pNode->hpf);
+    result = ma_hpf_init(&pConfig->hpf, pAllocationCallbacks, &pNode->hpf);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62614,14 +62885,23 @@ MA_API ma_result ma_hpf_node_reinit(const ma_hpf_config* pConfig, ma_hpf_node* p
 {
     ma_hpf_node* pHPFNode = (ma_hpf_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
     return ma_hpf_reinit(pConfig, &pHPFNode->hpf);
 }
 
 MA_API void ma_hpf_node_uninit(ma_hpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_hpf_node* pHPFNode = (ma_hpf_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_hpf_uninit(&pHPFNode->hpf, pAllocationCallbacks);
 }
 
 
@@ -62678,7 +62958,7 @@ MA_API ma_result ma_bpf_node_init(ma_node_graph* pNodeGraph, const ma_bpf_node_c
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_bpf_init(&pConfig->bpf, &pNode->bpf);
+    result = ma_bpf_init(&pConfig->bpf, pAllocationCallbacks, &pNode->bpf);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62700,14 +62980,23 @@ MA_API ma_result ma_bpf_node_reinit(const ma_bpf_config* pConfig, ma_bpf_node* p
 {
     ma_bpf_node* pBPFNode = (ma_bpf_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
     return ma_bpf_reinit(pConfig, &pBPFNode->bpf);
 }
 
 MA_API void ma_bpf_node_uninit(ma_bpf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_bpf_node* pBPFNode = (ma_bpf_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_bpf_uninit(&pBPFNode->bpf, pAllocationCallbacks);
 }
 
 
@@ -62763,7 +63052,7 @@ MA_API ma_result ma_notch_node_init(ma_node_graph* pNodeGraph, const ma_notch_no
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_notch2_init(&pConfig->notch, &pNode->notch);
+    result = ma_notch2_init(&pConfig->notch, pAllocationCallbacks, &pNode->notch);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62783,16 +63072,25 @@ MA_API ma_result ma_notch_node_init(ma_node_graph* pNodeGraph, const ma_notch_no
 
 MA_API ma_result ma_notch_node_reinit(const ma_notch_config* pConfig, ma_notch_node* pNode)
 {
-    ma_notch_node* pBPFNode = (ma_notch_node*)pNode;
+    ma_notch_node* pNotchNode = (ma_notch_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    return ma_notch2_reinit(pConfig, &pBPFNode->notch);
+    return ma_notch2_reinit(pConfig, &pNotchNode->notch);
 }
 
 MA_API void ma_notch_node_uninit(ma_notch_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_notch_node* pNotchNode = (ma_notch_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_notch2_uninit(&pNotchNode->notch, pAllocationCallbacks);
 }
 
 
@@ -62848,7 +63146,7 @@ MA_API ma_result ma_peak_node_init(ma_node_graph* pNodeGraph, const ma_peak_node
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_peak2_init(&pConfig->peak, &pNode->peak);
+    result = ma_peak2_init(&pConfig->peak, pAllocationCallbacks, &pNode->peak);
     if (result != MA_SUCCESS) {
         ma_node_uninit(pNode, pAllocationCallbacks);
         return result;
@@ -62869,16 +63167,25 @@ MA_API ma_result ma_peak_node_init(ma_node_graph* pNodeGraph, const ma_peak_node
 
 MA_API ma_result ma_peak_node_reinit(const ma_peak_config* pConfig, ma_peak_node* pNode)
 {
-    ma_peak_node* pBPFNode = (ma_peak_node*)pNode;
+    ma_peak_node* pPeakNode = (ma_peak_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    return ma_peak2_reinit(pConfig, &pBPFNode->peak);
+    return ma_peak2_reinit(pConfig, &pPeakNode->peak);
 }
 
 MA_API void ma_peak_node_uninit(ma_peak_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_peak_node* pPeakNode = (ma_peak_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_peak2_uninit(&pPeakNode->peak, pAllocationCallbacks);
 }
 
 
@@ -62934,7 +63241,7 @@ MA_API ma_result ma_loshelf_node_init(ma_node_graph* pNodeGraph, const ma_loshel
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_loshelf2_init(&pConfig->loshelf, &pNode->loshelf);
+    result = ma_loshelf2_init(&pConfig->loshelf, pAllocationCallbacks, &pNode->loshelf);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -62954,16 +63261,25 @@ MA_API ma_result ma_loshelf_node_init(ma_node_graph* pNodeGraph, const ma_loshel
 
 MA_API ma_result ma_loshelf_node_reinit(const ma_loshelf_config* pConfig, ma_loshelf_node* pNode)
 {
-    ma_loshelf_node* pBPFNode = (ma_loshelf_node*)pNode;
+    ma_loshelf_node* pLoshelfNode = (ma_loshelf_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    return ma_loshelf2_reinit(pConfig, &pBPFNode->loshelf);
+    return ma_loshelf2_reinit(pConfig, &pLoshelfNode->loshelf);
 }
 
 MA_API void ma_loshelf_node_uninit(ma_loshelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_loshelf_node* pLoshelfNode = (ma_loshelf_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_loshelf2_uninit(&pLoshelfNode->loshelf, pAllocationCallbacks);
 }
 
 
@@ -63019,7 +63335,7 @@ MA_API ma_result ma_hishelf_node_init(ma_node_graph* pNodeGraph, const ma_hishel
         return MA_INVALID_ARGS; /* The format must be f32. */
     }
 
-    result = ma_hishelf2_init(&pConfig->hishelf, &pNode->hishelf);
+    result = ma_hishelf2_init(&pConfig->hishelf, pAllocationCallbacks, &pNode->hishelf);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -63039,16 +63355,25 @@ MA_API ma_result ma_hishelf_node_init(ma_node_graph* pNodeGraph, const ma_hishel
 
 MA_API ma_result ma_hishelf_node_reinit(const ma_hishelf_config* pConfig, ma_hishelf_node* pNode)
 {
-    ma_hishelf_node* pBPFNode = (ma_hishelf_node*)pNode;
+    ma_hishelf_node* pHishelfNode = (ma_hishelf_node*)pNode;
 
-    MA_ASSERT(pNode != NULL);
+    if (pNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
-    return ma_hishelf2_reinit(pConfig, &pBPFNode->hishelf);
+    return ma_hishelf2_reinit(pConfig, &pHishelfNode->hishelf);
 }
 
 MA_API void ma_hishelf_node_uninit(ma_hishelf_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_hishelf_node* pHishelfNode = (ma_hishelf_node*)pNode;
+
+    if (pNode == NULL) {
+        return;
+    }
+
     ma_node_uninit(pNode, pAllocationCallbacks);
+    ma_hishelf2_uninit(&pHishelfNode->hishelf, pAllocationCallbacks);
 }
 
 
