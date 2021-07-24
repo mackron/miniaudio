@@ -3097,6 +3097,8 @@ typedef struct
     ma_biquad bq;   /* The second order low-pass filter is implemented as a biquad filter. */
 } ma_lpf2;
 
+MA_API ma_result ma_lpf2_get_heap_size(const ma_lpf2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_lpf2_init_preallocated(const ma_lpf2_config* pConfig, void* pHeap, ma_lpf2* pHPF);
 MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF);
 MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
@@ -3169,6 +3171,8 @@ typedef struct
     ma_biquad bq;   /* The second order high-pass filter is implemented as a biquad filter. */
 } ma_hpf2;
 
+MA_API ma_result ma_hpf2_get_heap_size(const ma_hpf2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_hpf2_init_preallocated(const ma_hpf2_config* pConfig, void* pHeap, ma_hpf2* pHPF);
 MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf2* pHPF);
 MA_API void ma_hpf2_uninit(ma_hpf2* pHPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF);
@@ -3226,6 +3230,8 @@ typedef struct
     ma_biquad bq;   /* The second order band-pass filter is implemented as a biquad filter. */
 } ma_bpf2;
 
+MA_API ma_result ma_bpf2_get_heap_size(const ma_bpf2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_bpf2_init_preallocated(const ma_bpf2_config* pConfig, void* pHeap, ma_bpf2* pBPF);
 MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf2* pBPF);
 MA_API void ma_bpf2_uninit(ma_bpf2* pBPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF);
@@ -3280,6 +3286,8 @@ typedef struct
     ma_biquad bq;
 } ma_notch2;
 
+MA_API ma_result ma_notch2_get_heap_size(const ma_notch2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_notch2_init_preallocated(const ma_notch2_config* pConfig, void* pHeap, ma_notch2* pFilter);
 MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch2* pFilter);
 MA_API void ma_notch2_uninit(ma_notch2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter);
@@ -3309,6 +3317,8 @@ typedef struct
     ma_biquad bq;
 } ma_peak2;
 
+MA_API ma_result ma_peak2_get_heap_size(const ma_peak2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_peak2_init_preallocated(const ma_peak2_config* pConfig, void* pHeap, ma_peak2* pFilter);
 MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak2* pFilter);
 MA_API void ma_peak2_uninit(ma_peak2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter);
@@ -3338,6 +3348,8 @@ typedef struct
     ma_biquad bq;
 } ma_loshelf2;
 
+MA_API ma_result ma_loshelf2_get_heap_size(const ma_loshelf2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_loshelf2_init_preallocated(const ma_loshelf2_config* pConfig, void* pHeap, ma_loshelf2* pFilter);
 MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf2* pFilter);
 MA_API void ma_loshelf2_uninit(ma_loshelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter);
@@ -3367,6 +3379,8 @@ typedef struct
     ma_biquad bq;
 } ma_hishelf2;
 
+MA_API ma_result ma_hishelf2_get_heap_size(const ma_hishelf2_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_hishelf2_init_preallocated(const ma_hishelf2_config* pConfig, void* pHeap, ma_hishelf2* pFilter);
 MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf2* pFilter);
 MA_API void ma_hishelf2_uninit(ma_hishelf2* pFilter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hishelf2_reinit(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter);
@@ -40821,7 +40835,15 @@ static MA_INLINE ma_biquad_config ma_lpf2__get_biquad_config(const ma_lpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF)
+MA_API ma_result ma_lpf2_get_heap_size(const ma_lpf2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_lpf2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_lpf2_init_preallocated(const ma_lpf2_config* pConfig, void* pHeap, ma_lpf2* pLPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -40837,11 +40859,41 @@ MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation
     }
 
     bqConfig = ma_lpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pLPF->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pLPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_lpf2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_lpf2_init_preallocated(pConfig, pHeap, pLPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pLPF->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -40851,7 +40903,7 @@ MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAlloca
         return;
     }
 
-    ma_biquad_uninit(&pLPF->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pLPF->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
@@ -41370,7 +41422,15 @@ static MA_INLINE ma_biquad_config ma_hpf2__get_biquad_config(const ma_hpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf2* pHPF)
+MA_API ma_result ma_hpf2_get_heap_size(const ma_hpf2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_hpf2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_hpf2_init_preallocated(const ma_hpf2_config* pConfig, void* pHeap, ma_hpf2* pHPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41386,11 +41446,41 @@ MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation
     }
 
     bqConfig = ma_hpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pHPF->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pHPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_hpf2_init(const ma_hpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf2* pHPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_hpf2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_hpf2_init_preallocated(pConfig, pHeap, pHPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pHPF->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -41400,7 +41490,7 @@ MA_API void ma_hpf2_uninit(ma_hpf2* pHPF, const ma_allocation_callbacks* pAlloca
         return;
     }
 
-    ma_biquad_uninit(&pHPF->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pHPF->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_hpf2_reinit(const ma_hpf2_config* pConfig, ma_hpf2* pHPF)
@@ -41736,7 +41826,15 @@ static MA_INLINE ma_biquad_config ma_bpf2__get_biquad_config(const ma_bpf2_confi
     return bqConfig;
 }
 
-MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf2* pBPF)
+MA_API ma_result ma_bpf2_get_heap_size(const ma_bpf2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_bpf2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_bpf2_init_preallocated(const ma_bpf2_config* pConfig, void* pHeap, ma_bpf2* pBPF)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -41752,11 +41850,41 @@ MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation
     }
 
     bqConfig = ma_bpf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pBPF->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pBPF->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_bpf2_init(const ma_bpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_bpf2* pBPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_bpf2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_bpf2_init_preallocated(pConfig, pHeap, pBPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pBPF->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -41766,7 +41894,7 @@ MA_API void ma_bpf2_uninit(ma_bpf2* pBPF, const ma_allocation_callbacks* pAlloca
         return;
     }
 
-    ma_biquad_uninit(&pBPF->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pBPF->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_bpf2_reinit(const ma_bpf2_config* pConfig, ma_bpf2* pBPF)
@@ -42059,7 +42187,15 @@ static MA_INLINE ma_biquad_config ma_notch2__get_biquad_config(const ma_notch2_c
     return bqConfig;
 }
 
-MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch2* pFilter)
+MA_API ma_result ma_notch2_get_heap_size(const ma_notch2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_notch2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_notch2_init_preallocated(const ma_notch2_config* pConfig, void* pHeap, ma_notch2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42075,11 +42211,41 @@ MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_alloca
     }
 
     bqConfig = ma_notch2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_notch2_init(const ma_notch2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_notch2* pFilter)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_notch2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_notch2_init_preallocated(pConfig, pHeap, pFilter);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pFilter->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -42089,7 +42255,7 @@ MA_API void ma_notch2_uninit(ma_notch2* pFilter, const ma_allocation_callbacks* 
         return;
     }
 
-    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_notch2_reinit(const ma_notch2_config* pConfig, ma_notch2* pFilter)
@@ -42197,7 +42363,15 @@ static MA_INLINE ma_biquad_config ma_peak2__get_biquad_config(const ma_peak2_con
     return bqConfig;
 }
 
-MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak2* pFilter)
+MA_API ma_result ma_peak2_get_heap_size(const ma_peak2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_peak2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_peak2_init_preallocated(const ma_peak2_config* pConfig, void* pHeap, ma_peak2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42213,11 +42387,41 @@ MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocati
     }
 
     bqConfig = ma_peak2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_peak2_init(const ma_peak2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_peak2* pFilter)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_peak2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_peak2_init_preallocated(pConfig, pHeap, pFilter);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pFilter->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -42227,7 +42431,7 @@ MA_API void ma_peak2_uninit(ma_peak2* pFilter, const ma_allocation_callbacks* pA
         return;
     }
 
-    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_peak2_reinit(const ma_peak2_config* pConfig, ma_peak2* pFilter)
@@ -42332,7 +42536,15 @@ static MA_INLINE ma_biquad_config ma_loshelf2__get_biquad_config(const ma_loshel
     return bqConfig;
 }
 
-MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf2* pFilter)
+MA_API ma_result ma_loshelf2_get_heap_size(const ma_loshelf2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_loshelf2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_loshelf2_init_preallocated(const ma_loshelf2_config* pConfig, void* pHeap, ma_loshelf2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42348,11 +42560,41 @@ MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_al
     }
 
     bqConfig = ma_loshelf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_loshelf2_init(const ma_loshelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_loshelf2* pFilter)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_loshelf2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_loshelf2_init_preallocated(pConfig, pHeap, pFilter);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pFilter->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -42362,7 +42604,7 @@ MA_API void ma_loshelf2_uninit(ma_loshelf2* pFilter, const ma_allocation_callbac
         return;
     }
 
-    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_loshelf2_reinit(const ma_loshelf2_config* pConfig, ma_loshelf2* pFilter)
@@ -42467,7 +42709,15 @@ static MA_INLINE ma_biquad_config ma_hishelf2__get_biquad_config(const ma_hishel
     return bqConfig;
 }
 
-MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf2* pFilter)
+MA_API ma_result ma_hishelf2_get_heap_size(const ma_hishelf2_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_biquad_config bqConfig;
+    bqConfig = ma_hishelf2__get_biquad_config(pConfig);
+
+    return ma_biquad_get_heap_size(&bqConfig, pHeapSizeInBytes);
+}
+
+MA_API ma_result ma_hishelf2_init_preallocated(const ma_hishelf2_config* pConfig, void* pHeap, ma_hishelf2* pFilter)
 {
     ma_result result;
     ma_biquad_config bqConfig;
@@ -42483,11 +42733,41 @@ MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_al
     }
 
     bqConfig = ma_hishelf2__get_biquad_config(pConfig);
-    result = ma_biquad_init(&bqConfig, pAllocationCallbacks, &pFilter->bq);
+    result = ma_biquad_init_preallocated(&bqConfig, pHeap, &pFilter->bq);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_hishelf2_init(const ma_hishelf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hishelf2* pFilter)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_hishelf2_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_hishelf2_init_preallocated(pConfig, pHeap, pFilter);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pFilter->bq._ownsHeap = MA_TRUE;    /* <-- This will cause the biquad to take ownership of the heap and free it when it's uninitialized. */
     return MA_SUCCESS;
 }
 
@@ -42497,7 +42777,7 @@ MA_API void ma_hishelf2_uninit(ma_hishelf2* pFilter, const ma_allocation_callbac
         return;
     }
 
-    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);
+    ma_biquad_uninit(&pFilter->bq, pAllocationCallbacks);   /* <-- This will free the heap allocation. */
 }
 
 MA_API ma_result ma_hishelf2_reinit(const ma_hishelf2_config* pConfig, ma_hishelf2* pFilter)
@@ -42691,7 +42971,7 @@ MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma
         return;
     }
 
-    (void)pAllocationCallbacks;
+    ma_lpf_uninit(&pResampler->lpf, pAllocationCallbacks);
 }
 
 static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma_int32 a, const ma_int32 shift)
