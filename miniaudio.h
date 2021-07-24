@@ -61744,7 +61744,6 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
     */
     if (pNodeBase->_pHeap != NULL && pNodeBase->_ownsHeap) {
         ma_free(pNodeBase->_pHeap, pAllocationCallbacks);
-        pNodeBase->_pHeap;
     }
 }
 
