@@ -3450,17 +3450,23 @@ typedef struct
     ma_uint32 inTimeFrac;
     union
     {
-        float    f32[MA_MAX_CHANNELS];
-        ma_int16 s16[MA_MAX_CHANNELS];
+        float* f32;
+        ma_int16* s16;
     } x0; /* The previous input frame. */
     union
     {
-        float    f32[MA_MAX_CHANNELS];
-        ma_int16 s16[MA_MAX_CHANNELS];
+        float* f32;
+        ma_int16* s16;
     } x1; /* The next input frame. */
     ma_lpf lpf;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_linear_resampler;
 
+MA_API ma_result ma_linear_resampler_get_heap_size(const ma_linear_resampler_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_linear_resampler_init_preallocated(const ma_linear_resampler_config* pConfig, void* pHeap, ma_linear_resampler* pResampler);
 MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_linear_resampler* pResampler);
 MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
@@ -41218,7 +41224,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, void* pHe
 
             result = ma_lpf1_get_heap_size(&lpf1Config, &lpf1HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_lpf1_init_preallocated(&lpf1Config, ma_offset_ptr(pHeap, heapLayout.lpf1Offset + (ilpf1 * (sizeof(ma_lpf1) + lpf1HeapSizeInBytes))), &pLPF->pLPF1[ilpf1]);
+                result = ma_lpf1_init_preallocated(&lpf1Config, ma_offset_ptr(pHeap, heapLayout.lpf1Offset + (sizeof(ma_lpf1) * lpf1Count) + (ilpf1 * lpf1HeapSizeInBytes)), &pLPF->pLPF1[ilpf1]);
             }
         } else {
             result = ma_lpf1_reinit(&lpf1Config, &pLPF->pLPF1[ilpf1]);
@@ -41255,7 +41261,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, void* pHe
 
             result = ma_lpf2_get_heap_size(&lpf2Config, &lpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_lpf2_init_preallocated(&lpf2Config, ma_offset_ptr(pHeap, heapLayout.lpf2Offset + (ilpf2 * (sizeof(ma_lpf2) + lpf2HeapSizeInBytes))), &pLPF->pLPF2[ilpf2]);
+                result = ma_lpf2_init_preallocated(&lpf2Config, ma_offset_ptr(pHeap, heapLayout.lpf2Offset + (sizeof(ma_lpf2) * lpf2Count) + (ilpf2 * lpf2HeapSizeInBytes)), &pLPF->pLPF2[ilpf2]);
             }
         } else {
             result = ma_lpf2_reinit(&lpf2Config, &pLPF->pLPF2[ilpf2]);
@@ -42050,7 +42056,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf1_get_heap_size(&hpf1Config, &hpf1HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (ihpf1 * (sizeof(ma_hpf1) + hpf1HeapSizeInBytes))), &pHPF->pHPF1[ihpf1]);
+                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (ihpf1 * (sizeof(ma_hpf1) + hpf1HeapSizeInBytes)) + sizeof(ma_hpf1)), &pHPF->pHPF1[ihpf1]);
             }
         } else {
             result = ma_hpf1_reinit(&hpf1Config, &pHPF->pHPF1[ihpf1]);
@@ -42087,7 +42093,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf2_get_heap_size(&hpf2Config, &hpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (ihpf2 * (sizeof(ma_hpf2) + hpf2HeapSizeInBytes))), &pHPF->pHPF2[ihpf2]);
+                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (ihpf2 * (sizeof(ma_hpf2) + hpf2HeapSizeInBytes)) + sizeof(ma_hpf2)), &pHPF->pHPF2[ihpf2]);
             }
         } else {
             result = ma_hpf2_reinit(&hpf2Config, &pHPF->pHPF2[ihpf2]);
@@ -43365,6 +43371,16 @@ MA_API ma_linear_resampler_config ma_linear_resampler_config_init(ma_format form
     return config;
 }
 
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t x0Offset;
+    size_t x1Offset;
+    size_t lpfOffset;
+} ma_linear_resampler_heap_layout;
+
+
 static void ma_linear_resampler_adjust_timer_for_new_rate(ma_linear_resampler* pResampler, ma_uint32 oldSampleRateOut, ma_uint32 newSampleRateOut)
 {
     /*
@@ -43383,7 +43399,7 @@ static void ma_linear_resampler_adjust_timer_for_new_rate(ma_linear_resampler* p
     pResampler->inTimeFrac = pResampler->inTimeFrac % pResampler->config.sampleRateOut;
 }
 
-static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
+static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pResampler, void* pHeap, ma_linear_resampler_heap_layout* pHeapLayout, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut, ma_bool32 isResamplerAlreadyInitialized)
 {
     ma_result result;
     ma_uint32 gcf;
@@ -43427,7 +43443,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     if (isResamplerAlreadyInitialized) {
         result = ma_lpf_reinit(&lpfConfig, &pResampler->lpf);
     } else {
-        result = ma_lpf_init(&lpfConfig, pAllocationCallbacks, &pResampler->lpf);   
+        result = ma_lpf_init_preallocated(&lpfConfig, ma_offset_ptr(pHeap, pHeapLayout->lpfOffset), &pResampler->lpf);   
     }
 
     if (result != MA_SUCCESS) {
@@ -43444,17 +43460,11 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_linear_resampler* pResampler)
+static ma_result ma_linear_resampler_get_heap_layout(const ma_linear_resampler_config* pConfig, ma_linear_resampler_heap_layout* pHeapLayout)
 {
-    ma_result result;
+    MA_ASSERT(pHeapLayout != NULL);
 
-    (void)pAllocationCallbacks;
-
-    if (pResampler == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pResampler);
+    MA_ZERO_OBJECT(pHeapLayout);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -43464,15 +43474,98 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
         return MA_INVALID_ARGS;
     }
 
-    /* TOOD: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
-    if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
+    if (pConfig->channels == 0) {
         return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* x0 */
+    pHeapLayout->x0Offset = pHeapLayout->sizeInBytes;
+    if (pConfig->format == ma_format_f32) {
+        pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+    } else {
+        pHeapLayout->sizeInBytes += sizeof(ma_int16) * pConfig->channels;
+    }
+    
+    /* x1 */
+    pHeapLayout->x1Offset = pHeapLayout->sizeInBytes;
+    if (pConfig->format == ma_format_f32) {
+        pHeapLayout->sizeInBytes += sizeof(float) * pConfig->channels;
+    } else {
+        pHeapLayout->sizeInBytes += sizeof(ma_int16) * pConfig->channels;
+    }
+
+    /* LPF */
+    pHeapLayout->lpfOffset = pHeapLayout->sizeInBytes;
+    {
+        ma_result result;
+        size_t lpfHeapSizeInBytes;
+        ma_lpf_config lpfConfig = ma_lpf_config_init(pConfig->format, pConfig->channels, 1, 1, pConfig->lpfOrder);  /* Sample rate and cutoff frequency do not matter. */
+
+        result = ma_lpf_get_heap_size(&lpfConfig, &lpfHeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->sizeInBytes += lpfHeapSizeInBytes;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_linear_resampler_get_heap_size(const ma_linear_resampler_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_linear_resampler_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_linear_resampler_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_linear_resampler_init_preallocated(const ma_linear_resampler_config* pConfig, void* pHeap, ma_linear_resampler* pResampler)
+{
+    ma_result result;
+    ma_linear_resampler_heap_layout heapLayout;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pResampler);
+
+    result = ma_linear_resampler_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     pResampler->config = *pConfig;
 
+    pResampler->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    if (pConfig->format == ma_format_f32) {
+        pResampler->x0.f32 = (float*)ma_offset_ptr(pHeap, heapLayout.x0Offset);
+        pResampler->x1.f32 = (float*)ma_offset_ptr(pHeap, heapLayout.x1Offset);
+    } else {
+        pResampler->x0.s16 = (ma_int16*)ma_offset_ptr(pHeap, heapLayout.x0Offset);
+        pResampler->x1.s16 = (ma_int16*)ma_offset_ptr(pHeap, heapLayout.x1Offset);
+    }
+
     /* Setting the rate will set up the filter and time advances for us. */
-    result = ma_linear_resampler_set_rate_internal(pResampler, pAllocationCallbacks, pConfig->sampleRateIn, pConfig->sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_FALSE);
+    result = ma_linear_resampler_set_rate_internal(pResampler, pHeap, &heapLayout, pConfig->sampleRateIn, pConfig->sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_FALSE);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -43483,6 +43576,36 @@ MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pCon
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_linear_resampler_init(const ma_linear_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_linear_resampler* pResampler)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_linear_resampler_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_linear_resampler_init_preallocated(pConfig, pHeap, pResampler);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pResampler->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
 MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pResampler == NULL) {
@@ -43490,6 +43613,10 @@ MA_API void ma_linear_resampler_uninit(ma_linear_resampler* pResampler, const ma
     }
 
     ma_lpf_uninit(&pResampler->lpf, pAllocationCallbacks);
+
+    if (pResampler->_ownsHeap) {
+        ma_free(pResampler->_pHeap, pAllocationCallbacks);
+    }
 }
 
 static MA_INLINE ma_int16 ma_linear_resampler_mix_s16(ma_int16 x, ma_int16 y, ma_int32 a, const ma_int32 shift)
@@ -43885,7 +44012,7 @@ MA_API ma_result ma_linear_resampler_process_pcm_frames(ma_linear_resampler* pRe
 
 MA_API ma_result ma_linear_resampler_set_rate(ma_linear_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
 {
-    return ma_linear_resampler_set_rate_internal(pResampler, NULL, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
+    return ma_linear_resampler_set_rate_internal(pResampler, NULL, NULL, sampleRateIn, sampleRateOut, /* isResamplerAlreadyInitialized = */ MA_TRUE);
 }
 
 MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResampler, float ratioInOut)
