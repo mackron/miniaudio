@@ -3083,9 +3083,15 @@ typedef struct
     ma_format format;
     ma_uint32 channels;
     ma_biquad_coefficient a;
-    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+    ma_biquad_coefficient* pR1;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_lpf1;
 
+MA_API ma_result ma_lpf1_get_heap_size(const ma_lpf1_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_lpf1_init_preallocated(const ma_lpf1_config* pConfig, void* pHeap, ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF);
 MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
@@ -3157,9 +3163,15 @@ typedef struct
     ma_format format;
     ma_uint32 channels;
     ma_biquad_coefficient a;
-    ma_biquad_coefficient r1[MA_MAX_CHANNELS];
+    ma_biquad_coefficient* pR1;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_hpf1;
 
+MA_API ma_result ma_hpf1_get_heap_size(const ma_hpf1_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_hpf1_init_preallocated(const ma_hpf1_config* pConfig, void* pHeap, ma_hpf1* pLPF);
 MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf1* pHPF);
 MA_API void ma_hpf1_uninit(ma_hpf1* pHPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF);
@@ -37780,7 +37792,9 @@ MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_con
         return result;
     }
 
-    pAllocator->_pHeap   = pHeap;
+    pAllocator->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pAllocator->pGroups  = (ma_slot_allocator_group*)ma_offset_ptr(pHeap, heapLayout.groupsOffset);
     pAllocator->pSlots   = (ma_uint32*)ma_offset_ptr(pHeap, heapLayout.slotsOffset);
     pAllocator->capacity = pConfig->capacity;
@@ -40410,6 +40424,8 @@ MA_API ma_result ma_biquad_init_preallocated(const ma_biquad_config* pConfig, vo
     }
 
     pBQ->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pBQ->pR1 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r1Offset);
     pBQ->pR2 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r2Offset);
 
@@ -40653,25 +40669,106 @@ MA_API ma_lpf2_config ma_lpf2_config_init(ma_format format, ma_uint32 channels, 
 }
 
 
-MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF)
+typedef struct
 {
-    if (pLPF == NULL) {
-        return MA_INVALID_ARGS;
-    }
+    size_t sizeInBytes;
+    size_t r1Offset;
+} ma_lpf1_heap_layout;
 
-    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
+static ma_result ma_lpf1_get_heap_layout(const ma_lpf1_config* pConfig, ma_lpf1_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
 
-    MA_ZERO_OBJECT(pLPF);
+    MA_ZERO_OBJECT(pHeapLayout);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
+    if (pConfig->channels == 0) {
         return MA_INVALID_ARGS;
     }
 
+    pHeapLayout->sizeInBytes = 0;
+
+    /* R1 */
+    pHeapLayout->r1Offset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_lpf1_get_heap_size(const ma_lpf1_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_lpf1_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_lpf1_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_lpf1_init_preallocated(const ma_lpf1_config* pConfig, void* pHeap, ma_lpf1* pLPF)
+{
+    ma_result result;
+    ma_lpf1_heap_layout heapLayout;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    result = ma_lpf1_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pLPF->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pLPF->pR1 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r1Offset);
+
     return ma_lpf1_reinit(pConfig, pLPF);
+}
+
+MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_lpf1_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_lpf1_init_preallocated(pConfig, pHeap, pLPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pLPF->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
 }
 
 MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -40680,7 +40777,9 @@ MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAlloca
         return;
     }
 
-    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
+    if (pLPF->_ownsHeap) {
+        ma_free(pLPF->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
@@ -40728,14 +40827,14 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, co
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        float r1 = pLPF->r1[c].f32;
+        float r1 = pLPF->pR1[c].f32;
         float x  = pX[c];
         float y;
 
         y = b*x + a*r1;
 
         pY[c]           = y;
-        pLPF->r1[c].f32 = y;
+        pLPF->pR1[c].f32 = y;
     }
 }
 
@@ -40748,14 +40847,14 @@ static MA_INLINE void ma_lpf1_process_pcm_frame_s16(ma_lpf1* pLPF, ma_int16* pY,
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        ma_int32 r1 = pLPF->r1[c].s32;
+        ma_int32 r1 = pLPF->pR1[c].s32;
         ma_int32 x  = pX[c];
         ma_int32 y;
 
         y = (b*x + a*r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
 
-        pY[c]           = (ma_int16)y;
-        pLPF->r1[c].s32 = (ma_int32)y;
+        pY[c]            = (ma_int16)y;
+        pLPF->pR1[c].s32 = (ma_int32)y;
     }
 }
 
@@ -41240,25 +41339,106 @@ MA_API ma_hpf2_config ma_hpf2_config_init(ma_format format, ma_uint32 channels, 
 }
 
 
-MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf1* pHPF)
+typedef struct
 {
-    if (pHPF == NULL) {
-        return MA_INVALID_ARGS;
-    }
+    size_t sizeInBytes;
+    size_t r1Offset;
+} ma_hpf1_heap_layout;
 
-    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
+static ma_result ma_hpf1_get_heap_layout(const ma_hpf1_config* pConfig, ma_hpf1_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
 
-    MA_ZERO_OBJECT(pHPF);
+    MA_ZERO_OBJECT(pHeapLayout);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
+    if (pConfig->channels == 0) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_hpf1_reinit(pConfig, pHPF);
+    pHeapLayout->sizeInBytes = 0;
+
+    /* R1 */
+    pHeapLayout->r1Offset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_hpf1_get_heap_size(const ma_hpf1_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_hpf1_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_hpf1_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_hpf1_init_preallocated(const ma_hpf1_config* pConfig, void* pHeap, ma_hpf1* pLPF)
+{
+    ma_result result;
+    ma_hpf1_heap_layout heapLayout;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pLPF);
+
+    result = ma_hpf1_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pLPF->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pLPF->pR1 = (ma_biquad_coefficient*)ma_offset_ptr(pHeap, heapLayout.r1Offset);
+
+    return ma_hpf1_reinit(pConfig, pLPF);
+}
+
+MA_API ma_result ma_hpf1_init(const ma_hpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_hpf1* pLPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_hpf1_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_hpf1_init_preallocated(pConfig, pHeap, pLPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pLPF->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
 }
 
 MA_API void ma_hpf1_uninit(ma_hpf1* pHPF, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -41267,7 +41447,9 @@ MA_API void ma_hpf1_uninit(ma_hpf1* pHPF, const ma_allocation_callbacks* pAlloca
         return;
     }
 
-    (void)pAllocationCallbacks; /* TODO: Add support for preallocation and remove dependency on MA_MAX_CHANNELS. */
+    if (pHPF->_ownsHeap) {
+        ma_free(pHPF->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_hpf1_reinit(const ma_hpf1_config* pConfig, ma_hpf1* pHPF)
@@ -41315,14 +41497,14 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_f32(ma_hpf1* pHPF, float* pY, co
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        float r1 = pHPF->r1[c].f32;
+        float r1 = pHPF->pR1[c].f32;
         float x  = pX[c];
         float y;
 
         y = b*x - a*r1;
 
-        pY[c]           = y;
-        pHPF->r1[c].f32 = y;
+        pY[c]            = y;
+        pHPF->pR1[c].f32 = y;
     }
 }
 
@@ -41335,14 +41517,14 @@ static MA_INLINE void ma_hpf1_process_pcm_frame_s16(ma_hpf1* pHPF, ma_int16* pY,
 
     MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
     for (c = 0; c < channels; c += 1) {
-        ma_int32 r1 = pHPF->r1[c].s32;
+        ma_int32 r1 = pHPF->pR1[c].s32;
         ma_int32 x  = pX[c];
         ma_int32 y;
 
         y = (b*x - a*r1) >> MA_BIQUAD_FIXED_POINT_SHIFT;
 
-        pY[c]           = (ma_int16)y;
-        pHPF->r1[c].s32 = (ma_int32)y;
+        pY[c]            = (ma_int16)y;
+        pHPF->pR1[c].s32 = (ma_int32)y;
     }
 }
 
@@ -56684,7 +56866,9 @@ MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resour
         return result;
     }
 
-    pQueue->_pHeap   = pHeap;
+    pQueue->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pQueue->flags    = pConfig->flags;
     pQueue->capacity = pConfig->capacity;
     pQueue->pJobs    = (ma_resource_manager_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
@@ -61900,7 +62084,9 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
         return result;
     }
 
-    pNodeBase->_pHeap         = pHeap;
+    pNodeBase->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pNodeBase->pNodeGraph     = pNodeGraph;
     pNodeBase->vtable         = pConfig->vtable;
     pNodeBase->state          = pConfig->initialState;
@@ -62022,7 +62208,7 @@ MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAlloc
     At this point the node should be completely unreferenced by the node graph and we can finish up
     the uninitialization process without needing to worry about thread-safety.
     */
-    if (pNodeBase->_pHeap != NULL && pNodeBase->_ownsHeap) {
+    if (pNodeBase->_ownsHeap) {
         ma_free(pNodeBase->_pHeap, pAllocationCallbacks);
     }
 }
@@ -64036,7 +64222,9 @@ MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, vo
         return result;
     }
 
-    pGainer->_pHeap    = pHeap;
+    pGainer->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pGainer->pOldGains = (float*)ma_offset_ptr(pHeap, heapLayout.oldGainsOffset);
     pGainer->pNewGains = (float*)ma_offset_ptr(pHeap, heapLayout.newGainsOffset);
 
@@ -64866,7 +65054,9 @@ MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_
         return result;
     }
 
-    pListener->_pHeap    = pHeap;
+    pListener->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pListener->config    = *pConfig;
     pListener->position  = ma_vec3f_init_3f(0, 0,  0);
     pListener->direction = ma_vec3f_init_3f(0, 0, -1);
@@ -64927,7 +65117,7 @@ MA_API void ma_spatializer_listener_uninit(ma_spatializer_listener* pListener, c
         return;
     }
 
-    if (pListener->_pHeap != NULL && pListener->_ownsHeap) {
+    if (pListener->_ownsHeap) {
         ma_free(pListener->_pHeap, pAllocationCallbacks);
     }
 }
@@ -65207,7 +65397,9 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
         return result;
     }
 
-    pSpatializer->_pHeap       = pHeap;
+    pSpatializer->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pSpatializer->config       = *pConfig;
     pSpatializer->position     = ma_vec3f_init_3f(0, 0,  0);
     pSpatializer->direction    = ma_vec3f_init_3f(0, 0, -1);
@@ -65278,7 +65470,7 @@ MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocat
 
     ma_gainer_uninit(&pSpatializer->gainer, pAllocationCallbacks);
 
-    if (pSpatializer->_pHeap != NULL && pSpatializer->_ownsHeap) {
+    if (pSpatializer->_ownsHeap) {
         ma_free(pSpatializer->_pHeap, pAllocationCallbacks);
     }
 }
@@ -66448,7 +66640,9 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
         return MA_INVALID_ARGS; /* Invalid listener. */
     }
 
-    pEngineNode->_pHeap                   = pHeap;
+    pEngineNode->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
     pEngineNode->pEngine                  = pConfig->pEngine;
     pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
     pEngineNode->pitch                    = 1;
@@ -66576,7 +66770,7 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_linear_resampler_uninit(&pEngineNode->resampler, NULL);
 
     /* Free the heap last. */
-    if (pEngineNode->_pHeap != NULL && pEngineNode->_ownsHeap) {
+    if (pEngineNode->_ownsHeap) {
         ma_free(pEngineNode->_pHeap, pAllocationCallbacks);
     }
 }
