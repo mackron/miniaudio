@@ -3130,10 +3130,16 @@ typedef struct
     ma_uint32 sampleRate;
     ma_uint32 lpf1Count;
     ma_uint32 lpf2Count;
-    ma_lpf1 lpf1[1];
-    ma_lpf2 lpf2[MA_MAX_FILTER_ORDER/2];
+    ma_lpf1* pLPF1;
+    ma_lpf2* pLPF2;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_lpf;
 
+MA_API ma_result ma_lpf_get_heap_size(const ma_lpf_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_lpf_init_preallocated(const ma_lpf_config* pConfig, void* pHeap, ma_lpf* pLPF);
 MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF);
 MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
@@ -41066,13 +41072,90 @@ MA_API ma_lpf_config ma_lpf_config_init(ma_format format, ma_uint32 channels, ma
     return config;
 }
 
-static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF, ma_bool32 isNew)
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t lpf1Offset;
+    size_t lpf2Offset;  /* Offset of the first second order filter. Subsequent filters will come straight after, and will each have the same heap size. */
+} ma_lpf_heap_layout;
+
+static void ma_lpf_calculate_sub_lpf_counts(ma_uint32 order, ma_uint32* pLPF1Count, ma_uint32* pLPF2Count)
+{
+    MA_ASSERT(pLPF1Count != NULL);
+    MA_ASSERT(pLPF2Count != NULL);
+
+    *pLPF1Count = order % 2;
+    *pLPF2Count = order / 2;
+}
+
+static ma_result ma_lpf_get_heap_layout(const ma_lpf_config* pConfig, ma_lpf_heap_layout* pHeapLayout)
 {
     ma_result result;
     ma_uint32 lpf1Count;
     ma_uint32 lpf2Count;
     ma_uint32 ilpf1;
     ma_uint32 ilpf2;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->order > MA_MAX_FILTER_ORDER) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_lpf_calculate_sub_lpf_counts(pConfig->order, &lpf1Count, &lpf2Count);
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* LPF 1 */
+    pHeapLayout->lpf1Offset = pHeapLayout->sizeInBytes;
+    for (ilpf1 = 0; ilpf1 < lpf1Count; ilpf1 += 1) {
+        size_t lpf1HeapSizeInBytes;
+        ma_lpf1_config lpf1Config = ma_lpf1_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
+        
+        result = ma_lpf1_get_heap_size(&lpf1Config, &lpf1HeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->sizeInBytes += sizeof(ma_lpf1) + lpf1HeapSizeInBytes;
+    }
+
+    /* LPF 2*/
+    pHeapLayout->lpf2Offset = pHeapLayout->sizeInBytes;
+    for (ilpf2 = 0; ilpf2 < lpf2Count; ilpf2 += 1) {
+        size_t lpf2HeapSizeInBytes;
+        ma_lpf2_config lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, 0.707107);   /* <-- The "q" parameter does not matter for the purpose of calculating the heap size. */
+
+        result = ma_lpf2_get_heap_size(&lpf2Config, &lpf2HeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->sizeInBytes += sizeof(ma_lpf2) + lpf2HeapSizeInBytes;
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, void* pHeap, ma_lpf* pLPF, ma_bool32 isNew)
+{
+    ma_result result;
+    ma_uint32 lpf1Count;
+    ma_uint32 lpf2Count;
+    ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
+    ma_lpf_heap_layout heapLayout;  /* Only used if isNew is true. */
 
     if (pLPF == NULL || pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -41097,11 +41180,7 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_
         return MA_INVALID_ARGS;
     }
 
-    lpf1Count = pConfig->order % 2;
-    lpf2Count = pConfig->order / 2;
-
-    MA_ASSERT(lpf1Count <= ma_countof(pLPF->lpf1));
-    MA_ASSERT(lpf2Count <= ma_countof(pLPF->lpf2));
+    ma_lpf_calculate_sub_lpf_counts(pConfig->order, &lpf1Count, &lpf2Count);
 
     /* The filter order can't change between reinits. */
     if (!isNew) {
@@ -41110,16 +41189,42 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_
         }
     }
 
+    if (isNew) {
+        result = ma_lpf_get_heap_layout(pConfig, &heapLayout);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pLPF->_pHeap = pHeap;
+        MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+        pLPF->pLPF1 = (ma_lpf1*)ma_offset_ptr(pHeap, heapLayout.lpf1Offset);
+        pLPF->pLPF2 = (ma_lpf2*)ma_offset_ptr(pHeap, heapLayout.lpf2Offset);
+    } else {
+        MA_ZERO_OBJECT(&heapLayout);    /* To silence a compiler warning. */
+    }
+
     for (ilpf1 = 0; ilpf1 < lpf1Count; ilpf1 += 1) {
         ma_lpf1_config lpf1Config = ma_lpf1_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency);
 
         if (isNew) {
-            result = ma_lpf1_init(&lpf1Config, pAllocationCallbacks, &pLPF->lpf1[ilpf1]);
+            size_t lpf1HeapSizeInBytes;
+
+            result = ma_lpf1_get_heap_size(&lpf1Config, &lpf1HeapSizeInBytes);
+            if (result == MA_SUCCESS) {
+                result = ma_lpf1_init_preallocated(&lpf1Config, ma_offset_ptr(pHeap, heapLayout.lpf1Offset + (ilpf1 * (sizeof(ma_lpf1) + lpf1HeapSizeInBytes))), &pLPF->pLPF1[ilpf1]);
+            }
         } else {
-            result = ma_lpf1_reinit(&lpf1Config, &pLPF->lpf1[ilpf1]);
+            result = ma_lpf1_reinit(&lpf1Config, &pLPF->pLPF1[ilpf1]);
         }
 
         if (result != MA_SUCCESS) {
+            ma_uint32 jlpf1;
+
+            for (jlpf1 = 0; jlpf1 < ilpf1; jlpf1 += 1) {
+                ma_lpf1_uninit(&pLPF->pLPF1[jlpf1], NULL);  /* No need for allocation callbacks here since we used a preallocated heap allocation. */
+            }
+
             return result;
         }
     }
@@ -41140,12 +41245,28 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_
         lpf2Config = ma_lpf2_config_init(pConfig->format, pConfig->channels, pConfig->sampleRate, pConfig->cutoffFrequency, q);
 
         if (isNew) {
-            result = ma_lpf2_init(&lpf2Config, pAllocationCallbacks, &pLPF->lpf2[ilpf2]);
+            size_t lpf2HeapSizeInBytes;
+
+            result = ma_lpf2_get_heap_size(&lpf2Config, &lpf2HeapSizeInBytes);
+            if (result == MA_SUCCESS) {
+                result = ma_lpf2_init_preallocated(&lpf2Config, ma_offset_ptr(pHeap, heapLayout.lpf2Offset + (ilpf2 * (sizeof(ma_lpf2) + lpf2HeapSizeInBytes))), &pLPF->pLPF2[ilpf2]);
+            }
         } else {
-            result = ma_lpf2_reinit(&lpf2Config, &pLPF->lpf2[ilpf2]);
+            result = ma_lpf2_reinit(&lpf2Config, &pLPF->pLPF2[ilpf2]);
         }
 
         if (result != MA_SUCCESS) {
+            ma_uint32 jlpf1;
+            ma_uint32 jlpf2;
+
+            for (jlpf1 = 0; jlpf1 < lpf1Count; jlpf1 += 1) {
+                ma_lpf1_uninit(&pLPF->pLPF1[jlpf1], NULL);  /* No need for allocation callbacks here since we used a preallocated heap allocation. */
+            }
+
+            for (jlpf2 = 0; jlpf2 < ilpf2; jlpf2 += 1) {
+                ma_lpf2_uninit(&pLPF->pLPF2[jlpf2], NULL);  /* No need for allocation callbacks here since we used a preallocated heap allocation. */
+            }
+
             return result;
         }
     }
@@ -41159,7 +41280,28 @@ static ma_result ma_lpf_reinit__internal(const ma_lpf_config* pConfig, const ma_
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF)
+MA_API ma_result ma_lpf_get_heap_size(const ma_lpf_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_lpf_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_lpf_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return result;
+}
+
+MA_API ma_result ma_lpf_init_preallocated(const ma_lpf_config* pConfig, void* pHeap, ma_lpf* pLPF)
 {
     if (pLPF == NULL) {
         return MA_INVALID_ARGS;
@@ -41167,11 +41309,37 @@ MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_c
 
     MA_ZERO_OBJECT(pLPF);
 
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
+    return ma_lpf_reinit__internal(pConfig, pHeap, pLPF, /*isNew*/MA_TRUE);
+}
+
+MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_lpf_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    return ma_lpf_reinit__internal(pConfig, pAllocationCallbacks, pLPF, /*isNew*/MA_TRUE);
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap != NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_lpf_init_preallocated(pConfig, pHeap, pLPF);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pLPF->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
 }
 
 MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks)
@@ -41184,11 +41352,11 @@ MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocati
     }
 
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-        ma_lpf1_uninit(&pLPF->lpf1[ilpf1], pAllocationCallbacks);
+        ma_lpf1_uninit(&pLPF->pLPF1[ilpf1], pAllocationCallbacks);
     }
 
     for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-        ma_lpf2_uninit(&pLPF->lpf2[ilpf2], pAllocationCallbacks);
+        ma_lpf2_uninit(&pLPF->pLPF2[ilpf2], pAllocationCallbacks);
     }
 }
 
@@ -41207,11 +41375,11 @@ static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, cons
     MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-        ma_lpf1_process_pcm_frame_f32(&pLPF->lpf1[ilpf1], pY, pY);
+        ma_lpf1_process_pcm_frame_f32(&pLPF->pLPF1[ilpf1], pY, pY);
     }
 
     for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-        ma_lpf2_process_pcm_frame_f32(&pLPF->lpf2[ilpf2], pY, pY);
+        ma_lpf2_process_pcm_frame_f32(&pLPF->pLPF2[ilpf2], pY, pY);
     }
 }
 
@@ -41225,11 +41393,11 @@ static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, c
     MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-        ma_lpf1_process_pcm_frame_s16(&pLPF->lpf1[ilpf1], pY, pY);
+        ma_lpf1_process_pcm_frame_s16(&pLPF->pLPF1[ilpf1], pY, pY);
     }
 
     for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-        ma_lpf2_process_pcm_frame_s16(&pLPF->lpf2[ilpf2], pY, pY);
+        ma_lpf2_process_pcm_frame_s16(&pLPF->pLPF2[ilpf2], pY, pY);
     }
 }
 
@@ -41246,14 +41414,14 @@ MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const
     /* Faster path for in-place. */
     if (pFramesOut == pFramesIn) {
         for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
-            result = ma_lpf1_process_pcm_frames(&pLPF->lpf1[ilpf1], pFramesOut, pFramesOut, frameCount);
+            result = ma_lpf1_process_pcm_frames(&pLPF->pLPF1[ilpf1], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
         }
 
         for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
-            result = ma_lpf2_process_pcm_frames(&pLPF->lpf2[ilpf2], pFramesOut, pFramesOut, frameCount);
+            result = ma_lpf2_process_pcm_frames(&pLPF->pLPF2[ilpf2], pFramesOut, pFramesOut, frameCount);
             if (result != MA_SUCCESS) {
                 return result;
             }
