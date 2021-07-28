@@ -37900,6 +37900,9 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 
                     /* The slot index is required for constructing the output value. */
                     slotIndex = (iGroup << 5) + bitOffset;  /* iGroup << 5 = iGroup * 32 */
+                    if (slotIndex >= pAllocator->capacity) {
+                        return MA_OUT_OF_MEMORY;
+                    }
 
                     /* Increment the reference count before constructing the output value. */
                     pAllocator->pSlots[slotIndex] += 1;  
