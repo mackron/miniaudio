@@ -57457,7 +57457,7 @@ MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queu
 
     /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
     for (;;) {
-        tail = pQueue->tail;
+        tail = c89atomic_load_64(&pQueue->tail);
         next = pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next;
 
         if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(pQueue->tail)) {
@@ -57514,8 +57514,8 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
 
     /* Now we need to remove the root item from the list. This must be done without locking. */
     for (;;) {
-        head = pQueue->head;
-        tail = pQueue->tail;
+        head = c89atomic_load_64(&pQueue->head);
+        tail = c89atomic_load_64(&pQueue->tail);
         next = pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next;
 
         if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(pQueue->head)) {
