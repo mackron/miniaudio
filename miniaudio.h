@@ -37908,7 +37908,7 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
                     pAllocator->pSlots[slotIndex] += 1;  
 
                     /* Construct the output value. */
-                    *pSlot = ((ma_uint64)pAllocator->pSlots[slotIndex] << 32 | slotIndex);
+                    *pSlot = (((ma_uint64)pAllocator->pSlots[slotIndex] << 32) | slotIndex);
 
                     return MA_SUCCESS;
                 }
@@ -57519,7 +57519,7 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
         next = pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next;
 
         if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(pQueue->head)) {
-            if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(tail)) {
+            if (ma_resource_manager_job_extract_slot(head) == ma_resource_manager_job_extract_slot(tail)) {
                 if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
                     return MA_NO_DATA_AVAILABLE;
                 }
