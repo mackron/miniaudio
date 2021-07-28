@@ -58945,6 +58945,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
 
     if (result == MA_ALREADY_EXISTS) {
         nodeAlreadyExists = MA_TRUE;
+        result = MA_SUCCESS;
     } else {
         if (result != MA_SUCCESS) {
             return result;
