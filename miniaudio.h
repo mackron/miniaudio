@@ -58768,6 +58768,132 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
     return result;
 }
 
+static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_data_supply* pExistingData, ma_fence* pInitFence, ma_fence* pDoneFence, ma_resource_manager_inline_notification* pInitNotification, ma_resource_manager_data_buffer_node** ppDataBufferNode)
+{
+    ma_result result;
+    ma_resource_manager_data_buffer_node* pDataBufferNode = NULL;
+    ma_resource_manager_data_buffer_node* pInsertPoint;
+
+    result = ma_resource_manager_data_buffer_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
+    if (result == MA_ALREADY_EXISTS) {
+        /* The node already exists. We just need to increment the reference count. */
+        pDataBufferNode = pInsertPoint;
+
+        result = ma_resource_manager_data_buffer_node_increment_ref(pResourceManager, pDataBufferNode, NULL);
+        if (result != MA_SUCCESS) {
+            return result;  /* Should never happen. Failed to increment the reference count. */
+        }
+
+        return MA_ALREADY_EXISTS;    /* This is used later on, outside of the critical section, to determine whether or not a synchronous load should happen now. */
+    } else {
+        /*
+        The node does not already exist. We need to post a LOAD_DATA_BUFFER_NODE job here. This
+        needs to be done inside the critical section to ensure an uninitialization of the node
+        does not occur before initialization on another thread.
+        */
+        pDataBufferNode = (ma_resource_manager_data_buffer_node*)ma_malloc(sizeof(*pDataBufferNode), &pResourceManager->config.allocationCallbacks);
+        if (pDataBufferNode == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+
+        MA_ZERO_OBJECT(pDataBufferNode);
+        pDataBufferNode->hashedName32 = hashedName32;
+        pDataBufferNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
+
+        if (pExistingData == NULL) {
+            pDataBufferNode->data.type    = ma_resource_manager_data_supply_type_unknown;    /* <-- We won't know this until we start decoding. */
+            pDataBufferNode->result       = MA_BUSY;  /* Must be set to MA_BUSY before we leave the critical section, so might as well do it now. */
+            pDataBufferNode->isDataOwnedByResourceManager = MA_TRUE;
+        } else {
+            pDataBufferNode->data         = *pExistingData;
+            pDataBufferNode->result       = MA_SUCCESS;   /* Not loading asynchronously, so just set the status */
+            pDataBufferNode->isDataOwnedByResourceManager = MA_FALSE;
+        }
+
+        result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBufferNode, pInsertPoint);
+        if (result != MA_SUCCESS) {
+            ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
+            return result;  /* Should never happen. Failed to insert the data buffer into the BST. */
+        }
+
+        /*
+        Here is where we'll post the job, but only if we're loading asynchronously. If we're
+        loading synchronously we'll defer loading to a later stage, outside of the critical
+        section.
+        */
+        if (pDataBufferNode->isDataOwnedByResourceManager && (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0) {
+            /* Loading asynchronously. Post the job. */
+            ma_resource_manager_job job;
+            char* pFilePathCopy = NULL;
+            wchar_t* pFilePathWCopy = NULL;
+
+            /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
+            if (pFilePath != NULL) {
+                pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks);
+            } else {
+                pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks);
+            }
+
+            if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
+                ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
+                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                ma_resource_manager_inline_notification_init(pResourceManager, pInitNotification);
+            }
+
+            /* Acquire init and done fences before posting the job. These will be unacquired by the job thread. */
+            if (pInitFence != NULL) { ma_fence_acquire(pInitFence); }
+            if (pDoneFence != NULL) { ma_fence_acquire(pDoneFence); }
+
+            /* We now have everything we need to post the job to the job thread. */
+            job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
+            job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+            job.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
+            job.loadDataBufferNode.pFilePath         = pFilePathCopy;
+            job.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
+            job.loadDataBufferNode.decode            =  (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE   ) != 0;
+            job.loadDataBufferNode.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? pInitNotification : NULL;
+            job.loadDataBufferNode.pDoneNotification = NULL;
+            job.loadDataBufferNode.pInitFence        = pInitFence;
+            job.loadDataBufferNode.pDoneFence        = pDoneFence;
+
+            result = ma_resource_manager_post_job(pResourceManager, &job);
+            if (result != MA_SUCCESS) {
+                /* Failed to post job. Probably ran out of memory. */
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
+
+                /*
+                Fences were acquired before posting the job, but since the job was not able to
+                be posted, we need to make sure we release them so nothing gets stuck waiting.
+                */
+                if (pInitFence != NULL) { ma_fence_release(pInitFence); }
+                if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
+
+                if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                    ma_resource_manager_inline_notification_init(pResourceManager, pInitNotification);
+                }
+
+                ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
+                ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
+                
+                ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
+                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
+
+                return result;
+            }
+        }
+    }
+
+    if (ppDataBufferNode != NULL) {
+        *ppDataBufferNode = pDataBufferNode;
+    }
+
+    return MA_SUCCESS;
+}
+
 static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_data_supply* pExistingData, ma_fence* pInitFence, ma_fence* pDoneFence, ma_resource_manager_data_buffer_node** ppDataBufferNode)
 {
     ma_result result = MA_SUCCESS;
@@ -58810,118 +58936,16 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
     */
     ma_resource_manager_data_buffer_bst_lock(pResourceManager);
     {
-        ma_resource_manager_data_buffer_node* pInsertPoint;
-
-        result = ma_resource_manager_data_buffer_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
-        if (result == MA_ALREADY_EXISTS) {
-            /* The node already exists. We just need to increment the reference count. */
-            pDataBufferNode = pInsertPoint;
-
-            result = ma_resource_manager_data_buffer_node_increment_ref(pResourceManager, pDataBufferNode, NULL);
-            if (result != MA_SUCCESS) {
-                goto early_exit;  /* Should never happen. Failed to increment the reference count. */
-            }
-
-            nodeAlreadyExists = MA_TRUE;    /* This is used later on, outside of this critical section, to determine whether or not a synchronous load should happen now. */
-        } else {
-            /*
-            The node does not already exist. We need to post a LOAD_DATA_BUFFER_NODE job here. This
-            needs to be done inside the critical section to ensure an uninitialization of the node
-            does not occur before initialization on another thread.
-            */
-            pDataBufferNode = (ma_resource_manager_data_buffer_node*)ma_malloc(sizeof(*pDataBufferNode), &pResourceManager->config.allocationCallbacks);
-            if (pDataBufferNode == NULL) {
-                result = MA_OUT_OF_MEMORY;
-                goto early_exit;
-            }
-
-            MA_ZERO_OBJECT(pDataBufferNode);
-            pDataBufferNode->hashedName32 = hashedName32;
-            pDataBufferNode->refCount     = 1;        /* Always set to 1 by default (this is our first reference). */
-
-            if (pExistingData == NULL) {
-                pDataBufferNode->data.type    = ma_resource_manager_data_supply_type_unknown;    /* <-- We won't know this until we start decoding. */
-                pDataBufferNode->result       = MA_BUSY;  /* Must be set to MA_BUSY before we leave the critical section, so might as well do it now. */
-                pDataBufferNode->isDataOwnedByResourceManager = MA_TRUE;
-            } else {
-                pDataBufferNode->data         = *pExistingData;
-                pDataBufferNode->result       = MA_SUCCESS;   /* Not loading asynchronously, so just set the status */
-                pDataBufferNode->isDataOwnedByResourceManager = MA_FALSE;
-            }
-
-            result = ma_resource_manager_data_buffer_node_insert_at(pResourceManager, pDataBufferNode, pInsertPoint);
-            if (result != MA_SUCCESS) {
-                ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
-                goto early_exit;  /* Should never happen. Failed to insert the data buffer into the BST. */
-            }
-
-            /*
-            Here is where we'll post the job, but only if we're loading asynchronously. If we're
-            loading synchronously we'll defer loading to a later stage, outside of the critical
-            section.
-            */
-            if (pDataBufferNode->isDataOwnedByResourceManager && (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0) {
-                /* Loading asynchronously. Post the job. */
-                ma_resource_manager_job job;
-                char* pFilePathCopy = NULL;
-                wchar_t* pFilePathWCopy = NULL;
-
-                /* We need a copy of the file path. We should probably make this more efficient, but for now we'll do a transient memory allocation. */
-                if (pFilePath != NULL) {
-                    pFilePathCopy = ma_copy_string(pFilePath, &pResourceManager->config.allocationCallbacks);
-                } else {
-                    pFilePathWCopy = ma_copy_string_w(pFilePathW, &pResourceManager->config.allocationCallbacks);
-                }
-
-                if (pFilePathCopy == NULL && pFilePathWCopy == NULL) {
-                    result = MA_OUT_OF_MEMORY;
-                    goto done;
-                }
-
-                if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                    ma_resource_manager_inline_notification_init(pResourceManager, &initNotification);
-                }
-
-                /* Acquire init and done fences before posting the job. These will be unacquired by the job thread. */
-                if (pInitFence != NULL) { ma_fence_acquire(pInitFence); }
-                if (pDoneFence != NULL) { ma_fence_acquire(pDoneFence); }
-
-                /* We now have everything we need to post the job to the job thread. */
-                job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
-                job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
-                job.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
-                job.loadDataBufferNode.pFilePath         = pFilePathCopy;
-                job.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
-                job.loadDataBufferNode.decode            =  (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE   ) != 0;
-                job.loadDataBufferNode.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? &initNotification : NULL;
-                job.loadDataBufferNode.pDoneNotification = NULL;
-                job.loadDataBufferNode.pInitFence        = pInitFence;
-                job.loadDataBufferNode.pDoneFence        = pDoneFence;
-
-                result = ma_resource_manager_post_job(pResourceManager, &job);
-                if (result != MA_SUCCESS) {
-                    /* Failed to post job. Probably ran out of memory. */
-                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
-
-                    /*
-                    Fences were acquired before posting the job, but since the job was not able to
-                    be posted, we need to make sure we release them so nothing gets stuck waiting.
-                    */
-                    if (pInitFence != NULL) { ma_fence_release(pInitFence); }
-                    if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
-
-                    ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
-                    ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
-                    goto done;
-                }
-            }
-        }
+        result = ma_resource_manager_data_buffer_node_acquire_critical_section(pResourceManager, pFilePath, pFilePathW, hashedName32, flags, pExistingData, pInitFence, pDoneFence, &initNotification, &pDataBufferNode);
     }
     ma_resource_manager_data_buffer_bst_unlock(pResourceManager);
 
-early_exit:
-    if (result != MA_SUCCESS) {
-        return result;
+    if (result == MA_ALREADY_EXISTS) {
+        nodeAlreadyExists = MA_TRUE;
+    } else {
+        if (result != MA_SUCCESS) {
+            return result;
+        }
     }
 
     /*
