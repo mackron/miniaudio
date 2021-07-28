@@ -58773,9 +58773,13 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
 
 static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_data_supply* pExistingData, ma_fence* pInitFence, ma_fence* pDoneFence, ma_resource_manager_inline_notification* pInitNotification, ma_resource_manager_data_buffer_node** ppDataBufferNode)
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     ma_resource_manager_data_buffer_node* pDataBufferNode = NULL;
     ma_resource_manager_data_buffer_node* pInsertPoint;
+
+    if (ppDataBufferNode != NULL) {
+        *ppDataBufferNode = NULL;
+    }
 
     result = ma_resource_manager_data_buffer_node_insert_point(pResourceManager, hashedName32, &pInsertPoint);
     if (result == MA_ALREADY_EXISTS) {
@@ -58787,7 +58791,8 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             return result;  /* Should never happen. Failed to increment the reference count. */
         }
 
-        return MA_ALREADY_EXISTS;    /* This is used later on, outside of the critical section, to determine whether or not a synchronous load should happen now. */
+        result = MA_ALREADY_EXISTS;
+        goto done;
     } else {
         /*
         The node does not already exist. We need to post a LOAD_DATA_BUFFER_NODE job here. This
@@ -58890,11 +58895,12 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
         }
     }
 
+done:
     if (ppDataBufferNode != NULL) {
         *ppDataBufferNode = pDataBufferNode;
     }
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, const ma_resource_manager_data_supply* pExistingData, ma_fence* pInitFence, ma_fence* pDoneFence, ma_resource_manager_data_buffer_node** ppDataBufferNode)
