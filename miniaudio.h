@@ -57460,7 +57460,7 @@ MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queu
         tail = c89atomic_load_64(&pQueue->tail);
         next = pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next;
 
-        if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(pQueue->tail)) {
+        if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
             if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
                 if (c89atomic_compare_and_swap_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot) == next) {
                     break;
@@ -57518,7 +57518,7 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
         tail = c89atomic_load_64(&pQueue->tail);
         next = pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next;
 
-        if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(pQueue->head)) {
+        if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
             if (ma_resource_manager_job_extract_slot(head) == ma_resource_manager_job_extract_slot(tail)) {
                 if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
                     return MA_NO_DATA_AVAILABLE;
