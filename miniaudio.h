@@ -26556,6 +26556,8 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
             /* At this point there should be no tracked devices. If not there's an error somewhere. */
             if (g_ppTrackedDevices_CoreAudio != NULL) {
                 ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_WARNING, "You have uninitialized all contexts while an associated device is still active.", MA_INVALID_OPERATION);
+                ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
+                return MA_INVALID_OPERATION;
             }
 
             ma_mutex_uninit(&g_DeviceTrackingMutex_CoreAudio);
