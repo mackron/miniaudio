@@ -26525,8 +26525,8 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
             propAddress.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
             ((ma_AudioObjectAddPropertyListener_proc)pContext->coreaudio.AudioObjectAddPropertyListener)(kAudioObjectSystemObject, &propAddress, &ma_default_device_changed__coreaudio, NULL);
 
-            g_DeviceTrackingInitCounter_CoreAudio += 1;
         }
+        g_DeviceTrackingInitCounter_CoreAudio += 1;
     }
     ma_spinlock_unlock(&g_DeviceTrackingInitLock_CoreAudio);
 
