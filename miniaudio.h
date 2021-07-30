@@ -26539,7 +26539,8 @@ static ma_result ma_context__uninit_device_tracking__coreaudio(ma_context* pCont
 
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
-        g_DeviceTrackingInitCounter_CoreAudio -= 1;
+        if (g_DeviceTrackingInitCounter_CoreAudio > 0)
+            g_DeviceTrackingInitCounter_CoreAudio -= 1;
 
         if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
             AudioObjectPropertyAddress propAddress;
