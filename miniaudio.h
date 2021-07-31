@@ -44414,6 +44414,10 @@ MA_API void ma_resampler_uninit(ma_resampler* pResampler, const ma_allocation_ca
     }
 
     pResampler->pBackendVTable->onUninit(pResampler->pBackendUserData, pResampler->pBackend, pAllocationCallbacks);
+
+    if (pResampler->_ownsHeap) {
+        ma_free(pResampler->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut)
