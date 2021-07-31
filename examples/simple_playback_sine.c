@@ -40,7 +40,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     pSineWave = (ma_waveform*)pDevice->pUserData;
     MA_ASSERT(pSineWave != NULL);
 
-    ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount);
+    ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
 
     (void)pInput;   /* Unused. */
 }

@@ -35,7 +35,7 @@ void data_callback_fixed(ma_device* pDevice, void* pOutput, const void* pInput, 
     */
     printf("frameCount=%d\n", frameCount);
 
-    ma_waveform_read_pcm_frames(&g_sineWave, pOutput, frameCount);
+    ma_waveform_read_pcm_frames(&g_sineWave, pOutput, frameCount, NULL);
 
     /* Unused in this example. */
     (void)pDevice;

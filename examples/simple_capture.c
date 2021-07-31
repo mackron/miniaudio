@@ -19,7 +19,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     ma_encoder* pEncoder = (ma_encoder*)pDevice->pUserData;
     MA_ASSERT(pEncoder != NULL);
 
-    ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount);
+    ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount, NULL);
 
     (void)pOutput;
 }
