@@ -11704,7 +11704,7 @@ typedef unsigned char           c89atomic_bool;
     #define c89atomic_memory_order_release  3
     #define c89atomic_memory_order_acq_rel  4
     #define c89atomic_memory_order_seq_cst  5
-    #if _MSC_VER < 1600 && defined(C89ATOMIC_32BIT)
+    #if _MSC_VER < 1600 && defined(C89ATOMIC_X86)
         #define C89ATOMIC_MSVC_USE_INLINED_ASSEMBLY
     #endif
     #if _MSC_VER < 1600
