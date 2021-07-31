@@ -7627,6 +7627,11 @@ MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
 Resource Manager
 
 ************************************************************************************************************************************************************/
+/* The resource manager cannot be enabled if there is no decoder. */
+#if !defined(MA_NO_RESOURCE_MANAGER) && defined(MA_NO_DECODING)
+#define MA_NO_RESOURCE_MANAGER
+#endif
+
 #ifndef MA_NO_RESOURCE_MANAGER
 typedef struct ma_resource_manager                  ma_resource_manager;
 typedef struct ma_resource_manager_data_buffer_node ma_resource_manager_data_buffer_node;
@@ -8905,7 +8910,9 @@ MA_API ma_sound_group_config ma_sound_group_config_init(void);
 
 typedef struct
 {
+#if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
+#endif
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
     ma_log* pLog;                           /* When set to NULL, will use the context's log. */
@@ -8928,7 +8935,9 @@ MA_API ma_engine_config ma_engine_config_init(void);
 struct ma_engine
 {
     ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
+#if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;
+#endif
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
     ma_log* pLog;
     ma_uint32 listenerCount;
@@ -67355,7 +67364,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         engineConfig = ma_engine_config_init();
     }
 
+#if !defined(MA_NO_RESOURCE_MANAGER)
     pEngine->pResourceManager = engineConfig.pResourceManager;
+#endif
     pEngine->pDevice          = engineConfig.pDevice;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
