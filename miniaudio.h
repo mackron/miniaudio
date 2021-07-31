@@ -3483,7 +3483,8 @@ typedef struct ma_resampler_config ma_resampler_config;
 typedef void ma_resampling_backend;
 typedef struct
 {
-    ma_result (* onInit                       )(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend);
+    ma_result (* onGetHeapSize                )(void* pUserData, const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes);
+    ma_result (* onInit                       )(void* pUserData, const ma_resampler_config* pConfig, void* pHeap, ma_resampling_backend** ppBackend);
     void      (* onUninit                     )(void* pUserData, ma_resampling_backend* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
     ma_result (* onProcess                    )(void* pUserData, ma_resampling_backend* pBackend, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
     ma_result (* onSetRate                    )(void* pUserData, ma_resampling_backend* pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);                 /* Optional. Rate changes will be disabled. */
@@ -3530,7 +3531,14 @@ typedef struct
     {
         ma_linear_resampler linear;
     } state;    /* State for stock resamplers so we can avoid a malloc. For stock resamplers, pBackend will point here. */
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_resampler;
+
+MA_API ma_result ma_resampler_get_heap_size(const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_resampler_init_preallocated(const ma_resampler_config* pConfig, void* pHeap, ma_resampler* pResampler);
 
 /*
 Initializes a new resampler object from a config.
@@ -44142,17 +44150,39 @@ MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_li
 
 
 /* Linear resampler backend vtable. */
-static ma_result ma_resampling_backend_init__linear(void* pUserData, const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampling_backend** ppBackend)
+static ma_linear_resampler_config ma_resampling_backend_get_config__linear(const ma_resampler_config* pConfig)
 {
-    ma_resampler* pResampler = (ma_resampler*)pUserData;
-    ma_result result;
     ma_linear_resampler_config linearConfig;
 
     linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
     linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
     linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
 
-    result = ma_linear_resampler_init(&linearConfig, pAllocationCallbacks, &pResampler->state.linear);
+    return linearConfig;
+}
+
+static ma_result ma_resampling_backend_get_heap_size__linear(void* pUserData, const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_linear_resampler_config linearConfig;
+
+    (void)pUserData;
+
+    linearConfig = ma_resampling_backend_get_config__linear(pConfig);
+
+    return ma_linear_resampler_get_heap_size(&linearConfig, pHeapSizeInBytes);
+}
+
+static ma_result ma_resampling_backend_init__linear(void* pUserData, const ma_resampler_config* pConfig, void* pHeap, ma_resampling_backend** ppBackend)
+{
+    ma_resampler* pResampler = (ma_resampler*)pUserData;
+    ma_result result;
+    ma_linear_resampler_config linearConfig;
+
+    (void)pUserData;
+
+    linearConfig = ma_resampling_backend_get_config__linear(pConfig);
+
+    result = ma_linear_resampler_init_preallocated(&linearConfig, pHeap, &pResampler->state.linear);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -44213,6 +44243,7 @@ static ma_result ma_resampling_backend_get_expected_output_frame_count__linear(v
 
 static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
 {
+    ma_resampling_backend_get_heap_size__linear,
     ma_resampling_backend_init__linear,
     ma_resampling_backend_uninit__linear,
     ma_resampling_backend_process__linear,
@@ -44243,7 +44274,70 @@ MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 
     return config;
 }
 
-MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampler* pResampler)
+static ma_result ma_resampler_get_vtable(const ma_resampler_config* pConfig, ma_resampler* pResampler, ma_resampling_backend_vtable** ppVTable, void** ppUserData)
+{
+    MA_ASSERT(pConfig    != NULL);
+    MA_ASSERT(ppVTable   != NULL);
+    MA_ASSERT(ppUserData != NULL);
+
+    /* Safety. */
+    *ppVTable   = NULL;
+    *ppUserData = NULL;
+
+    switch (pConfig->algorithm)
+    {
+        case ma_resample_algorithm_linear:
+        {
+            *ppVTable   = &g_ma_linear_resampler_vtable;
+            *ppUserData = pResampler;
+        } break;
+
+        case ma_resample_algorithm_custom:
+        {
+            *ppVTable   = pConfig->pBackendVTable;
+            *ppUserData = pConfig->pBackendUserData;
+        } break;
+
+        default: return MA_INVALID_ARGS;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resampler_get_heap_size(const ma_resampler_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_resampling_backend_vtable* pVTable;
+    void* pVTableUserData;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_resampler_get_vtable(pConfig, NULL, &pVTable, &pVTableUserData);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pVTable == NULL || pVTable->onGetHeapSize == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    result = pVTable->onGetHeapSize(pVTableUserData, pConfig, pHeapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resampler_init_preallocated(const ma_resampler_config* pConfig, void* pHeap, ma_resampler* pResampler)
 {
     ma_result result;
 
@@ -44257,37 +44351,55 @@ MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_
         return MA_INVALID_ARGS;
     }
 
+    pResampler->_pHeap        = pHeap;
     pResampler->format        = pConfig->format;
     pResampler->channels      = pConfig->channels;
     pResampler->sampleRateIn  = pConfig->sampleRateIn;
     pResampler->sampleRateOut = pConfig->sampleRateOut;
 
-    switch (pConfig->algorithm)
-    {
-        case ma_resample_algorithm_linear:
-        {
-            pResampler->pBackendVTable   = &g_ma_linear_resampler_vtable;
-            pResampler->pBackendUserData = pResampler;
-        } break;
-
-        case ma_resample_algorithm_custom:
-        {
-            pResampler->pBackendVTable   = pConfig->pBackendVTable;
-            pResampler->pBackendUserData = pConfig->pBackendUserData;
-        } break;
-
-        default: return MA_INVALID_ARGS;
+    result = ma_resampler_get_vtable(pConfig, pResampler, &pResampler->pBackendVTable, &pResampler->pBackendUserData);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onInit == NULL) {
         return MA_NOT_IMPLEMENTED;  /* onInit not implemented. */
     }
 
-    result = pResampler->pBackendVTable->onInit(pResampler->pBackendUserData, pConfig, pAllocationCallbacks, &pResampler->pBackend);
+    result = pResampler->pBackendVTable->onInit(pResampler->pBackendUserData, pConfig, pHeap, &pResampler->pBackend);
     if (result != MA_SUCCESS) {
         return result;
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resampler* pResampler)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_resampler_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_resampler_init_preallocated(pConfig, pHeap, pResampler);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pResampler->_ownsHeap = MA_TRUE;
     return MA_SUCCESS;
 }
 
