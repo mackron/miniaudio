@@ -3689,7 +3689,7 @@ typedef struct
     ma_channel channelMapOut[MA_MAX_CHANNELS];
     ma_dither_mode ditherMode;
     ma_channel_mix_mode channelMixMode;
-    float channelWeights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when channelMixMode is set to ma_channel_mix_mode_custom_weights. */
+    float** ppChannelWeights;  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
     ma_bool32 allowDynamicSampleRate;
     ma_resampler_config resampling;
 } ma_data_converter_config;
@@ -3710,7 +3710,13 @@ typedef enum
 
 typedef struct
 {
-    ma_data_converter_config config;
+    ma_format formatIn;
+    ma_format formatOut;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_uint32 sampleRateIn;
+    ma_uint32 sampleRateOut;
+    ma_dither_mode ditherMode;
     ma_data_converter_execution_path executionPath; /* The execution path the data converter will follow when processing. */
     ma_channel_converter channelConverter;
     ma_resampler resampler;
@@ -45907,9 +45913,14 @@ static ma_format ma_data_converter_config_get_mid_format(const ma_data_converter
 
 static ma_channel_converter_config ma_channel_converter_config_init_from_data_converter_config(const ma_data_converter_config* pConfig)
 {
+    ma_channel_converter_config channelConverterConfig;
+
     MA_ASSERT(pConfig != NULL);
 
-    return ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
+    channelConverterConfig = ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
+    channelConverterConfig.ppWeights = pConfig->ppChannelWeights;
+
+    return channelConverterConfig;
 }
 
 static ma_resampler_config ma_resampler_config_init_from_data_converter_config(const ma_data_converter_config* pConfig)
@@ -46025,7 +46036,13 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
     pConverter->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    pConverter->config = *pConfig;
+    pConverter->formatIn      = pConfig->formatIn;
+    pConverter->formatOut     = pConfig->formatOut;
+    pConverter->channelsIn    = pConfig->channelsIn;
+    pConverter->channelsOut   = pConfig->channelsOut;
+    pConverter->sampleRateIn  = pConfig->sampleRateIn;
+    pConverter->sampleRateOut = pConfig->sampleRateOut;
+    pConverter->ditherMode    = pConfig->ditherMode;
 
     /*
     Determine if resampling is required. We need to do this so we can determine an appropriate
@@ -46038,18 +46055,7 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
 
     /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
     {
-        ma_uint32 iChannelIn;
-        ma_uint32 iChannelOut;
-        ma_channel_converter_config channelConverterConfig;
-
-        channelConverterConfig = ma_channel_converter_config_init_from_data_converter_config(pConfig);
-
-        /* Channel weights. */
-        for (iChannelIn = 0; iChannelIn < pConverter->config.channelsIn; iChannelIn += 1) {
-            for (iChannelOut = 0; iChannelOut < pConverter->config.channelsOut; iChannelOut += 1) {
-                channelConverterConfig.weights[iChannelIn][iChannelOut] = pConverter->config.channelWeights[iChannelIn][iChannelOut];
-            }
-        }
+        ma_channel_converter_config channelConverterConfig = ma_channel_converter_config_init_from_data_converter_config(pConfig);
 
         result = ma_channel_converter_init_preallocated(&channelConverterConfig, ma_offset_ptr(pHeap, heapLayout.channelConverterOffset), &pConverter->channelConverter);
         if (result != MA_SUCCESS) {
@@ -46062,11 +46068,6 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
         }
     }
 
-
-    /* Always enable dynamic sample rates if the input sample rate is different because we're always going to need a resampler in this case anyway. */
-    if (pConverter->config.allowDynamicSampleRate == MA_FALSE) {
-        pConverter->config.allowDynamicSampleRate = pConverter->config.sampleRateIn != pConverter->config.sampleRateOut;
-    }
 
     /* Resampler. */
     if (isResamplingRequired) {
@@ -46084,7 +46085,7 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
     /* We can simplify pre- and post-format conversion if we have neither channel conversion nor resampling. */
     if (pConverter->hasChannelConverter == MA_FALSE && pConverter->hasResampler == MA_FALSE) {
         /* We have neither channel conversion nor resampling so we'll only need one of pre- or post-format conversion, or none if the input and output formats are the same. */
-        if (pConverter->config.formatIn == pConverter->config.formatOut) {
+        if (pConverter->formatIn == pConverter->formatOut) {
             /* The formats are the same so we can just pass through. */
             pConverter->hasPreFormatConversion  = MA_FALSE;
             pConverter->hasPostFormatConversion = MA_FALSE;
@@ -46095,10 +46096,10 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
         }
     } else {
         /* We have a channel converter and/or resampler so we'll need channel conversion based on the mid format. */
-        if (pConverter->config.formatIn != midFormat) {
+        if (pConverter->formatIn != midFormat) {
             pConverter->hasPreFormatConversion  = MA_TRUE;
         }
-        if (pConverter->config.formatOut != midFormat) {
+        if (pConverter->formatOut != midFormat) {
             pConverter->hasPostFormatConversion = MA_TRUE;
         }
     }
@@ -46116,7 +46117,7 @@ MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_con
     if (pConverter->isPassthrough) {
         pConverter->executionPath = ma_data_converter_execution_path_passthrough;
     } else {
-        if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
+        if (pConverter->channelsIn < pConverter->channelsOut) {
             /* Do resampling first, if necessary. */
             MA_ASSERT(pConverter->hasChannelConverter == MA_TRUE);
 
@@ -46216,9 +46217,9 @@ static ma_result ma_data_converter_process_pcm_frames__passthrough(ma_data_conve
 
     if (pFramesOut != NULL) {
         if (pFramesIn != NULL) {
-            ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            ma_copy_memory_64(pFramesOut, pFramesIn, frameCount * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         } else {
-            ma_zero_memory_64(pFramesOut,            frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            ma_zero_memory_64(pFramesOut,            frameCount * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         }
     }
 
@@ -46254,9 +46255,9 @@ static ma_result ma_data_converter_process_pcm_frames__format_only(ma_data_conve
 
     if (pFramesOut != NULL) {
         if (pFramesIn != NULL) {
-            ma_convert_pcm_frames_format(pFramesOut, pConverter->config.formatOut, pFramesIn, pConverter->config.formatIn, frameCount, pConverter->config.channelsIn, pConverter->config.ditherMode);
+            ma_convert_pcm_frames_format(pFramesOut, pConverter->formatOut, pFramesIn, pConverter->formatIn, frameCount, pConverter->channelsIn, pConverter->ditherMode);
         } else {
-            ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            ma_zero_memory_64(pFramesOut, frameCount * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         }
     }
 
@@ -46303,13 +46304,13 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
         ma_uint64 frameCountOutThisIteration;
 
         if (pFramesIn != NULL) {
-            pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessedIn * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+            pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessedIn * ma_get_bytes_per_frame(pConverter->formatIn, pConverter->channelsIn));
         } else {
             pFramesInThisIteration = NULL;
         }
 
         if (pFramesOut != NULL) {
-            pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         } else {
             pFramesOutThisIteration = NULL;
         }
@@ -46331,7 +46332,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
             }
 
             if (pFramesInThisIteration != NULL) {
-                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pFramesInThisIteration, pConverter->formatIn, frameCountInThisIteration, pConverter->channelsIn, pConverter->ditherMode);
             } else {
                 MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
             }
@@ -46372,7 +46373,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_with_format_conv
         /* If we are doing a post format conversion we need to do that now. */
         if (pConverter->hasPostFormatConversion) {
             if (pFramesOutThisIteration != NULL) {
-                ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->resampler.channels, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->formatOut, pTempBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->resampler.channels, pConverter->ditherMode);
             }
         }
 
@@ -46449,13 +46450,13 @@ static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_con
             ma_uint64 frameCountThisIteration;
 
             if (pFramesIn != NULL) {
-                pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+                pFramesInThisIteration = ma_offset_ptr(pFramesIn, framesProcessed * ma_get_bytes_per_frame(pConverter->formatIn, pConverter->channelsIn));
             } else {
                 pFramesInThisIteration = NULL;
             }
 
             if (pFramesOut != NULL) {
-                pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessed * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+                pFramesOutThisIteration = ma_offset_ptr(pFramesOut, framesProcessed * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
             } else {
                 pFramesOutThisIteration = NULL;
             }
@@ -46477,7 +46478,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_con
                 }
 
                 if (pFramesInThisIteration != NULL) {
-                    ma_convert_pcm_frames_format(pTempBufferIn, pConverter->channelConverter.format, pFramesInThisIteration, pConverter->config.formatIn, frameCountThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                    ma_convert_pcm_frames_format(pTempBufferIn, pConverter->channelConverter.format, pFramesInThisIteration, pConverter->formatIn, frameCountThisIteration, pConverter->channelsIn, pConverter->ditherMode);
                 } else {
                     MA_ZERO_MEMORY(pTempBufferIn, sizeof(pTempBufferIn));
                 }
@@ -46511,7 +46512,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_only(ma_data_con
             /* If we are doing a post format conversion we need to do that now. */
             if (pConverter->hasPostFormatConversion) {
                 if (pFramesOutThisIteration != NULL) {
-                    ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->config.formatOut, pTempBufferOut, pConverter->channelConverter.format, frameCountThisIteration, pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+                    ma_convert_pcm_frames_format(pFramesOutThisIteration, pConverter->formatOut, pTempBufferOut, pConverter->channelConverter.format, frameCountThisIteration, pConverter->channelConverter.channelsOut, pConverter->ditherMode);
                 }
             }
 
@@ -46574,10 +46575,10 @@ static ma_result ma_data_converter_process_pcm_frames__resample_first(ma_data_co
         void* pChannelsBufferOut;
 
         if (pFramesIn != NULL) {
-            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->formatIn, pConverter->channelsIn));
         }
         if (pFramesOut != NULL) {
-            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         }
 
         /* Run input data through the resampler and output it to the temporary buffer. */
@@ -46626,7 +46627,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_first(ma_data_co
 
         if (pConverter->hasPreFormatConversion) {
             if (pFramesIn != NULL) {
-                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->resampler.format, pRunningFramesIn, pConverter->formatIn, frameCountInThisIteration, pConverter->channelsIn, pConverter->ditherMode);
                 pResampleBufferIn = pTempBufferIn;
             } else {
                 pResampleBufferIn = NULL;
@@ -46659,7 +46660,7 @@ static ma_result ma_data_converter_process_pcm_frames__resample_first(ma_data_co
 
             /* Finally we do post format conversion. */
             if (pConverter->hasPostFormatConversion) {
-                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->config.formatOut, pChannelsBufferOut, pConverter->channelConverter.format, frameCountOutThisIteration, pConverter->channelConverter.channelsOut, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->formatOut, pChannelsBufferOut, pConverter->channelConverter.format, frameCountOutThisIteration, pConverter->channelConverter.channelsOut, pConverter->ditherMode);
             }
         }
 
@@ -46730,10 +46731,10 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
         void* pResampleBufferOut;
 
         if (pFramesIn != NULL) {
-            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->config.formatIn, pConverter->config.channelsIn));
+            pRunningFramesIn  = ma_offset_ptr(pFramesIn,  framesProcessedIn  * ma_get_bytes_per_frame(pConverter->formatIn, pConverter->channelsIn));
         }
         if (pFramesOut != NULL) {
-            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->config.formatOut, pConverter->config.channelsOut));
+            pRunningFramesOut = ma_offset_ptr(pFramesOut, framesProcessedOut * ma_get_bytes_per_frame(pConverter->formatOut, pConverter->channelsOut));
         }
 
         /*
@@ -46790,7 +46791,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
         /* Pre format conversion. */
         if (pConverter->hasPreFormatConversion) {
             if (pRunningFramesIn != NULL) {
-                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->channelConverter.format, pRunningFramesIn, pConverter->config.formatIn, frameCountInThisIteration, pConverter->config.channelsIn, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pTempBufferIn, pConverter->channelConverter.format, pRunningFramesIn, pConverter->formatIn, frameCountInThisIteration, pConverter->channelsIn, pConverter->ditherMode);
                 pChannelsBufferIn = pTempBufferIn;
             } else {
                 pChannelsBufferIn = NULL;
@@ -46823,7 +46824,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
         /* Post format conversion. */
         if (pConverter->hasPostFormatConversion) {
             if (pRunningFramesOut != NULL) {
-                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->config.formatOut, pResampleBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->config.channelsOut, pConverter->config.ditherMode);
+                ma_convert_pcm_frames_format(pRunningFramesOut, pConverter->formatOut, pResampleBufferOut, pConverter->resampler.format, frameCountOutThisIteration, pConverter->channelsOut, pConverter->ditherMode);
             }
         }
 
