@@ -313,7 +313,7 @@ MA_API ma_result ma_libvorbis_read_pcm_frames(ma_libvorbis* pVorbis, void* pFram
                     break;
                 } else {
                     /* Frames need to be interleaved. */
-                    ma_interleave_pcm_frames(format, channels, libvorbisResult, ppFramesF32, ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels));
+                    ma_interleave_pcm_frames(format, channels, libvorbisResult, (const void**)ppFramesF32, ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels));
                     totalFramesRead += libvorbisResult;
 
                     if (libvorbisResult == 0) {
