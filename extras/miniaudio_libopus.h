@@ -84,13 +84,13 @@ static ma_data_source_vtable g_ma_libopus_ds_vtable =
 
 
 #if !defined(MA_NO_LIBOPUS)
-static int ma_libopus_of_callback__read(void* pUserData, void* pBufferOut, int bytesToRead)
+static int ma_libopus_of_callback__read(void* pUserData, unsigned char* pBufferOut, int bytesToRead)
 {
     ma_libopus* pOpus = (ma_libopus*)pUserData;
     ma_result result;
     size_t bytesRead;
 
-    result = pOpus->onRead(pOpus->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
+    result = pOpus->onRead(pOpus->pReadSeekTellUserData, (void*)pBufferOut, bytesToRead, &bytesRead);
 
     if (result != MA_SUCCESS) {
         return -1;
