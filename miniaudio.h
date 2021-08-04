@@ -3512,7 +3512,6 @@ struct ma_resampler_config
     struct
     {
         ma_uint32 lpfOrder;
-        double lpfNyquistFactor;
     } linear;
 };
 
@@ -3720,8 +3719,14 @@ typedef struct
     ma_bool8 hasChannelConverter;
     ma_bool8 hasResampler;
     ma_bool8 isPassthrough;
+
+    /* Memory management. */
+    ma_bool8 _ownsHeap;
+    void* _pHeap;
 } ma_data_converter;
 
+MA_API ma_result ma_data_converter_get_heap_size(const ma_data_converter_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_config* pConfig, void* pHeap, ma_data_converter* pConverter);
 MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_converter* pConverter);
 MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_data_converter_process_pcm_frames(ma_data_converter* pConverter, const void* pFramesIn, ma_uint64* pFrameCountIn, void* pFramesOut, ma_uint64* pFrameCountOut);
@@ -44172,8 +44177,7 @@ static ma_linear_resampler_config ma_resampling_backend_get_config__linear(const
     ma_linear_resampler_config linearConfig;
 
     linearConfig = ma_linear_resampler_config_init(pConfig->format, pConfig->channels, pConfig->sampleRateIn, pConfig->sampleRateOut);
-    linearConfig.lpfOrder         = pConfig->linear.lpfOrder;
-    linearConfig.lpfNyquistFactor = pConfig->linear.lpfNyquistFactor;
+    linearConfig.lpfOrder = pConfig->linear.lpfOrder;
 
     return linearConfig;
 }
@@ -44286,7 +44290,6 @@ MA_API ma_resampler_config ma_resampler_config_init(ma_format format, ma_uint32 
 
     /* Linear. */
     config.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
-    config.linear.lpfNyquistFactor = 1;
 
     return config;
 }
@@ -45844,7 +45847,6 @@ MA_API ma_data_converter_config ma_data_converter_config_init_default()
 
     /* Linear resampling defaults. */
     config.resampling.linear.lpfOrder = 1;
-    config.resampling.linear.lpfNyquistFactor = 1;
 
     return config;
 }
@@ -45862,36 +45864,24 @@ MA_API ma_data_converter_config ma_data_converter_config_init(ma_format formatIn
     return config;
 }
 
-MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_converter* pConverter)
+
+typedef struct
 {
-    ma_result result;
-    ma_format midFormat;
-    ma_bool32 isResamplingRequired;
+    size_t sizeInBytes;
+    size_t channelConverterOffset;
+    size_t resamplerOffset;
+} ma_data_converter_heap_layout;
 
-    if (pConverter == NULL) {
-        return MA_INVALID_ARGS;
-    }
+static ma_bool32 ma_data_converter_config_is_resampler_required(const ma_data_converter_config* pConfig)
+{
+    MA_ASSERT(pConfig != NULL);
 
-    MA_ZERO_OBJECT(pConverter);
+    return pConfig->allowDynamicSampleRate || pConfig->sampleRateIn != pConfig->sampleRateOut;
+}
 
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pConverter->config = *pConfig;
-
-    /* Basic validation. */
-    if (pConfig->channelsIn < MA_MIN_CHANNELS || pConfig->channelsOut < MA_MIN_CHANNELS ||
-        pConfig->channelsIn > MA_MAX_CHANNELS || pConfig->channelsOut > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    Determine if resampling is required. We need to do this so we can determine an appropriate
-    mid format to use. If resampling is required, the mid format must be ma_format_f32 since
-    that is the only one that is guaranteed to supported by custom resampling backends.
-    */
-    isResamplingRequired = pConfig->allowDynamicSampleRate || pConfig->sampleRateIn != pConfig->sampleRateOut;
+static ma_format ma_data_converter_config_get_mid_format(const ma_data_converter_config* pConfig)
+{
+    MA_ASSERT(pConfig != NULL);
 
     /*
     We want to avoid as much data conversion as possible. The channel converter and linear
@@ -45902,17 +45892,148 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
     custom resampling backend, we can only guarantee that f32 will be supported so we'll be forced
     to use that if resampling is required.
     */
-    if (isResamplingRequired && pConfig->resampling.algorithm != ma_resample_algorithm_linear) {
-        midFormat = ma_format_f32;  /* <-- Force f32 since that is the only one we can guarantee will be supported by the resampler. */
+    if (ma_data_converter_config_is_resampler_required(pConfig) && pConfig->resampling.algorithm != ma_resample_algorithm_linear) {
+        return ma_format_f32;  /* <-- Force f32 since that is the only one we can guarantee will be supported by the resampler. */
     } else {
-        /*  */ if (pConverter->config.formatOut == ma_format_s16 || pConverter->config.formatOut == ma_format_f32) {
-            midFormat = pConverter->config.formatOut;
-        } else if (pConverter->config.formatIn  == ma_format_s16 || pConverter->config.formatIn  == ma_format_f32) {
-            midFormat = pConverter->config.formatIn;
+        /*  */ if (pConfig->formatOut == ma_format_s16 || pConfig->formatOut == ma_format_f32) {
+            return pConfig->formatOut;
+        } else if (pConfig->formatIn  == ma_format_s16 || pConfig->formatIn  == ma_format_f32) {
+            return pConfig->formatIn;
         } else {
-            midFormat = ma_format_f32;
+            return ma_format_f32;
         }
     }
+}
+
+static ma_channel_converter_config ma_channel_converter_config_init_from_data_converter_config(const ma_data_converter_config* pConfig)
+{
+    MA_ASSERT(pConfig != NULL);
+
+    return ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
+}
+
+static ma_resampler_config ma_resampler_config_init_from_data_converter_config(const ma_data_converter_config* pConfig)
+{
+    ma_resampler_config resamplerConfig;
+    ma_uint32 resamplerChannels;
+
+    MA_ASSERT(pConfig != NULL);
+
+    /* The resampler is the most expensive part of the conversion process, so we need to do it at the stage where the channel count is at it's lowest. */
+    if (pConfig->channelsIn < pConfig->channelsOut) {
+        resamplerChannels = pConfig->channelsIn;
+    } else {
+        resamplerChannels = pConfig->channelsOut;
+    }
+
+    resamplerConfig = ma_resampler_config_init(ma_data_converter_config_get_mid_format(pConfig), resamplerChannels, pConfig->sampleRateIn, pConfig->sampleRateOut, pConfig->resampling.algorithm);
+    resamplerConfig.linear           = pConfig->resampling.linear;
+    resamplerConfig.pBackendVTable   = pConfig->resampling.pBackendVTable;
+    resamplerConfig.pBackendUserData = pConfig->resampling.pBackendUserData;
+
+    return resamplerConfig;
+}
+
+static ma_result ma_data_converter_get_heap_layout(const ma_data_converter_config* pConfig, ma_data_converter_heap_layout* pHeapLayout)
+{
+    ma_result result;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->channelsIn == 0 || pConfig->channelsOut == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Channel converter. */
+    pHeapLayout->channelConverterOffset = pHeapLayout->sizeInBytes;
+    {
+        size_t heapSizeInBytes;
+        ma_channel_converter_config channelConverterConfig = ma_channel_converter_config_init_from_data_converter_config(pConfig);
+
+        result = ma_channel_converter_get_heap_size(&channelConverterConfig, &heapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->sizeInBytes += heapSizeInBytes;
+    }
+
+    /* Resampler. */
+    pHeapLayout->resamplerOffset = pHeapLayout->sizeInBytes;
+    if (ma_data_converter_config_is_resampler_required(pConfig)) {
+        size_t heapSizeInBytes;
+        ma_resampler_config resamplerConfig = ma_resampler_config_init_from_data_converter_config(pConfig);
+
+        result = ma_resampler_get_heap_size(&resamplerConfig, &heapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->sizeInBytes += heapSizeInBytes;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_converter_get_heap_size(const ma_data_converter_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_data_converter_heap_layout heapLayout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_data_converter_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_converter_init_preallocated(const ma_data_converter_config* pConfig, void* pHeap, ma_data_converter* pConverter)
+{
+    ma_result result;
+    ma_data_converter_heap_layout heapLayout;
+    ma_format midFormat;
+    ma_bool32 isResamplingRequired;
+
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pConverter);
+
+    result = ma_data_converter_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pConverter->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pConverter->config = *pConfig;
+
+    /*
+    Determine if resampling is required. We need to do this so we can determine an appropriate
+    mid format to use. If resampling is required, the mid format must be ma_format_f32 since
+    that is the only one that is guaranteed to supported by custom resampling backends.
+    */
+    isResamplingRequired = ma_data_converter_config_is_resampler_required(pConfig);
+    midFormat = ma_data_converter_config_get_mid_format(pConfig);
 
 
     /* Channel converter. We always initialize this, but we check if it configures itself as a passthrough to determine whether or not it's needed. */
@@ -45921,7 +46042,7 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
         ma_uint32 iChannelOut;
         ma_channel_converter_config channelConverterConfig;
 
-        channelConverterConfig = ma_channel_converter_config_init(midFormat, pConverter->config.channelsIn, pConverter->config.channelMapIn, pConverter->config.channelsOut, pConverter->config.channelMapOut, pConverter->config.channelMixMode);
+        channelConverterConfig = ma_channel_converter_config_init_from_data_converter_config(pConfig);
 
         /* Channel weights. */
         for (iChannelIn = 0; iChannelIn < pConverter->config.channelsIn; iChannelIn += 1) {
@@ -45930,7 +46051,7 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
             }
         }
 
-        result = ma_channel_converter_init(&channelConverterConfig, pAllocationCallbacks, &pConverter->channelConverter);
+        result = ma_channel_converter_init_preallocated(&channelConverterConfig, ma_offset_ptr(pHeap, heapLayout.channelConverterOffset), &pConverter->channelConverter);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -45949,23 +46070,9 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
 
     /* Resampler. */
     if (isResamplingRequired) {
-        ma_resampler_config resamplerConfig;
-        ma_uint32 resamplerChannels;
+        ma_resampler_config resamplerConfig = ma_resampler_config_init_from_data_converter_config(pConfig);
 
-        /* The resampler is the most expensive part of the conversion process, so we need to do it at the stage where the channel count is at it's lowest. */
-        if (pConverter->config.channelsIn < pConverter->config.channelsOut) {
-            resamplerChannels = pConverter->config.channelsIn;
-        } else {
-            resamplerChannels = pConverter->config.channelsOut;
-        }
-
-        resamplerConfig = ma_resampler_config_init(midFormat, resamplerChannels, pConverter->config.sampleRateIn, pConverter->config.sampleRateOut, pConverter->config.resampling.algorithm);
-        resamplerConfig.linear.lpfOrder         = pConverter->config.resampling.linear.lpfOrder;
-        resamplerConfig.linear.lpfNyquistFactor = pConverter->config.resampling.linear.lpfNyquistFactor;
-        resamplerConfig.pBackendVTable          = pConverter->config.resampling.pBackendVTable;
-        resamplerConfig.pBackendUserData        = pConverter->config.resampling.pBackendUserData;
-
-        result = ma_resampler_init(&resamplerConfig, pAllocationCallbacks, &pConverter->resampler);
+        result = ma_resampler_init_preallocated(&resamplerConfig, ma_offset_ptr(pHeap, heapLayout.resamplerOffset), &pConverter->resampler);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -46040,6 +46147,36 @@ MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig,
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_data_converter_init(const ma_data_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_converter* pConverter)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_data_converter_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_data_converter_init_preallocated(pConfig, pHeap, pConverter);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pConverter->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
 MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pConverter == NULL) {
@@ -46048,6 +46185,12 @@ MA_API void ma_data_converter_uninit(ma_data_converter* pConverter, const ma_all
 
     if (pConverter->hasResampler) {
         ma_resampler_uninit(&pConverter->resampler, pAllocationCallbacks);
+    }
+
+    ma_channel_converter_uninit(&pConverter->channelConverter, pAllocationCallbacks);
+
+    if (pConverter->_ownsHeap) {
+        ma_free(pConverter->_pHeap, pAllocationCallbacks);
     }
 }
 
