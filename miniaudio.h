@@ -20134,7 +20134,7 @@ static ma_result ma_context_create_IDirectSoundCapture__dsound(ma_context* pCont
 
     hr = ((ma_DirectSoundCaptureCreateProc)pContext->dsound.DirectSoundCaptureCreate)((pDeviceID == NULL) ? NULL : (const GUID*)pDeviceID->dsound, &pDirectSoundCapture, NULL);
     if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.", ma_result_from_HRESULT(hr));
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[DirectSound] DirectSoundCaptureCreate() failed for capture device.");
         return ma_result_from_HRESULT(hr);
     }
 
