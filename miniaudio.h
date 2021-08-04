@@ -3636,10 +3636,6 @@ typedef struct
     const ma_channel* pChannelMapOut;
     ma_channel_mix_mode mixingMode;
     float** ppWeights;  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
-
-    ma_channel channelMapIn[MA_MAX_CHANNELS];
-    ma_channel channelMapOut[MA_MAX_CHANNELS];
-    float weights[MA_MAX_CHANNELS][MA_MAX_CHANNELS];  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
 } ma_channel_converter_config;
 
 MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format format, ma_uint32 channelsIn, const ma_channel* pChannelMapIn, ma_uint32 channelsOut, const ma_channel* pChannelMapOut, ma_channel_mix_mode mixingMode);
@@ -3685,8 +3681,8 @@ typedef struct
     ma_uint32 channelsOut;
     ma_uint32 sampleRateIn;
     ma_uint32 sampleRateOut;
-    ma_channel channelMapIn[MA_MAX_CHANNELS];
-    ma_channel channelMapOut[MA_MAX_CHANNELS];
+    ma_channel* pChannelMapIn;
+    ma_channel* pChannelMapOut;
     ma_dither_mode ditherMode;
     ma_channel_mix_mode channelMixMode;
     float** ppChannelWeights;  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
@@ -35786,11 +35782,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.formatIn                    = pDevice->capture.internalFormat;
         converterConfig.channelsIn                  = pDevice->capture.internalChannels;
         converterConfig.sampleRateIn                = pDevice->capture.internalSampleRate;
-        ma_channel_map_copy(converterConfig.channelMapIn, pDevice->capture.internalChannelMap, ma_min(pDevice->capture.internalChannels, MA_MAX_CHANNELS));
+        converterConfig.pChannelMapIn               = pDevice->capture.internalChannelMap;
         converterConfig.formatOut                   = pDevice->capture.format;
         converterConfig.channelsOut                 = pDevice->capture.channels;
         converterConfig.sampleRateOut               = pDevice->sampleRate;
-        ma_channel_map_copy(converterConfig.channelMapOut, pDevice->capture.channelMap, ma_min(pDevice->capture.channels, MA_MAX_CHANNELS));
+        converterConfig.pChannelMapOut              = pDevice->capture.channelMap;
         converterConfig.channelMixMode              = pDevice->capture.channelMixMode;
         converterConfig.allowDynamicSampleRate      = MA_FALSE;
         converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
@@ -35815,11 +35811,11 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.formatIn                    = pDevice->playback.format;
         converterConfig.channelsIn                  = pDevice->playback.channels;
         converterConfig.sampleRateIn                = pDevice->sampleRate;
-        ma_channel_map_copy(converterConfig.channelMapIn, pDevice->playback.channelMap, ma_min(pDevice->playback.channels, MA_MAX_CHANNELS));
+        converterConfig.pChannelMapIn               = pDevice->playback.channelMap;
         converterConfig.formatOut                   = pDevice->playback.internalFormat;
         converterConfig.channelsOut                 = pDevice->playback.internalChannels;
         converterConfig.sampleRateOut               = pDevice->playback.internalSampleRate;
-        ma_channel_map_copy(converterConfig.channelMapOut, pDevice->playback.internalChannelMap, ma_min(pDevice->playback.internalChannels, MA_MAX_CHANNELS));
+        converterConfig.pChannelMapOut              = pDevice->playback.internalChannelMap;
         converterConfig.channelMixMode              = pDevice->playback.channelMixMode;
         converterConfig.allowDynamicSampleRate      = MA_FALSE;
         converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
@@ -43696,7 +43692,7 @@ static void ma_linear_resampler_interpolate_frame_s16(ma_linear_resampler* pResa
 
     a = (pResampler->inTimeFrac << shift) / pResampler->config.sampleRateOut;
 
-    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
         ma_int16 s = ma_linear_resampler_mix_s16(pResampler->x0.s16[c], pResampler->x1.s16[c], a, shift);
         pFrameOut[c] = s;
@@ -43715,7 +43711,7 @@ static void ma_linear_resampler_interpolate_frame_f32(ma_linear_resampler* pResa
 
     a = (float)pResampler->inTimeFrac / pResampler->config.sampleRateOut;
 
-    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    MA_ASSUME(channels > 0);
     for (c = 0; c < channels; c += 1) {
         float s = ma_mix_f32_fast(pResampler->x0.f32[c], pResampler->x1.f32[c], a);
         pFrameOut[c] = s;
@@ -44693,17 +44689,13 @@ MA_API ma_channel_converter_config ma_channel_converter_config_init(ma_format fo
 {
     ma_channel_converter_config config;
 
-    /* Channel counts need to be clamped. */
-    channelsIn  = ma_min(channelsIn,  ma_countof(config.channelMapIn));
-    channelsOut = ma_min(channelsOut, ma_countof(config.channelMapOut));
-
     MA_ZERO_OBJECT(&config);
-    config.format      = format;
-    config.channelsIn  = channelsIn;
-    config.channelsOut = channelsOut;
-    ma_channel_map_copy_or_default(config.channelMapIn,  pChannelMapIn,  channelsIn);
-    ma_channel_map_copy_or_default(config.channelMapOut, pChannelMapOut, channelsOut);
-    config.mixingMode  = mixingMode;
+    config.format         = format;
+    config.channelsIn     = channelsIn;
+    config.channelsOut    = channelsOut;
+    config.pChannelMapIn  = pChannelMapIn;
+    config.pChannelMapOut = pChannelMapOut;
+    config.mixingMode     = mixingMode;
 
     return config;
 }
@@ -44797,7 +44789,7 @@ static ma_result ma_channel_map_build_shuffle_table(const ma_channel* pChannelMa
     ma_uint32 iChannelIn;
     ma_uint32 iChannelOut;
 
-    if (pShuffleTable == NULL || channelCountIn == 0 || channelCountIn > MA_MAX_CHANNELS || channelCountOut == 0 || channelCountOut > MA_MAX_CHANNELS) {
+    if (pShuffleTable == NULL || channelCountIn == 0 || channelCountOut == 0) {
         return MA_INVALID_ARGS;
     }
 
@@ -44970,7 +44962,7 @@ static void ma_channel_map_apply_shuffle_table_f32(float* pFramesOut, ma_uint32 
 
 static ma_result ma_channel_map_apply_shuffle_table(void* pFramesOut, ma_uint32 channelsOut, const void* pFramesIn, ma_uint32 channelsIn, ma_uint64 frameCount, const ma_uint8* pShuffleTable, ma_format format)
 {
-    if (pFramesOut == NULL || pFramesIn == NULL || channelsOut == 0 || channelsOut > MA_MAX_CHANNELS || pShuffleTable == NULL) {
+    if (pFramesOut == NULL || pFramesIn == NULL || channelsOut == 0 || pShuffleTable == NULL) {
         return MA_INVALID_ARGS;
     }
 
@@ -45184,7 +45176,7 @@ typedef struct
 
 static ma_channel_conversion_path ma_channel_converter_config_get_conversion_path(const ma_channel_converter_config* pConfig)
 {
-    return ma_channel_map_get_conversion_path(pConfig->pChannelMapIn, pConfig->channelsIn, pConfig->channelMapOut, pConfig->channelsOut, pConfig->mixingMode);
+    return ma_channel_map_get_conversion_path(pConfig->pChannelMapIn, pConfig->channelsIn, pConfig->pChannelMapOut, pConfig->channelsOut, pConfig->mixingMode);
 }
 
 static ma_result ma_channel_converter_get_heap_layout(const ma_channel_converter_config* pConfig, ma_channel_converter_heap_layout* pHeapLayout)
@@ -45296,7 +45288,7 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 
     if (pConfig->pChannelMapOut != NULL) {
         pConverter->pChannelMapOut = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapOutOffset);
-        ma_channel_map_copy_or_default(pConverter->pChannelMapOut, pConfig->channelMapOut, pConfig->channelsOut);
+        ma_channel_map_copy_or_default(pConverter->pChannelMapOut, pConfig->pChannelMapOut, pConfig->channelsOut);
     } else {
         pConverter->pChannelMapOut = NULL;  /* Use default channel map. */
     }
@@ -45862,8 +45854,8 @@ MA_API ma_data_converter_config ma_data_converter_config_init(ma_format formatIn
     ma_data_converter_config config = ma_data_converter_config_init_default();
     config.formatIn      = formatIn;
     config.formatOut     = formatOut;
-    config.channelsIn    = ma_min(channelsIn,  MA_MAX_CHANNELS);
-    config.channelsOut   = ma_min(channelsOut, MA_MAX_CHANNELS);
+    config.channelsIn    = channelsIn;
+    config.channelsOut   = channelsOut;
     config.sampleRateIn  = sampleRateIn;
     config.sampleRateOut = sampleRateOut;
 
@@ -45917,7 +45909,7 @@ static ma_channel_converter_config ma_channel_converter_config_init_from_data_co
 
     MA_ASSERT(pConfig != NULL);
 
-    channelConverterConfig = ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->channelMapIn, pConfig->channelsOut, pConfig->channelMapOut, pConfig->channelMixMode);
+    channelConverterConfig = ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->pChannelMapIn, pConfig->channelsOut, pConfig->pChannelMapOut, pConfig->channelMixMode);
     channelConverterConfig.ppWeights = pConfig->ppChannelWeights;
 
     return channelConverterConfig;
@@ -47819,8 +47811,6 @@ MA_API ma_uint64 ma_convert_frames(void* pOut, ma_uint64 frameCountOut, ma_forma
     ma_data_converter_config config;
 
     config = ma_data_converter_config_init(formatIn, formatOut, channelsIn, channelsOut, sampleRateIn, sampleRateOut);
-    ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelMapOut, ma_countof(config.channelMapOut), channelsOut);
-    ma_get_standard_channel_map(ma_standard_channel_map_default, config.channelMapIn, ma_countof(config.channelMapIn), channelsIn);
     config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
 
     return ma_convert_frames_ex(pOut, frameCountOut, pIn, frameCountIn, &config);
@@ -52515,8 +52505,8 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
         internalChannels,   pDecoder->outputChannels,
         internalSampleRate, pDecoder->outputSampleRate
     );
-    ma_channel_map_copy(converterConfig.channelMapIn,  internalChannelMap,         internalChannels);
-    ma_channel_map_copy(converterConfig.channelMapOut, pDecoder->outputChannelMap, pDecoder->outputChannels);
+    converterConfig.pChannelMapIn          = internalChannelMap;
+    converterConfig.pChannelMapOut         = pDecoder->outputChannelMap;
     converterConfig.channelMixMode         = pConfig->channelMixMode;
     converterConfig.ditherMode             = pConfig->ditherMode;
     converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
@@ -55433,22 +55423,9 @@ static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_see
 
 static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    ma_result result = MA_SUCCESS;
+    ma_result result;
 
-    /* Basic validation in case the internal decoder supports different limits to miniaudio. */
-    {
-        /* TODO: Remove this block once we remove MA_MIN_CHANNELS and MA_MAX_CHANNELS. */
-        ma_uint32 internalChannels;
-        ma_data_source_get_data_format(pDecoder->pBackend, NULL, &internalChannels, NULL, NULL, 0);
-
-        if (internalChannels < MA_MIN_CHANNELS || internalChannels > MA_MAX_CHANNELS) {
-            result = MA_INVALID_DATA;
-        }
-    }
-
-    if (result == MA_SUCCESS) {
-        result = ma_decoder__init_data_converter(pDecoder, pConfig);
-    }
+    result = ma_decoder__init_data_converter(pDecoder, pConfig);
 
     /* If we failed post initialization we need to uninitialize the decoder before returning to prevent a memory leak. */
     if (result != MA_SUCCESS) {
@@ -57423,7 +57400,7 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
         return MA_INVALID_ARGS;
     }
 
-    if (pConfig->channels < MA_MIN_CHANNELS || pConfig->channels > MA_MAX_CHANNELS) {
+    if (pConfig->channels == 0) {
         return MA_INVALID_ARGS;
     }
 
@@ -57511,7 +57488,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
-    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    MA_ASSUME(channels > 0);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
@@ -57630,7 +57607,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
-    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    MA_ASSUME(channels > 0);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
@@ -57712,7 +57689,7 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     const ma_uint32 channels = pNoise->config.channels;
-    MA_ASSUME(channels >= MA_MIN_CHANNELS && channels <= MA_MAX_CHANNELS);
+    MA_ASSUME(channels > 0);
 
     if (pNoise->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
