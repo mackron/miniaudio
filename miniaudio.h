@@ -7614,6 +7614,7 @@ typedef enum
     ma_noise_type_brownian
 } ma_noise_type;
 
+
 typedef struct
 {
     ma_format format;
@@ -7635,19 +7636,25 @@ typedef struct
     {
         struct
         {
-            double bin[MA_MAX_CHANNELS][16];
-            double accumulation[MA_MAX_CHANNELS];
-            ma_uint32 counter[MA_MAX_CHANNELS];
+            double** bin;
+            double* accumulation;
+            ma_uint32* counter;
         } pink;
         struct
         {
-            double accumulation[MA_MAX_CHANNELS];
+            double* accumulation;
         } brownian;
     } state;
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
 } ma_noise;
 
-MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise);
-MA_API void ma_noise_uninit(ma_noise* pNoise);
+MA_API ma_result ma_noise_get_heap_size(const ma_noise_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void* pHeap, ma_noise* pNoise);
+MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_noise* pNoise);
+MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
@@ -57432,16 +57439,31 @@ static ma_data_source_vtable g_ma_noise_data_source_vtable =
     NULL    /* onGetLength. No notion of a length for noise. */
 };
 
-MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
+
+#ifndef MA_PINK_NOISE_BIN_SIZE
+#define MA_PINK_NOISE_BIN_SIZE 16
+#endif
+
+typedef struct
 {
-    ma_result result;
-    ma_data_source_config dataSourceConfig;
+    size_t sizeInBytes;
+    struct
+    {
+        size_t binOffset;
+        size_t accumulationOffset;
+        size_t counterOffset;
+    } pink;
+    struct
+    {
+        size_t accumulationOffset;
+    } brownian;
+} ma_noise_heap_layout;
 
-    if (pNoise == NULL) {
-        return MA_INVALID_ARGS;
-    }
+static ma_result ma_noise_get_heap_layout(const ma_noise_config* pConfig, ma_noise_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
 
-    MA_ZERO_OBJECT(pNoise);
+    MA_ZERO_OBJECT(pHeapLayout);
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -57450,6 +57472,76 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     if (pConfig->channels == 0) {
         return MA_INVALID_ARGS;
     }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Pink. */
+    if (pConfig->type == ma_noise_type_pink) {
+        /* bin */
+        pHeapLayout->pink.binOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(double*) * pConfig->channels;
+        pHeapLayout->sizeInBytes += sizeof(double ) * pConfig->channels * MA_PINK_NOISE_BIN_SIZE;
+
+        /* accumulation */
+        pHeapLayout->pink.accumulationOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(double) * pConfig->channels;
+
+        /* counter */
+        pHeapLayout->pink.counterOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(ma_uint32) * pConfig->channels;
+    }
+
+    /* Brownian. */
+    if (pConfig->type == ma_noise_type_brownian) {
+        /* accumulation */
+        pHeapLayout->brownian.accumulationOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += sizeof(double) * pConfig->channels;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_noise_get_heap_size(const ma_noise_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_noise_heap_layout heapLayout;
+    
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_noise_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = heapLayout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_noise_init_preallocated(const ma_noise_config* pConfig, void* pHeap, ma_noise* pNoise)
+{
+    ma_result result;
+    ma_noise_heap_layout heapLayout;
+    ma_data_source_config dataSourceConfig;
+    ma_uint32 iChannel;
+
+    if (pNoise == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pNoise);
+
+    result = ma_noise_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pNoise->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pNoise->_pHeap, heapLayout.sizeInBytes);
 
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.vtable = &g_ma_noise_data_source_vtable;
@@ -57463,15 +57555,20 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     ma_lcg_seed(&pNoise->lcg, pConfig->seed);
 
     if (pNoise->config.type == ma_noise_type_pink) {
-        ma_uint32 iChannel;
+        pNoise->state.pink.bin          = (double**  )ma_offset_ptr(pHeap, heapLayout.pink.binOffset);
+        pNoise->state.pink.accumulation = (double*   )ma_offset_ptr(pHeap, heapLayout.pink.accumulationOffset);
+        pNoise->state.pink.counter      = (ma_uint32*)ma_offset_ptr(pHeap, heapLayout.pink.counterOffset);
+        
         for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
+            pNoise->state.pink.bin[iChannel]          = (double*)ma_offset_ptr(pHeap, heapLayout.pink.binOffset + (sizeof(double*) * pConfig->channels) + (sizeof(double) * MA_PINK_NOISE_BIN_SIZE * iChannel));
             pNoise->state.pink.accumulation[iChannel] = 0;
             pNoise->state.pink.counter[iChannel]      = 1;
         }
     }
 
     if (pNoise->config.type == ma_noise_type_brownian) {
-        ma_uint32 iChannel;
+        pNoise->state.brownian.accumulation = (double*)ma_offset_ptr(pHeap, heapLayout.brownian.accumulationOffset);
+
         for (iChannel = 0; iChannel < pConfig->channels; iChannel += 1) {
             pNoise->state.brownian.accumulation[iChannel] = 0;
         }
@@ -57480,13 +57577,47 @@ MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, ma_noise* pNoise)
     return MA_SUCCESS;
 }
 
-MA_API void ma_noise_uninit(ma_noise* pNoise)
+MA_API ma_result ma_noise_init(const ma_noise_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_noise* pNoise)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_noise_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_noise_init_preallocated(pConfig, pHeap, pNoise);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pNoise->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pNoise == NULL) {
         return;
     }
 
     ma_data_source_uninit(&pNoise->ds);
+
+    if (pNoise->_ownsHeap) {
+        ma_free(pNoise->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude)
@@ -57629,7 +57760,7 @@ static MA_INLINE float ma_noise_f32_pink(ma_noise* pNoise, ma_uint32 iChannel)
     double binNext;
     unsigned int ibin;
 
-    ibin = ma_tzcnt32(pNoise->state.pink.counter[iChannel]) & (ma_countof(pNoise->state.pink.bin[0]) - 1);
+    ibin = ma_tzcnt32(pNoise->state.pink.counter[iChannel]) & (MA_PINK_NOISE_BIN_SIZE - 1);
 
     binPrev = pNoise->state.pink.bin[iChannel][ibin];
     binNext = ma_lcg_rand_f64(&pNoise->lcg);
