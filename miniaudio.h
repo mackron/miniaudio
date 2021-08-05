@@ -4419,7 +4419,7 @@ struct ma_device_config
         const ma_device_id* pDeviceID;
         ma_format format;
         ma_uint32 channels;
-        ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel* pChannelMap;
         ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } playback;
@@ -4428,7 +4428,7 @@ struct ma_device_config
         const ma_device_id* pDeviceID;
         ma_format format;
         ma_uint32 channels;
-        ma_channel channelMap[MA_MAX_CHANNELS];
+        ma_channel* pChannelMap;
         ma_channel_mix_mode channelMixMode;
         ma_share_mode shareMode;
     } capture;
@@ -35694,10 +35694,10 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
 
 
 
-static ma_bool32 ma__is_channel_map_valid(const ma_channel* channelMap, ma_uint32 channels)
+static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint32 channels)
 {
     /* A blank channel map should be allowed, in which case it should use an appropriate default which will depend on context. */
-    if (channelMap[0] != MA_CHANNEL_NONE) {
+    if (pChannelMap != NULL && pChannelMap[0] != MA_CHANNEL_NONE) {
         ma_uint32 iChannel;
 
         if (channels == 0 || channels > MA_MAX_CHANNELS) {
@@ -35708,7 +35708,7 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* channelMap, ma_uint3
         for (iChannel = 0; iChannel < channels; ++iChannel) {
             ma_uint32 jChannel;
             for (jChannel = iChannel + 1; jChannel < channels; ++jChannel) {
-                if (channelMap[iChannel] == channelMap[jChannel]) {
+                if (pChannelMap[iChannel] == pChannelMap[jChannel]) {
                     return MA_FALSE;
                 }
             }
@@ -36608,7 +36608,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             return MA_INVALID_ARGS;
         }
 
-        if (!ma__is_channel_map_valid(pConfig->capture.channelMap, pConfig->capture.channels)) {
+        if (!ma__is_channel_map_valid(pConfig->capture.pChannelMap, pConfig->capture.channels)) {
             return MA_INVALID_ARGS;
         }
     }
@@ -36618,7 +36618,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             return MA_INVALID_ARGS;
         }
 
-        if (!ma__is_channel_map_valid(pConfig->playback.channelMap, pConfig->playback.channels)) {
+        if (!ma__is_channel_map_valid(pConfig->playback.pChannelMap, pConfig->playback.channels)) {
             return MA_INVALID_ARGS;
         }
     }
@@ -36652,13 +36652,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->capture.shareMode           = pConfig->capture.shareMode;
     pDevice->capture.format              = pConfig->capture.format;
     pDevice->capture.channels            = pConfig->capture.channels;
-    ma_channel_map_copy(pDevice->capture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+    ma_channel_map_copy_or_default(pDevice->capture.channelMap, pConfig->capture.pChannelMap, pConfig->capture.channels);
     pDevice->capture.channelMixMode      = pConfig->capture.channelMixMode;
 
     pDevice->playback.shareMode          = pConfig->playback.shareMode;
     pDevice->playback.format             = pConfig->playback.format;
     pDevice->playback.channels           = pConfig->playback.channels;
-    ma_channel_map_copy(pDevice->playback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+    ma_channel_map_copy_or_default(pDevice->playback.channelMap, pConfig->playback.pChannelMap, pConfig->playback.channels);
     pDevice->playback.channelMixMode     = pConfig->playback.channelMixMode;
 
 
@@ -36702,7 +36702,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     descriptorPlayback.format                   = pConfig->playback.format;
     descriptorPlayback.channels                 = pConfig->playback.channels;
     descriptorPlayback.sampleRate               = pConfig->sampleRate;
-    ma_channel_map_copy(descriptorPlayback.channelMap, pConfig->playback.channelMap, pConfig->playback.channels);
+    ma_channel_map_copy_or_default(descriptorPlayback.channelMap, pConfig->playback.pChannelMap, pConfig->playback.channels);
     descriptorPlayback.periodSizeInFrames       = pConfig->periodSizeInFrames;
     descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
     descriptorPlayback.periodCount              = pConfig->periods;
@@ -36718,7 +36718,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     descriptorCapture.format                    = pConfig->capture.format;
     descriptorCapture.channels                  = pConfig->capture.channels;
     descriptorCapture.sampleRate                = pConfig->sampleRate;
-    ma_channel_map_copy(descriptorCapture.channelMap, pConfig->capture.channelMap, pConfig->capture.channels);
+    ma_channel_map_copy_or_default(descriptorCapture.channelMap, pConfig->capture.pChannelMap, pConfig->capture.channels);
     descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
     descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
     descriptorCapture.periodCount               = pConfig->periods;
