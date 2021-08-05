@@ -36990,6 +36990,13 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         }
     }
 
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        ma_data_converter_uninit(&pDevice->capture.converter, &pDevice->pContext->allocationCallbacks);
+    }
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_data_converter_uninit(&pDevice->playback.converter, &pDevice->pContext->allocationCallbacks);
+    }
+
     if (pDevice->playback.pInputCache != NULL) {
         ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
     }
