@@ -35836,7 +35836,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
 
     /*
-    In playback mode, iff the data converter does not support retrieval of the required number of
+    In playback mode, if the data converter does not support retrieval of the required number of
     input frames given a number of output frames, we need to fall back to a heap-allocated cache.
     */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
