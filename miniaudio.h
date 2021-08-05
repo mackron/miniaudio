@@ -3666,6 +3666,8 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 MA_API ma_result ma_channel_converter_init(const ma_channel_converter_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_channel_converter* pConverter);
 MA_API void ma_channel_converter_uninit(ma_channel_converter* pConverter, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_channel_converter_process_pcm_frames(ma_channel_converter* pConverter, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_channel_converter_get_input_channel_map(const ma_channel_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_channel_converter_get_output_channel_map(const ma_channel_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
 
 
 /**************************************************************************************************************************************************************
@@ -3738,6 +3740,8 @@ MA_API ma_uint64 ma_data_converter_get_input_latency(const ma_data_converter* pC
 MA_API ma_uint64 ma_data_converter_get_output_latency(const ma_data_converter* pConverter);
 MA_API ma_result ma_data_converter_get_required_input_frame_count(const ma_data_converter* pConverter, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
 MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
+MA_API ma_result ma_data_converter_get_input_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
 
 
 /************************************************************************************************************************************************************
@@ -3822,7 +3826,7 @@ Copies a channel map if one is specified, otherwise copies the default channel m
 
 The output buffer must have a capacity of at least `channels`. If not NULL, the input channel map must also have a capacity of at least `channels`.
 */
-MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, size_t channelMapCapOut, const ma_channel* pIn, ma_uint32 channels);
 
 
 /*
@@ -7386,7 +7390,7 @@ typedef struct
     ma_format format;      /* Set to 0 or ma_format_unknown to use the stream's internal format. */
     ma_uint32 channels;    /* Set to 0 to use the stream's internal channels. */
     ma_uint32 sampleRate;  /* Set to 0 to use the stream's internal sample rate. */
-    ma_channel channelMap[MA_MAX_CHANNELS];
+    ma_channel* pChannelMap;
     ma_channel_mix_mode channelMixMode;
     ma_dither_mode ditherMode;
     ma_resampler_config resampling;
@@ -7411,7 +7415,6 @@ struct ma_decoder
     ma_format outputFormat;
     ma_uint32 outputChannels;
     ma_uint32 outputSampleRate;
-    ma_channel outputChannelMap[MA_MAX_CHANNELS];
     ma_data_converter converter;    /* Data conversion is achieved by running frames through this. */
     void* pInputCache;              /* In input format. Can be null if it's not needed. */
     ma_uint64 inputCacheCap;        /* The capacity of the input cache. */
@@ -36652,13 +36655,13 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->capture.shareMode           = pConfig->capture.shareMode;
     pDevice->capture.format              = pConfig->capture.format;
     pDevice->capture.channels            = pConfig->capture.channels;
-    ma_channel_map_copy_or_default(pDevice->capture.channelMap, pConfig->capture.pChannelMap, pConfig->capture.channels);
+    ma_channel_map_copy_or_default(pDevice->capture.channelMap, ma_countof(pDevice->capture.channelMap), pConfig->capture.pChannelMap, pConfig->capture.channels);
     pDevice->capture.channelMixMode      = pConfig->capture.channelMixMode;
 
     pDevice->playback.shareMode          = pConfig->playback.shareMode;
     pDevice->playback.format             = pConfig->playback.format;
     pDevice->playback.channels           = pConfig->playback.channels;
-    ma_channel_map_copy_or_default(pDevice->playback.channelMap, pConfig->playback.pChannelMap, pConfig->playback.channels);
+    ma_channel_map_copy_or_default(pDevice->playback.channelMap, ma_countof(pDevice->playback.channelMap), pConfig->playback.pChannelMap, pConfig->playback.channels);
     pDevice->playback.channelMixMode     = pConfig->playback.channelMixMode;
 
 
@@ -36702,7 +36705,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     descriptorPlayback.format                   = pConfig->playback.format;
     descriptorPlayback.channels                 = pConfig->playback.channels;
     descriptorPlayback.sampleRate               = pConfig->sampleRate;
-    ma_channel_map_copy_or_default(descriptorPlayback.channelMap, pConfig->playback.pChannelMap, pConfig->playback.channels);
+    ma_channel_map_copy_or_default(descriptorPlayback.channelMap, ma_countof(descriptorPlayback.channelMap), pConfig->playback.pChannelMap, pConfig->playback.channels);
     descriptorPlayback.periodSizeInFrames       = pConfig->periodSizeInFrames;
     descriptorPlayback.periodSizeInMilliseconds = pConfig->periodSizeInMilliseconds;
     descriptorPlayback.periodCount              = pConfig->periods;
@@ -36718,7 +36721,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     descriptorCapture.format                    = pConfig->capture.format;
     descriptorCapture.channels                  = pConfig->capture.channels;
     descriptorCapture.sampleRate                = pConfig->sampleRate;
-    ma_channel_map_copy_or_default(descriptorCapture.channelMap, pConfig->capture.pChannelMap, pConfig->capture.channels);
+    ma_channel_map_copy_or_default(descriptorCapture.channelMap, ma_countof(descriptorCapture.channelMap), pConfig->capture.pChannelMap, pConfig->capture.channels);
     descriptorCapture.periodSizeInFrames        = pConfig->periodSizeInFrames;
     descriptorCapture.periodSizeInMilliseconds  = pConfig->periodSizeInMilliseconds;
     descriptorCapture.periodCount               = pConfig->periods;
@@ -45281,14 +45284,14 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 
     if (pConfig->pChannelMapIn != NULL) {
         pConverter->pChannelMapIn = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapInOffset);
-        ma_channel_map_copy_or_default(pConverter->pChannelMapIn, pConfig->pChannelMapIn, pConfig->channelsIn);
+        ma_channel_map_copy_or_default(pConverter->pChannelMapIn, pConfig->channelsIn, pConfig->pChannelMapIn, pConfig->channelsIn);
     } else {
         pConverter->pChannelMapIn = NULL;   /* Use default channel map. */
     }
 
     if (pConfig->pChannelMapOut != NULL) {
         pConverter->pChannelMapOut = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapOutOffset);
-        ma_channel_map_copy_or_default(pConverter->pChannelMapOut, pConfig->pChannelMapOut, pConfig->channelsOut);
+        ma_channel_map_copy_or_default(pConverter->pChannelMapOut, pConfig->channelsOut, pConfig->pChannelMapOut, pConfig->channelsOut);
     } else {
         pConverter->pChannelMapOut = NULL;  /* Use default channel map. */
     }
@@ -45826,6 +45829,28 @@ MA_API ma_result ma_channel_converter_process_pcm_frames(ma_channel_converter* p
             return ma_channel_converter_process_pcm_frames__weights(pConverter, pFramesOut, pFramesIn, frameCount);
         }
     }
+}
+
+MA_API ma_result ma_channel_converter_get_input_channel_map(const ma_channel_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    if (pConverter == NULL || pChannelMap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_channel_map_copy_or_default(pChannelMap, channelMapCap, pConverter->pChannelMapIn, pConverter->channelsIn);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_channel_converter_get_output_channel_map(const ma_channel_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    if (pConverter == NULL || pChannelMap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_channel_map_copy_or_default(pChannelMap, channelMapCap, pConverter->pChannelMapOut, pConverter->channelsOut);
+
+    return MA_SUCCESS;
 }
 
 
@@ -46952,6 +46977,36 @@ MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data
     }
 }
 
+MA_API ma_result ma_data_converter_get_input_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    if (pConverter == NULL || pChannelMap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (&pConverter->hasChannelConverter) {
+        ma_channel_converter_get_output_channel_map(&pConverter->channelConverter, pChannelMap, channelMapCap);
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsOut);
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    if (pConverter == NULL || pChannelMap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (&pConverter->hasChannelConverter) {
+        ma_channel_converter_get_input_channel_map(&pConverter->channelConverter, pChannelMap, channelMapCap);
+    } else {
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsIn);
+    }
+
+    return MA_SUCCESS;
+}
+
 
 
 /**************************************************************************************************************************************************************
@@ -47718,7 +47773,7 @@ MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint
     }
 }
 
-MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels)
+MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, size_t channelMapCapOut, const ma_channel* pIn, ma_uint32 channels)
 {
     if (pOut == NULL || channels == 0) {
         return;
@@ -47727,7 +47782,7 @@ MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, const ma_channel* p
     if (pIn != NULL) {
         ma_channel_map_copy(pOut, pIn, channels);
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pOut, channels, channels);
+        ma_get_standard_channel_map(ma_standard_channel_map_default, pOut, channelMapCapOut, channels);
     }
 }
 
@@ -52418,7 +52473,7 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
     ma_decoder_config config;
     MA_ZERO_OBJECT(&config);
     config.format         = outputFormat;
-    config.channels       = ma_min(outputChannels, ma_countof(config.channelMap));
+    config.channels       = outputChannels;
     config.sampleRate     = outputSampleRate;
     config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
     config.encodingFormat = ma_encoding_format_unknown;
@@ -52493,20 +52548,13 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
         pDecoder->outputSampleRate = pConfig->sampleRate;
     }
 
-    if (ma_channel_map_blank(pDecoder->outputChannels, pConfig->channelMap)) {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pDecoder->outputChannelMap, ma_countof(pDecoder->outputChannelMap), pDecoder->outputChannels);
-    } else {
-        MA_COPY_MEMORY(pDecoder->outputChannelMap, pConfig->channelMap, sizeof(pConfig->channelMap));
-    }
-
-
     converterConfig = ma_data_converter_config_init(
         internalFormat,     pDecoder->outputFormat,
         internalChannels,   pDecoder->outputChannels,
         internalSampleRate, pDecoder->outputSampleRate
     );
     converterConfig.pChannelMapIn          = internalChannelMap;
-    converterConfig.pChannelMapOut         = pDecoder->outputChannelMap;
+    converterConfig.pChannelMapOut         = pConfig->pChannelMap;
     converterConfig.channelMixMode         = pConfig->channelMixMode;
     converterConfig.ditherMode             = pConfig->ditherMode;
     converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
@@ -56389,7 +56437,7 @@ MA_API ma_result ma_decoder_get_data_format(ma_decoder* pDecoder, ma_format* pFo
     }
 
     if (pChannelMap != NULL) {
-        ma_channel_map_copy_or_default(pChannelMap, pDecoder->outputChannelMap, (ma_uint32)ma_min(channelMapCap, pDecoder->outputChannels));
+        ma_data_converter_get_output_channel_map(&pDecoder->converter, pChannelMap, channelMapCap);
     }
 
     return MA_SUCCESS;
@@ -56541,10 +56589,9 @@ static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_dec
 
 
     if (pConfigOut != NULL) {
-        pConfigOut->format = pDecoder->outputFormat;
-        pConfigOut->channels = pDecoder->outputChannels;
+        pConfigOut->format     = pDecoder->outputFormat;
+        pConfigOut->channels   = pDecoder->outputChannels;
         pConfigOut->sampleRate = pDecoder->outputSampleRate;
-        ma_channel_map_copy(pConfigOut->channelMap, pDecoder->outputChannelMap, pDecoder->outputChannels);
     }
 
     if (ppPCMFramesOut != NULL) {
@@ -65932,7 +65979,7 @@ MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_
     if (pConfig->pChannelMapOut == NULL) {
         ma_get_default_channel_map_for_spatializer(pListener->config.pChannelMapOut, pConfig->channelsOut, pConfig->channelsOut);
     } else {
-        ma_channel_map_copy_or_default(pListener->config.pChannelMapOut, pConfig->pChannelMapOut, pConfig->channelsOut);
+        ma_channel_map_copy_or_default(pListener->config.pChannelMapOut, pConfig->channelsOut, pConfig->pChannelMapOut, pConfig->channelsOut);
     }
 
     return MA_SUCCESS;
@@ -66271,7 +66318,7 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
     /* Channel map. This will be on the heap. */
     if (pConfig->pChannelMapIn != NULL) {
         pSpatializer->config.pChannelMapIn = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapInOffset);
-        ma_channel_map_copy_or_default(pSpatializer->config.pChannelMapIn, pConfig->pChannelMapIn, pSpatializer->config.channelsIn);
+        ma_channel_map_copy_or_default(pSpatializer->config.pChannelMapIn, pSpatializer->config.channelsIn, pConfig->pChannelMapIn, pSpatializer->config.channelsIn);
     }
 
     /* New channel gains for output channels. */
