@@ -309,7 +309,7 @@ void on_log(void* pUserData, ma_uint32 logLevel, const char* message)
 {
     (void)pUserData;
 
-    printf("%s: %s\n", ma_log_level_to_string(logLevel), message);
+    printf("%s: %s", ma_log_level_to_string(logLevel), message);
 }
 
 void on_stop(ma_device* pDevice)
