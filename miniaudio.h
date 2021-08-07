@@ -8195,9 +8195,9 @@ struct ma_node_output_bus
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
     MA_ATOMIC ma_uint8 inputNodeInputBusIndex;  /* The index of the input bus on the input. Required for detaching. */
-    MA_ATOMIC ma_uint8 flags;                   /* Some state flags for tracking the read state of the output buffer. */
-    MA_ATOMIC ma_uint16 refCount;               /* Reference count for some thread-safety when detaching. */
-    MA_ATOMIC ma_bool8 isAttached;              /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
+    MA_ATOMIC ma_uint32 flags;                  /* Some state flags for tracking the read state of the output buffer. */
+    MA_ATOMIC ma_uint32 refCount;               /* Reference count for some thread-safety when detaching. */
+    MA_ATOMIC ma_bool32 isAttached;             /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
     MA_ATOMIC ma_spinlock lock;                 /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
     MA_ATOMIC float volume;                     /* Linear. */
     MA_ATOMIC ma_node_output_bus* pNext;        /* If null, it's the tail node or detached. */
@@ -8214,7 +8214,7 @@ struct ma_node_input_bus
 {
     /* Mutable via multiple threads. */
     ma_node_output_bus head;            /* Dummy head node for simplifying some lock-free thread-safety stuff. */
-    MA_ATOMIC ma_uint16 nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
+    MA_ATOMIC ma_uint32 nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
     MA_ATOMIC ma_spinlock lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
 
     /* Set once at startup. */
@@ -8290,7 +8290,7 @@ struct ma_node_graph
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
 
     /* Read and written by multiple threads. */
-    MA_ATOMIC ma_bool8 isReading;
+    MA_ATOMIC ma_bool32 isReading;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -8891,9 +8891,9 @@ typedef struct
     MA_ATOMIC float pitch;
     float oldPitch;                                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
     float oldDopplerPitch;                          /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    MA_ATOMIC ma_bool8 isPitchDisabled;             /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    MA_ATOMIC ma_bool8 isSpatializationDisabled;    /* Set to false by default. When set to false, will not have spatialisation applied. */
-    MA_ATOMIC ma_uint8 pinnedListenerIndex;         /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
+    MA_ATOMIC ma_bool32 isPitchDisabled;            /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC ma_bool32 isSpatializationDisabled;   /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC ma_uint32 pinnedListenerIndex;        /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 
     /* Memory management. */
     ma_bool8 _ownsHeap;
@@ -8926,8 +8926,8 @@ struct ma_sound
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     ma_uint64 seekTarget;               /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    MA_ATOMIC ma_bool8 isLooping;       /* False by default. */
-    MA_ATOMIC ma_bool8 atEnd;
+    MA_ATOMIC ma_bool32 isLooping;      /* False by default. */
+    MA_ATOMIC ma_bool32 atEnd;
     ma_bool8 ownsDataSource;
 
     /*
@@ -9048,8 +9048,8 @@ MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode);
 MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch);
 MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
-MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex);
-MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
+MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex);
+MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
 MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
@@ -9083,7 +9083,7 @@ MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 abs
 MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound);
-MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping);
+MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
@@ -9103,8 +9103,8 @@ MA_API void ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API void ma_sound_group_set_pan_mode(ma_sound_group* pGroup, ma_pan_mode panMode);
 MA_API void ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
 MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
-MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex);
-MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex);
+MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
@@ -38058,8 +38058,8 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
         return MA_INVALID_ARGS;
     }
 
-    iGroup = (slot & 0xFFFFFFFF) >> 5;   /* slot / 32 */
-    iBit   = (slot & 0xFFFFFFFF) & 31;   /* slot % 32 */
+    iGroup = (ma_uint32)((slot & 0xFFFFFFFF) >> 5);   /* slot / 32 */
+    iBit   = (ma_uint32)((slot & 0xFFFFFFFF) & 31);   /* slot % 32 */
 
     if (iGroup >= ma_slot_allocator_group_capacity(pAllocator)) {
         return MA_INVALID_ARGS;
@@ -62433,17 +62433,17 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
 }
 
 
-static void ma_node_graph_set_is_reading(ma_node_graph* pNodeGraph, ma_bool8 isReading)
+static void ma_node_graph_set_is_reading(ma_node_graph* pNodeGraph, ma_bool32 isReading)
 {
     MA_ASSERT(pNodeGraph != NULL);
-    c89atomic_exchange_8(&pNodeGraph->isReading, isReading);
+    c89atomic_exchange_32(&pNodeGraph->isReading, isReading);
 }
 
 #if 0
-static ma_bool8 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
+static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 {
     MA_ASSERT(pNodeGraph != NULL);
-    return c89atomic_load_8(&pNodeGraph->isReading);
+    return c89atomic_load_32(&pNodeGraph->isReading);
 }
 #endif
 
@@ -62647,26 +62647,26 @@ static ma_uint32 ma_node_output_bus_get_channels(const ma_node_output_bus* pOutp
 static void ma_node_output_bus_set_has_read(ma_node_output_bus* pOutputBus, ma_bool32 hasRead)
 {
     if (hasRead) {
-        c89atomic_fetch_or_8(&pOutputBus->flags, MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
+        c89atomic_fetch_or_32(&pOutputBus->flags, MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
     } else {
-        c89atomic_fetch_and_8(&pOutputBus->flags, (ma_uint8)~MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
+        c89atomic_fetch_and_32(&pOutputBus->flags, (ma_uint32)~MA_NODE_OUTPUT_BUS_FLAG_HAS_READ);
     }
 }
 
 static ma_bool32 ma_node_output_bus_has_read(ma_node_output_bus* pOutputBus)
 {
-    return (c89atomic_load_8(&pOutputBus->flags) & MA_NODE_OUTPUT_BUS_FLAG_HAS_READ) != 0;
+    return (c89atomic_load_32(&pOutputBus->flags) & MA_NODE_OUTPUT_BUS_FLAG_HAS_READ) != 0;
 }
 
 
-static void ma_node_output_bus_set_is_attached(ma_node_output_bus* pOutputBus, ma_bool8 isAttached)
+static void ma_node_output_bus_set_is_attached(ma_node_output_bus* pOutputBus, ma_bool32 isAttached)
 {
-    c89atomic_exchange_8(&pOutputBus->isAttached, isAttached);
+    c89atomic_exchange_32(&pOutputBus->isAttached, isAttached);
 }
 
-static ma_bool8 ma_node_output_bus_is_attached(ma_node_output_bus* pOutputBus)
+static ma_bool32 ma_node_output_bus_is_attached(ma_node_output_bus* pOutputBus)
 {
-    return c89atomic_load_8(&pOutputBus->isAttached);
+    return c89atomic_load_32(&pOutputBus->isAttached);
 }
 
 
@@ -62718,17 +62718,17 @@ static void ma_node_input_bus_unlock(ma_node_input_bus* pInputBus)
 
 static void ma_node_input_bus_next_begin(ma_node_input_bus* pInputBus)
 {
-    c89atomic_fetch_add_16(&pInputBus->nextCounter, 1);
+    c89atomic_fetch_add_32(&pInputBus->nextCounter, 1);
 }
 
 static void ma_node_input_bus_next_end(ma_node_input_bus* pInputBus)
 {
-    c89atomic_fetch_sub_16(&pInputBus->nextCounter, 1);
+    c89atomic_fetch_sub_32(&pInputBus->nextCounter, 1);
 }
 
-static ma_uint16 ma_node_input_bus_get_next_counter(ma_node_input_bus* pInputBus)
+static ma_uint32 ma_node_input_bus_get_next_counter(ma_node_input_bus* pInputBus)
 {
-    return c89atomic_load_16(&pInputBus->nextCounter);
+    return c89atomic_load_32(&pInputBus->nextCounter);
 }
 
 
@@ -62801,7 +62801,7 @@ static void ma_node_input_bus_detach__no_output_bus_lock(ma_node_input_bus* pInp
     }
 
     /* Part 2: Wait for any reads to complete. */
-    while (c89atomic_load_16(&pOutputBus->refCount) > 0) {
+    while (c89atomic_load_32(&pOutputBus->refCount) > 0) {
         ma_yield();
     }
 
@@ -62916,11 +62916,11 @@ static ma_node_output_bus* ma_node_input_bus_next(ma_node_input_bus* pInputBus, 
 
         /* We need to increment the reference count of the selected node. */
         if (pNext != NULL) {
-            c89atomic_fetch_add_16(&pNext->refCount, 1);
+            c89atomic_fetch_add_32(&pNext->refCount, 1);
         }
         
         /* The previous node is no longer being referenced. */
-        c89atomic_fetch_sub_16(&pOutputBus->refCount, 1);
+        c89atomic_fetch_sub_32(&pOutputBus->refCount, 1);
     }
     ma_node_input_bus_next_end(pInputBus);
 
@@ -67378,14 +67378,14 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
     MA_ASSERT(pEngineNode != NULL);
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
-    return !c89atomic_load_explicit_8(&pEngineNode->isPitchDisabled, c89atomic_memory_order_acquire);
+    return !c89atomic_load_explicit_32(&pEngineNode->isPitchDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* pEngineNode)
 {
     MA_ASSERT(pEngineNode != NULL);
 
-    return !c89atomic_load_explicit_8(&pEngineNode->isSpatializationDisabled, c89atomic_memory_order_acquire);
+    return !c89atomic_load_explicit_32(&pEngineNode->isSpatializationDisabled, c89atomic_memory_order_acquire);
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
@@ -67636,7 +67636,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
 
             /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
             if (result == MA_AT_END) {
-                c89atomic_exchange_8(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
             }
 
             pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(ma_sound_get_engine(pSound)));
@@ -68672,7 +68672,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
     result = ma_sound_start(&pSound->sound);
     if (result != MA_SUCCESS) {
         /* Failed to start the sound. We need to mark it for recycling and return an error. */
-        c89atomic_exchange_8(&pSound->sound.atEnd, MA_TRUE);
+        c89atomic_exchange_32(&pSound->sound.atEnd, MA_TRUE);
         return result;
     }
 
@@ -69008,7 +69008,7 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         }
 
         /* Make sure we clear the end indicator. */
-        c89atomic_exchange_8(&pSound->atEnd, MA_FALSE);
+        c89atomic_exchange_32(&pSound->atEnd, MA_FALSE);
     }
 
     /* Make sure the sound is started. If there's a start delay, the sound won't actually start until the start time is reached. */
@@ -69079,25 +69079,25 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
         return;
     }
 
-    c89atomic_exchange_explicit_8(&pSound->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
+    c89atomic_exchange_explicit_32(&pSound->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
 }
 
-MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint8 listenerIndex)
+MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex)
 {
     if (pSound == NULL || listenerIndex >= ma_engine_get_listener_count(ma_sound_get_engine(pSound))) {
         return;
     }
 
-    c89atomic_exchange_explicit_8(&pSound->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
+    c89atomic_exchange_explicit_32(&pSound->engineNode.pinnedListenerIndex, listenerIndex, c89atomic_memory_order_release);
 }
 
-MA_API ma_uint8 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
+MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
 {
     if (pSound == NULL) {
         return MA_LISTENER_INDEX_CLOSEST;
     }
 
-    return c89atomic_load_explicit_8(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
+    return c89atomic_load_explicit_32(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
@@ -69406,7 +69406,7 @@ MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound)
     return ma_node_get_time(pSound);
 }
 
-MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
+MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
 {
     if (pSound == NULL) {
         return;
@@ -69417,7 +69417,7 @@ MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool8 isLooping)
         return;
     }
 
-    c89atomic_exchange_8(&pSound->isLooping, isLooping);
+    c89atomic_exchange_32(&pSound->isLooping, isLooping);
 
     /*
     This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
@@ -69443,7 +69443,7 @@ MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_8(&pSound->isLooping);
+    return c89atomic_load_32(&pSound->isLooping);
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
@@ -69457,7 +69457,7 @@ MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_8(&pSound->atEnd);
+    return c89atomic_load_32(&pSound->atEnd);
 }
 
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
@@ -69644,12 +69644,12 @@ MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma
     ma_sound_set_spatialization_enabled(pGroup, enabled);
 }
 
-MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint8 listenerIndex)
+MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex)
 {
     ma_sound_set_pinned_listener_index(pGroup, listenerIndex);
 }
 
-MA_API ma_uint8 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
+MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup)
 {
     return ma_sound_get_pinned_listener_index(pGroup);
 }
