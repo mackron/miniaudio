@@ -9660,6 +9660,9 @@ static MA_INLINE void ma_yield()
 }
 
 
+#define MA_MM_DENORMALS_ZERO_MASK   0x0040
+#define MA_MM_FLUSH_ZERO_MASK       0x8000
+
 static MA_INLINE unsigned int ma_disable_denormals()
 {
     unsigned int prevState;
@@ -9687,8 +9690,17 @@ static MA_INLINE unsigned int ma_disable_denormals()
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        prevState = _mm_getcsr();
-        _mm_setcsr(prevState | _MM_DENORMALS_ZERO_MASK | _MM_FLUSH_ZERO_MASK); 
+        #if !(defined(__TINYC__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        {
+            prevState = _mm_getcsr();
+            _mm_setcsr(prevState | MA_MM_DENORMALS_ZERO_MASK | MA_MM_FLUSH_ZERO_MASK); 
+        }
+        #else
+        {
+            /* x88/64, but no support for _mm_getcsr()/_mm_setcsr(). May need to fall back to inlined assembly here. */
+            prevState = 0;
+        }
+        #endif
     }
     #else
     {
@@ -9718,7 +9730,16 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        _mm_setcsr(prevState);
+        #if !(defined(__TINYC__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        {
+            _mm_setcsr(prevState);
+        }
+        #else
+        {
+            /* x88/64, but no support for _mm_getcsr()/_mm_setcsr(). May need to fall back to inlined assembly here. */
+            (void)prevState;
+        }
+        #endif
     }
     #else
     {
