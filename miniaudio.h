@@ -2749,7 +2749,6 @@ typedef int ma_result;
 #define MA_MAX_CHANNELS                                32
 #endif
 
-
 #ifndef MA_MAX_FILTER_ORDER
 #define MA_MAX_FILTER_ORDER                            8
 #endif
@@ -5218,8 +5217,8 @@ struct ma_device
         struct
         {
             /*jack_client_t**/ ma_ptr pClient;
-            /*jack_port_t**/ ma_ptr pPortsPlayback[MA_MAX_CHANNELS];
-            /*jack_port_t**/ ma_ptr pPortsCapture[MA_MAX_CHANNELS];
+            /*jack_port_t**/ ma_ptr* ppPortsPlayback;
+            /*jack_port_t**/ ma_ptr* ppPortsCapture;
             float* pIntermediaryBufferPlayback; /* Typed as a float because JACK is always floating point. */
             float* pIntermediaryBufferCapture;
         } jack;
@@ -15409,7 +15408,7 @@ static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDevi
         return MA_FALSE;
     }
 
-    if (pDeviceDescriptor->channels < MA_MIN_CHANNELS || pDeviceDescriptor->channels > MA_MAX_CHANNELS) {
+    if (pDeviceDescriptor->channels == 0 || pDeviceDescriptor->channels > MA_MAX_CHANNELS) {
         return MA_FALSE;
     }
 
@@ -27069,10 +27068,12 @@ static ma_result ma_device_uninit__jack(ma_device* pDevice)
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_free(pDevice->jack.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.ppPortsCapture, &pDevice->pContext->allocationCallbacks);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         ma_free(pDevice->jack.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
+        ma_free(pDevice->jack.ppPortsPlayback, &pDevice->pContext->allocationCallbacks);
     }
 
     return MA_SUCCESS;
@@ -27136,7 +27137,7 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         /* Channels need to be interleaved. */
         for (iChannel = 0; iChannel < pDevice->capture.internalChannels; ++iChannel) {
-            const float* pSrc = (const float*)((ma_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((ma_jack_port_t*)pDevice->jack.pPortsCapture[iChannel], frameCount);
+            const float* pSrc = (const float*)((ma_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((ma_jack_port_t*)pDevice->jack.ppPortsCapture[iChannel], frameCount);
             if (pSrc != NULL) {
                 float* pDst = pDevice->jack.pIntermediaryBufferCapture + iChannel;
                 ma_jack_nframes_t iFrame;
@@ -27157,7 +27158,7 @@ static int ma_device__jack_process_callback(ma_jack_nframes_t frameCount, void* 
 
         /* Channels need to be deinterleaved. */
         for (iChannel = 0; iChannel < pDevice->playback.internalChannels; ++iChannel) {
-            float* pDst = (float*)((ma_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((ma_jack_port_t*)pDevice->jack.pPortsPlayback[iChannel], frameCount);
+            float* pDst = (float*)((ma_jack_port_get_buffer_proc)pContext->jack.jack_port_get_buffer)((ma_jack_port_t*)pDevice->jack.ppPortsPlayback[iChannel], frameCount);
             if (pDst != NULL) {
                 const float* pSrc = pDevice->jack.pIntermediaryBufferPlayback + iChannel;
                 ma_jack_nframes_t iFrame;
@@ -27225,6 +27226,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
     periodSizeInFrames = ((ma_jack_get_buffer_size_proc)pDevice->pContext->jack.jack_get_buffer_size)((ma_jack_client_t*)pDevice->jack.pClient);
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
+        ma_uint32 iPort;
         const char** ppPorts;
 
         pDescriptorCapture->format     = ma_format_f32;
@@ -27238,20 +27240,28 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
             return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
         }
 
+        /* Need to count the number of ports first so we can allocate some memory. */
         while (ppPorts[pDescriptorCapture->channels] != NULL) {
+            pDescriptorCapture->channels += 1;
+        }
+
+        pDevice->jack.ppPortsCapture = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsCapture) * pDescriptorCapture->channels, &pDevice->pContext->allocationCallbacks);
+        if (pDevice->jack.ppPortsCapture == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+
+        for (iPort = 0; iPort < pDescriptorCapture->channels; iPort += 1) {
             char name[64];
             ma_strcpy_s(name, sizeof(name), "capture");
-            ma_itoa_s((int)pDescriptorCapture->channels, name+7, sizeof(name)-7, 10); /* 7 = length of "capture" */
+            ma_itoa_s((int)iPort, name+7, sizeof(name)-7, 10); /* 7 = length of "capture" */
 
-            pDevice->jack.pPortsCapture[pDescriptorCapture->channels] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
-            if (pDevice->jack.pPortsCapture[pDescriptorCapture->channels] == NULL) {
+            pDevice->jack.ppPortsCapture[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
+            if (pDevice->jack.ppPortsCapture[iPort] == NULL) {
                 ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
                 ma_device_uninit__jack(pDevice);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             }
-
-            pDescriptorCapture->channels += 1;
         }
 
         ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
@@ -27267,6 +27277,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+        ma_uint32 iPort;
         const char** ppPorts;
 
         pDescriptorPlayback->format     = ma_format_f32;
@@ -27280,20 +27291,29 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
             return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
         }
 
+        /* Need to count the number of ports first so we can allocate some memory. */
         while (ppPorts[pDescriptorPlayback->channels] != NULL) {
+            pDescriptorPlayback->channels += 1;
+        }
+
+        pDevice->jack.ppPortsPlayback = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsPlayback) * pDescriptorPlayback->channels, &pDevice->pContext->allocationCallbacks);
+        if (pDevice->jack.ppPortsPlayback == NULL) {
+            ma_free(pDevice->jack.ppPortsCapture, &pDevice->pContext->allocationCallbacks);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        for (iPort = 0; iPort < pDescriptorPlayback->channels; iPort += 1) {
             char name[64];
             ma_strcpy_s(name, sizeof(name), "playback");
-            ma_itoa_s((int)pDescriptorPlayback->channels, name+8, sizeof(name)-8, 10); /* 8 = length of "playback" */
+            ma_itoa_s((int)iPort, name+8, sizeof(name)-8, 10); /* 8 = length of "playback" */
 
-            pDevice->jack.pPortsPlayback[pDescriptorPlayback->channels] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
-            if (pDevice->jack.pPortsPlayback[pDescriptorPlayback->channels] == NULL) {
+            pDevice->jack.ppPortsPlayback[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
+            if (pDevice->jack.ppPortsPlayback[iPort] == NULL) {
                 ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
                 ma_device_uninit__jack(pDevice);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
                 return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             }
-
-            pDescriptorPlayback->channels += 1;
         }
 
         ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
@@ -27334,7 +27354,7 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
 
         for (i = 0; ppServerPorts[i] != NULL; ++i) {
             const char* pServerPort = ppServerPorts[i];
-            const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.pPortsCapture[i]);
+            const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.ppPortsCapture[i]);
 
             resultJACK = ((ma_jack_connect_proc)pContext->jack.jack_connect)((ma_jack_client_t*)pDevice->jack.pClient, pServerPort, pClientPort);
             if (resultJACK != 0) {
@@ -27358,7 +27378,7 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
 
         for (i = 0; ppServerPorts[i] != NULL; ++i) {
             const char* pServerPort = ppServerPorts[i];
-            const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.pPortsPlayback[i]);
+            const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.ppPortsPlayback[i]);
 
             resultJACK = ((ma_jack_connect_proc)pContext->jack.jack_connect)((ma_jack_client_t*)pDevice->jack.pClient, pClientPort, pServerPort);
             if (resultJACK != 0) {
