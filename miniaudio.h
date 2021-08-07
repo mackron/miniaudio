@@ -9663,32 +9663,68 @@ static MA_INLINE unsigned int ma_disable_denormals()
 {
     unsigned int prevState;
 
-#if defined(MA_X86) || defined(MA_X64)
-    prevState = _mm_getcsr();
-    _mm_setcsr(prevState | _MM_DENORMALS_ZERO_MASK | _MM_FLUSH_ZERO_MASK);
-#elif defined(_MSC_VER)
-    unsigned int unused;
-    _controlfp_s(&prevState, 0, 0);
-    _controlfp_s(&unused, prevState | _DN_FLUSH, _MCW_DN);
-#else
-    /* Unknown or unsupported architecture. No-op. */
-    prevState = 0;
-#endif
+    #if defined(_MSC_VER)
+    {
+        /*
+        Older versions of Visual Studio don't support the "safe" versions of _controlfp_s(). I don't
+        know which version of Visual Studio first added support for _controlfp_s(), but I do know
+        that VC6 lacks support. _MSC_VER = 1200 is VC6, but if you get compilation errors on older
+        versions of Visual Studio, let me know and I'll make the necessary adjustment.
+        */
+        #if _MSC_VER <= 1200    
+        {
+            prevState = _statusfp();
+            _controlfp(prevState | _DN_FLUSH, _MCW_DN);
+        }
+        #else
+        {
+            unsigned int unused;
+            _controlfp_s(&prevState, 0, 0);
+            _controlfp_s(&unused, prevState | _DN_FLUSH, _MCW_DN);
+        }
+        #endif
+    }
+    #elif defined(MA_X86) || defined(MA_X64)
+    {
+        prevState = _mm_getcsr();
+        _mm_setcsr(prevState | _MM_DENORMALS_ZERO_MASK | _MM_FLUSH_ZERO_MASK); 
+    }
+    #else
+    {
+        /* Unknown or unsupported architecture. No-op. */
+        prevState = 0;
+    }
+    #endif
 
     return prevState;
 }
 
 static MA_INLINE void ma_restore_denormals(unsigned int prevState)
 {
-#if defined(MA_X86) || defined(MA_X64)
-    _mm_setcsr(prevState);
-#elif defined(_MSC_VER)
-    unsigned int unused;
-    _controlfp_s(&unused, prevState, _MCW_DN);
-#else
-    /* Unknown or unsupported architecture. No-op. */
-    (void)prevState;
-#endif
+    #if defined(_MSC_VER)
+    {
+        /* Older versions of Visual Studio do not support _controlfp_s(). See ma_disable_denormals(). */
+        #if _MSC_VER <= 1200    
+        {
+            _controlfp(prevState, _MCW_DN);
+        }
+        #else
+        {
+            unsigned int unused;
+            _controlfp_s(&unused, prevState, _MCW_DN);
+        }
+        #endif
+    }
+    #elif defined(MA_X86) || defined(MA_X64)
+    {
+        _mm_setcsr(prevState);
+    }
+    #else
+    {
+        /* Unknown or unsupported architecture. No-op. */
+        (void)prevState;
+    }
+    #endif
 }
 
 
