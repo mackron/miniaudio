@@ -9292,6 +9292,7 @@ IMPLEMENTATION
 #if defined(_MSC_VER)
     #pragma warning(push)
     #pragma warning(disable:4752)   /* found Intel(R) Advanced Vector Extensions; consider using /arch:AVX */
+    #pragma warning(disable:4049)   /* compiler limit : terminating line number emission */
 #endif
 
 #if defined(MA_X64) || defined(MA_X86)
@@ -65857,6 +65858,14 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
         return MA_INVALID_ARGS;
     }
 
+    /*
+    For now we need to clamp frameCount so that the cursor never overflows 32-bits. This is required for
+    the conversion to a float which we use for the linear interpolation. This might be changed later.
+    */
+    if (frameCount + pFader->cursorInFrames > UINT_MAX) {
+        frameCount = UINT_MAX - pFader->cursorInFrames;
+    }
+
     /* Optimized path if volumeBeg and volumeEnd are equal. */
     if (pFader->volumeBeg == pFader->volumeEnd) {
         if (pFader->volumeBeg == 1) {
@@ -65882,7 +65891,7 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
                 /* */ float* pFramesOutF32 = (      float*)pFramesOut;
 
                 for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                    float a = ma_min(pFader->cursorInFrames + iFrame, pFader->lengthInFrames) / (float)pFader->lengthInFrames;
+                    float a = (ma_uint32)ma_min(pFader->cursorInFrames + iFrame, pFader->lengthInFrames) / (float)((ma_uint32)pFader->lengthInFrames);   /* Safe cast due to the frameCount clamp at the top of this function. */
                     float volume = ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, a);
 
                     for (iChannel = 0; iChannel < pFader->config.channels; iChannel += 1) {
@@ -65930,6 +65939,14 @@ MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd
         volumeBeg = ma_fader_get_current_volume(pFader);
     }
 
+    /*
+    The length needs to be clamped to 32-bits due to how we convert it to a float for linear
+    interpolation reasons. I might change this requirement later, but for now it's not important.
+    */
+    if (lengthInFrames > UINT_MAX) {
+        lengthInFrames = UINT_MAX;
+    }
+
     pFader->volumeBeg      = volumeBeg;
     pFader->volumeEnd      = volumeEnd;
     pFader->lengthInFrames = lengthInFrames;
@@ -65949,7 +65966,7 @@ MA_API float ma_fader_get_current_volume(ma_fader* pFader)
         return pFader->volumeEnd;
     } else {
         /* The cursor is somewhere inside the fading period. We can figure this out with a simple linear interpoluation between volumeBeg and volumeEnd based on our cursor position. */
-        return ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, pFader->cursorInFrames / (float)pFader->lengthInFrames);
+        return ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, (ma_uint32)pFader->cursorInFrames / (float)((ma_uint32)pFader->lengthInFrames));    /* Safe cast to uint32 because we clamp it in ma_fader_process_pcm_frames(). */
     }
 }
 
