@@ -66985,6 +66985,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             for (iChannel = 0; iChannel < channelsOut; iChannel += 1) {
                 ma_channel channelOut;
                 float d;
+                float dMin;
 
                 channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannel);
                 if (ma_is_spatial_channel_position(channelOut)) {
@@ -67005,7 +67006,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
                 Summary: 0 = more extreme panning; 1 = no panning.
                 */
-                float dMin = 0.2f;  /* TODO: Consider making this configurable. */
+                dMin = 0.2f;  /* TODO: Consider making this configurable. */
 
                 /*
                 At this point, "d" will be positive if the sound is on the same side as the channel and negative if
