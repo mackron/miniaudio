@@ -9503,7 +9503,7 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
     #elif defined(_MSC_VER)
         #define MA_ASSUME(x) __assume(x)
     #else
-        #define MA_ASSUME(x) while(0)
+        #define MA_ASSUME(x) (void)(x)
     #endif
 #endif
 
