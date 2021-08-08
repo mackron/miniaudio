@@ -3846,7 +3846,7 @@ Invalid channel maps:
 
 The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_valid(ma_uint32 channels, const ma_channel* pChannelMap);
+MA_API ma_bool32 ma_channel_map_is_valid(const ma_channel* pChannelMap, ma_uint32 channels);
 
 /*
 Helper for comparing two channel maps for equality.
@@ -45415,11 +45415,11 @@ static ma_result ma_channel_converter_get_heap_layout(const ma_channel_converter
         return MA_INVALID_ARGS;
     }
 
-    if (!ma_channel_map_valid(pConfig->channelsIn, pConfig->pChannelMapIn)) {
+    if (!ma_channel_map_is_valid(pConfig->pChannelMapIn, pConfig->channelsIn)) {
         return MA_INVALID_ARGS;
     }
 
-    if (!ma_channel_map_valid(pConfig->channelsOut, pConfig->pChannelMapOut)) {
+    if (!ma_channel_map_is_valid(pConfig->pChannelMapOut, pConfig->channelsOut)) {
         return MA_INVALID_ARGS;
     }
 
@@ -48005,7 +48005,7 @@ MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, size_t channelMapCa
     }
 }
 
-MA_API ma_bool32 ma_channel_map_valid(ma_uint32 channels, const ma_channel* pChannelMap)
+MA_API ma_bool32 ma_channel_map_is_valid(const ma_channel* pChannelMap, ma_uint32 channels)
 {
     /* A channel count of 0 is invalid. */
     if (channels == 0) {
