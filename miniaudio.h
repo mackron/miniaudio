@@ -1559,7 +1559,7 @@ Finally, the `ma_channel_mix_mode_custom_weights` mode can be used to use custom
 weights. Custom weights can be passed in as the last parameter of
 `ma_channel_converter_config_init()`.
 
-Predefined channel maps can be retrieved with `ma_get_standard_channel_map()`. This takes a
+Predefined channel maps can be retrieved with `ma_channel_map_init_standard()`. This takes a
 `ma_standard_channel_map` enum as it's first parameter, which can be one of the following:
 
     +-----------------------------------+-----------------------------------------------------------+
@@ -1782,7 +1782,7 @@ Something like the following may be more suitable depending on your requirements
     config.channelsOut = outputChannels;
     config.sampleRateIn = inputSampleRate;
     config.sampleRateOut = outputSampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_flac, config.channelMapIn, sizeof(config.channelMapIn)/sizeof(config.channelMapIn[0]), config.channelCountIn);
+    ma_channel_map_init_standard(ma_standard_channel_map_flac, config.channelMapIn, sizeof(config.channelMapIn)/sizeof(config.channelMapIn[0]), config.channelCountIn);
     config.resampling.linear.lpfOrder = MA_MAX_FILTER_ORDER;
     ```
 
@@ -3810,14 +3810,14 @@ Initializes a blank channel map.
 
 When a blank channel map is specified anywhere it indicates that the native channel map should be used.
 */
-MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap);
+MA_API void ma_channel_map_init_blank(ma_channel* pChannelMap, ma_uint32 channels);
 
 /*
 Helper for retrieving a standard channel map.
 
 The output channel map buffer must have a capacity of at least `channelMapCap`.
 */
-MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_channel* pChannelMap, size_t channelMapCap, ma_uint32 channels);
+MA_API void ma_channel_map_init_standard(ma_standard_channel_map standardChannelMap, ma_channel* pChannelMap, size_t channelMapCap, ma_uint32 channels);
 
 /*
 Copies a channel map.
@@ -3855,14 +3855,14 @@ This assumes the channel count is the same between the two.
 
 Both channels map buffers must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pChannelMapA, const ma_channel* pChannelMapB);
+MA_API ma_bool32 ma_channel_map_is_equal(const ma_channel* pChannelMapA, const ma_channel* pChannelMapB, ma_uint32 channels);
 
 /*
 Helper for determining if a channel map is blank (all channels set to MA_CHANNEL_NONE).
 
 The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel* pChannelMap);
+MA_API ma_bool32 ma_channel_map_is_blank(const ma_channel* pChannelMap, ma_uint32 channels);
 
 /*
 Helper for determining whether or not a channel is present in the given channel map.
@@ -4555,7 +4555,7 @@ internally by miniaudio.
 
 On input, if the sample format is set to `ma_format_unknown`, the backend is free to use whatever sample format it desires, so long as it's
 supported by miniaudio. When the channel count is set to 0, the backend should use the device's native channel count. The same applies for
-sample rate. For the channel map, the default should be used when `ma_channel_map_blank()` returns true (all channels set to
+sample rate. For the channel map, the default should be used when `ma_channel_map_is_blank()` returns true (all channels set to
 `MA_CHANNEL_NONE`). On input, the `periodSizeInFrames` or `periodSizeInMilliseconds` option should always be set. The backend should
 inspect both of these variables. If `periodSizeInFrames` is set, it should take priority, otherwise it needs to be derived from the period
 size in milliseconds (`periodSizeInMilliseconds`) and the sample rate, keeping in mind that the sample rate may be 0, in which case the
@@ -15883,7 +15883,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
         pDescriptorCapture->sampleRate = (pDescriptorCapture->sampleRate != 0)                 ? pDescriptorCapture->sampleRate : MA_DEFAULT_SAMPLE_RATE;
 
         if (pDescriptorCapture->channelMap[0] == MA_CHANNEL_NONE) {
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
         }
 
         pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
@@ -15895,7 +15895,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const ma_device_config
         pDescriptorPlayback->sampleRate = (pDescriptorPlayback->sampleRate != 0)                 ? pDescriptorPlayback->sampleRate : MA_DEFAULT_SAMPLE_RATE;
 
         if (pDescriptorPlayback->channelMap[0] == MA_CHANNEL_NONE) {
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorPlayback->channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorPlayback->channels);
         }
 
         pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
@@ -17543,7 +17543,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         channels = MA_MAX_CHANNELS;
                     }
 
-                    ma_get_standard_channel_map(ma_standard_channel_map_microsoft, defaultChannelMap, ma_countof(defaultChannelMap), channels);
+                    ma_channel_map_init_standard(ma_standard_channel_map_microsoft, defaultChannelMap, ma_countof(defaultChannelMap), channels);
 
                     MA_ZERO_OBJECT(&wf);
                     wf.Format.cbSize     = sizeof(wf);
@@ -22044,7 +22044,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorCapture->format             = ma_format_from_WAVEFORMATEX(&wf);
         pDescriptorCapture->channels           = wf.nChannels;
         pDescriptorCapture->sampleRate         = wf.nSamplesPerSec;
-        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+        ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
         pDescriptorCapture->periodCount        = pDescriptorCapture->periodCount;
         pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorCapture, pDescriptorCapture->sampleRate, pConfig->performanceProfile);
     }
@@ -22082,7 +22082,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         pDescriptorPlayback->format             = ma_format_from_WAVEFORMATEX(&wf);
         pDescriptorPlayback->channels           = wf.nChannels;
         pDescriptorPlayback->sampleRate         = wf.nSamplesPerSec;
-        ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
+        ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
         pDescriptorPlayback->periodCount        = pDescriptorPlayback->periodCount;
         pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__winmm(pDescriptorPlayback, pDescriptorPlayback->sampleRate, pConfig->performanceProfile);
     }
@@ -23950,7 +23950,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
                 ma_bool32 isValid = MA_TRUE;
 
                 /* Fill with defaults. */
-                ma_get_standard_channel_map(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
+                ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
 
                 /* Overwrite first pChmap->channels channels. */
                 for (iChannel = 0; iChannel < pChmap->channels; ++iChannel) {
@@ -23970,7 +23970,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
                 /* If our channel map is invalid, fall back to defaults. */
                 if (!isValid) {
-                    ma_get_standard_channel_map(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
+                    ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
                 }
             }
 
@@ -23978,7 +23978,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
             pChmap = NULL;
         } else {
             /* Could not retrieve the channel map. Fall back to a hard-coded assumption. */
-            ma_get_standard_channel_map(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
+            ma_channel_map_init_standard(ma_standard_channel_map_alsa, internalChannelMap, ma_countof(internalChannelMap), internalChannels);
         }
     }
 
@@ -27300,7 +27300,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
         pDescriptorCapture->format     = ma_format_f32;
         pDescriptorCapture->channels   = 0;
         pDescriptorCapture->sampleRate = ((ma_jack_get_sample_rate_proc)pDevice->pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
-        ma_get_standard_channel_map(ma_standard_channel_map_alsa, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+        ma_channel_map_init_standard(ma_standard_channel_map_alsa, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
 
         ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
         if (ppPorts == NULL) {
@@ -27351,7 +27351,7 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
         pDescriptorPlayback->format     = ma_format_f32;
         pDescriptorPlayback->channels   = 0;
         pDescriptorPlayback->sampleRate = ((ma_jack_get_sample_rate_proc)pDevice->pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
-        ma_get_standard_channel_map(ma_standard_channel_map_alsa, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
+        ma_channel_map_init_standard(ma_standard_channel_map_alsa, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
 
         ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
         if (ppPorts == NULL) {
@@ -27979,7 +27979,7 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
             case kAudioChannelLayoutTag_Binaural:
             case kAudioChannelLayoutTag_Ambisonic_B_Format:
             {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
+                ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
             } break;
 
             case kAudioChannelLayoutTag_Octagonal:
@@ -28007,7 +28007,7 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
 
             default:
             {
-                ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
+                ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
             } break;
         }
     }
@@ -30134,12 +30134,12 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
     #else
         /* Fall back to default assumptions. */
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pData->channelMapOut, ma_countof(pData->channelMapOut), pData->channelsOut);
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pData->channelMapOut, ma_countof(pData->channelMapOut), pData->channelsOut);
     #endif
     }
 #else
     /* TODO: Figure out how to get the channel map using AVAudioSession. */
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pData->channelMap, ma_countof(pData->channelMap), pData->channelsOut);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pData->channelMap, ma_countof(pData->channelMap), pData->channelsOut);
 #endif
 
 
@@ -31448,7 +31448,7 @@ static ma_result ma_device_init_handle__sndio(ma_device* pDevice, const ma_devic
     pDescriptor->format             = internalFormat;
     pDescriptor->channels           = internalChannels;
     pDescriptor->sampleRate         = internalSampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_sndio, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), internalChannels);
+    ma_channel_map_init_standard(ma_standard_channel_map_sndio, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), internalChannels);
     pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
     pDescriptor->periodCount        = internalPeriods;
 
@@ -32292,7 +32292,7 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
     pDescriptor->format             = internalFormat;
     pDescriptor->channels           = internalChannels;
     pDescriptor->sampleRate         = internalSampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), internalChannels);
+    ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), internalChannels);
     pDescriptor->periodSizeInFrames = internalPeriodSizeInFrames;
     pDescriptor->periodCount        = internalPeriods;
 
@@ -32928,7 +32928,7 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     pDescriptor->format             = ma_format_from_oss(ossFormat);
     pDescriptor->channels           = ossChannels;
     pDescriptor->sampleRate         = ossSampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_sound4, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
     pDescriptor->periodCount        = (ma_uint32)(ossFragment >> 16);
     pDescriptor->periodSizeInFrames = (ma_uint32)(1 << (ossFragment & 0xFFFF)) / ma_get_bytes_per_frame(pDescriptor->format, pDescriptor->channels);
 
@@ -33661,9 +33661,9 @@ static ma_result ma_device_init_by_type__aaudio(ma_device* pDevice, const ma_dev
 
     /* For the channel map we need to be sure we don't overflow any buffers. */
     if (pDescriptor->channels <= MA_MAX_CHANNELS) {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels); /* <-- Cannot find info on channel order, so assuming a default. */
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels); /* <-- Cannot find info on channel order, so assuming a default. */
     } else {
-        ma_channel_map_init_blank(MA_MAX_CHANNELS, pDescriptor->channelMap); /* Too many channels. Use a blank channel map. */
+        ma_channel_map_init_blank(pDescriptor->channelMap, MA_MAX_CHANNELS); /* Too many channels. Use a blank channel map. */
     }
 
     bufferCapacityInFrames = ((MA_PFN_AAudioStream_getBufferCapacityInFrames)pDevice->pContext->aaudio.AAudioStream_getBufferCapacityInFrames)(pStream);
@@ -35574,7 +35574,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
 
     pDescriptor->format             = ma_format_f32;
     pDescriptor->channels           = channels;
-    ma_get_standard_channel_map(ma_standard_channel_map_webaudio, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
     pDescriptor->sampleRate         = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
     pDescriptor->periodSizeInFrames = periodSizeInFrames;
     pDescriptor->periodCount        = 1;
@@ -35836,9 +35836,9 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
                 ma_channel_map_copy(pDevice->capture.channelMap, pDevice->capture.internalChannelMap, pDevice->capture.channels);
             } else {
                 if (pDevice->capture.channelMixMode == ma_channel_mix_mode_simple) {
-                    ma_channel_map_init_blank(pDevice->capture.channels, pDevice->capture.channelMap);
+                    ma_channel_map_init_blank(pDevice->capture.channelMap, pDevice->capture.channels);
                 } else {
-                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->capture.channelMap, ma_countof(pDevice->capture.channelMap), pDevice->capture.channels);
+                    ma_channel_map_init_standard(ma_standard_channel_map_default, pDevice->capture.channelMap, ma_countof(pDevice->capture.channelMap), pDevice->capture.channels);
                 }
             }
         }
@@ -35857,9 +35857,9 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
                 ma_channel_map_copy(pDevice->playback.channelMap, pDevice->playback.internalChannelMap, pDevice->playback.channels);
             } else {
                 if (pDevice->playback.channelMixMode == ma_channel_mix_mode_simple) {
-                    ma_channel_map_init_blank(pDevice->playback.channels, pDevice->playback.channelMap);
+                    ma_channel_map_init_blank(pDevice->playback.channelMap, pDevice->playback.channels);
                 } else {
-                    ma_get_standard_channel_map(ma_standard_channel_map_default, pDevice->playback.channelMap, ma_countof(pDevice->playback.channelMap), pDevice->playback.channels);
+                    ma_channel_map_init_standard(ma_standard_channel_map_default, pDevice->playback.channelMap, ma_countof(pDevice->playback.channelMap), pDevice->playback.channels);
                 }
             }
         }
@@ -44952,7 +44952,7 @@ static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
 static ma_bool32 ma_channel_map_is_passthrough(const ma_channel* pChannelMapIn, ma_uint32 channelsIn, const ma_channel* pChannelMapOut, ma_uint32 channelsOut)
 {
     if (channelsOut == channelsIn) {
-        return ma_channel_map_equal(channelsOut, pChannelMapOut, pChannelMapIn);
+        return ma_channel_map_is_equal(pChannelMapOut, pChannelMapIn, channelsOut);
     } else {
         return MA_FALSE;    /* Channel counts differ, so cannot be a passthrough. */
     }
@@ -47205,7 +47205,7 @@ MA_API ma_result ma_data_converter_get_input_channel_map(const ma_data_converter
     if (&pConverter->hasChannelConverter) {
         ma_channel_converter_get_output_channel_map(&pConverter->channelConverter, pChannelMap, channelMapCap);
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsOut);
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsOut);
     }
 
     return MA_SUCCESS;
@@ -47220,7 +47220,7 @@ MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converte
     if (&pConverter->hasChannelConverter) {
         ma_channel_converter_get_input_channel_map(&pConverter->channelConverter, pChannelMap, channelMapCap);
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsIn);
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pConverter->channelsIn);
     }
 
     return MA_SUCCESS;
@@ -47233,12 +47233,12 @@ MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converte
 Channel Maps
 
 **************************************************************************************************************************************************************/
-static ma_channel ma_get_standard_channel_map_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex);
+static ma_channel ma_channel_map_init_standard_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex);
 
 MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     if (pChannelMap == NULL) {
-        return ma_get_standard_channel_map_channel(ma_standard_channel_map_default, channelCount, channelIndex);
+        return ma_channel_map_init_standard_channel(ma_standard_channel_map_default, channelCount, channelIndex);
     } else {
         if (channelIndex >= channelCount) {
             return MA_CHANNEL_NONE;
@@ -47248,7 +47248,7 @@ MA_API ma_channel ma_channel_map_get_channel(const ma_channel* pChannelMap, ma_u
     }
 }
 
-MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMap)
+MA_API void ma_channel_map_init_blank(ma_channel* pChannelMap, ma_uint32 channels)
 {
     if (pChannelMap == NULL) {
         return;
@@ -47258,7 +47258,7 @@ MA_API void ma_channel_map_init_blank(ma_uint32 channels, ma_channel* pChannelMa
 }
 
 
-static ma_channel ma_get_standard_channel_map_channel_microsoft(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_microsoft(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     if (channelCount == 0 || channelIndex >= channelCount) {
         return MA_CHANNEL_NONE;
@@ -47372,7 +47372,7 @@ static ma_channel ma_get_standard_channel_map_channel_microsoft(ma_uint32 channe
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_alsa(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_alsa(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47472,7 +47472,7 @@ static ma_channel ma_get_standard_channel_map_channel_alsa(ma_uint32 channelCoun
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_rfc3551(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_rfc3551(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47545,7 +47545,7 @@ static ma_channel ma_get_standard_channel_map_channel_rfc3551(ma_uint32 channelC
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_flac(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_flac(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47645,7 +47645,7 @@ static ma_channel ma_get_standard_channel_map_channel_flac(ma_uint32 channelCoun
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_vorbis(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_vorbis(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47745,7 +47745,7 @@ static ma_channel ma_get_standard_channel_map_channel_vorbis(ma_uint32 channelCo
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_sound4(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_sound4(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47845,7 +47845,7 @@ static ma_channel ma_get_standard_channel_map_channel_sound4(ma_uint32 channelCo
     return MA_CHANNEL_NONE;
 }
 
-static ma_channel ma_get_standard_channel_map_channel_sndio(ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel_sndio(ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     switch (channelCount)
     {
@@ -47919,7 +47919,7 @@ static ma_channel ma_get_standard_channel_map_channel_sndio(ma_uint32 channelCou
 }
 
 
-static ma_channel ma_get_standard_channel_map_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
+static ma_channel ma_channel_map_init_standard_channel(ma_standard_channel_map standardChannelMap, ma_uint32 channelCount, ma_uint32 channelIndex)
 {
     if (channelCount == 0 || channelIndex >= channelCount) {
         return MA_CHANNEL_NONE;
@@ -47929,44 +47929,44 @@ static ma_channel ma_get_standard_channel_map_channel(ma_standard_channel_map st
     {
         case ma_standard_channel_map_alsa:
         {
-            return ma_get_standard_channel_map_channel_alsa(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_alsa(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_rfc3551:
         {
-            return ma_get_standard_channel_map_channel_rfc3551(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_rfc3551(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_flac:
         {
-            return ma_get_standard_channel_map_channel_flac(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_flac(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_vorbis:
         {
-            return ma_get_standard_channel_map_channel_vorbis(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_vorbis(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_sound4:
         {
-            return ma_get_standard_channel_map_channel_sound4(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_sound4(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_sndio:
         {
-            return ma_get_standard_channel_map_channel_sndio(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_sndio(channelCount, channelIndex);
         } break;
 
         case ma_standard_channel_map_microsoft: /* Also default. */
         /*case ma_standard_channel_map_default;*/
         default:
         {
-            return ma_get_standard_channel_map_channel_microsoft(channelCount, channelIndex);
+            return ma_channel_map_init_standard_channel_microsoft(channelCount, channelIndex);
         } break;
     }
 }
 
-MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelMap, ma_channel* pChannelMap, size_t channelMapCap, ma_uint32 channels)
+MA_API void ma_channel_map_init_standard(ma_standard_channel_map standardChannelMap, ma_channel* pChannelMap, size_t channelMapCap, ma_uint32 channels)
 {
     ma_uint32 iChannel;
 
@@ -47979,7 +47979,7 @@ MA_API void ma_get_standard_channel_map(ma_standard_channel_map standardChannelM
             break;  /* Ran out of room. */
         }
 
-        pChannelMap[0] = ma_get_standard_channel_map_channel(standardChannelMap, channels, iChannel);
+        pChannelMap[0] = ma_channel_map_init_standard_channel(standardChannelMap, channels, iChannel);
         pChannelMap   += 1;
         channelMapCap -= 1;
     }
@@ -48001,7 +48001,7 @@ MA_API void ma_channel_map_copy_or_default(ma_channel* pOut, size_t channelMapCa
     if (pIn != NULL) {
         ma_channel_map_copy(pOut, pIn, channels);
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pOut, channelMapCapOut, channels);
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pOut, channelMapCapOut, channels);
     }
 }
 
@@ -48025,7 +48025,7 @@ MA_API ma_bool32 ma_channel_map_is_valid(const ma_channel* pChannelMap, ma_uint3
     return MA_TRUE;
 }
 
-MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pChannelMapA, const ma_channel* pChannelMapB)
+MA_API ma_bool32 ma_channel_map_is_equal(const ma_channel* pChannelMapA, const ma_channel* pChannelMapB, ma_uint32 channels)
 {
     ma_uint32 iChannel;
 
@@ -48042,7 +48042,7 @@ MA_API ma_bool32 ma_channel_map_equal(ma_uint32 channels, const ma_channel* pCha
     return MA_TRUE;
 }
 
-MA_API ma_bool32 ma_channel_map_blank(ma_uint32 channels, const ma_channel* pChannelMap)
+MA_API ma_bool32 ma_channel_map_is_blank(const ma_channel* pChannelMap, ma_uint32 channels)
 {
     ma_uint32 iChannel;
 
@@ -49676,7 +49676,7 @@ static ma_result ma_audio_buffer_ref__data_source_on_get_data_format(ma_data_sou
     *pFormat     = pAudioBufferRef->format;
     *pChannels   = pAudioBufferRef->channels;
     *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pAudioBufferRef->channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pAudioBufferRef->channels);
 
     return MA_SUCCESS;
 }
@@ -50366,7 +50366,7 @@ static ma_result ma_paged_audio_buffer__data_source_on_get_data_format(ma_data_s
     *pFormat     = pPagedAudioBuffer->pData->format;
     *pChannels   = pPagedAudioBuffer->pData->channels;
     *pSampleRate = 0;   /* There is no notion of a sample rate with audio buffers. */
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pPagedAudioBuffer->pData->channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pPagedAudioBuffer->pData->channels);
 
     return MA_SUCCESS;
 }
@@ -53359,7 +53359,7 @@ MA_API ma_result ma_wav_get_data_format(ma_wav* pWav, ma_format* pFormat, ma_uin
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pChannelMap, channelMapCap, pWav->dr.channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pChannelMap, channelMapCap, pWav->dr.channels);
         }
 
         return MA_SUCCESS;
@@ -53997,7 +53997,7 @@ MA_API ma_result ma_flac_get_data_format(ma_flac* pFlac, ma_format* pFormat, ma_
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_microsoft, pChannelMap, channelMapCap, pFlac->dr->channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pChannelMap, channelMapCap, pFlac->dr->channels);
         }
 
         return MA_SUCCESS;
@@ -54625,7 +54625,7 @@ MA_API ma_result ma_mp3_get_data_format(ma_mp3* pMP3, ma_format* pFormat, ma_uin
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pMP3->dr.channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pMP3->dr.channels);
         }
 
         return MA_SUCCESS;
@@ -55431,7 +55431,7 @@ MA_API ma_result ma_stbvorbis_get_data_format(ma_stbvorbis* pVorbis, ma_format* 
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_vorbis, pChannelMap, channelMapCap, pVorbis->channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_vorbis, pChannelMap, channelMapCap, pVorbis->channels);
         }
 
         return MA_SUCCESS;
@@ -57197,7 +57197,7 @@ static ma_result ma_waveform__data_source_on_get_data_format(ma_data_source* pDa
     *pFormat     = pWaveform->config.format;
     *pChannels   = pWaveform->config.channels;
     *pSampleRate = pWaveform->config.sampleRate;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pWaveform->config.channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pWaveform->config.channels);
 
     return MA_SUCCESS;
 }
@@ -57637,7 +57637,7 @@ static ma_result ma_noise__data_source_on_get_data_format(ma_data_source* pDataS
     *pFormat     = pNoise->config.format;
     *pChannels   = pNoise->config.channels;
     *pSampleRate = 0;   /* There is no notion of sample rate with noise generation. */
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pNoise->config.channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pNoise->config.channels);
 
     return MA_SUCCESS;
 }
@@ -60594,7 +60594,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
             *pFormat     = pDataBuffer->pNode->data.backend.decoded.format;
             *pChannels   = pDataBuffer->pNode->data.backend.decoded.channels;
             *pSampleRate = pDataBuffer->pNode->data.backend.decoded.sampleRate;
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
             return MA_SUCCESS;
         };
 
@@ -60603,7 +60603,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_data_format(ma_resource_man
             *pFormat     = pDataBuffer->pNode->data.backend.decodedPaged.data.format;
             *pChannels   = pDataBuffer->pNode->data.backend.decodedPaged.data.channels;
             *pSampleRate = pDataBuffer->pNode->data.backend.decodedPaged.sampleRate;
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, pDataBuffer->pNode->data.backend.decoded.channels);
             return MA_SUCCESS;
         };
 
@@ -66227,7 +66227,7 @@ static void ma_get_default_channel_map_for_spatializer(ma_channel* pChannelMap, 
         pChannelMap[0] = MA_CHANNEL_SIDE_LEFT;
         pChannelMap[1] = MA_CHANNEL_SIDE_RIGHT;
     } else {
-        ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, channelCount);
     }
 }
 
@@ -69559,7 +69559,7 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
         }
 
         if (pChannelMap != NULL) {
-            ma_get_standard_channel_map(ma_standard_channel_map_default, pChannelMap, channelMapCap, channels);
+            ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, channels);
         }
 
         return MA_SUCCESS;
