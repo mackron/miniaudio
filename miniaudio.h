@@ -13273,6 +13273,10 @@ typedef unsigned char           c89atomic_bool;
 #define c89atomic_fetch_and_i16(dst, src)                               c89atomic_fetch_and_explicit_i16(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_i32(dst, src)                               c89atomic_fetch_and_explicit_i32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_fetch_and_i64(dst, src)                               c89atomic_fetch_and_explicit_i64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_and_swap_i8( dst, expected, dedsired)         (c89atomic_int8 )c89atomic_compare_and_swap_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )expected, (c89atomic_uint8 )dedsired)
+#define c89atomic_compare_and_swap_i16(dst, expected, dedsired)         (c89atomic_int16)c89atomic_compare_and_swap_16((c89atomic_uint16*)dst, (c89atomic_uint16)expected, (c89atomic_uint16)dedsired)
+#define c89atomic_compare_and_swap_i32(dst, expected, dedsired)         (c89atomic_int32)c89atomic_compare_and_swap_32((c89atomic_uint32*)dst, (c89atomic_uint32)expected, (c89atomic_uint32)dedsired)
+#define c89atomic_compare_and_swap_i64(dst, expected, dedsired)         (c89atomic_int64)c89atomic_compare_and_swap_64((c89atomic_uint64*)dst, (c89atomic_uint64)expected, (c89atomic_uint64)dedsired)
 typedef union
 {
     c89atomic_uint32 i;
@@ -52401,7 +52405,7 @@ extern "C" {
 #define DRMP3_XSTRINGIFY(x)     DRMP3_STRINGIFY(x)
 #define DRMP3_VERSION_MAJOR     0
 #define DRMP3_VERSION_MINOR     6
-#define DRMP3_VERSION_REVISION  28
+#define DRMP3_VERSION_REVISION  29
 #define DRMP3_VERSION_STRING    DRMP3_XSTRINGIFY(DRMP3_VERSION_MAJOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_MINOR) "." DRMP3_XSTRINGIFY(DRMP3_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drmp3_int8;
@@ -61918,7 +61922,7 @@ done:
     immediately deletes it before we've got to this point. In this case, pDataBuffer->result will be MA_UNAVAILABLE, and setting it to MA_SUCCESS or any
     other error code would cause the buffer to look like it's in a state that it's not.
     */
-    c89atomic_compare_and_swap_32(&pJob->data.loadDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pJob->data.loadDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
 
     /* At this point initialization is complete and we can signal the notification if any. */
     if (pJob->data.loadDataBufferNode.pInitNotification != NULL) {
@@ -62018,7 +62022,7 @@ done:
     }
 
     /* Make sure we set the result of node in case some error occurred. */
-    c89atomic_compare_and_swap_32(&pJob->data.pageDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pJob->data.pageDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
 
     /* Signal the notification after setting the result in case the notification callback wants to inspect the result code. */
     if (result != MA_BUSY) {
@@ -62086,7 +62090,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 
 done:
     /* Only move away from a busy code so that we don't trash any existing error codes. */
-    c89atomic_compare_and_swap_32(&pJob->data.loadDataBuffer.pDataBuffer->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pJob->data.loadDataBuffer.pDataBuffer->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->data.loadDataBuffer.pDoneNotification != NULL) {
@@ -62205,7 +62209,7 @@ done:
     ma_free(pJob->data.loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
-    c89atomic_compare_and_swap_32(&pDataStream->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pDataStream->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->data.loadDataStream.pInitNotification != NULL) {
@@ -65981,7 +65985,7 @@ MA_API float ma_fader_get_current_volume(ma_fader* pFader)
     }
 
     /* The current volume depends on the position of the cursor. */
-    if (pFader->cursorInFrames <= 0) {
+    if (pFader->cursorInFrames == 0) {
         return pFader->volumeBeg;
     } else if (pFader->cursorInFrames >= pFader->lengthInFrames) {
         return pFader->volumeEnd;
@@ -83707,12 +83711,19 @@ static void drmp3_L3_midside_stereo(float *left, int n)
     int i = 0;
     float *right = left + 576;
 #if DRMP3_HAVE_SIMD
-    if (drmp3_have_simd()) for (; i < n - 3; i += 4)
+    if (drmp3_have_simd())
     {
-        drmp3_f4 vl = DRMP3_VLD(left + i);
-        drmp3_f4 vr = DRMP3_VLD(right + i);
-        DRMP3_VSTORE(left + i, DRMP3_VADD(vl, vr));
-        DRMP3_VSTORE(right + i, DRMP3_VSUB(vl, vr));
+        for (; i < n - 3; i += 4)
+        {
+            drmp3_f4 vl = DRMP3_VLD(left + i);
+            drmp3_f4 vr = DRMP3_VLD(right + i);
+            DRMP3_VSTORE(left + i, DRMP3_VADD(vl, vr));
+            DRMP3_VSTORE(right + i, DRMP3_VSUB(vl, vr));
+        }
+#ifdef __GNUC__
+        if (__builtin_constant_p(n % 4 == 0) && n % 4 == 0)
+            return;
+#endif
     }
 #endif
     for (; i < n; i++)
