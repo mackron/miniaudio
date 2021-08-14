@@ -22,7 +22,7 @@
 
 Examples
 ========
-This example shows how to decode and play a sound.
+This example shows how to decode and play a sound using the low level API.
 
 ```c
 #define MINIAUDIO_IMPLEMENTATION
@@ -89,7 +89,7 @@ int main(int argc, char** argv)
 }
 ```
 
-This example shows one way to play a sound using the high level API
+This example shows one way to play a sound using the high level API.
 
 ```c
 #define MINIAUDIO_IMPLEMENTATION
@@ -180,7 +180,7 @@ Major Features
 - Device enumeration for connecting to specific devices, not just defaults.
 - Connect to multiple devices at once.
 - Shared and exclusive mode on supported backends.
-- Data conversion (sample format, channel conversion and resampling).
+- Data conversion (sample format conversion, channel conversion and resampling).
 - Filters.
   - Biquads
   - Low-pass (first, second and high order)
