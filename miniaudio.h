@@ -58281,6 +58281,15 @@ static MA_INLINE ma_uint64 ma_resource_manager_job_toc_to_allocation(ma_uint64 t
     return ((ma_uint64)ma_resource_manager_job_extract_refcount(toc) << 32) | (ma_uint64)ma_resource_manager_job_extract_slot(toc);
 }
 
+static MA_INLINE ma_uint64 ma_resource_manager_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
+{
+    /* Clear the reference count first. */
+    toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
+    toc = toc |  ((ma_uint64)refcount   << 32);
+
+    return toc;
+}
+
 
 MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code)
 {
@@ -58486,6 +58495,12 @@ MA_API void ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* 
     }
 }
 
+static ma_bool32 ma_resource_manager_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+{
+    /* The new counter is taken from the expected value. */
+    return c89atomic_compare_and_swap_64(dst, expected, ma_resource_manager_job_set_refcount(desired, ma_resource_manager_job_extract_refcount(expected) + 1)) == expected;
+}
+
 MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queue* pQueue, const ma_resource_manager_job* pJob)
 {
     /*
@@ -58522,15 +58537,15 @@ MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queu
 
         if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
             if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
-                if (c89atomic_compare_and_swap_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot) == next) {
+                if (ma_resource_manager_job_queue_cas(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot)) {
                     break;
                 }
             } else {
-                c89atomic_compare_and_swap_64(&pQueue->tail, tail, next);
+                ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
             }
         }
     }
-    c89atomic_compare_and_swap_64(&pQueue->tail, tail, slot);
+    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, slot);
 
 
     /* Signal the semaphore as the last step if we're using synchronous mode. */
@@ -58583,10 +58598,10 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
                 if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
                     return MA_NO_DATA_AVAILABLE;
                 }
-                c89atomic_compare_and_swap_64(&pQueue->tail, tail, next);
+                ma_resource_manager_job_queue_cas(&pQueue->tail, tail, next);
             } else {
                 *pJob = pQueue->pJobs[ma_resource_manager_job_extract_slot(next)];
-                if (c89atomic_compare_and_swap_64(&pQueue->head, head, next) == head) {
+                if (ma_resource_manager_job_queue_cas(&pQueue->head, head, next)) {
                     break;
                 }
             }
