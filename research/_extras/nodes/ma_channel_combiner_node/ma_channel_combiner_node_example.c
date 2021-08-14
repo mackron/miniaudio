@@ -1,2 +1,1 @@
-/* The channel separtor example also demonstrates how to use the combiner. */
-#include "../ma_channel_separator_node/ma_channel_separator_node_example.c"
+#include "../../../../extras/nodes/ma_channel_combiner_node/ma_channel_combiner_node_example.c"
