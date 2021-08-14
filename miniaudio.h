@@ -40552,6 +40552,9 @@ static ma_result ma_biquad_get_heap_layout(const ma_biquad_config* pConfig, ma_b
     pHeapLayout->r2Offset = pHeapLayout->sizeInBytes;
     pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
 
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
     return MA_SUCCESS;
 }
 
@@ -67797,6 +67800,7 @@ typedef struct
 {
     size_t sizeInBytes;
     size_t baseNodeOffset;
+    size_t resamplerOffset;
     size_t spatializerOffset;
 } ma_engine_node_heap_layout;
 
@@ -67805,6 +67809,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     ma_result result;
     size_t tempHeapSize;
     ma_node_config baseNodeConfig;
+    ma_linear_resampler_config resamplerConfig;
     ma_spatializer_config spatializerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
@@ -67838,6 +67843,19 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     }
 
     pHeapLayout->baseNodeOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
+
+
+    /* Resmapler. */
+    resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, channelsIn, 1, 1); /* Input and output sample rates don't affect the calculation of the heap size. */
+    resamplerConfig.lpfOrder = 0;
+    
+    result = ma_linear_resampler_get_heap_size(&resamplerConfig, &tempHeapSize);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap for the resampler. */
+    }
+
+    pHeapLayout->resamplerOffset = pHeapLayout->sizeInBytes;
     pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
 
 
@@ -67944,7 +67962,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, baseNodeConfig.pInputChannels[0], pEngineNode->sampleRate, ma_engine_get_sample_rate(pEngineNode->pEngine));
     resamplerConfig.lpfOrder = 0;    /* <-- Need to disable low-pass filtering for pitch shifting for now because there's cases where the biquads are becoming unstable. Need to figure out a better fix for this. */
 
-    result = ma_linear_resampler_init(&resamplerConfig, &pEngineNode->pEngine->allocationCallbacks, &pEngineNode->resampler);  /* TODO: Use pre-allocation here. */
+    result = ma_linear_resampler_init_preallocated(&resamplerConfig, ma_offset_ptr(pHeap, heapLayout.baseNodeOffset), &pEngineNode->resampler);
     if (result != MA_SUCCESS) {
         goto error1;
     }
