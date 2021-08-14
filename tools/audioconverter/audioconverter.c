@@ -56,7 +56,7 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
         }
 
         /* At this point we have the raw data from the decoder. We now just need to write it to the encoder. */
-        ma_encoder_write_pcm_frames(pEncoder, pRawData, framesReadThisIteration);
+        ma_encoder_write_pcm_frames(pEncoder, pRawData, framesReadThisIteration, NULL);
 
         /* Get out of the loop if we've reached the end. */
         if (framesReadThisIteration < framesToReadThisIteration) {

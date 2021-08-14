@@ -8574,7 +8574,7 @@ struct ma_node_graph
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
 MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph);
-MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead);
+MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_uint32 ma_node_graph_get_channels(const ma_node_graph* pNodeGraph);
 MA_API ma_uint64 ma_node_graph_get_time(const ma_node_graph* pNodeGraph);
 MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 globalTime);
@@ -8838,7 +8838,7 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 Engine
 
 ************************************************************************************************************************************************************/
-#if !defined(MA_NO_ENGINE) && !defined(MA_NO_NODE_GRAPH) && !defined(MA_NO_DEVICE_IO)
+#if !defined(MA_NO_ENGINE) && !defined(MA_NO_NODE_GRAPH)
 typedef struct ma_engine ma_engine;
 typedef struct ma_sound  ma_sound;
 
@@ -8961,8 +8961,11 @@ typedef struct
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
 #endif
+#if !defined(MA_NO_DEVICE_IO)
     ma_context* pContext;
     ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
+    ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
+#endif
     ma_log* pLog;                           /* When set to NULL, will use the context's log. */
     ma_uint32 listenerCount;                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
     ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
@@ -8971,7 +8974,6 @@ typedef struct
     ma_uint32 periodSizeInMilliseconds;     /* Used if periodSizeInFrames is unset. */
     ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 gainSmoothTimeInMilliseconds; /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
-    ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_vfs* pResourceManagerVFS;            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
@@ -8986,14 +8988,17 @@ struct ma_engine
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;
 #endif
+#if !defined(MA_NO_DEVICE_IO)
     ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
+#endif
     ma_log* pLog;
+    ma_uint32 sampleRate;
     ma_uint32 listenerCount;
     ma_spatializer_listener listeners[MA_ENGINE_MAX_LISTENERS];
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_mutex inlinedSoundLock;              /* For synchronizing access so the inlined sound list. */
+    ma_spinlock inlinedSoundLock;           /* For synchronizing access so the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC ma_uint32 inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
     ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. */
@@ -9001,7 +9006,7 @@ struct ma_engine
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
 MA_API void ma_engine_uninit(ma_engine* pEngine);
-MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pOutput, const void* pInput, ma_uint32 frameCount);
+MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
@@ -64751,10 +64756,10 @@ MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph)
     return &pNodeGraph->endpoint;
 }
 
-MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
+MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
-    ma_uint32 totalFramesRead;
+    ma_uint64 totalFramesRead;
     ma_uint32 channels;
 
     if (pFramesRead != NULL) {
@@ -64772,11 +64777,15 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
     totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
         ma_uint32 framesJustRead;
-        ma_uint32 framesToRead = frameCount - totalFramesRead;
+        ma_uint64 framesToRead = frameCount - totalFramesRead;
+
+        if (framesToRead > 0xFFFFFFFF) {
+            framesToRead = 0xFFFFFFFF;
+        }
 
         ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
         {
-            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
+            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), (ma_uint32)framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
         }
         ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
 
@@ -67422,8 +67431,7 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode)
 #endif  /* MA_NO_NODE_GRAPH */
 
 
-#if !defined(MA_NO_ENGINE) && !defined(MA_NO_NODE_GRAPH) && !defined(MA_NO_DEVICE_IO)
-
+#if !defined(MA_NO_ENGINE) && !defined(MA_NO_NODE_GRAPH)
 /**************************************************************************************************************************************************************
 
 Engine
@@ -68141,9 +68149,12 @@ MA_API ma_engine_config ma_engine_config_init(void)
 }
 
 
+#if !defined(MA_NO_DEVICE_IO)
 static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     ma_engine* pEngine = (ma_engine*)pDevice->pUserData;
+
+    (void)pFramesIn;
 
     /*
     Experiment: Try processing a resource manager job if we're on the Emscripten build.
@@ -68169,8 +68180,9 @@ static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOu
     }
     #endif
 
-    ma_engine_data_callback(pEngine, pFramesOut, pFramesIn, frameCount);
+    ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
 }
+#endif
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine)
 {
@@ -68191,74 +68203,93 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         engineConfig = ma_engine_config_init();
     }
 
-#if !defined(MA_NO_RESOURCE_MANAGER)
-    pEngine->pResourceManager = engineConfig.pResourceManager;
-#endif
-    pEngine->pDevice          = engineConfig.pDevice;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
-    /* If we don't have a device, we need one. */
-    if (pEngine->pDevice == NULL) {
-        ma_device_config deviceConfig;
-
-        pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks);
-        if (pEngine->pDevice == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        deviceConfig = ma_device_config_init(ma_device_type_playback);
-        deviceConfig.playback.pDeviceID        = engineConfig.pPlaybackDeviceID;
-        deviceConfig.playback.format           = ma_format_f32;
-        deviceConfig.playback.channels         = engineConfig.channels;
-        deviceConfig.sampleRate                = engineConfig.sampleRate;
-        deviceConfig.dataCallback              = ma_engine_data_callback_internal;
-        deviceConfig.pUserData                 = pEngine;
-        deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
-        deviceConfig.periodSizeInMilliseconds  = engineConfig.periodSizeInMilliseconds;
-        deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
-        deviceConfig.noClip                    = MA_TRUE;    /* The mixing engine will do clipping itself. */
-
-        if (engineConfig.pContext == NULL) {
-            ma_context_config contextConfig = ma_context_config_init();
-            contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
-            contextConfig.pLog = engineConfig.pLog;
-
-            /* If the engine config does not specify a log, use the resource manager's if we have one. */
-            #ifndef MA_NO_RESOURCE_MANAGER
-            {
-                if (contextConfig.pLog == NULL && engineConfig.pResourceManager != NULL) {
-                    contextConfig.pLog = ma_resource_manager_get_log(engineConfig.pResourceManager);
-                }
-            }
-            #endif
-
-            result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
-        } else {
-            result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
-        }
-
-        if (result != MA_SUCCESS) {
-            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
-            pEngine->pDevice = NULL;
-            return result;
-        }
-
-        pEngine->ownsDevice = MA_TRUE;
+    #if !defined(MA_NO_RESOURCE_MANAGER)
+    {
+        pEngine->pResourceManager = engineConfig.pResourceManager;
     }
+    #endif
 
-    /*
-    The engine always uses either the log that was passed into the config, or the context's log. Either
-    way, the engine never has ownership of the log.
-    */
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        pEngine->pDevice = engineConfig.pDevice;
+    
+        /* If we don't have a device, we need one. */
+        if (pEngine->pDevice == NULL) {
+            ma_device_config deviceConfig;
+
+            pEngine->pDevice = (ma_device*)ma_malloc(sizeof(*pEngine->pDevice), &pEngine->allocationCallbacks);
+            if (pEngine->pDevice == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            deviceConfig = ma_device_config_init(ma_device_type_playback);
+            deviceConfig.playback.pDeviceID        = engineConfig.pPlaybackDeviceID;
+            deviceConfig.playback.format           = ma_format_f32;
+            deviceConfig.playback.channels         = engineConfig.channels;
+            deviceConfig.sampleRate                = engineConfig.sampleRate;
+            deviceConfig.dataCallback              = ma_engine_data_callback_internal;
+            deviceConfig.pUserData                 = pEngine;
+            deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
+            deviceConfig.periodSizeInMilliseconds  = engineConfig.periodSizeInMilliseconds;
+            deviceConfig.noPreSilencedOutputBuffer = MA_TRUE;    /* We'll always be outputting to every frame in the callback so there's no need for a pre-silenced buffer. */
+            deviceConfig.noClip                    = MA_TRUE;    /* The engine will do clipping itself. */
+
+            if (engineConfig.pContext == NULL) {
+                ma_context_config contextConfig = ma_context_config_init();
+                contextConfig.allocationCallbacks = pEngine->allocationCallbacks;
+                contextConfig.pLog = engineConfig.pLog;
+
+                /* If the engine config does not specify a log, use the resource manager's if we have one. */
+                #ifndef MA_NO_RESOURCE_MANAGER
+                {
+                    if (contextConfig.pLog == NULL && engineConfig.pResourceManager != NULL) {
+                        contextConfig.pLog = ma_resource_manager_get_log(engineConfig.pResourceManager);
+                    }
+                }
+                #endif
+
+                result = ma_device_init_ex(NULL, 0, &contextConfig, &deviceConfig, pEngine->pDevice);
+            } else {
+                result = ma_device_init(engineConfig.pContext, &deviceConfig, pEngine->pDevice);
+            }
+
+            if (result != MA_SUCCESS) {
+                ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
+                pEngine->pDevice = NULL;
+                return result;
+            }
+
+            pEngine->ownsDevice = MA_TRUE;
+        }
+
+        /* Update the channel count and sample rate of the engine config so we can reference it below. */
+        engineConfig.channels   = pEngine->pDevice->playback.channels;
+        engineConfig.sampleRate = pEngine->pDevice->sampleRate;
+    }
+    #endif
+
+    pEngine->sampleRate = engineConfig.sampleRate;
+
+    /* The engine always uses either the log that was passed into the config, or the context's log is available. */
     if (engineConfig.pLog != NULL) {
         pEngine->pLog = engineConfig.pLog;
     } else {
-        pEngine->pLog = ma_device_get_log(pEngine->pDevice);
+        #if !defined(MA_NO_DEVICE_IO)
+        {
+            pEngine->pLog = ma_device_get_log(pEngine->pDevice);
+        }
+        #else
+        {
+            pEngine->pLog = NULL;
+        }
+        #endif
     }
 
 
     /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
-    nodeGraphConfig = ma_node_graph_config_init(pEngine->pDevice->playback.channels);
+    nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
     if (result != MA_SUCCESS) {
@@ -68277,7 +68308,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 
     for (iListener = 0; iListener < engineConfig.listenerCount; iListener += 1) {
-        listenerConfig = ma_spatializer_listener_config_init(pEngine->pDevice->playback.channels);
+        listenerConfig = ma_spatializer_listener_config_init(ma_node_graph_get_channels(&pEngine->nodeGraph));
 
         result = ma_spatializer_listener_init(&listenerConfig, &pEngine->allocationCallbacks, &pEngine->listeners[iListener]);  /* TODO: Change this to a pre-allocated heap. */
         if (result != MA_SUCCESS) {
@@ -68339,7 +68370,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     #endif
 
     /* Setup some stuff for inlined sounds. That is sounds played with ma_engine_play_sound(). */
-    ma_mutex_init(&pEngine->inlinedSoundLock);
+    pEngine->inlinedSoundLock  = 0;
     pEngine->pInlinedSoundHead = NULL;
 
     /* Start the engine if required. This should always be the last step. */
@@ -68353,8 +68384,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     return MA_SUCCESS;
 
 on_error_4:
-    ma_mutex_uninit(&pEngine->inlinedSoundLock);
-#ifndef MA_NO_RESOURCE_MANAGER
+#if !defined(MA_NO_RESOURCE_MANAGER)
 on_error_3:
     if (pEngine->ownsResourceManager) {
         ma_free(pEngine->pResourceManager, &pEngine->allocationCallbacks);
@@ -68367,10 +68397,14 @@ on_error_2:
 
     ma_node_graph_uninit(&pEngine->nodeGraph, &pEngine->allocationCallbacks);
 on_error_1:
-    if (pEngine->ownsDevice) {
-        ma_device_uninit(pEngine->pDevice);
-        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        if (pEngine->ownsDevice) {
+            ma_device_uninit(pEngine->pDevice);
+            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
+        }
     }
+    #endif
 
     return result;
 }
@@ -68384,18 +68418,22 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
     }
 
     /* The device must be uninitialized before the node graph to ensure the audio thread doesn't try accessing it. */
-    if (pEngine->ownsDevice) {
-        ma_device_uninit(pEngine->pDevice);
-        ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
-    } else {
-        ma_device_stop(pEngine->pDevice);
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        if (pEngine->ownsDevice) {
+            ma_device_uninit(pEngine->pDevice);
+            ma_free(pEngine->pDevice, &pEngine->allocationCallbacks);
+        } else {
+            ma_device_stop(pEngine->pDevice);
+        }
     }
+    #endif
 
     /*
     All inlined sounds need to be deleted. I'm going to use a lock here just to future proof in case
     I want to do some kind of garbage collection later on.
     */
-    ma_mutex_lock(&pEngine->inlinedSoundLock);
+    ma_spinlock_lock(&pEngine->inlinedSoundLock);
     {
         for (;;) {
             ma_sound_inlined* pSoundToDelete = pEngine->pInlinedSoundHead;
@@ -68409,8 +68447,7 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
             ma_free(pSoundToDelete, &pEngine->allocationCallbacks);
         }
     }
-    ma_mutex_unlock(&pEngine->inlinedSoundLock);
-    ma_mutex_uninit(&pEngine->inlinedSoundLock);
+    ma_spinlock_unlock(&pEngine->inlinedSoundLock);
 
     for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
         ma_spatializer_listener_uninit(&pEngine->listeners[iListener], &pEngine->allocationCallbacks);
@@ -68428,11 +68465,9 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
 #endif
 }
 
-MA_API void ma_engine_data_callback(ma_engine* pEngine, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
+MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    (void)pFramesIn;    /* Unused. */
-
-    ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, NULL);
+    return ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, pFramesRead);
 }
 
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
@@ -68441,7 +68476,15 @@ MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
         return NULL;
     }
 
-    return pEngine->pDevice;
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        return pEngine->pDevice;
+    }
+    #else
+    {
+        return NULL;
+    }
+    #endif
 }
 
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine)
@@ -68453,7 +68496,15 @@ MA_API ma_log* ma_engine_get_log(ma_engine* pEngine)
     if (pEngine->pLog != NULL) {
         return pEngine->pLog;
     } else {
-        return ma_device_get_log(ma_engine_get_device(pEngine));
+        #if !defined(MA_NO_DEVICE_IO)
+        {
+            return ma_device_get_log(ma_engine_get_device(pEngine));
+        }
+        #else
+        {
+            return NULL;
+        }
+        #endif
     }
 }
 
@@ -68483,11 +68534,7 @@ MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine)
         return 0;
     }
 
-    if (pEngine->pDevice != NULL) {
-        return pEngine->pDevice->sampleRate;
-    } else {
-        return 0;   /* No device. */
-    }
+    return pEngine->sampleRate;
 }
 
 
@@ -68499,7 +68546,16 @@ MA_API ma_result ma_engine_start(ma_engine* pEngine)
         return MA_INVALID_ARGS;
     }
 
-    result = ma_device_start(pEngine->pDevice);
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        result = ma_device_start(pEngine->pDevice);
+    }
+    #else
+    {
+        result = MA_INVALID_OPERATION;  /* Device IO is disabled, so there's no real notion of "starting" the engine. */
+    }
+    #endif
+
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -68515,7 +68571,16 @@ MA_API ma_result ma_engine_stop(ma_engine* pEngine)
         return MA_INVALID_ARGS;
     }
 
-    result = ma_device_stop(pEngine->pDevice);
+    #if !defined(MA_NO_DEVICE_IO)
+    {
+        result = ma_device_stop(pEngine->pDevice);
+    }
+    #else
+    {
+        result = MA_INVALID_OPERATION;  /* Device IO is disabled, so there's no real notion of "stopping" the engine. */
+    }
+    #endif
+
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -68529,7 +68594,7 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume)
         return MA_INVALID_ARGS;
     }
 
-    return ma_device_set_master_volume(pEngine->pDevice, volume);
+    return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, volume);
 }
 
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
@@ -68538,7 +68603,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
         return MA_INVALID_ARGS;
     }
 
-    return ma_device_set_master_gain_db(pEngine->pDevice, gainDB);
+    return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, ma_gain_db_to_factor(gainDB));
 }
 
 
@@ -68702,7 +68767,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
     simultaneously as we don't ever actually free the sound objects. Some kind of garbage
     collection routine might be valuable for this which I'll think about.
     */
-    ma_mutex_lock(&pEngine->inlinedSoundLock);
+    ma_spinlock_lock(&pEngine->inlinedSoundLock);
     {
         ma_uint32 soundFlags = 0;
 
@@ -68774,7 +68839,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
             result = MA_OUT_OF_MEMORY;
         }
     }
-    ma_mutex_unlock(&pEngine->inlinedSoundLock);
+    ma_spinlock_unlock(&pEngine->inlinedSoundLock);
 
     if (result != MA_SUCCESS) {
         return result;
