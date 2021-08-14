@@ -4147,11 +4147,14 @@ This section contains the APIs for device playback and capture. Here is where yo
     #define MA_HAS_NULL
 #endif
 
-#define MA_STATE_UNINITIALIZED     0
-#define MA_STATE_STOPPED           1   /* The device's default state after initialization. */
-#define MA_STATE_STARTED           2   /* The device is started and is requesting and/or delivering audio data. */
-#define MA_STATE_STARTING          3   /* Transitioning from a stopped state to started. */
-#define MA_STATE_STOPPING          4   /* Transitioning from a started state to stopped. */
+typedef enum
+{
+    ma_device_state_uninitialized = 0,
+    ma_device_state_stopped       = 1,  /* The device's default state after initialization. */
+    ma_device_state_started       = 2,  /* The device is started and is requesting and/or delivering audio data. */
+    ma_device_state_starting      = 3,  /* Transitioning from a stopped state to started. */
+    ma_device_state_stopping      = 4   /* Transitioning from a started state to stopped. */
+} ma_device_state;
 
 #ifdef MA_SUPPORT_WASAPI
 /* We need a IMMNotificationClient object for WASAPI. */
@@ -4574,11 +4577,11 @@ This allows miniaudio to then process any necessary data conversion and then pas
 If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceDataLoop()` callback
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
-The audio thread should run data delivery logic in a loop while `ma_device_get_state() == MA_STATE_STARTED` and no errors have been
+The audio thread should run data delivery logic in a loop while `ma_device_get_state() == ma_device_state_started` and no errors have been
 encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
 
 The invocation of the `onDeviceDataLoop()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
-callback. When the device is stopped, the `ma_device_get_state() == MA_STATE_STARTED` condition will fail and the loop will be terminated
+callback. When the device is stopped, the `ma_device_get_state() == ma_device_state_started` condition will fail and the loop will be terminated
 which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceDataLoop()` callback,
 look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceDataLoopWakeup()` callback if you need a mechanism to
 wake up the audio thread.
@@ -5071,7 +5074,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    MA_ATOMIC ma_uint32 state;              /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
+    MA_ATOMIC ma_device_state state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;             /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
@@ -6384,17 +6387,17 @@ Return Value
 ------------
 The current state of the device. The return value will be one of the following:
 
-    +------------------------+------------------------------------------------------------------------------+
-    | MA_STATE_UNINITIALIZED | Will only be returned if the device is in the middle of initialization.      |
-    +------------------------+------------------------------------------------------------------------------+
-    | MA_STATE_STOPPED       | The device is stopped. The initial state of the device after initialization. |
-    +------------------------+------------------------------------------------------------------------------+
-    | MA_STATE_STARTED       | The device started and requesting and/or delivering audio data.              |
-    +------------------------+------------------------------------------------------------------------------+
-    | MA_STATE_STARTING      | The device is in the process of starting.                                    |
-    +------------------------+------------------------------------------------------------------------------+
-    | MA_STATE_STOPPING      | The device is in the process of stopping.                                    |
-    +------------------------+------------------------------------------------------------------------------+
+    +-------------------------------+------------------------------------------------------------------------------+
+    | ma_device_state_uninitialized | Will only be returned if the device is in the middle of initialization.      |
+    +-------------------------------+------------------------------------------------------------------------------+
+    | ma_device_state_stopped       | The device is stopped. The initial state of the device after initialization. |
+    +-------------------------------+------------------------------------------------------------------------------+
+    | ma_device_state_started       | The device started and requesting and/or delivering audio data.              |
+    +-------------------------------+------------------------------------------------------------------------------+
+    | ma_device_state_starting      | The device is in the process of starting.                                    |
+    +-------------------------------+------------------------------------------------------------------------------+
+    | ma_device_state_stopping      | The device is in the process of stopping.                                    |
+    +-------------------------------+------------------------------------------------------------------------------+
 
 
 Thread Safety
@@ -6413,16 +6416,16 @@ Remarks
 The general flow of a devices state goes like this:
 
     ```
-    ma_device_init()  -> MA_STATE_UNINITIALIZED -> MA_STATE_STOPPED
-    ma_device_start() -> MA_STATE_STARTING      -> MA_STATE_STARTED
-    ma_device_stop()  -> MA_STATE_STOPPING      -> MA_STATE_STOPPED
+    ma_device_init()  -> ma_device_state_uninitialized -> ma_device_state_stopped
+    ma_device_start() -> ma_device_state_starting      -> ma_device_state_started
+    ma_device_stop()  -> ma_device_state_stopping      -> ma_device_state_stopped
     ```
 
 When the state of the device is changed with `ma_device_start()` or `ma_device_stop()` at this same time as this function is called, the
 value returned by this function could potentially be out of sync. If this is significant to your program you need to implement your own
 synchronization.
 */
-MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice);
+MA_API ma_device_state ma_device_get_state(const ma_device* pDevice);
 
 
 /*
@@ -15435,9 +15438,9 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 }
 
 /* A helper for changing the state of the device. */
-static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_uint32 newState)
+static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state newState)
 {
-    c89atomic_exchange_32(&pDevice->state, newState);
+    c89atomic_exchange_i32((ma_int32*)&pDevice->state, (ma_int32)newState);
 }
 
 
@@ -15518,7 +15521,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 
     /* NOTE: The device was started outside of this function, in the worker thread. */
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started && !exitLoop) {
         switch (pDevice->type) {
             case ma_device_type_duplex:
             {
@@ -17092,7 +17095,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
             use this to determine whether or not we need to automatically start the device when it's
             plugged back in again.
             */
-            if (ma_device_get_state(pThis->pDevice) == MA_STATE_STARTED) {
+            if (ma_device_get_state(pThis->pDevice) == ma_device_state_started) {
                 if (isPlayback) {
                     pThis->pDevice->wasapi.isDetachedPlayback = MA_TRUE;
                 }
@@ -17202,13 +17205,13 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     /*
     Second attempt at device rerouting. We're going to retrieve the device's state at the time of
     the route change. We're then going to stop the device, reinitialize the device, and then start
-    it again if the state before stopping was MA_STATE_STARTED.
+    it again if the state before stopping was ma_device_state_started.
     */
     {
         ma_uint32 previousState = ma_device_get_state(pThis->pDevice);
         ma_bool8 restartDevice = MA_FALSE;
 
-        if (previousState == MA_STATE_STARTED) {
+        if (previousState == ma_device_state_started) {
             ma_device_stop(pThis->pDevice);
             restartDevice = MA_TRUE;
         }
@@ -19143,7 +19146,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
         outputDataInClientFormatCap = sizeof(outputDataInClientFormat) / bpfPlaybackClient;
     }
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && !exitLoop) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started && !exitLoop) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -20961,7 +20964,7 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
         }
     }
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started) {
         switch (pDevice->type)
         {
             case ma_device_type_duplex:
@@ -22367,7 +22370,7 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
         }
 
         /* If the device has been stopped we need to break. */
-        if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
+        if (ma_device_get_state(pDevice) != ma_device_state_started) {
             break;
         }
     }
@@ -22456,7 +22459,7 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
         }
 
         /* If the device has been stopped we need to break. */
-        if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
+        if (ma_device_get_state(pDevice) != ma_device_state_started) {
             break;
         }
     }
@@ -24216,7 +24219,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
         *pFramesRead = 0;
     }
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started) {
         ma_result result;
 
         /* The first thing to do is wait for data to become available for reading. This will return an error code if the device has been stopped. */
@@ -24272,7 +24275,7 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
         *pFramesWritten = 0;
     }
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started) {
         ma_result result;
 
         /* The first thing to do is wait for space to become available for writing. This will return an error code if the device has been stopped. */
@@ -24693,7 +24696,7 @@ that point (it may still need to load files or whatnot). Instead, this callback 
 stream be started which is how it works with literally *every* other callback-based audio API. Since miniaudio forbids firing of the data
 callback until the device has been started (as it should be with *all* callback based APIs), logic needs to be added to ensure miniaudio
 doesn't just blindly fire the application-defined data callback from within the PulseAudio callback before the stream has actually been
-started. The device state is used for this - if the state is anything other than `MA_STATE_STARTING` or `MA_STATE_STARTED`, the main data
+started. The device state is used for this - if the state is anything other than `ma_device_state_starting` or `ma_device_state_started`, the main data
 callback is not fired.
 
 This, unfortunately, is not the end of the problems with the PulseAudio write callback. Any normal callback based audio API will
@@ -26025,7 +26028,7 @@ static void ma_device_on_read__pulse(ma_pa_stream* pStream, size_t byteCount, vo
     can fire this callback before the stream has even started. Ridiculous.
     */
     deviceState = ma_device_get_state(pDevice);
-    if (deviceState != MA_STATE_STARTING && deviceState != MA_STATE_STARTED) {
+    if (deviceState != ma_device_state_starting && deviceState != ma_device_state_started) {
         return;
     }
 
@@ -26035,7 +26038,7 @@ static void ma_device_on_read__pulse(ma_pa_stream* pStream, size_t byteCount, vo
     frameCount = byteCount / bpf;
     framesProcessed = 0;
 
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED && framesProcessed < frameCount) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started && framesProcessed < frameCount) {
         const void* pMappedPCMFrames;
         size_t bytesMapped;
         ma_uint64 framesMapped;
@@ -26097,7 +26100,7 @@ static ma_result ma_device_write_to_stream__pulse(ma_device* pDevice, ma_pa_stre
 
             framesMapped = bytesMapped / bpf;
 
-            if (deviceState == MA_STATE_STARTED || deviceState == MA_STATE_STARTING) {  /* Check for starting state just in case this is being used to do the initial fill. */
+            if (deviceState == ma_device_state_started || deviceState == ma_device_state_starting) {  /* Check for starting state just in case this is being used to do the initial fill. */
                 ma_device_handle_backend_data_callback(pDevice, pMappedPCMFrames, NULL, framesMapped);
             } else {
                 /* Device is not started. Write silence. */
@@ -26144,7 +26147,7 @@ static void ma_device_on_write__pulse(ma_pa_stream* pStream, size_t byteCount, v
     can fire this callback before the stream has even started. Ridiculous.
     */
     deviceState = ma_device_get_state(pDevice);
-    if (deviceState != MA_STATE_STARTING && deviceState != MA_STATE_STARTED) {
+    if (deviceState != ma_device_state_starting && deviceState != ma_device_state_started) {
         return;
     }
 
@@ -26159,7 +26162,7 @@ static void ma_device_on_write__pulse(ma_pa_stream* pStream, size_t byteCount, v
 
         /* Don't keep trying to process frames if the device isn't started. */
         deviceState = ma_device_get_state(pDevice);
-        if (deviceState != MA_STATE_STARTING && deviceState != MA_STATE_STARTED) {
+        if (deviceState != ma_device_state_starting && deviceState != ma_device_state_started) {
             break;
         }
 
@@ -26417,7 +26420,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
         /*
         Note that this callback will be fired as soon as the stream is connected, even though it's started as corked. The callback needs to handle a
-        device state of MA_STATE_UNINITIALIZED.
+        device state of ma_device_state_uninitialized.
         */
         ((ma_pa_stream_set_write_callback_proc)pDevice->pContext->pulse.pa_stream_set_write_callback)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_device_on_write__pulse, pDevice);
 
@@ -26644,7 +26647,7 @@ static ma_result ma_device_data_loop__pulse(ma_device* pDevice)
     All data is handled through callbacks. All we need to do is iterate over the main loop and let
     the callbacks deal with it.
     */
-    while (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+    while (ma_device_get_state(pDevice) == ma_device_state_started) {
         resultPA = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pContext->pulse.pMainLoop, 1, NULL);
         if (resultPA < 0) {
             break;
@@ -29432,7 +29435,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     can try waiting on the same lock. I'm going to try working around this by not calling any Core
     Audio APIs in the callback when the device has been stopped or uninitialized.
     */
-    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED || ma_device_get_state(pDevice) == MA_STATE_STOPPING || ma_device_get_state(pDevice) == MA_STATE_STOPPED) {
+    if (ma_device_get_state(pDevice) == ma_device_state_uninitialized || ma_device_get_state(pDevice) == ma_device_state_stopping || ma_device_get_state(pDevice) == ma_device_state_stopped) {
         ma_stop_proc onStop = pDevice->onStop;
         if (onStop) {
             onStop(pDevice);
@@ -29540,7 +29543,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
                     ma_device__post_init_setup(pDevice, deviceType);
 
                     /* Restart the device if required. If this fails we need to stop the device entirely. */
-                    if (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+                    if (ma_device_get_state(pDevice) == ma_device_state_started) {
                         OSStatus status;
                         if (deviceType == ma_device_type_playback) {
                             status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
@@ -29548,7 +29551,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
                                 if (pDevice->type == ma_device_type_duplex) {
                                     ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
                                 }
-                                ma_device__set_state(pDevice, MA_STATE_STOPPED);
+                                ma_device__set_state(pDevice, ma_device_state_stopped);
                             }
                         } else if (deviceType == ma_device_type_capture) {
                             status = ((ma_AudioOutputUnitStart_proc)pDevice->pContext->coreaudio.AudioOutputUnitStart)((AudioUnit)pDevice->coreaudio.audioUnitCapture);
@@ -29556,7 +29559,7 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
                                 if (pDevice->type == ma_device_type_duplex) {
                                     ((ma_AudioOutputUnitStop_proc)pDevice->pContext->coreaudio.AudioOutputUnitStop)((AudioUnit)pDevice->coreaudio.audioUnitPlayback);
                                 }
-                                ma_device__set_state(pDevice, MA_STATE_STOPPED);
+                                ma_device__set_state(pDevice, ma_device_state_stopped);
                             }
                         }
                     }
@@ -29781,7 +29784,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 #if 0
     ma_uint32 previousState = ma_device_get_state(m_pDevice);
 
-    if (previousState == MA_STATE_STARTED) {
+    if (previousState == ma_device_state_started) {
         ma_device_stop(m_pDevice);
     }
 
@@ -29796,7 +29799,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
         ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
     }
 
-    if (previousState == MA_STATE_STARTED) {
+    if (previousState == ma_device_state_started) {
         ma_device_start(m_pDevice);
     }
 #endif
@@ -29807,7 +29810,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 static ma_result ma_device_uninit__coreaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-    MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED);
+    MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_uninitialized);
 
 #if defined(MA_APPLE_DESKTOP)
     /*
@@ -33020,7 +33023,7 @@ static ma_result ma_device_write__oss(ma_device* pDevice, const void* pPCMFrames
 
     /* Don't do any processing if the device is stopped. */
     deviceState = ma_device_get_state(pDevice);
-    if (deviceState != MA_STATE_STARTED && deviceState != MA_STATE_STARTING) {
+    if (deviceState != ma_device_state_started && deviceState != ma_device_state_starting) {
         return MA_SUCCESS;
     }
 
@@ -33048,7 +33051,7 @@ static ma_result ma_device_read__oss(ma_device* pDevice, void* pPCMFrames, ma_ui
 
     /* Don't do any processing if the device is stopped. */
     deviceState = ma_device_get_state(pDevice);
-    if (deviceState != MA_STATE_STARTED && deviceState != MA_STATE_STARTING) {
+    if (deviceState != ma_device_state_started && deviceState != ma_device_state_starting) {
         return MA_SUCCESS;
     }
 
@@ -34394,7 +34397,7 @@ static void ma_buffer_queue_callback_capture__opensl_android(SLAndroidSimpleBuff
     */
 
     /* Don't do anything if the device is not started. */
-    if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) != ma_device_state_started) {
         return;
     }
 
@@ -34428,7 +34431,7 @@ static void ma_buffer_queue_callback_playback__opensl_android(SLAndroidSimpleBuf
     (void)pBufferQueue;
 
     /* Don't do anything if the device is not started. */
-    if (ma_device_get_state(pDevice) != MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) != ma_device_state_started) {
         return;
     }
 
@@ -35414,7 +35417,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         /* The AudioContext must be created in a suspended state. */
         device.webaudio = new (window.AudioContext || window.webkitAudioContext)({sampleRate:sampleRate});
         device.webaudio.suspend();
-        device.state = 1; /* MA_STATE_STOPPED */
+        device.state = 1; /* ma_device_state_stopped */
 
         /*
         We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. Because it's passed between
@@ -35624,7 +35627,7 @@ static ma_result ma_device_start__webaudio(ma_device* pDevice)
         EM_ASM({
             var device = miniaudio.get_device_by_index($0);
             device.webaudio.resume();
-            device.state = 2; /* MA_STATE_STARTED */
+            device.state = 2; /* ma_device_state_started */
         }, pDevice->webaudio.indexCapture);
     }
 
@@ -35632,7 +35635,7 @@ static ma_result ma_device_start__webaudio(ma_device* pDevice)
         EM_ASM({
             var device = miniaudio.get_device_by_index($0);
             device.webaudio.resume();
-            device.state = 2; /* MA_STATE_STARTED */
+            device.state = 2; /* ma_device_state_started */
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -35657,7 +35660,7 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
         EM_ASM({
             var device = miniaudio.get_device_by_index($0);
             device.webaudio.suspend();
-            device.state = 1; /* MA_STATE_STOPPED */
+            device.state = 1; /* ma_device_state_stopped */
         }, pDevice->webaudio.indexCapture);
     }
 
@@ -35665,7 +35668,7 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
         EM_ASM({
             var device = miniaudio.get_device_by_index($0);
             device.webaudio.suspend();
-            device.state = 1; /* MA_STATE_STOPPED */
+            device.state = 1; /* ma_device_state_stopped */
         }, pDevice->webaudio.indexPlayback);
     }
 
@@ -35753,7 +35756,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
             miniaudio.unlock = function() {
                 for(var i = 0; i < miniaudio.devices.length; ++i) {
                     var device = miniaudio.devices[i];
-                    if (device != null && device.webaudio != null && device.state === 2 /* MA_STATE_STARTED */) {
+                    if (device != null && device.webaudio != null && device.state === 2 /* ma_device_state_started */) {
                         device.webaudio.resume();
                     }
                 }
@@ -35893,7 +35896,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
         /* Make sure the old converter is uninitialized first. */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) != ma_device_state_uninitialized) {
             ma_data_converter_uninit(&pDevice->capture.converter, &pDevice->pContext->allocationCallbacks);
         }
 
@@ -35922,7 +35925,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
 
         /* Make sure the old converter is uninitialized first. */
-        if (ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) != ma_device_state_uninitialized) {
             ma_data_converter_uninit(&pDevice->playback.converter, &pDevice->pContext->allocationCallbacks);
         }
 
@@ -35991,12 +35994,12 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 #endif
 
     /*
-    When the device is being initialized it's initial state is set to MA_STATE_UNINITIALIZED. Before returning from
+    When the device is being initialized it's initial state is set to ma_device_state_uninitialized. Before returning from
     ma_device_init(), the state needs to be set to something valid. In miniaudio the device's default state immediately
     after initialization is stopped, so therefore we need to mark the device as such. miniaudio will wait on the worker
     thread to signal an event to know when the worker thread is ready for action.
     */
-    ma_device__set_state(pDevice, MA_STATE_STOPPED);
+    ma_device__set_state(pDevice, ma_device_state_stopped);
     ma_event_signal(&pDevice->stopEvent);
 
     for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
@@ -36010,7 +36013,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         pDevice->workResult = MA_SUCCESS;
 
         /* If the reason for the wake up is that we are terminating, just break from the loop. */
-        if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+        if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
             break;
         }
 
@@ -36019,7 +36022,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         be started will be waiting on an event (pDevice->startEvent) which means we need to make sure we signal the event
         in both the success and error case. It's important that the state of the device is set _before_ signaling the event.
         */
-        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTING);
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_starting);
 
         /* If the device has a start callback, start it now. */
         if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
@@ -36034,7 +36037,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         }
 
         /* Make sure the state is set appropriately. */
-        ma_device__set_state(pDevice, MA_STATE_STARTED);
+        ma_device__set_state(pDevice, ma_device_state_started);
         ma_event_signal(&pDevice->startEvent);
 
         if (pDevice->pContext->callbacks.onDeviceDataLoop != NULL) {
@@ -36061,7 +36064,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         }
 
         /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
-        ma_device__set_state(pDevice, MA_STATE_STOPPED);
+        ma_device__set_state(pDevice, ma_device_state_stopped);
         ma_event_signal(&pDevice->stopEvent);
     }
 
@@ -36080,7 +36083,7 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
         return MA_FALSE;
     }
 
-    return ma_device_get_state(pDevice) != MA_STATE_UNINITIALIZED;
+    return ma_device_get_state(pDevice) != ma_device_state_uninitialized;
 }
 
 
@@ -36927,7 +36930,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
         /* Wait for the worker thread to put the device into it's stopped state for real. */
         ma_event_wait(&pDevice->stopEvent);
-        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
     } else {
         /*
         If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. Note that this needs to be done
@@ -36943,7 +36946,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             }
         }
 
-        ma_device__set_state(pDevice, MA_STATE_STOPPED);
+        ma_device__set_state(pDevice, ma_device_state_stopped);
     }
 
 
@@ -36975,7 +36978,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Passthrough:              %s\n", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
     }
 
-    MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
+    MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
     return MA_SUCCESS;
 }
 
@@ -37054,7 +37057,7 @@ MA_API void ma_device_uninit(ma_device* pDevice)
     }
 
     /* Putting the device into an uninitialized state will make the worker thread return. */
-    ma_device__set_state(pDevice, MA_STATE_UNINITIALIZED);
+    ma_device__set_state(pDevice, ma_device_state_uninitialized);
 
     /* Wake up the worker thread and wait for it to properly terminate. */
     if (!ma_context_is_backend_asynchronous(pDevice->pContext)) {
@@ -37121,20 +37124,20 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return MA_INVALID_ARGS;
     }
 
-    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+    if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
         return MA_INVALID_OPERATION;    /* Not initialized. */
     }
 
-    if (ma_device_get_state(pDevice) == MA_STATE_STARTED) {
+    if (ma_device_get_state(pDevice) == ma_device_state_started) {
         return MA_INVALID_OPERATION;    /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
-        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STOPPED);
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
 
-        ma_device__set_state(pDevice, MA_STATE_STARTING);
+        ma_device__set_state(pDevice, ma_device_state_starting);
 
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
@@ -37145,7 +37148,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
             }
 
             if (result == MA_SUCCESS) {
-                ma_device__set_state(pDevice, MA_STATE_STARTED);
+                ma_device__set_state(pDevice, ma_device_state_started);
             }
         } else {
             /*
@@ -37164,7 +37167,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
         /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
         if (result != MA_SUCCESS) {
-            ma_device__set_state(pDevice, MA_STATE_STOPPED);
+            ma_device__set_state(pDevice, ma_device_state_stopped);
         }
     }
     ma_mutex_unlock(&pDevice->startStopLock);
@@ -37180,20 +37183,20 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return MA_INVALID_ARGS;
     }
 
-    if (ma_device_get_state(pDevice) == MA_STATE_UNINITIALIZED) {
+    if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
         return MA_INVALID_OPERATION;    /* Not initialized. */
     }
 
-    if (ma_device_get_state(pDevice) == MA_STATE_STOPPED) {
+    if (ma_device_get_state(pDevice) == ma_device_state_stopped) {
         return MA_INVALID_OPERATION;    /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
     {
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
-        MA_ASSERT(ma_device_get_state(pDevice) == MA_STATE_STARTED);
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_started);
 
-        ma_device__set_state(pDevice, MA_STATE_STOPPING);
+        ma_device__set_state(pDevice, ma_device_state_stopping);
 
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
@@ -37204,7 +37207,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
                 result = MA_INVALID_OPERATION;
             }
 
-            ma_device__set_state(pDevice, MA_STATE_STOPPED);
+            ma_device__set_state(pDevice, ma_device_state_stopped);
         } else {
             /*
             Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. If
@@ -37212,7 +37215,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             sure the state of the device is *not* playing right now, which it shouldn't be since we set it above. This is super
             important though, so I'm asserting it here as well for extra safety in case we accidentally change something later.
             */
-            MA_ASSERT(ma_device_get_state(pDevice) != MA_STATE_STARTED);
+            MA_ASSERT(ma_device_get_state(pDevice) != ma_device_state_started);
 
             if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup != NULL) {
                 pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
@@ -37233,16 +37236,16 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
 MA_API ma_bool32 ma_device_is_started(const ma_device* pDevice)
 {
-    return ma_device_get_state(pDevice) == MA_STATE_STARTED;
+    return ma_device_get_state(pDevice) == ma_device_state_started;
 }
 
-MA_API ma_uint32 ma_device_get_state(const ma_device* pDevice)
+MA_API ma_device_state ma_device_get_state(const ma_device* pDevice)
 {
     if (pDevice == NULL) {
-        return MA_STATE_UNINITIALIZED;
+        return ma_device_state_uninitialized;
     }
 
-    return c89atomic_load_32((ma_uint32*)&pDevice->state);  /* Naughty cast to get rid of a const warning. */
+    return (ma_device_state)c89atomic_load_i32((ma_int32*)&pDevice->state);  /* Naughty cast to get rid of a const warning. */
 }
 
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
