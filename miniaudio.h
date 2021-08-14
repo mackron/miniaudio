@@ -7836,12 +7836,12 @@ MA_API ma_resource_manager_job_queue_config ma_resource_manager_job_queue_config
 
 typedef struct
 {
-    ma_uint32 flags;    /* Flags passed in at initialization time. */
-    ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
-    ma_uint64 head;     /* The first item in the list. Required for removing from the top of the list. */
-    ma_uint64 tail;     /* The last item in the list. Required for appending to the end of the list. */
+    ma_uint32 flags;            /* Flags passed in at initialization time. */
+    ma_uint32 capacity;         /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
+    MA_ATOMIC ma_uint64 head;   /* The first item in the list. Required for removing from the top of the list. */
+    MA_ATOMIC ma_uint64 tail;   /* The last item in the list. Required for appending to the end of the list. */
 #ifndef MA_NO_THREADING
-    ma_semaphore sem;   /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+    ma_semaphore sem;           /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
 #endif
     ma_slot_allocator allocator;
     ma_resource_manager_job* pJobs;
