@@ -40867,6 +40867,9 @@ static ma_result ma_lpf1_get_heap_layout(const ma_lpf1_config* pConfig, ma_lpf1_
     pHeapLayout->r1Offset = pHeapLayout->sizeInBytes;
     pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
 
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
     return MA_SUCCESS;
 }
 
@@ -41311,6 +41314,9 @@ static ma_result ma_lpf_get_heap_layout(const ma_lpf_config* pConfig, ma_lpf_hea
         pHeapLayout->sizeInBytes += sizeof(ma_lpf2) + lpf2HeapSizeInBytes;
     }
 
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
     return MA_SUCCESS;
 }
 
@@ -41698,6 +41704,9 @@ static ma_result ma_hpf1_get_heap_layout(const ma_hpf1_config* pConfig, ma_hpf1_
     /* R1 */
     pHeapLayout->r1Offset = pHeapLayout->sizeInBytes;
     pHeapLayout->sizeInBytes += sizeof(ma_biquad_coefficient) * pConfig->channels;
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -42142,6 +42151,9 @@ static ma_result ma_hpf_get_heap_layout(const ma_hpf_config* pConfig, ma_hpf_hea
 
         pHeapLayout->sizeInBytes += sizeof(ma_hpf2) + hpf2HeapSizeInBytes;
     }
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -42683,6 +42695,9 @@ static ma_result ma_bpf_get_heap_layout(const ma_bpf_config* pConfig, ma_bpf_hea
 
         pHeapLayout->sizeInBytes += sizeof(ma_bpf2) + bpf2HeapSizeInBytes;
     }
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -43781,6 +43796,9 @@ static ma_result ma_linear_resampler_get_heap_layout(const ma_linear_resampler_c
 
         pHeapLayout->sizeInBytes += lpfHeapSizeInBytes;
     }
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -45440,6 +45458,9 @@ static ma_result ma_channel_converter_get_heap_layout(const ma_channel_converter
         pHeapLayout->sizeInBytes += sizeof(ma_channel) * pConfig->channelsOut;
     }
 
+    /* Alignment for the next section. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
     /* Whether or not we use weights of a shuffle table depends on the channel map themselves and the algorithm we've chosen. */
     conversionPath = ma_channel_converter_config_get_conversion_path(pConfig);
 
@@ -45455,6 +45476,9 @@ static ma_result ma_channel_converter_get_heap_layout(const ma_channel_converter
         pHeapLayout->sizeInBytes += sizeof(float*) * pConfig->channelsIn;
         pHeapLayout->sizeInBytes += sizeof(float ) * pConfig->channelsIn * pConfig->channelsOut;
     }
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -46229,6 +46253,9 @@ static ma_result ma_data_converter_get_heap_layout(const ma_data_converter_confi
 
         pHeapLayout->sizeInBytes += heapSizeInBytes;
     }
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
@@ -57713,6 +57740,9 @@ static ma_result ma_noise_get_heap_layout(const ma_noise_config* pConfig, ma_noi
         pHeapLayout->sizeInBytes += sizeof(double) * pConfig->channels;
     }
 
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
+
     return MA_SUCCESS;
 }
 
@@ -63290,6 +63320,9 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
     */
     pHeapLayout->inputBusCount  = inputBusCount;
     pHeapLayout->outputBusCount = outputBusCount;
+
+    /* Make sure allocation size is aligned. */
+    pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
 
     return MA_SUCCESS;
 }
