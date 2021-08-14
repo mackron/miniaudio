@@ -89,7 +89,7 @@ int main(int argc, char** argv)
 }
 ```
 
-This example shows how to play a sound using the high level API
+This example shows one way to play a sound using the high level API
 
 ```c
 #define MINIAUDIO_IMPLEMENTATION
