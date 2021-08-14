@@ -4,8 +4,9 @@ This example demonstrates how to initialize an audio engine and play a sound.
 This will play the sound specified on the command line.
 */
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
-#include "../miniaudio_engine.h"
+#include "../miniaudio.h"
+
+#include <stdio.h>
 
 int main(int argc, char** argv)
 {

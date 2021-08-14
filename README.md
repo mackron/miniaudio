@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-    <a href="#example">Example</a> -
+    <a href="#examples">Examples</a> -
     <a href="#documentation">Documentation</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
     <a href="#backends">Backends</a> -
@@ -20,8 +20,8 @@
     <a href="#unofficial-bindings">Unofficial Bindings</a>
 </p>
 
-Example
-=======
+Examples
+========
 This example shows how to decode and play a sound.
 
 ```c
@@ -88,6 +88,42 @@ int main(int argc, char** argv)
     return 0;
 }
 ```
+
+This example shows how to play a sound using the high level API
+
+```c
+#define MINIAUDIO_IMPLEMENTATION
+#include "../miniaudio.h"
+
+#include <stdio.h>
+
+int main(int argc, char** argv)
+{
+    ma_result result;
+    ma_engine engine;
+
+    if (argc < 2) {
+        printf("No input file.");
+        return -1;
+    }
+
+    result = ma_engine_init(NULL, &engine);
+    if (result != MA_SUCCESS) {
+        printf("Failed to initialize audio engine.");
+        return -1;
+    }
+
+    ma_engine_play_sound(&engine, argv[1], NULL);
+
+    printf("Press Enter to quit...");
+    getchar();
+
+    ma_engine_uninit(&engine);
+
+    return 0;
+}
+```
+
 More examples can be found in the [examples](examples) folder or online here: https://miniaud.io/docs/examples/
 
 
@@ -127,6 +163,7 @@ Backends
 - OpenSL|ES (Android only)
 - Web Audio (Emscripten)
 - Null (Silence)
+- Custom
 
 
 Major Features
@@ -136,45 +173,37 @@ Major Features
 - No external dependencies except for the C standard library and backend libraries.
 - Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.
 - Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
-- Supports custom backends.
+- A low level API with direct access to the raw audio data.
+- A high level API with resource management, node graphs and effects, including 3D spatialization.
+- Custom backends.
 - Supports playback, capture, full-duplex and loopback (WASAPI only).
 - Device enumeration for connecting to specific devices, not just defaults.
 - Connect to multiple devices at once.
 - Shared and exclusive mode on supported backends.
-- Backend-specific configuration options.
-- Device capability querying.
-- Automatic data conversion between your application and the internal device.
-- Sample format conversion with optional dithering.
-- Channel conversion and channel mapping.
-- Resampling with support for multiple algorithms.
-  - Simple linear resampling with anti-aliasing.
-  - Optional Speex resampling (must opt-in).
+- Data conversion (sample format, channel conversion and resampling).
 - Filters.
-  - Biquad
+  - Biquads
   - Low-pass (first, second and high order)
   - High-pass (first, second and high order)
-  - Second order band-pass
-  - Second order notch
-  - Second order peaking
-  - Second order low shelf
-  - Second order high shelf
+  - Band-pass (second and high order)
+- Effects.
+  - Delay/Echo
+  - Spatializer
+  - Stereo Pan
 - Waveform generation.
   - Sine
   - Square
   - Triangle
   - Sawtooth
-- Noise generation.
-  - White
-  - Pink
-  - Brownian
+- Noise generation (white, pink, Brownian).
 - Decoding
   - WAV
   - FLAC
   - MP3
   - Vorbis via stb_vorbis (not built in - must be included separately).
+  - Custom decoding backends are also supported.
 - Encoding
   - WAV
-- Lock free ring buffer (single producer, single consumer).
 
 Refer to the [Programming Manual](https://miniaud.io/docs/manual/) for a more complete description of
 available features in miniaudio.
