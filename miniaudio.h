@@ -87242,6 +87242,141 @@ DRMP3_API void drmp3_free(void* p, const drmp3_allocation_callbacks* pAllocation
 #endif  /* MINIAUDIO_IMPLEMENTATION */
 
 /*
+RELEASE NOTES - VERSION 0.11.x
+==============================
+Version 0.11 adds some high level APIs and includes some breaking API changes.
+
+
+High Level Engine API
+---------------------
+The engine API provides sound management, mixing and effect processing. It can be used as both an
+alternative to the low level device API or as a supplementary feature depending on your needs. See
+the documentation for information on how to use this API.
+
+
+Resource Management
+-------------------
+Support for management of sound files has been added via the new `ma_resource_manager` API. This
+supports loading of sounds entirely in memory with reference counting and also streaming. See the
+documentation for more information on the resource manager.
+
+
+Node Graphs
+-----------
+A node graph system has been added to support complex effect chains and mixing. The node graph is
+made up of a series of connected nodes, with the output of one node being fed into the input of
+another node. By connecting nodes together you can create complex effect and mixing graphs. A
+number of different types of nodes are included, but custom nodes are also supported. See the
+documentation for more information on the node graph system.
+
+
+Breaking API Changes
+--------------------
+There are many breaking API changes in this release.
+
+  - ma_channel_mix_mode_planar_blend has been removed. Use ma_channel_mix_mode_rectangular instead.
+  - MA_MIN_SAMPLE_RATE and MA_MAX_SAMPLE_RATE have been removed. Use ma_standard_sample_rate_min
+    and ma_standard_sample_rate_max instead.
+  - The ma_device_info structure has changed. Now, an array of supported format/channels/rate
+    combinations are stored in an array and the old minChannels, maxChannels, etc. have been
+    removed.
+  - The shareMode parameter has been removed from ma_context_get_device_info(). Whether or not the
+    format relates to a shared or exclusive device is now set in a flags variables.
+  - The noPreZeroedOutputBuffer variable in the device config has been renamed to
+    noPreSilencedOutputBuffer.
+  - The pBufferOut parameter has been removed from the ring buffer commit functions.
+  - The ma_zero_pcm_frames() function has been removed. Use ma_silence_pcm_frames() instead.
+  - ma_clip_samples_f32() has been updated to take an input and output buffer rather than working
+    exclusively in-place.
+  - ma_clip_pcm_frames_f32() has been removed. Use ma_clip_samples_f32() or ma_clip_pcm_frames()
+    instead.
+  - ma_data_source_callbacks has been removed. If you're building a custom data source you need to
+    use ma_data_source_vtable instead.
+  - Support for mapping has been removed from data sources since it had very limited use and has
+    proven to not be worth the maintenance cost.
+  - The onLog callback has been removed from the context config. This has been replaced with a much
+    more flexible logging system. The context will have a `ma_log` object which can be retrieved
+    with `ma_context_get_log()`. From there you can register a callback with the `ma_log` object
+    with `ma_log_register_callback()`. An pre-allocated log can be specified in the context config.
+  - MA_LOG_LEVEL_VERBOSE has been removed and replaced with MA_LOG_LEVEL_DEBUG. With this change,
+    logs posted with MA_LOG_LEVEL_DEBUG will only be output if MA_DEBUG_OUTPUT is enabled.
+  - MA_LOG_LEVEL has been removed. Now all log levels are posted, except for MA_LOG_LEVEL_DEBUG
+    which will only be posted if MA_DEBUG_OUTPUT is enabled.
+  - ma_resource_format has been replaced with ma_encoding_format.
+  - The encoding-specific initialization functions for decoders, such as ma_decoder_init_wav(),
+    have been removed. Instead you should set the encodingFormat variable in the decoder config.
+  - ma_decoder_get_length_in_pcm_frames() has been updated to return a result code and output the
+    length via an output parameter. This makes it consistent with data sources.
+  - ma_decoder_read_pcm_frames() has been update to return a result code and output the number of
+    frames read via an output parameter.
+  - Allocation callbacks must now implement the onRealloc() callback. Previously miniaudio would
+    emulate this in terms of malloc and free, but for simplicity it is now required that allocation
+    callbacks handle this theselves.
+  - ma_get_standard_channel_map() has been renamed to ma_channel_map_init_standard() and now
+    includes a parameter specifying the capacity of the output channel map. This is useful for
+    initializing a channel map with a fixed capacity.
+  - ma_channel_map_valid() has been renamed to ma_channel_map_is_valid().
+  - ma_channel_map_equal() has been renamed to ma_channel_map_is_equal().
+  - ma_channel_map_blank() has been renamed to ma_channel_map_is_blank().
+  - The Speex resampler has been removed. Support for custom resamplers has been added. If you need
+    a Speex resampler you will need to implement a custom resampler.
+  - The following functions from the resampler have changed to return a result code and output
+    their result via an output parameter:
+    - ma_linear_resampler_get_required_input_frame_count()
+    - ma_linear_resampler_get_expected_output_frame_count()
+    - ma_resampler_get_required_input_frame_count()
+    - ma_resampler_get_expected_output_frame_count()
+  - Many init/uninit functions have been changed to take a pointer to allocation callbacks.
+  - ma_scale_buffer_size() has been removed.
+  - ma_encoder_write_pcm_frames() has been updated to return a result code and output the number of
+    frames written via an output parameter.
+  - ma_noise_read_pcm_frames() has been updated to return a result code and output the number of
+    frames read via an output parameter.
+  - ma_waveform_read_pcm_frames() has been updated to return a result code and output the number of
+    frames read via an output parameter.
+  - The MA_STATE_* tokens have been reanmed to ma_device_state_* and turned into an enum.
+
+
+Changes to Custom Data Sources
+------------------------------
+The implementation of data sources has seen some changes. Previously, you needed to only implement
+the `ma_data_source_callbacks` structure and make it the first member of the data source's
+structure. This has now changed. You now need to make the first member of the data source's
+structure `ma_data_source_base` and initialize and uninitialize it with `ma_data_source_init()` and
+`ma_data_source_uninit()` from your data source's init/uninit routines.
+
+When you call `ma_data_source_init()` you will need to specify a config. The config includes a
+pointer to a `ma_data_source_vtable` object which needs to be filled out.
+
+The onGetDataFormat callback has been changed to output the channel map. With this change,
+ma_data_source_get_data_format() has been update to accept a channel map.
+
+The onMap and onUnmap callbacks have been removed, as has ma_data_source_map() and
+ma_data_source_unmap().
+
+
+Other Changes
+-------------
+There have also been some other smaller changes added to this release.
+
+  - Support for custom resmplers has been added. See the implementation of ma_linear_resampler for
+    an example on how to implement a custom resmpler.
+  - ma_decoder_get_data_format() has been added.
+  - Support has been added for disabling denormals on the audio thread. This is configured on a
+    per-device basis via the device config and are disabled by default. Use the noDisableDenormals
+    config variable to control this.
+  - A delay/echo effect has been added called `ma_delay`.
+  - A stereo pan effect has been added called `ma_panner`.
+  - A spataializer effect has been added called `ma_spatializer`. This is used by the engine to
+    achieve it's 3D spatialization effect for sounds.
+  - ma_free() now performs a null pointer check which means NULL should never be passed into
+    allocation callbacks.
+  - Filters, effects and data conversion no longer have a dependency on MA_MAX_CHANNELS.
+  - MA_MAX_CHANNELS has been increased from 32 to 254 and currently only affects devices. This may
+    be relaxed in a future version.
+*/
+
+/*
 RELEASE NOTES - VERSION 0.10.x
 ==============================
 Version 0.10 includes major API changes and refactoring, mostly concerned with the data conversion system. Data conversion is performed internally to convert
@@ -87415,132 +87550,6 @@ issues with certain devices and configurations. These can be individually enable
     deviceConfig.alsa.noAutoChannels = MA_TRUE;
     deviceConfig.alsa.noAutoResample = MA_TRUE;
     ```
-*/
-
-/*
-RELEASE NOTES - VERSION 0.9.x
-=============================
-Version 0.9 includes major API changes, centered mostly around full-duplex and the rebrand to "miniaudio". Before I go into detail about the major changes I
-would like to apologize. I know it's annoying dealing with breaking API changes, but I think it's best to get these changes out of the way now while the
-library is still relatively young and unknown.
-
-There's been a lot of refactoring with this release so there's a good chance a few bugs have been introduced. I apologize in advance for this. You may want to
-hold off on upgrading for the short term if you're worried. If mini_al v0.8.14 works for you, and you don't need full-duplex support, you can avoid upgrading
-(though you won't be getting future bug fixes).
-
-
-Rebranding to "miniaudio"
--------------------------
-The decision was made to rename mini_al to miniaudio. Don't worry, it's the same project. The reason for this is simple:
-
-1) Having the word "audio" in the title makes it immediately clear that the library is related to audio; and
-2) I don't like the look of the underscore.
-
-This rebrand has necessitated a change in namespace from "mal" to "ma". I know this is annoying, and I apologize, but it's better to get this out of the road
-now rather than later. Also, since there are necessary API changes for full-duplex support I think it's better to just get the namespace change over and done
-with at the same time as the full-duplex changes. I'm hoping this will be the last of the major API changes. Fingers crossed!
-
-The implementation define is now "#define MINIAUDIO_IMPLEMENTATION". You can also use "#define MA_IMPLEMENTATION" if that's your preference.
-
-
-Full-Duplex Support
--------------------
-The major feature added to version 0.9 is full-duplex. This has necessitated a few API changes.
-
-1) The data callback has now changed. Previously there was one type of callback for playback and another for capture. I wanted to avoid a third callback just
-   for full-duplex so the decision was made to break this API and unify the callbacks. Now, there is just one callback which is the same for all three modes
-   (playback, capture, duplex). The new callback looks like the following:
-
-       void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
-
-   This callback allows you to move data straight out of the input buffer and into the output buffer in full-duplex mode. In playback-only mode, pInput will be
-   null. Likewise, pOutput will be null in capture-only mode. The sample count is no longer returned from the callback since it's not necessary for miniaudio
-   anymore.
-
-2) The device config needed to change in order to support full-duplex. Full-duplex requires the ability to allow the client to choose a different PCM format
-   for the playback and capture sides. The old ma_device_config object simply did not allow this and needed to change. With these changes you now specify the
-   device ID, format, channels, channel map and share mode on a per-playback and per-capture basis (see example below). The sample rate must be the same for
-   playback and capture.
-
-   Since the device config API has changed I have also decided to take the opportunity to simplify device initialization. Now, the device ID, device type and
-   callback user data are set in the config. ma_device_init() is now simplified down to taking just the context, device config and a pointer to the device
-   object being initialized. The rationale for this change is that it just makes more sense to me that these are set as part of the config like everything
-   else.
-
-   Example device initialization:
-
-       ma_device_config config = ma_device_config_init(ma_device_type_duplex);   // Or ma_device_type_playback or ma_device_type_capture.
-       config.playback.pDeviceID = &myPlaybackDeviceID; // Or NULL for the default playback device.
-       config.playback.format    = ma_format_f32;
-       config.playback.channels  = 2;
-       config.capture.pDeviceID  = &myCaptureDeviceID;  // Or NULL for the default capture device.
-       config.capture.format     = ma_format_s16;
-       config.capture.channels   = 1;
-       config.sampleRate         = 44100;
-       config.dataCallback       = data_callback;
-       config.pUserData          = &myUserData;
-
-       result = ma_device_init(&myContext, &config, &device);
-       if (result != MA_SUCCESS) {
-           ... handle error ...
-       }
-
-   Note that the "onDataCallback" member of ma_device_config has been renamed to "dataCallback". Also, "onStopCallback" has been renamed to "stopCallback".
-
-This is the first pass for full-duplex and there is a known bug. You will hear crackling on the following backends when sample rate conversion is required for
-the playback device:
-  - Core Audio
-  - JACK
-  - AAudio
-  - OpenSL
-  - WebAudio
-
-In addition to the above, not all platforms have been absolutely thoroughly tested simply because I lack the hardware for such thorough testing. If you
-experience a bug, an issue report on GitHub or an email would be greatly appreciated (and a sample program that reproduces the issue if possible).
-
-
-Other API Changes
------------------
-In addition to the above, the following API changes have been made:
-
-- The log callback is no longer passed to ma_context_config_init(). Instead you need to set it manually after initialization.
-- The onLogCallback member of ma_context_config has been renamed to "logCallback".
-- The log callback now takes a logLevel parameter. The new callback looks like: void log_callback(ma_context* pContext, ma_device* pDevice, ma_uint32 logLevel, const char* message)
-  - You can use ma_log_level_to_string() to convert the logLevel to human readable text if you want to log it.
-- Some APIs have been renamed:
-  - mal_decoder_read()          -> ma_decoder_read_pcm_frames()
-  - mal_decoder_seek_to_frame() -> ma_decoder_seek_to_pcm_frame()
-  - mal_sine_wave_read()        -> ma_sine_wave_read_f32()
-  - mal_sine_wave_read_ex()     -> ma_sine_wave_read_f32_ex()
-- Some APIs have been removed:
-  - mal_device_get_buffer_size_in_bytes()
-  - mal_device_set_recv_callback()
-  - mal_device_set_send_callback()
-  - mal_src_set_input_sample_rate()
-  - mal_src_set_output_sample_rate()
-- Error codes have been rearranged. If you're a binding maintainer you will need to update.
-- The ma_backend enums have been rearranged to priority order. The rationale for this is to simplify automatic backend selection and to make it easier to see
-  the priority. If you're a binding maintainer you will need to update.
-- ma_dsp has been renamed to ma_pcm_converter. The rationale for this change is that I'm expecting "ma_dsp" to conflict with some future planned high-level
-  APIs.
-- For functions that take a pointer/count combo, such as ma_decoder_read_pcm_frames(), the parameter order has changed so that the pointer comes before the
-  count. The rationale for this is to keep it consistent with things like memcpy().
-
-
-Miscellaneous Changes
----------------------
-The following miscellaneous changes have also been made.
-
-- The AAudio backend has been added for Android 8 and above. This is Android's new "High-Performance Audio" API. (For the record, this is one of the nicest
-  audio APIs out there, just behind the BSD audio APIs).
-- The WebAudio backend has been added. This is based on ScriptProcessorNode. This removes the need for SDL.
-- The SDL and OpenAL backends have been removed. These were originally implemented to add support for platforms for which miniaudio was not explicitly
-  supported. These are no longer needed and have therefore been removed.
-- Device initialization now fails if the requested share mode is not supported. If you ask for exclusive mode, you either get an exclusive mode device, or an
-  error. The rationale for this change is to give the client more control over how to handle cases when the desired shared mode is unavailable.
-- A lock-free ring buffer API has been added. There are two varients of this. "ma_rb" operates on bytes, whereas "ma_pcm_rb" operates on PCM frames.
-- The library is now licensed as a choice of Public Domain (Unlicense) _or_ MIT-0 (No Attribution) which is the same as MIT, but removes the attribution
-  requirement. The rationale for this is to support countries that don't recognize public domain.
 */
 
 /*
