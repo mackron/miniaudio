@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.41 - TBD
+miniaudio - v0.10.41 - 2021-08-15
 
 David Reid - mackron@gmail.com
 
@@ -69402,7 +69402,7 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.41 - TBD
+v0.10.41 - 2021-08-15
   - Core Audio: Fix some deadlock errors.
 
 v0.10.40 - 2021-07-23
