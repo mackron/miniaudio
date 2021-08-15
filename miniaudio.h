@@ -10484,7 +10484,7 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
     (void)milliseconds;
     MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
-    #if _POSIX_C_SOURCE >= 199309L
+    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         struct timespec ts;
         ts.tv_sec  = milliseconds / 1000;
         ts.tv_nsec = milliseconds % 1000 * 1000000;
@@ -15798,7 +15798,7 @@ Timing
         return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
     }
 #else
-    #if _POSIX_C_SOURCE >= 199309L
+    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #if defined(CLOCK_MONOTONIC)
             #define MA_CLOCK_ID CLOCK_MONOTONIC
         #else
