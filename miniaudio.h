@@ -38477,8 +38477,19 @@ MA_API void ma_copy_and_apply_volume_factor_f32(float* pSamplesOut, const float*
         return;
     }
 
-    for (iSample = 0; iSample < sampleCount; iSample += 1) {
-        pSamplesOut[iSample] = pSamplesIn[iSample] * factor;
+    if (factor == 1) {
+        if (pSamplesOut == pSamplesIn) {
+            /* In place. No-op. */
+        } else {
+            /* Just a copy. */
+            for (iSample = 0; iSample < sampleCount; iSample += 1) {
+                pSamplesOut[iSample] = pSamplesIn[iSample];
+            }
+        }
+    } else {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pSamplesOut[iSample] = pSamplesIn[iSample] * factor;
+        }
     }
 }
 
@@ -66100,7 +66111,6 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
             /* Read. */
             float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
             ma_uint32 tempCapInFrames = ma_countof(temp) / inputChannels;
-            float volume = ma_node_output_bus_get_volume(pOutputBus);
 
             while (framesProcessed < frameCount) {
                 float* pRunningFramesOut;
@@ -66117,21 +66127,10 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
                 if (pOutputBus == pFirst) {
                     /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
-                    if (result == MA_SUCCESS || result == MA_AT_END) {
-                        /* Apply volume, if necessary. */
-                        if (volume != 1) {
-                            ma_apply_volume_factor_f32(pRunningFramesOut, framesJustRead * inputChannels, volume);
-                        }
-                    }
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
                     if (result == MA_SUCCESS || result == MA_AT_END) {
-                        /* Apply volume, if necessary. */
-                        if (volume != 1) {
-                            ma_apply_volume_factor_f32(temp, framesJustRead * inputChannels, volume);
-                        }
-
                         ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
                     }
                 }
@@ -67194,6 +67193,9 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             ma_node_output_bus_set_has_read(&pNodeBase->pOutputBuses[outputBusIndex], MA_TRUE);
         }
     }
+    
+    /* Apply volume, if necessary. */
+    ma_apply_volume_factor_f32(pFramesOut, totalFramesRead * ma_node_get_output_channels(pNodeBase, outputBusIndex), ma_node_output_bus_get_volume(&pNodeBase->pOutputBuses[outputBusIndex]));
 
     /* Advance our local time forward. */
     c89atomic_fetch_add_64(&pNodeBase->localTime, (ma_uint64)totalFramesRead);
