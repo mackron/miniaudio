@@ -65169,7 +65169,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
 
-    pDataBuffer = pJob->data.freeDataBuffer.pDataBuffer;
+    pDataBuffer = pJob->data.loadDataBuffer.pDataBuffer;
     MA_ASSERT(pDataBuffer != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBuffer->executionPointer)) {
