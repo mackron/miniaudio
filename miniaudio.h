@@ -65137,6 +65137,7 @@ done:
 static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager_data_supply_type dataSupplyType = ma_resource_manager_data_supply_type_unknown;
 
     /*
     All we're doing here is checking if the node has finished loading. If not, we just re-post the job
@@ -65154,20 +65155,26 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     First thing we need to do is check whether or not the data buffer is getting deleted. If so we
     just abort, but making sure we increment the execution pointer.
     */
-    if (ma_resource_manager_data_buffer_result(pJob->data.loadDataBuffer.pDataBuffer) != MA_BUSY) {
-        result = ma_resource_manager_data_buffer_result(pJob->data.loadDataBuffer.pDataBuffer);    /* The data buffer may be getting deleted before it's even been loaded. */
-        goto done;
+    result = ma_resource_manager_data_buffer_result(pJob->data.loadDataBuffer.pDataBuffer);
+    if (result != MA_BUSY) {
+        goto done;  /* <-- This will ensure the exucution pointer is incremented. */
+    } else {
+        result = MA_SUCCESS;    /* <-- Make sure this is reset. */
     }
 
     /* Try initializing the connector if we haven't already. */
     if (pJob->data.loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE) {
-        if (ma_resource_manager_data_buffer_node_get_data_supply_type(pJob->data.loadDataBuffer.pDataBuffer->pNode) != ma_resource_manager_data_supply_type_unknown) {
+        dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pJob->data.loadDataBuffer.pDataBuffer->pNode);
+
+        if (dataSupplyType != ma_resource_manager_data_supply_type_unknown) {
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
             result = ma_resource_manager_data_buffer_init_connector(pJob->data.loadDataBuffer.pDataBuffer, pJob->data.loadDataBuffer.pInitNotification, pJob->data.loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %s.\n", ma_result_description(result));
                 goto done;
             }
+        } else {
+            /* Don't have a known data supply type. Most likely the data buffer node is still loading, but it could be that an error occurred. */
         }
     } else {
         /* The connector is already initialized. Nothing to do here. */
@@ -65176,9 +65183,14 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     /*
     If the data node is still loading, we need to repost the job and *not* increment the execution
     pointer (i.e. we need to not fall through to the "done" label).
+
+    There is a hole between here and the where the data connector is initialized where the data
+    buffer node may have finished initializing. We need to check for this by checking the result of
+    the data buffer node and whether or not we had an unknown data supply type at the time of
+    trying to initialize the data connector. 
     */
     result = ma_resource_manager_data_buffer_node_result(pJob->data.loadDataBuffer.pDataBuffer->pNode);
-    if (result == MA_BUSY) {
+    if (result == MA_BUSY || (result == MA_SUCCESS && dataSupplyType == ma_resource_manager_data_supply_type_unknown)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);
     }
 
