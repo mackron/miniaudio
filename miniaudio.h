@@ -38994,6 +38994,15 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
         oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
         newBitfield = oldBitfield & ~(1 << iBit);
 
+        /* Debugging for checking for double-frees. */
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            if ((oldBitfield & (1 << iBit)) == 0) {
+                MA_ASSERT(MA_FALSE);    /* Double free detected.*/
+            }
+        }
+        #endif
+
         if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
             c89atomic_fetch_sub_32(&pAllocator->count, 1);
             return MA_SUCCESS;
