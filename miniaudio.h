@@ -38986,7 +38986,7 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 
     MA_ASSERT(iBit < 32);   /* This must be true due to the logic we used to actually calculate it. */
 
-    while (c89atomic_load_i32(&pAllocator->count) > 0) {
+    while (c89atomic_load_32(&pAllocator->count) > 0) {
         /* CAS */
         ma_uint32 oldBitfield;
         ma_uint32 newBitfield;
@@ -65161,6 +65161,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     ma_result result = MA_SUCCESS;
     ma_resource_manager_data_buffer* pDataBuffer;
     ma_resource_manager_data_supply_type dataSupplyType = ma_resource_manager_data_supply_type_unknown;
+    ma_bool32 isConnectorInitialized = MA_FALSE;
 
     /*
     All we're doing here is checking if the node has finished loading. If not, we just re-post the job
@@ -65188,7 +65189,8 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     }
 
     /* Try initializing the connector if we haven't already. */
-    if (pDataBuffer->isConnectorInitialized == MA_FALSE) {
+    isConnectorInitialized = pDataBuffer->isConnectorInitialized;
+    if (isConnectorInitialized == MA_FALSE) {
         dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode);
 
         if (dataSupplyType != ma_resource_manager_data_supply_type_unknown) {
@@ -65215,7 +65217,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     trying to initialize the data connector. 
     */
     result = ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
-    if (result == MA_BUSY || (result == MA_SUCCESS && dataSupplyType == ma_resource_manager_data_supply_type_unknown)) {
+    if (result == MA_BUSY || (result == MA_SUCCESS && isConnectorInitialized == MA_FALSE && dataSupplyType == ma_resource_manager_data_supply_type_unknown)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);
     }
 
