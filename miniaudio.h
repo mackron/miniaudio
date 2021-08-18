@@ -65092,7 +65092,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
 
-    pDataBufferNode = pJob->data.freeDataBufferNode.pDataBufferNode;
+    pDataBufferNode = pJob->data.pageDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
