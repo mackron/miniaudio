@@ -9063,8 +9063,8 @@ struct ma_resource_manager_data_buffer_node
     ma_uint32 hashedName32;                         /* The hashed name. This is the key. */
     ma_uint32 refCount;
     MA_ATOMIC ma_result result;                     /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
-    ma_uint32 executionCounter;                     /* For allocating execution orders for jobs. */
-    ma_uint32 executionPointer;                     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC ma_uint32 executionCounter;           /* For allocating execution orders for jobs. */
+    MA_ATOMIC ma_uint32 executionPointer;           /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_bool32 isDataOwnedByResourceManager;         /* Set to true when the underlying data buffer was allocated the resource manager. Set to false if it is owned by the application (via ma_resource_manager_register_*()). */
     ma_resource_manager_data_supply data;
     ma_resource_manager_data_buffer_node* pParent;
@@ -9078,8 +9078,8 @@ struct ma_resource_manager_data_buffer
     ma_resource_manager* pResourceManager;          /* A pointer to the resource manager that owns this buffer. */
     ma_resource_manager_data_buffer_node* pNode;    /* The data node. This is reference counted and is what supplies the data. */
     ma_uint32 flags;                                /* The flags that were passed used to initialize the buffer. */
-    ma_uint32 executionCounter;                     /* For allocating execution orders for jobs. */
-    ma_uint32 executionPointer;                     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC ma_uint32 executionCounter;           /* For allocating execution orders for jobs. */
+    MA_ATOMIC ma_uint32 executionPointer;           /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_uint64 seekTargetInPCMFrames;                /* Only updated by the public API. Never written nor read from the job thread. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
     MA_ATOMIC ma_result result;                     /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
@@ -9104,8 +9104,8 @@ struct ma_resource_manager_data_stream
     ma_uint32 relativeCursor;               /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
     ma_uint64 absoluteCursor;               /* The playback cursor, in absolute position starting from the start of the file. */
     ma_uint32 currentPageIndex;             /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
-    ma_uint32 executionCounter;             /* For allocating execution orders for jobs. */
-    ma_uint32 executionPointer;             /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC ma_uint32 executionCounter;   /* For allocating execution orders for jobs. */
+    MA_ATOMIC ma_uint32 executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 
     /* Written by the public API, read by the job thread. */
     MA_ATOMIC ma_bool32 isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
@@ -9129,9 +9129,9 @@ struct ma_resource_manager_data_source
         ma_resource_manager_data_stream stream;
     } backend;  /* Must be the first item because we need the first item to be the data source callbacks for the buffer or stream. */
 
-    ma_uint32 flags;                /* The flags that were passed in to ma_resource_manager_data_source_init(). */
-    ma_uint32 executionCounter;     /* For allocating execution orders for jobs. */
-    ma_uint32 executionPointer;     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    ma_uint32 flags;                          /* The flags that were passed in to ma_resource_manager_data_source_init(). */
+    MA_ATOMIC ma_uint32 executionCounter;     /* For allocating execution orders for jobs. */
+    MA_ATOMIC ma_uint32 executionPointer;     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 };
 
 typedef struct
@@ -64901,21 +64901,25 @@ MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceMana
 static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager_data_buffer_node* pDataBufferNode;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob != NULL);
-    MA_ASSERT(pJob->data.loadDataBufferNode.pDataBufferNode != NULL);
-    MA_ASSERT(pJob->data.loadDataBufferNode.pDataBufferNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
-    /* First thing we need to do is check whether or not the data buffer is getting deleted. If so we just abort. */
-    if (ma_resource_manager_data_buffer_node_result(pJob->data.loadDataBufferNode.pDataBufferNode) != MA_BUSY) {
-        result = ma_resource_manager_data_buffer_node_result(pJob->data.loadDataBufferNode.pDataBufferNode);    /* The data buffer may be getting deleted before it's even been loaded. */
-        goto done;
-    }
+    pDataBufferNode = pJob->data.loadDataBufferNode.pDataBufferNode;
+
+    MA_ASSERT(pDataBufferNode != NULL);
+    MA_ASSERT(pDataBufferNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
     /* The data buffer is not getting deleted, but we may be getting executed out of order. If so, we need to push the job back onto the queue and return. */
-    if (pJob->order != pJob->data.loadDataBufferNode.pDataBufferNode->executionPointer) {
+    if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Attempting to execute out of order. Probably interleaved with a MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER job. */
+    }
+
+    /* First thing we need to do is check whether or not the data buffer is getting deleted. If so we just abort. */
+    if (ma_resource_manager_data_buffer_node_result(pDataBufferNode) != MA_BUSY) {
+        result = ma_resource_manager_data_buffer_node_result(pDataBufferNode);    /* The data buffer may be getting deleted before it's even been loaded. */
+        goto done;
     }
 
     /*
@@ -64946,7 +64950,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         ma_resource_manager_job pageDataBufferNodeJob;
 
         /* Allocate the decoder by initializing a decoded data supply. */
-        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pJob->data.loadDataBufferNode.pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW, &pDecoder);
+        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW, &pDecoder);
 
         /*
         Don't ever propagate an MA_BUSY result code or else the resource manager will think the
@@ -64976,8 +64980,8 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         Note that if an error occurred at an earlier point, this section will have been skipped.
         */
         pageDataBufferNodeJob = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE);
-        pageDataBufferNodeJob.order                                = ma_resource_manager_data_buffer_node_next_execution_order(pJob->data.loadDataBufferNode.pDataBufferNode);
-        pageDataBufferNodeJob.data.pageDataBufferNode.pDataBufferNode   = pJob->data.loadDataBufferNode.pDataBufferNode;
+        pageDataBufferNodeJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+        pageDataBufferNodeJob.data.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDecoder          = pDecoder;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDoneNotification = pJob->data.loadDataBufferNode.pDoneNotification;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDoneFence        = pJob->data.loadDataBufferNode.pDoneFence;
@@ -65000,7 +65004,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         }
     } else {
         /* No decoding. This is the simple case. We need only read the file content into memory and we're done. */
-        result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pJob->data.loadDataBufferNode.pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW);
+        result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW);
     }
 
 
@@ -65016,7 +65020,7 @@ done:
     immediately deletes it before we've got to this point. In this case, pDataBuffer->result will be MA_UNAVAILABLE, and setting it to MA_SUCCESS or any
     other error code would cause the buffer to look like it's in a state that it's not.
     */
-    c89atomic_compare_and_swap_i32(&pJob->data.loadDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pDataBufferNode->result, MA_BUSY, result);
 
     /* At this point initialization is complete and we can signal the notification if any. */
     if (pJob->data.loadDataBufferNode.pInitNotification != NULL) {
@@ -65037,21 +65041,26 @@ done:
     }
 
     /* Increment the node's execution pointer so that the next jobs can be processed. This is how we keep decoding of pages in-order. */
-    c89atomic_fetch_add_32(&pJob->data.loadDataBufferNode.pDataBufferNode->executionPointer, 1);
+    c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
     return result;
 }
 
 static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
+    ma_resource_manager_data_buffer_node* pDataBufferNode;
+
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
-    MA_ASSERT(pJob->data.freeDataBufferNode.pDataBufferNode != NULL);
 
-    if (pJob->order != pJob->data.freeDataBufferNode.pDataBufferNode->executionPointer) {
+    pDataBufferNode = pJob->data.freeDataBufferNode.pDataBufferNode;
+
+    MA_ASSERT(pDataBufferNode != NULL);
+
+    if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
-    ma_resource_manager_data_buffer_node_free(pResourceManager, pJob->data.freeDataBufferNode.pDataBufferNode);
+    ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
 
     /* The event needs to be signalled last. */
     if (pJob->data.freeDataBufferNode.pDoneNotification != NULL) {
@@ -65062,29 +65071,33 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
         ma_fence_release(pJob->data.freeDataBufferNode.pDoneFence);
     }
 
-    c89atomic_fetch_add_32(&pJob->data.freeDataBufferNode.pDataBufferNode->executionPointer, 1);
+    c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
     return MA_SUCCESS;
 }
 
 static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager_data_buffer_node* pDataBufferNode;
 
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
 
-    /* Don't do any more decoding if the data buffer has started the uninitialization process. */
-    if (ma_resource_manager_data_buffer_node_result(pJob->data.pageDataBufferNode.pDataBufferNode) != MA_BUSY) {
-        result = ma_resource_manager_data_buffer_node_result(pJob->data.pageDataBufferNode.pDataBufferNode);
-        goto done;
-    }
+    pDataBufferNode = pJob->data.freeDataBufferNode.pDataBufferNode;
+    MA_ASSERT(pDataBufferNode != NULL);
 
-    if (pJob->order != pJob->data.pageDataBufferNode.pDataBufferNode->executionPointer) {
+    if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
+    /* Don't do any more decoding if the data buffer has started the uninitialization process. */
+    result = ma_resource_manager_data_buffer_node_result(pDataBufferNode);
+    if (result != MA_BUSY) {
+        goto done;
+    }
+
     /* We're ready to decode the next page. */
-    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pJob->data.pageDataBufferNode.pDataBufferNode, pJob->data.pageDataBufferNode.pDecoder);
+    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pJob->data.pageDataBufferNode.pDecoder);
 
     /*
     If we have a success code by this point, we want to post another job. We're going to set the
@@ -65093,7 +65106,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
     if (result == MA_SUCCESS) {
         ma_resource_manager_job newJob;
         newJob = *pJob; /* Everything is the same as the input job, except the execution order. */
-        newJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pJob->data.pageDataBufferNode.pDataBufferNode);   /* We need a fresh execution order. */
+        newJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);   /* We need a fresh execution order. */
 
         result = ma_resource_manager_post_job(pResourceManager, &newJob);
 
@@ -65116,7 +65129,7 @@ done:
     }
 
     /* Make sure we set the result of node in case some error occurred. */
-    c89atomic_compare_and_swap_i32(&pJob->data.pageDataBufferNode.pDataBufferNode->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pDataBufferNode->result, MA_BUSY, result);
 
     /* Signal the notification after setting the result in case the notification callback wants to inspect the result code. */
     if (result != MA_BUSY) {
@@ -65129,7 +65142,7 @@ done:
         }
     }
 
-    c89atomic_fetch_add_32(&pJob->data.pageDataBufferNode.pDataBufferNode->executionPointer, 1);
+    c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
     return result;
 }
 
@@ -65137,6 +65150,7 @@ done:
 static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager_data_buffer* pDataBuffer;
     ma_resource_manager_data_supply_type dataSupplyType = ma_resource_manager_data_supply_type_unknown;
 
     /*
@@ -65145,9 +65159,11 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     */
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
-    MA_ASSERT(pJob->data.loadDataBuffer.pDataBuffer != NULL);
 
-    if (pJob->order != pJob->data.loadDataBuffer.pDataBuffer->executionPointer) {
+    pDataBuffer = pJob->data.freeDataBuffer.pDataBuffer;
+    MA_ASSERT(pDataBuffer != NULL);
+
+    if (pJob->order != c89atomic_load_32(&pDataBuffer->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Attempting to execute out of order. Probably interleaved with a MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER job. */
     }
 
@@ -65155,7 +65171,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     First thing we need to do is check whether or not the data buffer is getting deleted. If so we
     just abort, but making sure we increment the execution pointer.
     */
-    result = ma_resource_manager_data_buffer_result(pJob->data.loadDataBuffer.pDataBuffer);
+    result = ma_resource_manager_data_buffer_result(pDataBuffer);
     if (result != MA_BUSY) {
         goto done;  /* <-- This will ensure the exucution pointer is incremented. */
     } else {
@@ -65163,12 +65179,12 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     }
 
     /* Try initializing the connector if we haven't already. */
-    if (pJob->data.loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE) {
-        dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pJob->data.loadDataBuffer.pDataBuffer->pNode);
+    if (pDataBuffer->isConnectorInitialized == MA_FALSE) {
+        dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode);
 
         if (dataSupplyType != ma_resource_manager_data_supply_type_unknown) {
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
-            result = ma_resource_manager_data_buffer_init_connector(pJob->data.loadDataBuffer.pDataBuffer, pJob->data.loadDataBuffer.pInitNotification, pJob->data.loadDataBuffer.pInitFence);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->data.loadDataBuffer.pInitNotification, pJob->data.loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %s.\n", ma_result_description(result));
                 goto done;
@@ -65189,7 +65205,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     the data buffer node and whether or not we had an unknown data supply type at the time of
     trying to initialize the data connector. 
     */
-    result = ma_resource_manager_data_buffer_node_result(pJob->data.loadDataBuffer.pDataBuffer->pNode);
+    result = ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
     if (result == MA_BUSY || (result == MA_SUCCESS && dataSupplyType == ma_resource_manager_data_supply_type_unknown)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);
     }
@@ -65210,7 +65226,7 @@ done:
     If at this point the data buffer has not had it's connector initialized, it means the
     notification event was never signalled which means we need to signal it here.
     */
-    if (pJob->data.loadDataBuffer.pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
+    if (pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
         if (pJob->data.loadDataBuffer.pInitNotification != NULL) {
             ma_async_notification_signal(pJob->data.loadDataBuffer.pInitNotification);
         }
@@ -65219,21 +65235,25 @@ done:
         }
     }
 
-    c89atomic_fetch_add_32(&pJob->data.loadDataBuffer.pDataBuffer->executionPointer, 1);
+    c89atomic_fetch_add_32(&pDataBuffer->executionPointer, 1);
     return result;
 }
 
 static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
 {
+    ma_resource_manager_data_buffer* pDataBuffer;
+
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob             != NULL);
-    MA_ASSERT(pJob->data.freeDataBuffer.pDataBuffer != NULL);
 
-    if (pJob->order != pJob->data.freeDataBuffer.pDataBuffer->executionPointer) {
+    pDataBuffer = pJob->data.freeDataBuffer.pDataBuffer;
+    MA_ASSERT(pDataBuffer != NULL);
+
+    if (pJob->order != c89atomic_load_32(&pDataBuffer->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
-    ma_resource_manager_data_buffer_uninit_internal(pJob->data.freeDataBuffer.pDataBuffer);
+    ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
 
     /* The event needs to be signalled last. */
     if (pJob->data.freeDataBuffer.pDoneNotification != NULL) {
@@ -65244,7 +65264,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
         ma_fence_release(pJob->data.freeDataBuffer.pDoneFence);
     }
 
-    c89atomic_fetch_add_32(&pJob->data.freeDataBuffer.pDataBuffer->executionPointer, 1);
+    c89atomic_fetch_add_32(&pDataBuffer->executionPointer, 1);
     return MA_SUCCESS;
 }
 
@@ -65259,14 +65279,15 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     MA_ASSERT(pJob             != NULL);
 
     pDataStream = pJob->data.loadDataStream.pDataStream;
+    MA_ASSERT(pDataStream != NULL);
+
+    if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
+        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
+    }
 
     if (ma_resource_manager_data_stream_result(pDataStream) != MA_BUSY) {
         result = MA_INVALID_OPERATION;  /* Most likely the data stream is being uninitialized. */
         goto done;
-    }
-
-    if (pJob->order != pDataStream->executionPointer) {
-        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
     /* We need to initialize the decoder first so we can determine the size of the pages. */
@@ -65339,12 +65360,12 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     pDataStream = pJob->data.freeDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
-    /* If our status is not MA_UNAVAILABLE we have a bug somewhere. */
-    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) == MA_UNAVAILABLE);
-
-    if (pJob->order != pDataStream->executionPointer) {
+    if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
+
+    /* If our status is not MA_UNAVAILABLE we have a bug somewhere. */
+    MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) == MA_UNAVAILABLE);
 
     if (pDataStream->isDecoderInitialized) {
         ma_decoder_uninit(&pDataStream->decoder);
@@ -65380,14 +65401,14 @@ static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_m
     pDataStream = pJob->data.pageDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
+    if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
+        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
+    }
+
     /* For streams, the status should be MA_SUCCESS. */
     if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
         result = MA_INVALID_OPERATION;
         goto done;
-    }
-
-    if (pJob->order != pDataStream->executionPointer) {
-        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
     ma_resource_manager_data_stream_fill_page(pDataStream, pJob->data.pageDataStream.pageIndex);
@@ -65408,14 +65429,14 @@ static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_m
     pDataStream = pJob->data.seekDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
+    if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
+        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
+    }
+
     /* For streams the status should be MA_SUCCESS for this to do anything. */
     if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS || pDataStream->isDecoderInitialized == MA_FALSE) {
         result = MA_INVALID_OPERATION;
         goto done;
-    }
-
-    if (pJob->order != pDataStream->executionPointer) {
-        return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
     }
 
     /*
