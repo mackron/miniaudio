@@ -16483,6 +16483,11 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                         }
                     }
 
+                    /* Make sure we don't get stuck in the inner loop. */
+                    if (capturedDeviceFramesProcessed == 0) {
+                        break;
+                    }
+
                     totalCapturedDeviceFramesProcessed += capturedDeviceFramesProcessed;
                 }
             } break;
@@ -16503,6 +16508,11 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                     result = pDevice->pContext->callbacks.onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    /* Make sure we don't get stuck in the inner loop. */
+                    if (framesProcessed == 0) {
                         break;
                     }
 
@@ -16530,6 +16540,11 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                     result = pDevice->pContext->callbacks.onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
+                        break;
+                    }
+
+                    /* Make sure we don't get stuck in the inner loop. */
+                    if (framesProcessed == 0) {
                         break;
                     }
 
