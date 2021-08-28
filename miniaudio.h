@@ -9882,7 +9882,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 MA_API void ma_engine_uninit(ma_engine* pEngine);
 MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_node_graph* ma_engine_get_node_graph(ma_engine* pEngine);
+#if !defined(MA_NO_RESOURCE_MANAGER)
 MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine);
+#endif
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
@@ -69428,6 +69430,7 @@ MA_API ma_node_graph* ma_engine_get_node_graph(ma_engine* pEngine)
     return &pEngine->nodeGraph;
 }
 
+#if !defined(MA_NO_RESOURCE_MANAGER)
 MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine)
 {
     if (pEngine == NULL) {
@@ -69444,6 +69447,7 @@ MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine)
     }
     #endif
 }
+#endif
 
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine)
 {
