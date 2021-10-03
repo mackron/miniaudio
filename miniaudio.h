@@ -387,7 +387,7 @@ time which might be too expensive on the audio thread.
 
 If you want to load the sound asynchronously, you can specify the `MA_SOUND_FLAG_ASYNC` flag. This
 will result in `ma_sound_init_from_file()` returning quickly, but the sound will not start playing
-until sound has had some audio decoded.
+until the sound has had some audio decoded.
 
 The fourth parameter is a pointer to sound group. A sound group is used as a mechanism to organise
 sounds into groups which have their own effect processing and volume control. An example is a game
