@@ -10501,7 +10501,7 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
 }
 #endif
 
-static void ma_sleep(ma_uint32 milliseconds)
+static MA_INLINE void ma_sleep(ma_uint32 milliseconds)
 {
 #ifdef MA_WIN32
     ma_sleep__win32(milliseconds);
@@ -15750,7 +15750,7 @@ Timing
 *******************************************************************************/
 #ifdef MA_WIN32
     static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
-    static void ma_timer_init(ma_timer* pTimer)
+    void ma_timer_init(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
 
@@ -15762,7 +15762,7 @@ Timing
         pTimer->counter = counter.QuadPart;
     }
 
-    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
         if (!QueryPerformanceCounter(&counter)) {
