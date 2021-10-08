@@ -42416,7 +42416,7 @@ MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_c
 
     if (heapSizeInBytes > 0) {
         pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap != NULL) {
+        if (pHeap == NULL) {
             return MA_OUT_OF_MEMORY;
         }
     } else {
@@ -43254,7 +43254,7 @@ MA_API ma_result ma_hpf_init(const ma_hpf_config* pConfig, const ma_allocation_c
 
     if (heapSizeInBytes > 0) {
         pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap != NULL) {
+        if (pHeap == NULL) {
             return MA_OUT_OF_MEMORY;
         }
     } else {
@@ -43757,7 +43757,7 @@ MA_API ma_result ma_bpf_init(const ma_bpf_config* pConfig, const ma_allocation_c
 
     if (heapSizeInBytes > 0) {
         pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap != NULL) {
+        if (pHeap == NULL) {
             return MA_OUT_OF_MEMORY;
         }
     } else {
@@ -65468,7 +65468,7 @@ static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_m
     }
 
     /*
-    With seeking we just assume both pages are invalid and the relative frame cursor at at position 0. This is basically exactly the same as loading, except
+    With seeking we just assume both pages are invalid and the relative frame cursor at position 0. This is basically exactly the same as loading, except
     instead of initializing the decoder, we seek to a frame.
     */
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.seekDataStream.frameIndex);
