@@ -65543,7 +65543,6 @@ MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pReso
 
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
-
 MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
 {
     #ifndef MA_NO_GENERATION
@@ -65564,13 +65563,14 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
         (void)sampleRate;
         #if defined(MA_DEBUG_OUTPUT)
         {
-            #warning ma_debug_fill_pcm_frames_with_sine_wave() will do nothing because MA_NO_GENERATION is enabled.
+            #if _MSC_VER
+                #pragma message ("ma_debug_fill_pcm_frames_with_sine_wave() will do nothing because MA_NO_GENERATION is enabled.")
+            #endif
         }
         #endif
     }
     #endif
 }
-
 
 
 
