@@ -248,24 +248,16 @@ ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, con
     detailedDeviceInfo = *pDeviceInfo;
 #endif
 
-    /* TODO: Update this to print the new device info structure. */
-    #if 0
     {
         ma_uint32 iFormat;
 
         printf("%s\n", pDeviceInfo->name);
-        printf("    Default:         %s\n", (detailedDeviceInfo.isDefault) ? "Yes" : "No");
-        printf("    Min Channels:    %d\n", detailedDeviceInfo.minChannels);
-        printf("    Max Channels:    %d\n", detailedDeviceInfo.maxChannels);
-        printf("    Min Sample Rate: %d\n", detailedDeviceInfo.minSampleRate);
-        printf("    Max Sample Rate: %d\n", detailedDeviceInfo.maxSampleRate);
-        printf("    Format Count:    %d\n", detailedDeviceInfo.formatCount);
-        for (iFormat = 0; iFormat < detailedDeviceInfo.formatCount; ++iFormat) {
-            printf("        %s\n", ma_get_format_name(detailedDeviceInfo.formats[iFormat]));
+        printf("    Default:      %s\n", (detailedDeviceInfo.isDefault) ? "Yes" : "No");
+        printf("    Format Count: %d\n", detailedDeviceInfo.nativeDataFormatCount);
+        for (iFormat = 0; iFormat < detailedDeviceInfo.nativeDataFormatCount; ++iFormat) {
+            printf("        %s, %d, %d\n", ma_get_format_name(detailedDeviceInfo.nativeDataFormats[iFormat].format), detailedDeviceInfo.nativeDataFormats[iFormat].channels, detailedDeviceInfo.nativeDataFormats[iFormat].sampleRate);
         }
-        printf("\n");
     }
-    #endif
 
     return MA_SUCCESS;
 }
