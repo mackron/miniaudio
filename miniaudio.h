@@ -61715,7 +61715,9 @@ MA_API ma_result ma_resource_manager_job_queue_free(ma_resource_manager_job_queu
 /* MurmurHash3. Based on code from https://github.com/PeterScott/murmur3/blob/master/murmur3.c (public domain). */
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic push
+    #if __GNUC__ >= 7
     #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+    #endif
 #endif
 
 static MA_INLINE ma_uint32 ma_rotl32(ma_uint32 x, ma_int8 r)
