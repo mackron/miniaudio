@@ -9780,6 +9780,8 @@ MA_API ma_result ma_engine_node_init(const ma_engine_node_config* pConfig, const
 MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocation_callbacks* pAllocationCallbacks);
 
 
+#define MA_SOUND_SOURCE_CHANNEL_COUNT   0xFFFFFFFF
+
 typedef struct
 {
     const char* pFilePath;                      /* Set this to load from the resource manager. */
@@ -9788,7 +9790,7 @@ typedef struct
     ma_node* pInitialAttachment;                /* If set, the sound will be attached to an input of this node. This can be set to a ma_sound. If set to NULL, the sound will be attached directly to the endpoint unless MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT is set in `flags`. */
     ma_uint32 initialAttachmentInputBusIndex;   /* The index of the input bus of pInitialAttachment to attach the sound to. */
     ma_uint32 channelsIn;                       /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
-    ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. */
+    ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. Set to MA_SOUND_SOURCE_CHANNEL_COUNT to use the data source's channel count (only used if using a data source as input). */
     ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
     ma_fence* pDoneFence;                       /* Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
@@ -69924,6 +69926,10 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
 
         if (engineNodeConfig.channelsIn == 0) {
             return MA_INVALID_OPERATION;    /* Invalid channel count. */
+        }
+
+        if (engineNodeConfig.channelsOut == MA_SOUND_SOURCE_CHANNEL_COUNT) {
+            engineNodeConfig.channelsOut = engineNodeConfig.channelsIn;
         }
     }
 
