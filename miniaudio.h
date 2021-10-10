@@ -25067,7 +25067,11 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
         */
         if ((pPollDescriptors[0].revents & POLLIN) != 0) {
             ma_uint64 t;
-            read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
+            int resultRead = read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
+            if (resultRead < 0) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] read() failed.");
+                return ma_result_from_errno(errno);
+            }
 
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] POLLIN set for wakeupfd\n");
             return MA_DEVICE_NOT_STARTED;
@@ -25227,6 +25231,7 @@ static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, 
 static ma_result ma_device_data_loop_wakeup__alsa(ma_device* pDevice)
 {
     ma_uint64 t = 1;
+    int resultWrite = 0;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -25234,10 +25239,15 @@ static ma_result ma_device_data_loop_wakeup__alsa(ma_device* pDevice)
 
     /* Write to an eventfd to trigger a wakeup from poll() and abort any reading or writing. */
     if (pDevice->alsa.pPollDescriptorsCapture != NULL) {
-        write(pDevice->alsa.wakeupfdCapture, &t, sizeof(t));
+        resultWrite = write(pDevice->alsa.wakeupfdCapture, &t, sizeof(t));
     }
     if (pDevice->alsa.pPollDescriptorsPlayback != NULL) {
-        write(pDevice->alsa.wakeupfdPlayback, &t, sizeof(t));
+        resultWrite = write(pDevice->alsa.wakeupfdPlayback, &t, sizeof(t));
+    }
+
+    if (resultWrite < 0) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] write() failed.");
+        return ma_result_from_errno(errno);
     }
 
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "Done\n");
