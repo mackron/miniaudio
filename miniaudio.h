@@ -65319,8 +65319,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     }
 
     /* We need to initialize the decoder first so we can determine the size of the pages. */
-    decoderConfig = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-    decoderConfig.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+    decoderConfig = ma_resource_manager__init_decoder_config(pResourceManager);
 
     if (pJob->data.loadDataStream.pFilePath != NULL) {
         result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->data.loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
@@ -67207,8 +67206,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                     should be passing in a null pointer to the processing callback for when the node is
                     configured with MA_NODE_FLAG_ALLOW_NULL_INPUT.
                     */
-                    if (pNodeBase->cachedFrameCountIn < frameCountIn) {
-                        pNodeBase->cachedFrameCountIn = frameCountIn;
+                    if (pNodeBase->cachedFrameCountIn < (ma_uint16)frameCountIn) {
+                        pNodeBase->cachedFrameCountIn = (ma_uint16)frameCountIn;
                     }
                 } else {
                     frameCountIn = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much valid input data as we've got. */
