@@ -8522,9 +8522,10 @@ typedef struct ma_decoder ma_decoder;
 typedef struct
 {
     ma_format preferredFormat;
+    ma_uint32 seekPointCount;   /* Set to > 0 to generate a seektable if the decoding backend supports it. */
 } ma_decoding_backend_config;
 
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat);
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount);
 
 
 typedef struct
@@ -8552,6 +8553,7 @@ typedef struct
     ma_resampler_config resampling;
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
+    ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
     ma_decoding_backend_vtable** ppCustomBackendVTables;
     ma_uint32 customBackendCount;
     void* pCustomBackendUserData;
@@ -55790,12 +55792,13 @@ static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
 }
 
 
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat)
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount)
 {
     ma_decoding_backend_config config;
 
     MA_ZERO_OBJECT(&config);
     config.preferredFormat = preferredFormat;
+    config.seekPointCount  = seekPointCount;
 
     return config;
 }
@@ -55975,7 +55978,7 @@ static ma_result ma_decoder_init_from_vtable(const ma_decoding_backend_vtable* p
         return MA_NOT_IMPLEMENTED;
     }
 
-    backendConfig = ma_decoding_backend_config_init(pConfig->format);
+    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount);
 
     result = pVTable->onInit(pVTableUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
     if (result != MA_SUCCESS) {
@@ -57315,6 +57318,8 @@ typedef struct
     ma_format format;           /* Can be f32 or s16. */
 #if !defined(MA_NO_MP3)
     drmp3 dr;
+    drmp3_uint32 seekPointCount;
+    drmp3_seek_point* pSeekPoints;  /* Only used if seek table generation is used. */
 #endif
 } ma_mp3;
 
@@ -57450,6 +57455,40 @@ static ma_result ma_mp3_init_internal(const ma_decoding_backend_config* pConfig,
     return MA_SUCCESS;
 }
 
+static ma_result ma_mp3_generate_seek_table(ma_mp3* pMP3, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    drmp3_bool32 mp3Result;
+    drmp3_uint32 seekPointCount = 0;
+    drmp3_seek_point* pSeekPoints = NULL;
+
+    MA_ASSERT(pMP3    != NULL);
+    MA_ASSERT(pConfig != NULL);
+
+    seekPointCount = pConfig->seekPointCount;
+    if (seekPointCount > 0) {
+        pSeekPoints = (drmp3_seek_point*)ma_malloc(sizeof(*pMP3->pSeekPoints) * seekPointCount, pAllocationCallbacks);
+        if (pSeekPoints == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+    mp3Result = drmp3_calculate_seek_points(&pMP3->dr, &seekPointCount, pSeekPoints);
+    if (mp3Result != MA_TRUE) {
+        return MA_ERROR;
+    }
+
+    mp3Result = drmp3_bind_seek_table(&pMP3->dr, seekPointCount, pSeekPoints);
+    if (mp3Result != MA_TRUE) {
+        ma_free(pSeekPoints, pAllocationCallbacks);
+        return MA_ERROR;
+    }
+
+    pMP3->seekPointCount = seekPointCount;
+    pMP3->pSeekPoints    = pSeekPoints;
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
 {
     ma_result result;
@@ -57477,6 +57516,8 @@ MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
         if (mp3Result != MA_TRUE) {
             return MA_INVALID_FILE;
         }
+
+        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
@@ -57507,6 +57548,8 @@ MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backe
         if (mp3Result != MA_TRUE) {
             return MA_INVALID_FILE;
         }
+
+        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
@@ -57539,6 +57582,8 @@ MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_
             return MA_INVALID_FILE;
         }
 
+        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+
         return MA_SUCCESS;
     }
     #else
@@ -57570,6 +57615,8 @@ MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma
             return MA_INVALID_FILE;
         }
 
+        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+
         return MA_SUCCESS;
     }
     #else
@@ -57589,8 +57636,6 @@ MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocati
         return;
     }
 
-    (void)pAllocationCallbacks;
-
     #if !defined(MA_NO_MP3)
     {
         drmp3_uninit(&pMP3->dr);
@@ -57601,6 +57646,9 @@ MA_API void ma_mp3_uninit(ma_mp3* pMP3, const ma_allocation_callbacks* pAllocati
         MA_ASSERT(MA_FALSE);
     }
     #endif
+
+    /* Seek points need to be freed after the MP3 decoder has been uninitialized to ensure they're no longer being referenced. */
+    ma_free(pMP3->pSeekPoints, pAllocationCallbacks);
 
     ma_data_source_uninit(&pMP3->ds);
 }
