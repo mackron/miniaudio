@@ -8264,6 +8264,7 @@ typedef struct
     ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
     ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
     ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
+    ma_result (* onSetLooping)(ma_data_source* pDataSource, ma_bool32 isLooping);
 } ma_data_source_vtable;
 
 typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSource);
@@ -8296,6 +8297,7 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
+MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping);
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
 MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
 MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
@@ -52565,6 +52567,22 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
     return pDataSourceBase->vtable->onGetLength(pDataSource, pLength);
 }
 
+MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If there's no callback for this just treat it as a successful no-op. */
+    if (pDataSourceBase->vtable->onSetLooping == NULL) {
+        return MA_SUCCESS;
+    }
+
+    return pDataSourceBase->vtable->onSetLooping(pDataSource, isLooping);
+}
+
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -52823,7 +52841,8 @@ static ma_data_source_vtable g_ma_audio_buffer_ref_data_source_vtable =
     ma_audio_buffer_ref__data_source_on_seek,
     ma_audio_buffer_ref__data_source_on_get_data_format,
     ma_audio_buffer_ref__data_source_on_get_cursor,
-    ma_audio_buffer_ref__data_source_on_get_length
+    ma_audio_buffer_ref__data_source_on_get_length,
+    NULL    /* onSetLooping */
 };
 
 MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef)
@@ -53505,7 +53524,8 @@ static ma_data_source_vtable g_ma_paged_audio_buffer_data_source_vtable =
     ma_paged_audio_buffer__data_source_on_seek,
     ma_paged_audio_buffer__data_source_on_get_data_format,
     ma_paged_audio_buffer__data_source_on_get_cursor,
-    ma_paged_audio_buffer__data_source_on_get_length
+    ma_paged_audio_buffer__data_source_on_get_length,
+    NULL    /* onSetLooping */
 };
 
 MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer)
@@ -56093,7 +56113,8 @@ static ma_data_source_vtable g_ma_wav_ds_vtable =
     ma_wav_ds_seek,
     ma_wav_ds_get_data_format,
     ma_wav_ds_get_cursor,
-    ma_wav_ds_get_length
+    ma_wav_ds_get_length,
+    NULL    /* onSetLooping */
 };
 
 
@@ -56734,7 +56755,8 @@ static ma_data_source_vtable g_ma_flac_ds_vtable =
     ma_flac_ds_seek,
     ma_flac_ds_get_data_format,
     ma_flac_ds_get_cursor,
-    ma_flac_ds_get_length
+    ma_flac_ds_get_length,
+    NULL    /* onSetLooping */
 };
 
 
@@ -57368,7 +57390,8 @@ static ma_data_source_vtable g_ma_mp3_ds_vtable =
     ma_mp3_ds_seek,
     ma_mp3_ds_get_data_format,
     ma_mp3_ds_get_cursor,
-    ma_mp3_ds_get_length
+    ma_mp3_ds_get_length,
+    NULL    /* onSetLooping */
 };
 
 
@@ -58055,7 +58078,8 @@ static ma_data_source_vtable g_ma_stbvorbis_ds_vtable =
     ma_stbvorbis_ds_seek,
     ma_stbvorbis_ds_get_data_format,
     ma_stbvorbis_ds_get_cursor,
-    ma_stbvorbis_ds_get_length
+    ma_stbvorbis_ds_get_length,
+    NULL    /* onSetLooping */
 };
 
 
@@ -58810,7 +58834,8 @@ static ma_data_source_vtable g_ma_decoder_data_source_vtable =
     ma_decoder__data_source_on_seek,
     ma_decoder__data_source_on_get_data_format,
     ma_decoder__data_source_on_get_cursor,
-    ma_decoder__data_source_on_get_length
+    ma_decoder__data_source_on_get_length,
+    NULL    /* onSetLooping */
 };
 
 static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, ma_decoder_tell_proc onTell, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -60391,7 +60416,8 @@ static ma_data_source_vtable g_ma_waveform_data_source_vtable =
     ma_waveform__data_source_on_seek,
     ma_waveform__data_source_on_get_data_format,
     ma_waveform__data_source_on_get_cursor,
-    NULL   /* onGetLength. There's no notion of a length in waveforms. */
+    NULL,   /* onGetLength. There's no notion of a length in waveforms. */
+    NULL    /* onSetLooping */
 };
 
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform)
@@ -60812,7 +60838,8 @@ static ma_data_source_vtable g_ma_noise_data_source_vtable =
     ma_noise__data_source_on_seek,  /* No-op for noise. */
     ma_noise__data_source_on_get_data_format,
     NULL,   /* onGetCursor. No notion of a cursor for noise. */
-    NULL    /* onGetLength. No notion of a length for noise. */
+    NULL,   /* onGetLength. No notion of a length for noise. */
+    NULL    /* onSetLooping */
 };
 
 
@@ -63408,7 +63435,8 @@ static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
     ma_resource_manager_data_buffer_cb__seek_to_pcm_frame,
     ma_resource_manager_data_buffer_cb__get_data_format,
     ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames,
-    ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames
+    ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames,
+    NULL    /* onSetLooping */
 };
 
 static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_uint64 initialSeekPoint, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
@@ -64088,13 +64116,19 @@ static ma_result ma_resource_manager_data_stream_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_stream_get_length_in_pcm_frames((ma_resource_manager_data_stream*)pDataSource, pLength);
 }
 
+static ma_result ma_resource_manager_data_stream_cb__set_looping(ma_data_source* pDataSource, ma_bool32 isLooping)
+{
+    return ma_resource_manager_data_stream_set_looping((ma_resource_manager_data_stream*)pDataSource, isLooping);
+}
+
 static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
 {
     ma_resource_manager_data_stream_cb__read_pcm_frames,
     ma_resource_manager_data_stream_cb__seek_to_pcm_frame,
     ma_resource_manager_data_stream_cb__get_data_format,
     ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames,
-    ma_resource_manager_data_stream_cb__get_length_in_pcm_frames
+    ma_resource_manager_data_stream_cb__get_length_in_pcm_frames,
+    ma_resource_manager_data_stream_cb__set_looping
 };
 
 static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_uint64 initialSeekPoint, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
@@ -66234,7 +66268,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     are both critical to our lock-free thread-safety system. We can only call ma_node_input_bus_first()
     once per iteration, however we have an optimization to checks whether or not it's the first item in
     the list. We therefore need to store a pointer to the first item rather than repeatedly calling
-    ma_node_input_bus_first(). It's safe to keep hold of this point, so long as we don't dereference it
+    ma_node_input_bus_first(). It's safe to keep hold of this pointer, so long as we don't dereference it
     after calling ma_node_input_bus_next(), which we won't be.
     */
     pFirst = ma_node_input_bus_first(pInputBus);
@@ -67106,7 +67140,6 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         frameCountIn  = 0;
         frameCountOut = frameCount;    /* Just read as much as we can. The callback will return what was actually read. */
 
-        /* Don't do anything if our read counter is ahead of the node graph. That means we're */
         ppFramesOut[0] = pFramesOut;
         ma_node_process_pcm_frames_internal(pNode, NULL, &frameCountIn, ppFramesOut, &frameCountOut);
         totalFramesRead = frameCountOut;
@@ -70683,16 +70716,10 @@ MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
     c89atomic_exchange_32(&pSound->isLooping, isLooping);
 
     /*
-    This is a little bit of a hack, but basically we need to set the looping flag at the data source level if we are running a data source managed by
-    the resource manager, and that is backed by a data stream. The reason for this is that the data stream itself needs to be aware of the looping
-    requirements so that it can do seamless loop transitions. The better solution for this is to add ma_data_source_set_looping() and just call this
-    generically.
+    Some data sources, in particular resource managed streams, need to know about the looping state
+    so they can do clean loop transitions.
     */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
-        ma_resource_manager_data_source_set_looping(pSound->pResourceManagerDataSource, isLooping);
-    }
-#endif
+    ma_data_source_set_looping(pSound->pDataSource, isLooping);
 }
 
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
