@@ -417,7 +417,7 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_
     pDescriptor->format             = ma_format_from_sdl(obtainedSpec.format);
     pDescriptor->channels           = obtainedSpec.channels;
     pDescriptor->sampleRate         = (ma_uint32)obtainedSpec.freq;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
     pDescriptor->periodSizeInFrames = obtainedSpec.samples;
     pDescriptor->periodCount        = 1;    /* SDL doesn't use the notion of period counts, so just set to 1. */
 

@@ -27,7 +27,7 @@ static ma_uint32                       g_dataSourceCount;
 TODO: Consider putting these public functions in miniaudio.h. Will depend on ma_mix_pcm_frames_f32()
 being merged into miniaudio.h (it's currently in miniaudio_engine.h).
 */
-static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop, ma_format dataSourceFormat, ma_uint32 dataSourceChannels)
+static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_format dataSourceFormat, ma_uint32 dataSourceChannels)
 {
     /*
     This function is intended to be used when the format and channel count of the data source is
@@ -37,7 +37,7 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
 
     if (dataSourceFormat == ma_format_f32) {
         /* Fast path. No conversion necessary. */
-        return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead, loop);
+        return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead);
     } else {
         /* Slow path. Conversion necessary. */
         ma_result result;
@@ -53,7 +53,7 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
                 framesToRead = tempCapInFrames;
             }
 
-            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &framesJustRead, loop);
+            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &framesJustRead);
 
             ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
             totalFramesRead += framesJustRead;
@@ -67,7 +67,7 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
     }
 }
 
-MA_API ma_result ma_data_source_read_pcm_frames_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
+MA_API ma_result ma_data_source_read_pcm_frames_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result;
     ma_format format;
@@ -78,10 +78,10 @@ MA_API ma_result ma_data_source_read_pcm_frames_f32(ma_data_source* pDataSource,
         return result;  /* Failed to retrieve the data format of the data source. */
     }
 
-    return ma_data_source_read_pcm_frames_f32_ex(pDataSource, pFramesOut, frameCount, pFramesRead, loop, format, channels);
+    return ma_data_source_read_pcm_frames_f32_ex(pDataSource, pFramesOut, frameCount, pFramesRead, format, channels);
 }
 
-MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop, float volume)
+MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDataSource, float* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, float volume)
 {
     ma_result result;
     ma_format format;
@@ -111,7 +111,7 @@ MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDat
             framesToRead = tempCapInFrames;
         }
         
-        result = ma_data_source_read_pcm_frames_f32_ex(pDataSource, temp, framesToRead, &framesJustRead, loop, format, channels);
+        result = ma_data_source_read_pcm_frames_f32_ex(pDataSource, temp, framesToRead, &framesJustRead, format, channels);
 
         ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), temp, framesJustRead, channels, volume);
         totalFramesRead += framesJustRead;
@@ -149,7 +149,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 
     /* For each sound, mix as much data as we can. */
     for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
-        ma_data_source_read_pcm_frames_and_mix_f32(&g_dataSources[iDataSource], (float*)pOutput, frameCount, NULL, MA_TRUE, /* volume = */1);
+        ma_data_source_read_pcm_frames_and_mix_f32(&g_dataSources[iDataSource], (float*)pOutput, frameCount, NULL, /* volume = */1);
     }
 }
 
@@ -275,12 +275,16 @@ int main(int argc, char** argv)
             &resourceManager,
             argv[iFile+1],
             MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC /*| MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM*/,
+            0,      /* Initial seek point. */
             NULL,   /* Async notification. */
             &g_dataSources[iFile]);
 
         if (result != MA_SUCCESS) {
             break;
         }
+
+        /* Use looping in this example. */
+        ma_data_source_set_looping(&g_dataSources[iFile], MA_TRUE);
 
         g_dataSourceCount += 1;
     }

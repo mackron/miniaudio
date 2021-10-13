@@ -100,7 +100,7 @@ int main(int argc, char** argv)
         goto done3;
     }
 
-    sourceNodeConfig = ma_data_source_node_config_init(&g_sourceData, MA_FALSE);
+    sourceNodeConfig = ma_data_source_node_config_init(&g_sourceData);
 
     result = ma_data_source_node_init(&g_nodeGraph, &sourceNodeConfig, NULL, &g_sourceNode);
     if (result != MA_SUCCESS) {
@@ -118,7 +118,7 @@ int main(int argc, char** argv)
         goto done2;
     }
 
-    exciteNodeConfig = ma_data_source_node_config_init(&g_exciteData, MA_FALSE);
+    exciteNodeConfig = ma_data_source_node_config_init(&g_exciteData);
 
     result = ma_data_source_node_init(&g_nodeGraph, &exciteNodeConfig, NULL, &g_exciteNode);
     if (result != MA_SUCCESS) {

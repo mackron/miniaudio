@@ -8287,17 +8287,19 @@ typedef struct
     ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
     ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
     ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
+    MA_ATOMIC ma_bool32 isLooping;
 } ma_data_source_base;
 
 MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
 MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
-MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
-MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead, loop); */
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
 MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping);
+MA_API ma_bool32 ma_data_source_is_looping(ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
 MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
 MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
@@ -9199,7 +9201,7 @@ MA_API ma_result ma_resource_manager_data_buffer_get_cursor_in_pcm_frames(ma_res
 MA_API ma_result ma_resource_manager_data_buffer_get_length_in_pcm_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping);
-MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping);
+MA_API ma_bool32 ma_resource_manager_data_buffer_is_looping(const ma_resource_manager_data_buffer* pDataBuffer);
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames);
 
 /* Data Streams. */
@@ -9213,7 +9215,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_res
 MA_API ma_result ma_resource_manager_data_stream_get_length_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping);
-MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping);
+MA_API ma_bool32 ma_resource_manager_data_stream_is_looping(const ma_resource_manager_data_stream* pDataStream);
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames);
 
 /* Data Sources. */
@@ -9228,7 +9230,7 @@ MA_API ma_result ma_resource_manager_data_source_get_cursor_in_pcm_frames(ma_res
 MA_API ma_result ma_resource_manager_data_source_get_length_in_pcm_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pLength);
 MA_API ma_result ma_resource_manager_data_source_result(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager_data_source* pDataSource, ma_bool32 isLooping);
-MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping);
+MA_API ma_bool32 ma_resource_manager_data_source_is_looping(const ma_resource_manager_data_source* pDataSource);
 MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
 
 /* Job management. */
@@ -9464,22 +9466,20 @@ typedef struct
 {
     ma_node_config nodeConfig;
     ma_data_source* pDataSource;
-    ma_bool32 looping;  /* Can be changed after initialization with ma_data_source_node_set_looping(). */
 } ma_data_source_node_config;
 
-MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource, ma_bool32 looping);
+MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource);
 
 
 typedef struct
 {
     ma_node_base base;
     ma_data_source* pDataSource;
-    MA_ATOMIC ma_bool32 looping;  /* This can be modified and read across different threads. Must be used atomically. */
 } ma_data_source_node;
 
 MA_API ma_result ma_data_source_node_init(ma_node_graph* pNodeGraph, const ma_data_source_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source_node* pDataSourceNode);
 MA_API void ma_data_source_node_uninit(ma_data_source_node* pDataSourceNode, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 looping);
+MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 isLooping);
 MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode);
 
 
@@ -9808,7 +9808,6 @@ struct ma_sound
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     ma_uint64 seekTarget;               /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    MA_ATOMIC ma_bool32 isLooping;      /* False by default. */
     MA_ATOMIC ma_bool32 atEnd;
     ma_bool8 ownsDataSource;
 
@@ -52227,11 +52226,12 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
+static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_result result;
     ma_uint64 framesRead = 0;
+    ma_bool32 loop = ma_data_source_is_looping(pDataSource);
 
     if (pDataSourceBase == NULL) {
         return MA_AT_END;
@@ -52285,7 +52285,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
     return result;
 }
 
-MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead, ma_bool32 loop)
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -52295,6 +52295,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     ma_format format;
     ma_uint32 channels;
     ma_uint32 emptyLoopCounter = 0; /* Keeps track of how many times 0 frames have been read. For infinite loop detection of sounds with no audio data. */
+    ma_bool32 loop;
 
     if (pFramesRead != NULL) {
         *pFramesRead = 0;
@@ -52308,6 +52309,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         return MA_INVALID_ARGS;
     }
 
+    loop = ma_data_source_is_looping(pDataSource);
+
     /*
     We need to know the data format so we can advance the output buffer as we read frames. If this
     fails, chaining will not work and we'll just read as much as we can from the current source.
@@ -52318,7 +52321,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             return result;
         }
 
-        return ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pFramesOut, frameCount, pFramesRead, loop);
+        return ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pFramesOut, frameCount, pFramesRead);
     }
 
     /*
@@ -52341,7 +52344,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
             break;
         }
 
-        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed, loop);
+        result = ma_data_source_read_pcm_frames_within_range(pCurrentDataSource, pRunningFramesOut, framesRemaining, &framesProcessed);
         totalFramesProcessed += framesProcessed;
 
         /*
@@ -52423,9 +52426,9 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     return result;
 }
 
-MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked, ma_bool32 loop)
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked)
 {
-    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, pFramesSeeked, loop);
+    return ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, pFramesSeeked);
 }
 
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -52575,12 +52578,25 @@ MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool
         return MA_INVALID_ARGS;
     }
 
+    c89atomic_exchange_32(&pDataSourceBase->isLooping, isLooping);
+
     /* If there's no callback for this just treat it as a successful no-op. */
     if (pDataSourceBase->vtable->onSetLooping == NULL) {
         return MA_SUCCESS;
     }
 
     return pDataSourceBase->vtable->onSetLooping(pDataSource, isLooping);
+}
+
+MA_API ma_bool32 ma_data_source_is_looping(ma_data_source* pDataSource)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    if (pDataSource == NULL) {
+        return MA_FALSE;
+    }
+
+    return c89atomic_load_32(&pDataSourceBase->isLooping);
 }
 
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames)
@@ -59657,14 +59673,14 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
     /* Fast path. */
     if (pDecoder->converter.isPassthrough) {
-        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pFramesOut, frameCount, &totalFramesReadOut, MA_FALSE);
+        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pFramesOut, frameCount, &totalFramesReadOut);
     } else {
         /*
         Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
         need to run through each sample because we need to ensure it's internal cache is updated.
         */
         if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
-            result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut, MA_FALSE);
+            result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut);
         } else {
             /* Slow path. Need to run everything through the data converter. */
             ma_format internalFormat;
@@ -59721,7 +59737,7 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                     if (pDecoder->inputCacheRemaining == 0) {
                         pDecoder->inputCacheConsumed = 0;
 
-                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pDecoder->pInputCache, pDecoder->inputCacheCap, &pDecoder->inputCacheRemaining, MA_FALSE);
+                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pDecoder->pInputCache, pDecoder->inputCacheCap, &pDecoder->inputCacheRemaining);
                         if (result != MA_SUCCESS) {
                             break;
                         }
@@ -59750,7 +59766,7 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                     }
 
                     if (requiredInputFrameCount > 0) {
-                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn, MA_FALSE);
+                        result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn);
                     } else {
                         framesReadThisIterationIn = 0;
                     }
@@ -62676,6 +62692,23 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     return MA_SUCCESS;
 }
 
+static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource_manager_data_buffer* pDataBuffer)
+{
+    switch (pDataBuffer->pNode->data.type)
+    {
+        case ma_resource_manager_data_supply_type_encoded:       return &pDataBuffer->connector.decoder;
+        case ma_resource_manager_data_supply_type_decoded:       return &pDataBuffer->connector.buffer;
+        case ma_resource_manager_data_supply_type_decoded_paged: return &pDataBuffer->connector.pagedBuffer;
+
+        case ma_resource_manager_data_supply_type_unknown:
+        default:
+        {
+            ma_log_postf(ma_resource_manager_get_log(pDataBuffer->pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to retrieve data buffer connector. Unknown data supply type.\n");
+            return NULL;
+        };
+    };
+}
+
 static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_manager_data_buffer* pDataBuffer, ma_async_notification* pInitNotification, ma_fence* pInitFence)
 {
     ma_result result;
@@ -62730,6 +62763,12 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     the format/channels/rate of the data source.
     */
     if (result == MA_SUCCESS) {
+        /*
+        Make sure the looping state is set before returning in order to handle the case where the
+        loop state was set on the data buffer before the connector was initialized.
+        */
+        ma_data_source_set_looping(ma_resource_manager_data_buffer_get_connector(pDataBuffer), ma_resource_manager_data_buffer_is_looping(pDataBuffer));
+
         pDataBuffer->isConnectorInitialized = MA_TRUE;
 
         if (pInitNotification != NULL) {
@@ -62782,23 +62821,6 @@ static ma_uint32 ma_resource_manager_data_buffer_node_next_execution_order(ma_re
 {
     MA_ASSERT(pDataBufferNode != NULL);
     return c89atomic_fetch_add_32(&pDataBufferNode->executionCounter, 1);
-}
-
-static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource_manager_data_buffer* pDataBuffer)
-{
-    switch (pDataBuffer->pNode->data.type)
-    {
-        case ma_resource_manager_data_supply_type_encoded:       return &pDataBuffer->connector.decoder;
-        case ma_resource_manager_data_supply_type_decoded:       return &pDataBuffer->connector.buffer;
-        case ma_resource_manager_data_supply_type_decoded_paged: return &pDataBuffer->connector.pagedBuffer;
-
-        case ma_resource_manager_data_supply_type_unknown:
-        default:
-        {
-            ma_log_postf(ma_resource_manager_get_log(pDataBuffer->pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to retrieve data buffer connector. Unknown data supply type.\n");
-            return NULL;
-        };
-    };
 }
 
 static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pFilePath, const wchar_t* pFilePathW)
@@ -63429,6 +63451,11 @@ static ma_result ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames(ma
     return ma_resource_manager_data_buffer_get_length_in_pcm_frames((ma_resource_manager_data_buffer*)pDataSource, pLength);
 }
 
+static ma_result ma_resource_manager_data_buffer_cb__set_looping(ma_data_source* pDataSource, ma_bool32 isLooping)
+{
+    return ma_resource_manager_data_buffer_set_looping((ma_resource_manager_data_buffer*)pDataSource, isLooping);
+}
+
 static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
 {
     ma_resource_manager_data_buffer_cb__read_pcm_frames,
@@ -63436,7 +63463,7 @@ static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
     ma_resource_manager_data_buffer_cb__get_data_format,
     ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames,
     ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames,
-    NULL    /* onSetLooping */
+    ma_resource_manager_data_buffer_cb__set_looping
 };
 
 static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_uint64 initialSeekPoint, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
@@ -63677,7 +63704,6 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 {
     ma_result result = MA_SUCCESS;
     ma_uint64 framesRead = 0;
-    ma_bool32 isLooping;
     ma_bool32 isDecodedBufferBusy = MA_FALSE;
 
     /* Safety. */
@@ -63707,11 +63733,6 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         if (result != MA_SUCCESS) {
             return result;
         }
-    }
-
-    result = ma_resource_manager_data_buffer_get_looping(pDataBuffer, &isLooping);
-    if (result != MA_SUCCESS) {
-        return result;
     }
 
     /*
@@ -63746,7 +63767,7 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
 
     /* Don't attempt to read anything if we've got no frames available. */
     if (frameCount > 0) {
-        result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead, isLooping);
+        result = ma_data_source_read_pcm_frames(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pFramesOut, frameCount, &framesRead);
     }
 
     /*
@@ -63915,24 +63936,19 @@ MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager
 
     c89atomic_exchange_32(&pDataBuffer->isLooping, isLooping);
 
+    /* The looping state needs to be set on the connector as well or else looping won't work when we read audio data. */
+    ma_data_source_set_looping(ma_resource_manager_data_buffer_get_connector(pDataBuffer), isLooping);
+
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_buffer_get_looping(const ma_resource_manager_data_buffer* pDataBuffer, ma_bool32* pIsLooping)
+MA_API ma_bool32 ma_resource_manager_data_buffer_is_looping(const ma_resource_manager_data_buffer* pDataBuffer)
 {
-    if (pIsLooping == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pIsLooping = MA_FALSE;
-
     if (pDataBuffer == NULL) {
-        return MA_INVALID_ARGS;
+        return MA_FALSE;
     }
 
-    *pIsLooping = c89atomic_load_32((ma_bool32*)&pDataBuffer->isLooping);
-
-    return MA_SUCCESS;
+    return c89atomic_load_32((ma_bool32*)&pDataBuffer->isLooping);
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_get_available_frames(ma_resource_manager_data_buffer* pDataBuffer, ma_uint64* pAvailableFrames)
@@ -64305,7 +64321,7 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    ma_resource_manager_data_stream_get_looping(pDataStream, &isLooping);   /* Won't fail. */
+    isLooping = ma_resource_manager_data_stream_is_looping(pDataStream);   /* Won't fail. */
 
     if (isLooping) {
         while (totalFramesReadForThisPage < pageSizeInFrames) {
@@ -64716,21 +64732,13 @@ MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_data_stream_get_looping(const ma_resource_manager_data_stream* pDataStream, ma_bool32* pIsLooping)
+MA_API ma_bool32 ma_resource_manager_data_stream_is_looping(const ma_resource_manager_data_stream* pDataStream)
 {
-    if (pIsLooping == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pIsLooping = MA_FALSE;
-
     if (pDataStream == NULL) {
-        return MA_INVALID_ARGS;
+        return MA_FALSE;
     }
 
-    *pIsLooping = c89atomic_load_32((ma_bool32*)&pDataStream->isLooping);   /* Naughty const-cast. Value won't change from here in practice (maybe from another thread). */
-
-    return MA_SUCCESS;
+    return c89atomic_load_32((ma_bool32*)&pDataStream->isLooping);   /* Naughty const-cast. Value won't change from here in practice (maybe from another thread). */
 }
 
 MA_API ma_result ma_resource_manager_data_stream_get_available_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pAvailableFrames)
@@ -64975,16 +64983,16 @@ MA_API ma_result ma_resource_manager_data_source_set_looping(ma_resource_manager
     }
 }
 
-MA_API ma_result ma_resource_manager_data_source_get_looping(const ma_resource_manager_data_source* pDataSource, ma_bool32* pIsLooping)
+MA_API ma_bool32 ma_resource_manager_data_source_is_looping(const ma_resource_manager_data_source* pDataSource)
 {
-    if (pDataSource == NULL || pIsLooping == NULL) {
-        return MA_INVALID_ARGS;
+    if (pDataSource == NULL) {
+        return MA_FALSE;
     }
 
     if ((pDataSource->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM) != 0) {
-        return ma_resource_manager_data_stream_get_looping(&pDataSource->backend.stream, pIsLooping);
+        return ma_resource_manager_data_stream_is_looping(&pDataSource->backend.stream);
     } else {
-        return ma_resource_manager_data_buffer_get_looping(&pDataSource->backend.buffer, pIsLooping);
+        return ma_resource_manager_data_buffer_is_looping(&pDataSource->backend.buffer);
     }
 }
 
@@ -67397,14 +67405,13 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
 
 /* Data source node. */
-MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource, ma_bool32 looping)
+MA_API ma_data_source_node_config ma_data_source_node_config_init(ma_data_source* pDataSource)
 {
     ma_data_source_node_config config;
 
     MA_ZERO_OBJECT(&config);
     config.nodeConfig  = ma_node_config_init();
     config.pDataSource = pDataSource;
-    config.looping     = looping;
 
     return config;
 }
@@ -67437,7 +67444,7 @@ static void ma_data_source_node_process_pcm_frames(ma_node* pNode, const float**
         MA_ASSERT(format == ma_format_f32);
         (void)format;   /* Just to silence some static analysis tools. */
 
-        ma_data_source_read_pcm_frames(pDataSourceNode->pDataSource, ppFramesOut[0], frameCount, &framesRead, c89atomic_load_32(&pDataSourceNode->looping));
+        ma_data_source_read_pcm_frames(pDataSourceNode->pDataSource, ppFramesOut[0], frameCount, &framesRead);
     }
 
     *pFrameCountOut = (ma_uint32)framesRead;
@@ -67502,7 +67509,6 @@ MA_API ma_result ma_data_source_node_init(ma_node_graph* pNodeGraph, const ma_da
     }
 
     pDataSourceNode->pDataSource = pConfig->pDataSource;
-    pDataSourceNode->looping     = pConfig->looping;
 
     return MA_SUCCESS;
 }
@@ -67512,15 +67518,13 @@ MA_API void ma_data_source_node_uninit(ma_data_source_node* pDataSourceNode, con
     ma_node_uninit(&pDataSourceNode->base, pAllocationCallbacks);
 }
 
-MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 looping)
+MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourceNode, ma_bool32 isLooping)
 {
     if (pDataSourceNode == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_exchange_32(&pDataSourceNode->looping, looping);
-
-    return MA_SUCCESS;
+    return ma_data_source_set_looping(pDataSourceNode->pDataSource, isLooping);
 }
 
 MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode)
@@ -67529,7 +67533,7 @@ MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSource
         return MA_FALSE;
     }
 
-    return c89atomic_load_32(&pDataSourceNode->looping);
+    return ma_data_source_is_looping(pDataSourceNode->pDataSource);
 }
 
 
@@ -68804,7 +68808,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 framesToRead = tempCapInFrames;
             }
 
-            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead, ma_sound_is_looping(pSound));
+            result = ma_data_source_read_pcm_frames(pSound->pDataSource, temp, framesToRead, &framesJustRead);
 
             /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
             if (result == MA_AT_END) {
@@ -70713,12 +70717,7 @@ MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
         return;
     }
 
-    c89atomic_exchange_32(&pSound->isLooping, isLooping);
-
-    /*
-    Some data sources, in particular resource managed streams, need to know about the looping state
-    so they can do clean loop transitions.
-    */
+    /* The looping state needs to be applied to the data source in order for any looping to actually happen. */
     ma_data_source_set_looping(pSound->pDataSource, isLooping);
 }
 
@@ -70733,7 +70732,7 @@ MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_32(&pSound->isLooping);
+    return ma_data_source_is_looping(pSound->pDataSource);
 }
 
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
@@ -87476,6 +87475,9 @@ Breaking API Changes
 --------------------
 There are many breaking API changes in this release.
 
+  - The "loop" parameter has been removed from ma_data_source_read_pcm_frames(). To enabled looping
+    you now need to call ma_data_source_set_looping(). The looping state can be retrieved with
+    ma_data_source_is_looping().
   - ma_channel_mix_mode_planar_blend has been removed. Use ma_channel_mix_mode_rectangular instead.
   - MA_MIN_SAMPLE_RATE and MA_MAX_SAMPLE_RATE have been removed. Use ma_standard_sample_rate_min
     and ma_standard_sample_rate_max instead.

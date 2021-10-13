@@ -46,7 +46,7 @@ void main_loop__em(void* pUserData)
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_data_source_read_pcm_frames((ma_data_source*)pDevice->pUserData, pOutput, frameCount, NULL, MA_TRUE);
+    ma_data_source_read_pcm_frames((ma_data_source*)pDevice->pUserData, pOutput, frameCount, NULL);
 
     (void)pInput;
 }
@@ -108,12 +108,16 @@ int main(int argc, char** argv)
         &resourceManager,
         argv[1],
         MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM,
+        0,      /* Initial seek point. */
         NULL,   /* Async notification. */
         &dataSource);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound \"%s\".", argv[1]);
         return -1;
     }
+
+    /* In this example we'll enable looping. */
+    ma_data_source_set_looping(&dataSource, MA_TRUE);
 
 
     /* Now that we have a sound we can start the device. */

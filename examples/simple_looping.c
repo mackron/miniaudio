@@ -12,18 +12,13 @@ decoder straight into `ma_data_source_read_pcm_frames()` and it will just work.
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_bool32 isLooping = MA_TRUE;
-
     ma_decoder* pDecoder = (ma_decoder*)pDevice->pUserData;
     if (pDecoder == NULL) {
         return;
     }
 
-    /*
-    A decoder is a data source which means you can seemlessly plug it into the ma_data_source API. We can therefore take advantage
-    of the "loop" parameter of ma_data_source_read_pcm_frames() to handle looping for us.
-    */
-    ma_data_source_read_pcm_frames(pDecoder, pOutput, frameCount, NULL, isLooping);
+    /* Reading PCM frames will loop based on what we specified when called ma_data_source_set_looping(). */
+    ma_data_source_read_pcm_frames(pDecoder, pOutput, frameCount, NULL);
 
     (void)pInput;
 }
@@ -44,6 +39,12 @@ int main(int argc, char** argv)
     if (result != MA_SUCCESS) {
         return -2;
     }
+
+    /*
+    A decoder is a data source which means we just use ma_data_source_set_looping() to set the
+    looping state. We will read data using ma_data_source_read_pcm_frames() in the data callback.
+    */
+    ma_data_source_set_looping(&decoder, MA_TRUE);
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
     deviceConfig.playback.format   = decoder.outputFormat;

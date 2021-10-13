@@ -65,7 +65,7 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
     if you want to loop the chain, like we're doing in this example, you need to set the `loop`
     parameter to false, or else only the current data source will be looped.
     */
-    ma_data_source_read_pcm_frames(&g_pDecoders[0], pOutput, frameCount, NULL, MA_FALSE);
+    ma_data_source_read_pcm_frames(&g_pDecoders[0], pOutput, frameCount, NULL);
 
     /* Unused in this example. */
     (void)pDevice;

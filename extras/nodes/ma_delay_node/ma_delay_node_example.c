@@ -84,7 +84,7 @@ int main(int argc, char** argv)
         goto done2;
     }
 
-    dataSupplyNodeConfig = ma_data_source_node_config_init(&g_dataSupply, MA_FALSE);
+    dataSupplyNodeConfig = ma_data_source_node_config_init(&g_dataSupply);
 
     result = ma_data_source_node_init(&g_nodeGraph, &dataSupplyNodeConfig, NULL, &g_dataSupplyNode);
     if (result != MA_SUCCESS) {
