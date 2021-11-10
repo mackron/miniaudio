@@ -30657,6 +30657,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 -(void)dealloc
 {
     [self remove_handler];
+    [super dealloc];
 }
 
 -(void)remove_handler
