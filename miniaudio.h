@@ -31055,7 +31055,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     }
 #else
     /* TODO: Figure out how to get the channel map using AVAudioSession. */
-    ma_channel_map_init_standard(ma_standard_channel_map_default, pData->channelMap, ma_countof(pData->channelMap), pData->channelsOut);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pData->channelMapOut, ma_countof(pData->channelMapOut), pData->channelsOut);
 #endif
 
 
