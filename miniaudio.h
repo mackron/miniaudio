@@ -58482,7 +58482,7 @@ MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFram
                     framesRead = stb_vorbis_get_samples_float_interleaved(pVorbis->stb, channels, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), (int)framesRemaining * channels);   /* Safe cast. */
                     totalFramesRead += framesRead;
 
-                    if (framesRead < framesRemaining) {
+                    if (framesRead < (int)framesRemaining) {
                         break;  /* Nothing left to read. Get out. */
                     }
                 }
