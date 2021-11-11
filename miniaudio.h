@@ -28574,6 +28574,13 @@ References
     #if defined(TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
         #define MA_APPLE_WATCH
     #endif
+    #if __has_feature(objc_arc)
+        #define MA_BRIDGE_TRANSFER  __bridge_transfer
+        #define MA_BRIDGE_RETAINED  __bridge_retained
+    #else
+        #define MA_BRIDGE_TRANSFER
+        #define MA_BRIDGE_RETAINED
+    #endif
 #else
     #define MA_APPLE_DESKTOP
 #endif
@@ -30752,7 +30759,7 @@ static ma_result ma_device_uninit__coreaudio(ma_device* pDevice)
 #endif
 #if defined(MA_APPLE_MOBILE)
     if (pDevice->coreaudio.pRouteChangeHandler != NULL) {
-        ma_router_change_handler* pRouteChangeHandler = (__bridge_transfer ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
+        ma_router_change_handler* pRouteChangeHandler = (MA_BRIDGE_TRANSFER ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
         [pRouteChangeHandler remove_handler];
     }
 #endif
@@ -31426,7 +31433,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
     differently on non-Desktop Apple platforms.
     */
 #if defined(MA_APPLE_MOBILE)
-    pDevice->coreaudio.pRouteChangeHandler = (__bridge_retained void*)[[ma_router_change_handler alloc] init:pDevice];
+    pDevice->coreaudio.pRouteChangeHandler = (MA_BRIDGE_RETAINED void*)[[ma_router_change_handler alloc] init:pDevice];
 #endif
 
     return MA_SUCCESS;
