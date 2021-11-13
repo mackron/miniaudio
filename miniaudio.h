@@ -52269,7 +52269,16 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
                 frameCount = (rangeEnd - cursor);
             }
 
-            result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+            /*
+            If the cursor is sitting on the end of the range the frame count will be set to 0 which can
+            result in MA_INVALID_ARGS. In this case, we don't want to try reading, but instead return
+            MA_AT_END so the higher level function can know about it.
+            */
+            if (frameCount > 0) {
+                result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+            } else {
+                result = MA_AT_END; /* The cursor is sitting on the end of the range which means we're at the end. */
+            }
         }
     }
 
@@ -52356,8 +52365,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         }
 
         /*
-        We can determine if we've reached the end by checking the return value of the onRead()
-        callback. To loop back to the start, all we need to do is seek back to the first frame.
+        We can determine if we've reached the end by checking if ma_data_source_read_pcm_frames_within_range() returned
+        MA_AT_END. To loop back to the start, all we need to do is seek back to the first frame.
         */
         if (result == MA_AT_END) {
             /*
