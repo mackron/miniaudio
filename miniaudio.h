@@ -21213,7 +21213,7 @@ static ma_result ma_device_wait_write__alsa(ma_device* pDevice)
 
 static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
-    ma_snd_pcm_sframes_t resultALSA;
+    ma_snd_pcm_sframes_t resultALSA = 0;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -21267,7 +21267,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
 
 static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
-    ma_snd_pcm_sframes_t resultALSA;
+    ma_snd_pcm_sframes_t resultALSA = 0;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pFrames != NULL);
