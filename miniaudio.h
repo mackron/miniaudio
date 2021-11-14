@@ -69442,7 +69442,7 @@ REVISION HISTORY
 ================
 v0.10.43 - TBD
   - ALSA: Fix use of uninitialized variables
-  - ALSA: Fix enumeration of devices that support both playback capture.
+  - ALSA: Fix enumeration of devices that support both playback and capture.
 
 v0.10.42 - 2021-08-22
   - Fix a possible deadlock when stopping devices.
