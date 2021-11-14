@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.42 - 2021-08-22
+miniaudio - v0.10.43 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3286,7 +3286,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 42
+#define MA_VERSION_REVISION 43
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -25171,7 +25171,7 @@ static ma_result ma_device_wait_write__alsa(ma_device* pDevice)
 
 static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
-    ma_snd_pcm_sframes_t resultALSA;
+    ma_snd_pcm_sframes_t resultALSA = 0;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pFramesOut != NULL);
@@ -25227,7 +25227,7 @@ static ma_result ma_device_read__alsa(ma_device* pDevice, void* pFramesOut, ma_u
 
 static ma_result ma_device_write__alsa(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
-    ma_snd_pcm_sframes_t resultALSA;
+    ma_snd_pcm_sframes_t resultALSA = 0;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pFrames != NULL);
@@ -87990,6 +87990,9 @@ issues with certain devices and configurations. These can be individually enable
 /*
 REVISION HISTORY
 ================
+v0.10.43 - TBD
+  - ALSA: Fix use of uninitialized variables
+
 v0.10.42 - 2021-08-22
   - Fix a possible deadlock when stopping devices.
 
