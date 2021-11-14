@@ -52,7 +52,7 @@ int main(int argc, char** argv)
     //resourceManagerConfig.decodedChannels = 2;
     resourceManagerConfig.decodedSampleRate = 48000;
     //resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
-    resourceManagerConfig.jobThreadCount = 16;
+    resourceManagerConfig.jobThreadCount = 1;
     resourceManagerConfig.jobQueueCapacity = 8;
     result = ma_resource_manager_init(&resourceManagerConfig, &resourceManager);
     if (result != MA_SUCCESS) {
@@ -80,7 +80,15 @@ int main(int argc, char** argv)
     loadNotification.cb.onSignal = on_sound_loaded;
     loadNotification.pSound = &sound;
 
-    result = ma_sound_init_from_file(&engine, argv[1], MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC /*| MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM*/, &group, NULL, &sound);
+    ma_sound_config soundConfig = ma_sound_config_init();
+    soundConfig.pFilePath               = argv[1];
+    soundConfig.flags                   = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
+    soundConfig.pInitialAttachment      = &group;
+    soundConfig.loopPointBegInPCMFrames = 0;
+    soundConfig.loopPointEndInPCMFrames = 48000;
+    soundConfig.isLooping               = MA_TRUE;
+
+    result = ma_sound_init_ex(&engine, &soundConfig, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to load sound: %s\n", argv[1]);
         ma_engine_uninit(&engine);
@@ -117,6 +125,8 @@ int main(int argc, char** argv)
     /*ma_sound_set_pitch(&sound, 1.1f);*/
     /*ma_sound_set_pan(&sound, 0.0f);*/
     ma_sound_set_looping(&sound, MA_TRUE);
+    //ma_data_source_set_range_in_pcm_frames(ma_sound_get_data_source(&sound), 0, 48000);
+    //ma_data_source_set_loop_point_in_pcm_frames(ma_sound_get_data_source(&sound), 0, 48000);
     //ma_sound_seek_to_pcm_frame(&sound, 6000000);
     //ma_sound_set_start_time(&sound, 1110);
     //ma_sound_set_volume(&sound, 0.5f);
