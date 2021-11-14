@@ -20392,10 +20392,11 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
 
         /*
         Some devices are both playback and capture, but they are only enumerated by ALSA once. We need to fire the callback
-        again for the other device type in this case. We do this for known devices.
+        again for the other device type in this case. We do this for known devices and where the IOID hint is NULL, which
+        means both Input and Output.
         */
         if (cbResult) {
-            if (ma_is_common_device_name__alsa(NAME)) {
+            if (ma_is_common_device_name__alsa(NAME) || IOID == NULL) {
                 if (deviceType == ma_device_type_playback) {
                     if (!ma_is_capture_device_blacklisted__alsa(NAME)) {
                         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
@@ -69441,6 +69442,7 @@ REVISION HISTORY
 ================
 v0.10.43 - TBD
   - ALSA: Fix use of uninitialized variables
+  - ALSA: Fix enumeration of devices that support both playback capture.
 
 v0.10.42 - 2021-08-22
   - Fix a possible deadlock when stopping devices.
