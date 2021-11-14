@@ -8257,6 +8257,8 @@ Data Source
 **************************************************************************************************/
 typedef void ma_data_source;
 
+#define MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT    0x00000001
+
 typedef struct
 {
     ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
@@ -8265,6 +8267,7 @@ typedef struct
     ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
     ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
     ma_result (* onSetLooping)(ma_data_source* pDataSource, ma_bool32 isLooping);
+    ma_uint32 flags;
 } ma_data_source_vtable;
 
 typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSource);
@@ -52241,8 +52244,8 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         return MA_INVALID_ARGS;
     }
 
-    if (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE)) {
-        /* No range is set - just read like normal. The data source itself will tell us when the end is reached. */
+    if ((pDataSourceBase->vtable->flags & MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT) != 0 || (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
+        /* Either the data source is self-managing the range, or no range is set - just read like normal. The data source itself will tell us when the end is reached. */
         result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
     } else {
         /* Need to clamp to within the range. */
@@ -52867,7 +52870,8 @@ static ma_data_source_vtable g_ma_audio_buffer_ref_data_source_vtable =
     ma_audio_buffer_ref__data_source_on_get_data_format,
     ma_audio_buffer_ref__data_source_on_get_cursor,
     ma_audio_buffer_ref__data_source_on_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef)
@@ -53550,7 +53554,8 @@ static ma_data_source_vtable g_ma_paged_audio_buffer_data_source_vtable =
     ma_paged_audio_buffer__data_source_on_get_data_format,
     ma_paged_audio_buffer__data_source_on_get_cursor,
     ma_paged_audio_buffer__data_source_on_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer)
@@ -56139,7 +56144,8 @@ static ma_data_source_vtable g_ma_wav_ds_vtable =
     ma_wav_ds_get_data_format,
     ma_wav_ds_get_cursor,
     ma_wav_ds_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 
@@ -56781,7 +56787,8 @@ static ma_data_source_vtable g_ma_flac_ds_vtable =
     ma_flac_ds_get_data_format,
     ma_flac_ds_get_cursor,
     ma_flac_ds_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 
@@ -57416,7 +57423,8 @@ static ma_data_source_vtable g_ma_mp3_ds_vtable =
     ma_mp3_ds_get_data_format,
     ma_mp3_ds_get_cursor,
     ma_mp3_ds_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 
@@ -58104,7 +58112,8 @@ static ma_data_source_vtable g_ma_stbvorbis_ds_vtable =
     ma_stbvorbis_ds_get_data_format,
     ma_stbvorbis_ds_get_cursor,
     ma_stbvorbis_ds_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 
@@ -58860,7 +58869,8 @@ static ma_data_source_vtable g_ma_decoder_data_source_vtable =
     ma_decoder__data_source_on_get_data_format,
     ma_decoder__data_source_on_get_cursor,
     ma_decoder__data_source_on_get_length,
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 static ma_result ma_decoder__preinit(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, ma_decoder_tell_proc onTell, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -60442,7 +60452,8 @@ static ma_data_source_vtable g_ma_waveform_data_source_vtable =
     ma_waveform__data_source_on_get_data_format,
     ma_waveform__data_source_on_get_cursor,
     NULL,   /* onGetLength. There's no notion of a length in waveforms. */
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 MA_API ma_result ma_waveform_init(const ma_waveform_config* pConfig, ma_waveform* pWaveform)
@@ -60864,7 +60875,8 @@ static ma_data_source_vtable g_ma_noise_data_source_vtable =
     ma_noise__data_source_on_get_data_format,
     NULL,   /* onGetCursor. No notion of a cursor for noise. */
     NULL,   /* onGetLength. No notion of a length for noise. */
-    NULL    /* onSetLooping */
+    NULL,   /* onSetLooping */
+    0
 };
 
 
@@ -63472,7 +63484,8 @@ static ma_data_source_vtable g_ma_resource_manager_data_buffer_vtable =
     ma_resource_manager_data_buffer_cb__get_data_format,
     ma_resource_manager_data_buffer_cb__get_cursor_in_pcm_frames,
     ma_resource_manager_data_buffer_cb__get_length_in_pcm_frames,
-    ma_resource_manager_data_buffer_cb__set_looping
+    ma_resource_manager_data_buffer_cb__set_looping,
+    0
 };
 
 static ma_result ma_resource_manager_data_buffer_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 hashedName32, ma_uint32 flags, ma_uint64 initialSeekPoint, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_buffer* pDataBuffer)
@@ -64153,7 +64166,8 @@ static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
     ma_resource_manager_data_stream_cb__get_data_format,
     ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames,
     ma_resource_manager_data_stream_cb__get_length_in_pcm_frames,
-    ma_resource_manager_data_stream_cb__set_looping
+    ma_resource_manager_data_stream_cb__set_looping,
+    MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT
 };
 
 static ma_result ma_resource_manager_data_stream_init_internal(ma_resource_manager* pResourceManager, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_uint64 initialSeekPoint, const ma_resource_manager_pipeline_notifications* pNotifications, ma_resource_manager_data_stream* pDataStream)
@@ -64323,42 +64337,30 @@ static void* ma_resource_manager_data_stream_get_page_data_pointer(ma_resource_m
 static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_stream* pDataStream, ma_uint32 pageIndex)
 {
     ma_result result = MA_SUCCESS;
-    ma_bool32 isLooping;
     ma_uint64 pageSizeInFrames;
     ma_uint64 totalFramesReadForThisPage = 0;
     void* pPageData = ma_resource_manager_data_stream_get_page_data_pointer(pDataStream, pageIndex, 0);
 
     pageSizeInFrames = ma_resource_manager_data_stream_get_page_size_in_frames(pDataStream);
 
-    isLooping = ma_resource_manager_data_stream_is_looping(pDataStream);   /* Won't fail. */
+    /* The decoder needs to inherit the stream's looping and range state. */
+    {
+        ma_uint64 rangeBeg;
+        ma_uint64 rangeEnd;
+        ma_uint64 loopPointBeg;
+        ma_uint64 loopPointEnd;
 
-    if (isLooping) {
-        while (totalFramesReadForThisPage < pageSizeInFrames) {
-            ma_uint64 framesRemaining;
-            ma_uint64 framesRead;
+        ma_data_source_set_looping(&pDataStream->decoder, ma_resource_manager_data_stream_is_looping(pDataStream));
 
-            framesRemaining = pageSizeInFrames - totalFramesReadForThisPage;
-            result = ma_decoder_read_pcm_frames(&pDataStream->decoder, ma_offset_pcm_frames_ptr(pPageData, totalFramesReadForThisPage, pDataStream->decoder.outputFormat, pDataStream->decoder.outputChannels), framesRemaining, &framesRead);
-            totalFramesReadForThisPage += framesRead;
+        ma_data_source_get_range_in_pcm_frames(pDataStream, &rangeBeg, &rangeEnd);
+        ma_data_source_set_range_in_pcm_frames(&pDataStream->decoder, rangeBeg, rangeEnd);
 
-            /* Loop back to the start if we reached the end. We'll also have a known length at this point as well. */
-            if (result == MA_AT_END || framesRead < framesRemaining) {
-                if (pDataStream->totalLengthInPCMFrames == 0) {
-                    ma_decoder_get_cursor_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
-                }
-
-                ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, 0);
-                result = MA_SUCCESS;    /* Clear the AT_END result so we don't incorrectly mark this looping stream as at the end and then have it stopped. */
-            }
-
-            if (result != MA_SUCCESS && result != MA_AT_END) {
-                break;
-            }
-        }
-    } else {
-        result = ma_decoder_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames, &totalFramesReadForThisPage);
+        ma_data_source_get_loop_point_in_pcm_frames(pDataStream, &loopPointBeg, &loopPointEnd);
+        ma_data_source_set_loop_point_in_pcm_frames(&pDataStream->decoder, loopPointBeg, loopPointEnd);
     }
 
+    /* Just read straight from the decoder. It will deal with ranges and looping for us. */
+    result = ma_data_source_read_pcm_frames(&pDataStream->decoder, pPageData, pageSizeInFrames, &totalFramesReadForThisPage);
     if (result == MA_AT_END || totalFramesReadForThisPage < pageSizeInFrames) {
         c89atomic_exchange_32(&pDataStream->isDecoderAtEnd, MA_TRUE);
     }
