@@ -435,6 +435,10 @@ dependencies. See below for platform-specific details.
 The Windows build should compile cleanly on all popular compilers without the need to configure any
 include paths nor link to any libraries.
 
+The UWP build may require linking to mmdevapi.lib if you get errors about an unresolved external
+symbol for ActivateAudioInterfaceAsync().
+
+
 2.2. macOS and iOS
 ------------------
 The macOS build should compile cleanly without the need to download any dependencies nor link to
