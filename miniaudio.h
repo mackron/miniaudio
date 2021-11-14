@@ -37031,10 +37031,15 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
 #ifdef MA_WIN32
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
+    /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
+#ifdef MA_WIN32_DESKTOP
     ma_CoUninitialize(pContext);
     ma_dlclose(pContext, pContext->win32.hUser32DLL);
     ma_dlclose(pContext, pContext->win32.hOle32DLL);
     ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
+#else
+    (void)pContext;
+#endif
 
     return MA_SUCCESS;
 }
