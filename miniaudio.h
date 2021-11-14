@@ -4490,10 +4490,11 @@ typedef struct
     ma_vec3f position;  /* The absolute position of the listener. */
     ma_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
     ma_vec3f velocity;
+    ma_bool32 isEnabled;
 
     /* Memory management. */
-    void* _pHeap;
     ma_bool32 _ownsHeap;
+    void* _pHeap;
 } ma_spatializer_listener;
 
 MA_API ma_result ma_spatializer_listener_get_heap_size(const ma_spatializer_listener_config* pConfig, size_t* pHeapSizeInBytes);
@@ -4513,6 +4514,8 @@ MA_API void ma_spatializer_listener_set_speed_of_sound(ma_spatializer_listener* 
 MA_API float ma_spatializer_listener_get_speed_of_sound(const ma_spatializer_listener* pListener);
 MA_API void ma_spatializer_listener_set_world_up(ma_spatializer_listener* pListener, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_listener_get_world_up(const ma_spatializer_listener* pListener);
+MA_API void ma_spatializer_listener_set_enabled(ma_spatializer_listener* pListener, ma_bool32 isEnabled);
+MA_API ma_bool32 ma_spatializer_listener_is_enabled(const ma_spatializer_listener* pListener);
 
 
 typedef struct
@@ -9966,6 +9969,8 @@ MA_API void ma_engine_listener_set_cone(ma_engine* pEngine, ma_uint32 listenerIn
 MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 listenerIndex, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_engine_listener_set_world_up(ma_engine* pEngine, ma_uint32 listenerIndex, float x, float y, float z);
 MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uint32 listenerIndex);
+MA_API void ma_engine_listener_set_enabled(ma_engine* pEngine, ma_uint32 listenerIndex, ma_bool32 isEnabled);
+MA_API ma_bool32 ma_engine_listener_is_enabled(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 
@@ -45744,6 +45749,7 @@ MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_
     pListener->position  = ma_vec3f_init_3f(0, 0,  0);
     pListener->direction = ma_vec3f_init_3f(0, 0, -1);
     pListener->velocity  = ma_vec3f_init_3f(0, 0,  0);
+    pListener->isEnabled = MA_TRUE;
 
     /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
     if (pListener->config.handedness == ma_handedness_left) {
@@ -45932,6 +45938,24 @@ MA_API ma_vec3f ma_spatializer_listener_get_world_up(const ma_spatializer_listen
     }
 
     return pListener->config.worldUp;
+}
+
+MA_API void ma_spatializer_listener_set_enabled(ma_spatializer_listener* pListener, ma_bool32 isEnabled)
+{
+    if (pListener == NULL) {
+        return;
+    }
+
+    pListener->isEnabled = isEnabled;
+}
+
+MA_API ma_bool32 ma_spatializer_listener_is_enabled(const ma_spatializer_listener* pListener)
+{
+    if (pListener == NULL) {
+        return MA_FALSE;
+    }
+
+    return pListener->isEnabled;
 }
 
 
@@ -46213,11 +46237,16 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
     /* If we're not spatializing we need to run an optimized path. */
     if (pSpatializer->config.attenuationModel == ma_attenuation_model_none) {
-        /* No attenuation is required, but we'll need to do some channel conversion. */
-        if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
-            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
+        if (ma_spatializer_listener_is_enabled(pListener)) {
+            /* No attenuation is required, but we'll need to do some channel conversion. */
+            if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
+                ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
+            } else {
+                ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular);   /* Safe casts to float* because f32 is the only supported format. */
+            }
         } else {
-            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular);   /* Safe casts to float* because f32 is the only supported format. */
+            /* The listener is disabled. Output silence. */
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->config.channelsOut);
         }
 
         /*
@@ -46430,8 +46459,15 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             pSpatializer->pNewChannelGainsOut[iChannel] = gain;
         }
 
-        /* Convert to our output channel count. */
-        ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular);
+        /*
+        Convert to our output channel count. If the listener is disabled we just output silence here. We cannot ignore
+        the whole section of code here because we need to update some internal spatialization state.
+        */
+        if (ma_spatializer_listener_is_enabled(pListener)) {
+            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular);
+        } else {
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->config.channelsOut);
+        }
 
         /*
         Calculate our per-channel gains. We do this based on the normalized relative position of the sound and it's
@@ -69903,10 +69939,12 @@ MA_API ma_uint32 ma_engine_find_closest_listener(const ma_engine* pEngine, float
 
     iListenerClosest = 0;
     for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
-        float len2 = ma_vec3f_len2(ma_vec3f_sub(pEngine->listeners[iListener].position, ma_vec3f_init_3f(absolutePosX, absolutePosY, absolutePosZ)));
-        if (closestLen2 > len2) {
-            closestLen2 = len2;
-            iListenerClosest = iListener;
+        if (ma_engine_listener_is_enabled(pEngine, iListener)) {
+            float len2 = ma_vec3f_len2(ma_vec3f_sub(pEngine->listeners[iListener].position, ma_vec3f_init_3f(absolutePosX, absolutePosY, absolutePosZ)));
+            if (closestLen2 > len2) {
+                closestLen2 = len2;
+                iListenerClosest = iListener;
+            }
         }
     }
 
@@ -70010,6 +70048,24 @@ MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uin
     }
 
     return ma_spatializer_listener_get_world_up(&pEngine->listeners[listenerIndex]);
+}
+
+MA_API void ma_engine_listener_set_enabled(ma_engine* pEngine, ma_uint32 listenerIndex, ma_bool32 isEnabled)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return;
+    }
+
+    ma_spatializer_listener_set_enabled(&pEngine->listeners[listenerIndex], isEnabled);
+}
+
+MA_API ma_bool32 ma_engine_listener_is_enabled(const ma_engine* pEngine, ma_uint32 listenerIndex)
+{
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return MA_FALSE;
+    }
+
+    return ma_spatializer_listener_is_enabled(&pEngine->listeners[listenerIndex]);
 }
 
 
