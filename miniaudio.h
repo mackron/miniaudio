@@ -31556,7 +31556,7 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-#if defined(MA_APPLE_MOBILE)
+#if defined(MA_APPLE_MOBILE) && defined(__IPHONE_12_0)
 static AVAudioSessionCategory ma_to_AVAudioSessionCategory(ma_ios_session_category category)
 {
     /* The "default" and "none" categories are treated different and should not be used as an input into this function. */
@@ -31613,9 +31613,13 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
             }
         } else {
             if (pConfig->coreaudio.sessionCategory != ma_ios_session_category_none) {
+            #if defined(__IPHONE_12_0)
                 if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pConfig->coreaudio.sessionCategory) withOptions:options error:nil]) {
                     return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
+            #else
+                return MA_INVALID_OPERATION;    /* AVAudioSession.Category was introduced in iOS 12.0. */
+            #endif
             }
         }
 
