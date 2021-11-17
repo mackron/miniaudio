@@ -31618,7 +31618,8 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
                     return MA_INVALID_OPERATION;    /* Failed to set session category. */
                 }
             #else
-                return MA_INVALID_OPERATION;    /* AVAudioSession.Category was introduced in iOS 12.0. */
+                /* Ignore the session category on version 11 and older, but post a warning. */
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Session category only supported in iOS 12 and newer.");
             #endif
             }
         }
@@ -87998,6 +87999,7 @@ REVISION HISTORY
 v0.10.43 - TBD
   - ALSA: Fix use of uninitialized variables
   - ALSA: Fix enumeration of devices that support both playback and capture.
+  - Core Audio: Don't fail on older versions of iOS when a session category is specified.
   - WebAudio: Fix errors in strict mode.
 
 v0.10.42 - 2021-08-22
