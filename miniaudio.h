@@ -87999,7 +87999,6 @@ REVISION HISTORY
 v0.10.43 - TBD
   - ALSA: Fix use of uninitialized variables
   - ALSA: Fix enumeration of devices that support both playback and capture.
-  - Core Audio: Don't fail on older versions of iOS when a session category is specified.
   - WebAudio: Fix errors in strict mode.
 
 v0.10.42 - 2021-08-22
