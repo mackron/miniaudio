@@ -64316,6 +64316,16 @@ static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
     MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT
 };
 
+static void ma_resource_manager_data_stream_set_absolute_cursor(ma_resource_manager_data_stream* pDataStream, ma_uint64 absoluteCursor)
+{
+    /* Loop if possible. */
+    if (absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
+        absoluteCursor = absoluteCursor % pDataStream->totalLengthInPCMFrames;
+    }
+
+    c89atomic_exchange_64(&pDataStream->absoluteCursor, absoluteCursor);
+}
+
 MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pResourceManager, const ma_resource_manager_data_source_config* pConfig, ma_resource_manager_data_stream* pDataStream)
 {
     ma_result result;
@@ -64393,6 +64403,9 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     }
 
     ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
+
+    /* Set the absolute cursor to our initial seek position so retrieval of the cursor returns a good value. */
+    ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, pConfig->initialSeekPointInPCMFrames);
 
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM);
@@ -64615,16 +64628,6 @@ static ma_result ma_resource_manager_data_stream_map(ma_resource_manager_data_st
     return MA_SUCCESS;
 }
 
-static void ma_resource_manager_data_stream_set_absolute_cursor(ma_resource_manager_data_stream* pDataStream, ma_uint64 absoluteCursor)
-{
-    /* Loop if possible. */
-    if (absoluteCursor > pDataStream->totalLengthInPCMFrames && pDataStream->totalLengthInPCMFrames > 0) {
-        absoluteCursor = absoluteCursor % pDataStream->totalLengthInPCMFrames;
-    }
-
-    c89atomic_exchange_64(&pDataStream->absoluteCursor, absoluteCursor);
-}
-
 static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameCount)
 {
     ma_uint32 newRelativeCursor;
@@ -64836,6 +64839,8 @@ MA_API ma_result ma_resource_manager_data_stream_get_data_format(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_resource_manager_data_stream* pDataStream, ma_uint64* pCursor)
 {
+    ma_result result;
+
     if (pCursor == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -64849,11 +64854,17 @@ MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_res
         return MA_INVALID_ARGS;
     }
 
-    if (ma_resource_manager_data_stream_result(pDataStream) != MA_SUCCESS) {
+    /*
+    If the stream is in an erroneous state we need to return an invalid operation. We can allow
+    this to be called when the data stream is in a busy state because the caller may have asked
+    for an initial seek position and it's convenient to return that as the cursor position.
+    */
+    result = ma_resource_manager_data_stream_result(pDataStream);
+    if (result != MA_SUCCESS && result != MA_BUSY) {
         return MA_INVALID_OPERATION;
     }
 
-    *pCursor = pDataStream->absoluteCursor;
+    c89atomic_exchange_64(pCursor, pDataStream->absoluteCursor);
 
     return MA_SUCCESS;
 }
