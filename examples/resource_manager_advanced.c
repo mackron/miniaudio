@@ -275,7 +275,6 @@ int main(int argc, char** argv)
             &resourceManager,
             argv[iFile+1],
             MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC /*| MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM*/,
-            0,      /* Initial seek point. */
             NULL,   /* Async notification. */
             &g_dataSources[iFile]);
 
