@@ -10167,7 +10167,7 @@ IMPLEMENTATION
 #define MA_X64
 #elif defined(__i386) || defined(_M_IX86)
 #define MA_X86
-#elif defined(__arm__) || defined(_M_ARM)
+#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
 #define MA_ARM
 #endif
 
