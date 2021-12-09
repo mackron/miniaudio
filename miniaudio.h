@@ -48750,12 +48750,12 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
         if (pConverter->format == ma_format_f32) {
             pConverter->weights.f32 = (float**   )ma_offset_ptr(pHeap, heapLayout.weightsOffset);
             for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; iChannelIn += 1) {
-                pConverter->weights.f32[iChannelIn] = (float*)ma_offset_ptr(pHeap, heapLayout.weightsOffset + ((sizeof(float*) * pConverter->channelsIn) + (sizeof(float) * pConverter->channelsIn * iChannelIn)));
+                pConverter->weights.f32[iChannelIn] = (float*)ma_offset_ptr(pHeap, heapLayout.weightsOffset + ((sizeof(float*) * pConverter->channelsIn) + (sizeof(float) * pConverter->channelsOut * iChannelIn)));
             }
         } else {
             pConverter->weights.s16 = (ma_int32**)ma_offset_ptr(pHeap, heapLayout.weightsOffset);
             for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; iChannelIn += 1) {
-                pConverter->weights.s16[iChannelIn] = (ma_int32*)ma_offset_ptr(pHeap, heapLayout.weightsOffset + ((sizeof(ma_int32*) * pConverter->channelsIn) + (sizeof(ma_int32) * pConverter->channelsIn * iChannelIn)));
+                pConverter->weights.s16[iChannelIn] = (ma_int32*)ma_offset_ptr(pHeap, heapLayout.weightsOffset + ((sizeof(ma_int32*) * pConverter->channelsIn) + (sizeof(ma_int32) * pConverter->channelsOut * iChannelIn)));
             }
         }
 
