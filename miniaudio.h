@@ -69702,7 +69702,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     return MA_SUCCESS;
 
+#if !defined(MA_NO_DEVICE_IO)
 on_error_4:
+#endif
 #if !defined(MA_NO_RESOURCE_MANAGER)
 on_error_3:
     if (pEngine->ownsResourceManager) {
