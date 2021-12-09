@@ -64864,7 +64864,7 @@ MA_API ma_result ma_resource_manager_data_stream_get_cursor_in_pcm_frames(ma_res
         return MA_INVALID_OPERATION;
     }
 
-    c89atomic_exchange_64(pCursor, pDataStream->absoluteCursor);
+    *pCursor = c89atomic_load_64(&pDataStream->absoluteCursor);
 
     return MA_SUCCESS;
 }
