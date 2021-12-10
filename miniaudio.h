@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.43 - TBD
+miniaudio - v0.10.43 - 2021-12-10
 
 David Reid - mackron@gmail.com
 
@@ -69690,8 +69690,8 @@ The following miscellaneous changes have also been made.
 /*
 REVISION HISTORY
 ================
-v0.10.43 - TBD
-  - ALSA: Fix use of uninitialized variables
+v0.10.43 - 2021-12-10
+  - ALSA: Fix use of uninitialized variables.
   - ALSA: Fix enumeration of devices that support both playback and capture.
   - PulseAudio: Fix a possible division by zero.
   - WebAudio: Fix errors in strict mode.
