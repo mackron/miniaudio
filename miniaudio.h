@@ -9973,8 +9973,9 @@ MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uin
 MA_API void ma_engine_listener_set_enabled(ma_engine* pEngine, ma_uint32 listenerIndex, ma_bool32 isEnabled);
 MA_API ma_bool32 ma_engine_listener_is_enabled(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
+#if !defined(MA_NO_RESOURCE_MANAGER)
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
-
+#endif
 
 #ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound);
