@@ -115,7 +115,7 @@ int main(int argc, char** argv)
     /*ma_data_source_seek_to_pcm_frame(sound.pDataSource, 5000000);*/
 
     //ma_sound_group_set_pan(ma_engine_get_master_sound_group(&engine), -1);
-    ma_sound_group_set_pitch(&group, 1.25f);
+    ma_sound_group_set_pitch(&group, 1.5f);
     //ma_sound_group_set_start_time(ma_engine_get_master_sound_group(&engine), 2000);
     //ma_sound_group_set_fade_in_milliseconds(&group, 0, 1, 5000);
     //ma_sound_group_stop(&group);
@@ -167,8 +167,8 @@ int main(int argc, char** argv)
 #endif
 
 #if 1
-    float maxX = +10;
-    float minX = -10;
+    float maxX = +1;
+    float minX = -1;
     float posX = 0;
     float posZ = -1.0f;
     float step = 0.1f;
@@ -209,7 +209,7 @@ int main(int argc, char** argv)
 
         //ma_spatializer_set_position(&g_spatializer, ma_vec3f_init_3f(posX, 0, posZ));
         ma_sound_set_position(&sound, 0, 0, -2);
-        ma_engine_listener_set_position(&engine, 0, 0, 0, -20);
+        ma_engine_listener_set_position(&engine, 0, 0, 0, -10);
         ma_engine_listener_set_direction(&engine, 0, -1, 0, 0);
         //ma_sound_set_velocity(&sound, step*1000, 0, 0);
 
