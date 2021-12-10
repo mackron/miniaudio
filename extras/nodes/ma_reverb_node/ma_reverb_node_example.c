@@ -1,6 +1,5 @@
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../../../miniaudio.h"
-#include "../../../miniaudio_engine.h"
+#include "../../../miniaudio.h"
 #include "ma_reverb_node.c"
 
 #include <stdio.h>

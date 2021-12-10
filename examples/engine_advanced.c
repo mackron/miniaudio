@@ -14,8 +14,7 @@ If you were wanting to support multiple listeners, this example will show you ho
 initializing one `ma_engine` object for each listener, each of which share a single self-managed resource manager.
 */
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
-#include "../miniaudio_engine.h"
+#include "../miniaudio.h"
 
 #define MAX_DEVICES 2
 #define MAX_SOUNDS  32

@@ -16,8 +16,7 @@ threads to manage internally and how to implement your own custom job thread.
 */
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
-#include "../miniaudio_engine.h"
+#include "../miniaudio.h"
 
 static ma_resource_manager_data_source g_dataSources[16];
 static ma_uint32                       g_dataSourceCount;

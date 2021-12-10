@@ -7,9 +7,8 @@ the miniaudio repository. The vocoder node uses https://github.com/blastbay/vocl
 effect.
 */
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
-#include "../miniaudio_engine.h"
-#include "../_extras/nodes/ma_vocoder_node/ma_vocoder_node.c"
+#include "../miniaudio.h"
+#include "../extras/nodes/ma_vocoder_node/ma_vocoder_node.c"
 
 #include <stdio.h>
 

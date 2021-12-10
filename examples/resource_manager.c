@@ -25,8 +25,7 @@ set, each sound will have their own formats and you'll need to do the necessary 
 */
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
 #define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
-#include "../miniaudio_engine.h"
+#include "../miniaudio.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>

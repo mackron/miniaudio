@@ -1,1 +1,0 @@
-#include "../../examples/resource_manager_advanced.c"
