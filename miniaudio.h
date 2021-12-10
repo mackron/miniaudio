@@ -26,6 +26,12 @@ miniaudio includes both low level and high level APIs. The low level API is good
 to do all of their mixing themselves and only require a light weight interface to the underlying
 audio device. The high level API is good for those who have complex mixing and effect requirements.
 
+In miniaudio, objects are transparent structures. Unlike many other libraries, there are no handles
+to opaque objects which means you need to allocate memory for objects yourself. In the examples
+presented in this documentation you will often see objects declared on the stack. You need to be
+careful when translating these examples to your own code so that you don't accidentally declare
+your objects on the stack and then cause them to become invalid once the function returns.
+
 
 1.1. Low Level API
 ------------------
@@ -303,6 +309,17 @@ This creates an engine instance which will initialize a device internally which 
 with `ma_engine_get_resource_manager()`. The engine itself is a node graph (`ma_node_graph`) which
 means you can pass a pointer to the engine object into any of the `ma_node_graph` APIs (with a
 cast). Alternatively, you can use `ma_engine_get_node_graph()` instead of a cast.
+
+Note that all objects in miniaudio, including the `ma_engine` object in the example above, are
+transparent structures. There are no handles to opaque structures in miniaudio which means you need
+to be mindful of how you declare them. In the example above we are declaring it on the stack, but
+this will result in the struct being invalidated once the function encapsulating it returns. If
+allocating the engine on the heap is more appropriate, you can easily do so with a standard call
+to malloc() or whatever heap allocation routine you like:
+
+    ```c
+    ma_engine* pEngine = ma_malloc(sizeof(*pEngine), &myAllocationCallbacks);
+    ```
 
 The `ma_engine` API uses the same config/init pattern used all throughout miniaudio. To configure
 an engine, you can fill out a `ma_engine_config` object and pass it into the first parameter of
