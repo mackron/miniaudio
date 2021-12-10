@@ -34,7 +34,7 @@ static ma_node_vtable g_ma_reverb_node_vtable =
 {
     ma_reverb_node_process_pcm_frames,
     NULL,
-    1,  /* 1 input channels. */
+    1,  /* 1 input channel. */
     1,  /* 1 output channel. */
     MA_NODE_FLAG_CONTINUOUS_PROCESSING  /* Reverb requires continuous processing to ensure the tail get's processed. */
 };
