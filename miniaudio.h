@@ -28,7 +28,7 @@ audio device. The high level API is good for those who have complex mixing and e
 
 
 1.1. Low Level API
------------------
+------------------
 The low level API gives you access to the raw audio data of an audio device. It supports playback,
 capture, full-duplex and loopback (WASAPI only). You can enumerate over devices to determine which
 physical device(s) you want to connect to.
@@ -67466,149 +67466,158 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                 /* Getting here means we need to do another round of processing. */
                 pNodeBase->cachedFrameCountOut = 0;
 
-                /*
-                We need to prepare our output frame pointers for processing. In the same iteration we need
-                to mark every output bus as unread so that future calls to this function for different buses
-                for the current time period don't pull in data when they should instead be reading from cache.
-                */
-                for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
-                    ma_node_output_bus_set_has_read(&pNodeBase->pOutputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
-                    ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
-                }
-
-                /* We only need to read from input buses if there isn't already some data in the cache. */
-                if (pNodeBase->cachedFrameCountIn == 0) {
-                    ma_uint32 maxFramesReadIn = 0;
-
-                    /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
-                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                        ma_uint32 framesRead;
-
-                        /* The first thing to do is get the offset within our bulk allocation to store this input data. */
-                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
-
-                        /* Once we've determined our destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
-                        result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime);
-                        if (result != MA_SUCCESS) {
-                            /* It doesn't really matter if we fail because we'll just fill with silence. */
-                            framesRead = 0; /* Just for safety, but I don't think it's really needed. */
-                        }
-
-                        /* TODO: Minor optimization opportunity here. If no frames were read and the buffer is already filled with silence, no need to re-silence it. */
-                        /* Any leftover frames need to silenced for safety. */
-                        if (framesRead < framesToProcessIn) {
-                            ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToProcessIn - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
-                        }
-
-                        maxFramesReadIn = ma_max(maxFramesReadIn, framesRead);
-                    }
-
-                    /* This was a fresh load of input data so reset our consumption counter. */
-                    pNodeBase->consumedFrameCountIn = 0;
+                for (;;) {
+                    frameCountOut = 0;
 
                     /*
-                    We don't want to keep processing if there's nothing to process, so set the number of cached
-                    input frames to the maximum number we read from each attachment (the lesser will be padded
-                    with silence). If we didn't read anything, this will be set to 0 and the entire buffer will
-                    have been assigned to silence. This being equal to 0 is an important property for us because
-                    it allows us to detect when NULL can be passed into the processing callback for the input
-                    buffer for the purpose of continuous processing.
+                    We need to prepare our output frame pointers for processing. In the same iteration we need
+                    to mark every output bus as unread so that future calls to this function for different buses
+                    for the current time period don't pull in data when they should instead be reading from cache.
                     */
-                    pNodeBase->cachedFrameCountIn = (ma_uint16)maxFramesReadIn;
-                } else {
-                    /* We don't need to read anything, but we do need to prepare our input frame pointers. */
-                    for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
-                        ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
+                    for (iOutputBus = 0; iOutputBus < outputBusCount; iOutputBus += 1) {
+                        ma_node_output_bus_set_has_read(&pNodeBase->pOutputBuses[iOutputBus], MA_FALSE); /* <-- This is what tells the next calls to this function for other output buses for this time period to read from cache instead of pulling in more data. */
+                        ppFramesOut[iOutputBus] = ma_node_get_cached_output_ptr(pNode, iOutputBus);
                     }
-                }
 
-                /*
-                At this point we have our input data so now we need to do some processing. Sneaky little
-                optimization here - we can set the pointer to the output buffer for this output bus so
-                that the final copy into the output buffer is done directly by onProcess().
-                */
-                if (pFramesOut != NULL) {
-                    ppFramesOut[outputBusIndex] = pFramesOut;
-                }
+                    /* We only need to read from input buses if there isn't already some data in the cache. */
+                    if (pNodeBase->cachedFrameCountIn == 0) {
+                        ma_uint32 maxFramesReadIn = 0;
 
+                        /* Here is where we pull in data from the input buses. This is what will trigger an advance in time. */
+                        for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                            ma_uint32 framesRead;
 
-                /* Give the processing function the entire capacity of the output buffer. */
-                frameCountOut = framesToProcessOut;
+                            /* The first thing to do is get the offset within our bulk allocation to store this input data. */
+                            ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus);
 
-                /*
-                We need to treat nodes with continuous processing a little differently. For these ones,
-                we always want to fire the callback with the requested number of frames, regardless of
-                pNodeBase->cachedFrameCountIn, which could be 0. Also, we want to check if we can pass
-                in NULL for the input buffer to the callback.
-                */
-                if ((pNodeBase->vtable->flags & MA_NODE_FLAG_CONTINUOUS_PROCESSING) != 0) {
-                    /* We're using continuous processing. Make sure we specify the whole frame count at all times. */
-                    frameCountIn = framesToProcessIn;    /* Give the processing function as much input data as we've got in the buffer, including any silenced padding from short reads. */
+                            /* Once we've determined our destination pointer we can read. Note that we must inspect the number of frames read and fill any leftovers with silence for safety. */
+                            result = ma_node_input_bus_read_pcm_frames(pNodeBase, &pNodeBase->pInputBuses[iInputBus], ppFramesIn[iInputBus], framesToProcessIn, &framesRead, globalTime);
+                            if (result != MA_SUCCESS) {
+                                /* It doesn't really matter if we fail because we'll just fill with silence. */
+                                framesRead = 0; /* Just for safety, but I don't think it's really needed. */
+                            }
 
-                    if ((pNodeBase->vtable->flags & MA_NODE_FLAG_ALLOW_NULL_INPUT) != 0 && pNodeBase->consumedFrameCountIn == 0 && pNodeBase->cachedFrameCountIn == 0) {
-                        consumeNullInput = MA_TRUE;
+                            /* TODO: Minor optimization opportunity here. If no frames were read and the buffer is already filled with silence, no need to re-silence it. */
+                            /* Any leftover frames need to silenced for safety. */
+                            if (framesRead < framesToProcessIn) {
+                                ma_silence_pcm_frames(ppFramesIn[iInputBus] + (framesRead * ma_node_get_input_channels(pNodeBase, iInputBus)), (framesToProcessIn - framesRead), ma_format_f32, ma_node_get_input_channels(pNodeBase, iInputBus));
+                            }
+
+                            maxFramesReadIn = ma_max(maxFramesReadIn, framesRead);
+                        }
+
+                        /* This was a fresh load of input data so reset our consumption counter. */
+                        pNodeBase->consumedFrameCountIn = 0;
+
+                        /*
+                        We don't want to keep processing if there's nothing to process, so set the number of cached
+                        input frames to the maximum number we read from each attachment (the lesser will be padded
+                        with silence). If we didn't read anything, this will be set to 0 and the entire buffer will
+                        have been assigned to silence. This being equal to 0 is an important property for us because
+                        it allows us to detect when NULL can be passed into the processing callback for the input
+                        buffer for the purpose of continuous processing.
+                        */
+                        pNodeBase->cachedFrameCountIn = (ma_uint16)maxFramesReadIn;
                     } else {
+                        /* We don't need to read anything, but we do need to prepare our input frame pointers. */
+                        for (iInputBus = 0; iInputBus < inputBusCount; iInputBus += 1) {
+                            ppFramesIn[iInputBus] = ma_node_get_cached_input_ptr(pNode, iInputBus) + (pNodeBase->consumedFrameCountIn * ma_node_get_input_channels(pNodeBase, iInputBus));
+                        }
+                    }
+
+                    /*
+                    At this point we have our input data so now we need to do some processing. Sneaky little
+                    optimization here - we can set the pointer to the output buffer for this output bus so
+                    that the final copy into the output buffer is done directly by onProcess().
+                    */
+                    if (pFramesOut != NULL) {
+                        ppFramesOut[outputBusIndex] = ma_offset_pcm_frames_ptr_f32(pFramesOut, pNodeBase->cachedFrameCountOut, ma_node_get_output_channels(pNode, outputBusIndex));
+                    }
+
+
+                    /* Give the processing function the entire capacity of the output buffer. */
+                    frameCountOut = (framesToProcessOut - pNodeBase->cachedFrameCountOut);
+
+                    /*
+                    We need to treat nodes with continuous processing a little differently. For these ones,
+                    we always want to fire the callback with the requested number of frames, regardless of
+                    pNodeBase->cachedFrameCountIn, which could be 0. Also, we want to check if we can pass
+                    in NULL for the input buffer to the callback.
+                    */
+                    if ((pNodeBase->vtable->flags & MA_NODE_FLAG_CONTINUOUS_PROCESSING) != 0) {
+                        /* We're using continuous processing. Make sure we specify the whole frame count at all times. */
+                        frameCountIn = framesToProcessIn;    /* Give the processing function as much input data as we've got in the buffer, including any silenced padding from short reads. */
+
+                        if ((pNodeBase->vtable->flags & MA_NODE_FLAG_ALLOW_NULL_INPUT) != 0 && pNodeBase->consumedFrameCountIn == 0 && pNodeBase->cachedFrameCountIn == 0) {
+                            consumeNullInput = MA_TRUE;
+                        } else {
+                            consumeNullInput = MA_FALSE;
+                        }
+
+                        /*
+                        Since we're using continuous processing we're always passing in a full frame count
+                        regardless of how much input data was read. If this is greater than what we read as
+                        input, we'll end up with an underflow. We instead need to make sure our cached frame
+                        count is set to the number of frames we'll be passing to the data callback. Not
+                        doing this will result in an underflow when we "consume" the cached data later on.
+
+                        Note that this check needs to be done after the "consumeNullInput" check above because
+                        we use the property of cachedFrameCountIn being 0 to determine whether or not we
+                        should be passing in a null pointer to the processing callback for when the node is
+                        configured with MA_NODE_FLAG_ALLOW_NULL_INPUT.
+                        */
+                        if (pNodeBase->cachedFrameCountIn < (ma_uint16)frameCountIn) {
+                            pNodeBase->cachedFrameCountIn = (ma_uint16)frameCountIn;
+                        }
+                    } else {
+                        frameCountIn = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much valid input data as we've got. */
                         consumeNullInput = MA_FALSE;
                     }
 
                     /*
-                    Since we're using continuous processing we're always passing in a full frame count
-                    regardless of how much input data was read. If this is greater than what we read as
-                    input, we'll end up with an underflow. We instead need to make sure our cached frame
-                    count is set to the number of frames we'll be passing to the data callback. Not
-                    doing this will result in an underflow when we "consume" the cached data later on.
-
-                    Note that this check needs to be done after the "consumeNullInput" check above because
-                    we use the property of cachedFrameCountIn being 0 to determine whether or not we
-                    should be passing in a null pointer to the processing callback for when the node is
-                    configured with MA_NODE_FLAG_ALLOW_NULL_INPUT.
+                    Process data slightly differently depending on whether or not we're consuming NULL
+                    input (checked just above).
                     */
-                    if (pNodeBase->cachedFrameCountIn < (ma_uint16)frameCountIn) {
-                        pNodeBase->cachedFrameCountIn = (ma_uint16)frameCountIn;
+                    if (consumeNullInput) {
+                        ma_node_process_pcm_frames_internal(pNode, NULL, &frameCountIn, ppFramesOut, &frameCountOut);
+                    } else {
+                        /*
+                        We want to skip processing if there's no input data, but we can only do that safely if
+                        we know that there is no chance of any output frames being produced. If continuous
+                        processing is being used, this won't be a problem because the input frame count will
+                        always be non-0. However, if continuous processing is *not* enabled and input and output
+                        data is processed at different rates, we still need to process that last input frame
+                        because there could be a few excess output frames needing to be produced from cached
+                        data. The `MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES` flag is used as the indicator for
+                        determining whether or not we need to process the node even when there are no input
+                        frames available right now.
+                        */
+                        if (frameCountIn > 0 || (pNodeBase->vtable->flags & MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES) != 0) {
+                            ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                        }
                     }
-                } else {
-                    frameCountIn = pNodeBase->cachedFrameCountIn;  /* Give the processing function as much valid input data as we've got. */
-                    consumeNullInput = MA_FALSE;
-                }
 
-                /*
-                Process data slightly differently depending on whether or not we're consuming NULL
-                input (checked just above).
-                */
-                if (consumeNullInput) {
-                    ma_node_process_pcm_frames_internal(pNode, NULL, &frameCountIn, ppFramesOut, &frameCountOut);
-                } else {
                     /*
-                    We want to skip processing if there's no input data, but we can only do that safely if
-                    we know that there is no chance of any output frames being produced. If continuous
-                    processing is being used, this won't be a problem because the input frame count will
-                    always be non-0. However, if continuous processing is *not* enabled and input and output
-                    data is processed at different rates, we still need to process that last input frame
-                    because there could be a few excess output frames needing to be produced from cached
-                    data. The `MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES` flag is used as the indicator for
-                    determining whether or not we need to process the node even when there are no input
-                    frames available right now.
+                    Thanks to our sneaky optimization above we don't need to do any data copying directly into
+                    the output buffer - the onProcess() callback just did that for us. We do, however, need to
+                    apply the number of input and output frames that were processed. Note that due to continuous
+                    processing above, we need to do explicit checks here. If we just consumed a NULL input
+                    buffer it means that no actual input data was processed from the internal buffers and we
+                    don't want to be modifying any counters.
                     */
-                    if (frameCountIn > 0 || (pNodeBase->vtable->flags & MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES) != 0) {
-                        ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                    if (consumeNullInput == MA_FALSE) {
+                        pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
+                        pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
+                    }
+
+                    /* The cached output frame count is always equal to what we just read. */
+                    pNodeBase->cachedFrameCountOut += (ma_uint16)frameCountOut;
+
+                    /* If we couldn't process any data, we're done. The loop needs to be terminated here or else we'll get stuck in a loop. */
+                    if (pNodeBase->cachedFrameCountOut == framesToProcessOut || (frameCountOut == 0 && frameCountIn == 0)) {
+                        break;
                     }
                 }
-
-                /*
-                Thanks to our sneaky optimization above we don't need to do any data copying directly into
-                the output buffer - the onProcess() callback just did that for us. We do, however, need to
-                apply the number of input and output frames that were processed. Note that due to continuous
-                processing above, we need to do explicit checks here. If we just consumed a NULL input
-                buffer it means that no actual input data was processed from the internal buffers and we
-                don't want to be modifying any counters.
-                */
-                if (consumeNullInput == MA_FALSE) {
-                    pNodeBase->consumedFrameCountIn += (ma_uint16)frameCountIn;
-                    pNodeBase->cachedFrameCountIn   -= (ma_uint16)frameCountIn;
-                }
-
-                /* The cached output frame count is always equal to what we just read. */
-                pNodeBase->cachedFrameCountOut = (ma_uint16)frameCountOut;
             } else {
                 /*
                 We're not needing to read anything from the input buffer so just read directly from our
@@ -87790,7 +87799,7 @@ There are many breaking API changes in this release.
     have been removed. Instead you should set the encodingFormat variable in the decoder config.
   - ma_decoder_get_length_in_pcm_frames() has been updated to return a result code and output the
     length via an output parameter. This makes it consistent with data sources.
-  - ma_decoder_read_pcm_frames() has been update to return a result code and output the number of
+  - ma_decoder_read_pcm_frames() has been updated to return a result code and output the number of
     frames read via an output parameter.
   - Allocation callbacks must now implement the onRealloc() callback. Previously miniaudio would
     emulate this in terms of malloc and free, but for simplicity it is now required that allocation
