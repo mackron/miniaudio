@@ -9153,7 +9153,7 @@ typedef unsigned char           c89atomic_bool;
 #define C89ATOMIC_X64
 #elif defined(__i386) || defined(_M_IX86)
 #define C89ATOMIC_X86
-#elif defined(__arm__) || defined(_M_ARM)
+#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
 #define C89ATOMIC_ARM
 #endif
 #if defined(_MSC_VER)
@@ -45993,7 +45993,7 @@ extern "C" {
 #define DRWAV_XSTRINGIFY(x)     DRWAV_STRINGIFY(x)
 #define DRWAV_VERSION_MAJOR     0
 #define DRWAV_VERSION_MINOR     13
-#define DRWAV_VERSION_REVISION  1
+#define DRWAV_VERSION_REVISION  4
 #define DRWAV_VERSION_STRING    DRWAV_XSTRINGIFY(DRWAV_VERSION_MAJOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_MINOR) "." DRWAV_XSTRINGIFY(DRWAV_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drwav_int8;
@@ -52853,6 +52853,7 @@ code below please report the bug to the respective repository for the relevant p
 #define drwav_min(a, b)                    (((a) < (b)) ? (a) : (b))
 #define drwav_max(a, b)                    (((a) > (b)) ? (a) : (b))
 #define drwav_clamp(x, lo, hi)             (drwav_max((lo), drwav_min((hi), (x))))
+#define drwav_offset_ptr(p, offset)        (((drwav_uint8*)(p)) + (offset))
 #define DRWAV_MAX_SIMD_VECTOR_SIZE         64
 #if defined(__x86_64__) || defined(_M_X64)
     #define DRWAV_X64
@@ -53096,6 +53097,9 @@ static DRWAV_INLINE void drwav__bswap_samples_pcm(void* pSamples, drwav_uint64 s
 {
     switch (bytesPerSample)
     {
+        case 1:
+        {
+        } break;
         case 2:
         {
             drwav__bswap_samples_s16((drwav_int16*)pSamples, sampleCount);
@@ -53506,12 +53510,13 @@ DRWAV_PRIVATE size_t drwav__metadata_parser_read(drwav__metadata_parser* pParser
         return pParser->onRead(pParser->pReadSeekUserData, pBufferOut, bytesToRead);
     }
 }
-DRWAV_PRIVATE drwav_uint64 drwav__read_smpl_to_metadata_obj(drwav__metadata_parser* pParser, drwav_metadata* pMetadata)
+DRWAV_PRIVATE drwav_uint64 drwav__read_smpl_to_metadata_obj(drwav__metadata_parser* pParser, const drwav_chunk_header* pChunkHeader, drwav_metadata* pMetadata)
 {
     drwav_uint8 smplHeaderData[DRWAV_SMPL_BYTES];
     drwav_uint64 totalBytesRead = 0;
     size_t bytesJustRead = drwav__metadata_parser_read(pParser, smplHeaderData, sizeof(smplHeaderData), &totalBytesRead);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
+    DRWAV_ASSERT(pChunkHeader != NULL);
     if (bytesJustRead == sizeof(smplHeaderData)) {
         drwav_uint32 iSampleLoop;
         pMetadata->type                                     = drwav_metadata_type_smpl;
@@ -53524,30 +53529,32 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_smpl_to_metadata_obj(drwav__metadata_pars
         pMetadata->data.smpl.smpteOffset                    = drwav_bytes_to_u32(smplHeaderData + 24);
         pMetadata->data.smpl.sampleLoopCount                = drwav_bytes_to_u32(smplHeaderData + 28);
         pMetadata->data.smpl.samplerSpecificDataSizeInBytes = drwav_bytes_to_u32(smplHeaderData + 32);
-        pMetadata->data.smpl.pLoops                         = (drwav_smpl_loop*)drwav__metadata_get_memory(pParser, sizeof(drwav_smpl_loop) * pMetadata->data.smpl.sampleLoopCount, DRWAV_METADATA_ALIGNMENT);
-        for (iSampleLoop = 0; iSampleLoop < pMetadata->data.smpl.sampleLoopCount; ++iSampleLoop) {
-            drwav_uint8 smplLoopData[DRWAV_SMPL_LOOP_BYTES];
-            bytesJustRead = drwav__metadata_parser_read(pParser, smplLoopData, sizeof(smplLoopData), &totalBytesRead);
-            if (bytesJustRead == sizeof(smplLoopData)) {
-                pMetadata->data.smpl.pLoops[iSampleLoop].cuePointId            = drwav_bytes_to_u32(smplLoopData + 0);
-                pMetadata->data.smpl.pLoops[iSampleLoop].type                  = drwav_bytes_to_u32(smplLoopData + 4);
-                pMetadata->data.smpl.pLoops[iSampleLoop].firstSampleByteOffset = drwav_bytes_to_u32(smplLoopData + 8);
-                pMetadata->data.smpl.pLoops[iSampleLoop].lastSampleByteOffset  = drwav_bytes_to_u32(smplLoopData + 12);
-                pMetadata->data.smpl.pLoops[iSampleLoop].sampleFraction        = drwav_bytes_to_u32(smplLoopData + 16);
-                pMetadata->data.smpl.pLoops[iSampleLoop].playCount             = drwav_bytes_to_u32(smplLoopData + 20);
-            } else {
-                break;
+        if (pMetadata->data.smpl.sampleLoopCount == (pChunkHeader->sizeInBytes - DRWAV_SMPL_BYTES) / DRWAV_SMPL_LOOP_BYTES) {
+            pMetadata->data.smpl.pLoops = (drwav_smpl_loop*)drwav__metadata_get_memory(pParser, sizeof(drwav_smpl_loop) * pMetadata->data.smpl.sampleLoopCount, DRWAV_METADATA_ALIGNMENT);
+            for (iSampleLoop = 0; iSampleLoop < pMetadata->data.smpl.sampleLoopCount; ++iSampleLoop) {
+                drwav_uint8 smplLoopData[DRWAV_SMPL_LOOP_BYTES];
+                bytesJustRead = drwav__metadata_parser_read(pParser, smplLoopData, sizeof(smplLoopData), &totalBytesRead);
+                if (bytesJustRead == sizeof(smplLoopData)) {
+                    pMetadata->data.smpl.pLoops[iSampleLoop].cuePointId            = drwav_bytes_to_u32(smplLoopData + 0);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].type                  = drwav_bytes_to_u32(smplLoopData + 4);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].firstSampleByteOffset = drwav_bytes_to_u32(smplLoopData + 8);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].lastSampleByteOffset  = drwav_bytes_to_u32(smplLoopData + 12);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].sampleFraction        = drwav_bytes_to_u32(smplLoopData + 16);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].playCount             = drwav_bytes_to_u32(smplLoopData + 20);
+                } else {
+                    break;
+                }
             }
-        }
-        if (pMetadata->data.smpl.samplerSpecificDataSizeInBytes > 0) {
-            pMetadata->data.smpl.pSamplerSpecificData = drwav__metadata_get_memory(pParser, pMetadata->data.smpl.samplerSpecificDataSizeInBytes, 1);
-            DRWAV_ASSERT(pMetadata->data.smpl.pSamplerSpecificData != NULL);
-            bytesJustRead = drwav__metadata_parser_read(pParser, pMetadata->data.smpl.pSamplerSpecificData, pMetadata->data.smpl.samplerSpecificDataSizeInBytes, &totalBytesRead);
+            if (pMetadata->data.smpl.samplerSpecificDataSizeInBytes > 0) {
+                pMetadata->data.smpl.pSamplerSpecificData = drwav__metadata_get_memory(pParser, pMetadata->data.smpl.samplerSpecificDataSizeInBytes, 1);
+                DRWAV_ASSERT(pMetadata->data.smpl.pSamplerSpecificData != NULL);
+                drwav__metadata_parser_read(pParser, pMetadata->data.smpl.pSamplerSpecificData, pMetadata->data.smpl.samplerSpecificDataSizeInBytes, &totalBytesRead);
+            }
         }
     }
     return totalBytesRead;
 }
-DRWAV_PRIVATE drwav_uint64 drwav__read_cue_to_metadata_obj(drwav__metadata_parser* pParser, drwav_metadata* pMetadata)
+DRWAV_PRIVATE drwav_uint64 drwav__read_cue_to_metadata_obj(drwav__metadata_parser* pParser, const drwav_chunk_header* pChunkHeader, drwav_metadata* pMetadata)
 {
     drwav_uint8 cueHeaderSectionData[DRWAV_CUE_BYTES];
     drwav_uint64 totalBytesRead = 0;
@@ -53556,25 +53563,27 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_cue_to_metadata_obj(drwav__metadata_parse
     if (bytesJustRead == sizeof(cueHeaderSectionData)) {
         pMetadata->type                   = drwav_metadata_type_cue;
         pMetadata->data.cue.cuePointCount = drwav_bytes_to_u32(cueHeaderSectionData);
-        pMetadata->data.cue.pCuePoints    = (drwav_cue_point*)drwav__metadata_get_memory(pParser, sizeof(drwav_cue_point) * pMetadata->data.cue.cuePointCount, DRWAV_METADATA_ALIGNMENT);
-        DRWAV_ASSERT(pMetadata->data.cue.pCuePoints != NULL);
-        if (pMetadata->data.cue.cuePointCount > 0) {
-            drwav_uint32 iCuePoint;
-            for (iCuePoint = 0; iCuePoint < pMetadata->data.cue.cuePointCount; ++iCuePoint) {
-                drwav_uint8 cuePointData[DRWAV_CUE_POINT_BYTES];
-                bytesJustRead = drwav__metadata_parser_read(pParser, cuePointData, sizeof(cuePointData), &totalBytesRead);
-                if (bytesJustRead == sizeof(cuePointData)) {
-                    pMetadata->data.cue.pCuePoints[iCuePoint].id                = drwav_bytes_to_u32(cuePointData + 0);
-                    pMetadata->data.cue.pCuePoints[iCuePoint].playOrderPosition = drwav_bytes_to_u32(cuePointData + 4);
-                    pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[0]    = cuePointData[8];
-                    pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[1]    = cuePointData[9];
-                    pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[2]    = cuePointData[10];
-                    pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[3]    = cuePointData[11];
-                    pMetadata->data.cue.pCuePoints[iCuePoint].chunkStart        = drwav_bytes_to_u32(cuePointData + 12);
-                    pMetadata->data.cue.pCuePoints[iCuePoint].blockStart        = drwav_bytes_to_u32(cuePointData + 16);
-                    pMetadata->data.cue.pCuePoints[iCuePoint].sampleByteOffset  = drwav_bytes_to_u32(cuePointData + 20);
-                } else {
-                    break;
+        if (pMetadata->data.cue.cuePointCount == (pChunkHeader->sizeInBytes - DRWAV_CUE_BYTES) / DRWAV_CUE_POINT_BYTES) {
+            pMetadata->data.cue.pCuePoints    = (drwav_cue_point*)drwav__metadata_get_memory(pParser, sizeof(drwav_cue_point) * pMetadata->data.cue.cuePointCount, DRWAV_METADATA_ALIGNMENT);
+            DRWAV_ASSERT(pMetadata->data.cue.pCuePoints != NULL);
+            if (pMetadata->data.cue.cuePointCount > 0) {
+                drwav_uint32 iCuePoint;
+                for (iCuePoint = 0; iCuePoint < pMetadata->data.cue.cuePointCount; ++iCuePoint) {
+                    drwav_uint8 cuePointData[DRWAV_CUE_POINT_BYTES];
+                    bytesJustRead = drwav__metadata_parser_read(pParser, cuePointData, sizeof(cuePointData), &totalBytesRead);
+                    if (bytesJustRead == sizeof(cuePointData)) {
+                        pMetadata->data.cue.pCuePoints[iCuePoint].id                = drwav_bytes_to_u32(cuePointData + 0);
+                        pMetadata->data.cue.pCuePoints[iCuePoint].playOrderPosition = drwav_bytes_to_u32(cuePointData + 4);
+                        pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[0]    = cuePointData[8];
+                        pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[1]    = cuePointData[9];
+                        pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[2]    = cuePointData[10];
+                        pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[3]    = cuePointData[11];
+                        pMetadata->data.cue.pCuePoints[iCuePoint].chunkStart        = drwav_bytes_to_u32(cuePointData + 12);
+                        pMetadata->data.cue.pCuePoints[iCuePoint].blockStart        = drwav_bytes_to_u32(cuePointData + 16);
+                        pMetadata->data.cue.pCuePoints[iCuePoint].sampleByteOffset  = drwav_bytes_to_u32(cuePointData + 20);
+                    } else {
+                        break;
+                    }
                 }
             }
         }
@@ -53616,7 +53625,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_acid_to_metadata_obj(drwav__metadata_pars
     }
     return bytesRead;
 }
-DRWAV_PRIVATE size_t drwav__strlen_clamped(char* str, size_t maxToRead)
+DRWAV_PRIVATE size_t drwav__strlen_clamped(const char* str, size_t maxToRead)
 {
     size_t result = 0;
     while (*str++ && result < maxToRead) {
@@ -53624,7 +53633,7 @@ DRWAV_PRIVATE size_t drwav__strlen_clamped(char* str, size_t maxToRead)
     }
     return result;
 }
-DRWAV_PRIVATE char* drwav__metadata_copy_string(drwav__metadata_parser* pParser, char* str, size_t maxToRead)
+DRWAV_PRIVATE char* drwav__metadata_copy_string(drwav__metadata_parser* pParser, const char* str, size_t maxToRead)
 {
     size_t len = drwav__strlen_clamped(str, maxToRead);
     if (len) {
@@ -53637,58 +53646,134 @@ DRWAV_PRIVATE char* drwav__metadata_copy_string(drwav__metadata_parser* pParser,
         return NULL;
     }
 }
+typedef struct
+{
+    const void* pBuffer;
+    size_t sizeInBytes;
+    size_t cursor;
+} drwav_buffer_reader;
+DRWAV_PRIVATE drwav_result drwav_buffer_reader_init(const void* pBuffer, size_t sizeInBytes, drwav_buffer_reader* pReader)
+{
+    DRWAV_ASSERT(pBuffer != NULL);
+    DRWAV_ASSERT(pReader != NULL);
+    DRWAV_ZERO_OBJECT(pReader);
+    pReader->pBuffer     = pBuffer;
+    pReader->sizeInBytes = sizeInBytes;
+    pReader->cursor      = 0;
+    return DRWAV_SUCCESS;
+}
+DRWAV_PRIVATE const void* drwav_buffer_reader_ptr(const drwav_buffer_reader* pReader)
+{
+    DRWAV_ASSERT(pReader != NULL);
+    return drwav_offset_ptr(pReader->pBuffer, pReader->cursor);
+}
+DRWAV_PRIVATE drwav_result drwav_buffer_reader_seek(drwav_buffer_reader* pReader, size_t bytesToSeek)
+{
+    DRWAV_ASSERT(pReader != NULL);
+    if (pReader->cursor + bytesToSeek > pReader->sizeInBytes) {
+        return DRWAV_BAD_SEEK;
+    }
+    pReader->cursor += bytesToSeek;
+    return DRWAV_SUCCESS;
+}
+DRWAV_PRIVATE drwav_result drwav_buffer_reader_read(drwav_buffer_reader* pReader, void* pDst, size_t bytesToRead, size_t* pBytesRead)
+{
+    drwav_result result = DRWAV_SUCCESS;
+    size_t bytesRemaining;
+    DRWAV_ASSERT(pReader != NULL);
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+    bytesRemaining = (pReader->sizeInBytes - pReader->cursor);
+    if (bytesToRead > bytesRemaining) {
+        bytesToRead = bytesRemaining;
+    }
+    if (pDst == NULL) {
+        result = drwav_buffer_reader_seek(pReader, bytesToRead);
+    } else {
+        DRWAV_COPY_MEMORY(pDst, drwav_buffer_reader_ptr(pReader), bytesToRead);
+        pReader->cursor += bytesToRead;
+    }
+    DRWAV_ASSERT(pReader->cursor <= pReader->sizeInBytes);
+    if (result == DRWAV_SUCCESS) {
+        if (pBytesRead != NULL) {
+            *pBytesRead = bytesToRead;
+        }
+    }
+    return DRWAV_SUCCESS;
+}
+DRWAV_PRIVATE drwav_result drwav_buffer_reader_read_u16(drwav_buffer_reader* pReader, drwav_uint16* pDst)
+{
+    drwav_result result;
+    size_t bytesRead;
+    drwav_uint8 data[2];
+    DRWAV_ASSERT(pReader != NULL);
+    DRWAV_ASSERT(pDst != NULL);
+    *pDst = 0;
+    result = drwav_buffer_reader_read(pReader, data, sizeof(*pDst), &bytesRead);
+    if (result != DRWAV_SUCCESS || bytesRead != sizeof(*pDst)) {
+        return result;
+    }
+    *pDst = drwav_bytes_to_u16(data);
+    return DRWAV_SUCCESS;
+}
+DRWAV_PRIVATE drwav_result drwav_buffer_reader_read_u32(drwav_buffer_reader* pReader, drwav_uint32* pDst)
+{
+    drwav_result result;
+    size_t bytesRead;
+    drwav_uint8 data[4];
+    DRWAV_ASSERT(pReader != NULL);
+    DRWAV_ASSERT(pDst != NULL);
+    *pDst = 0;
+    result = drwav_buffer_reader_read(pReader, data, sizeof(*pDst), &bytesRead);
+    if (result != DRWAV_SUCCESS || bytesRead != sizeof(*pDst)) {
+        return result;
+    }
+    *pDst = drwav_bytes_to_u32(data);
+    return DRWAV_SUCCESS;
+}
 DRWAV_PRIVATE drwav_uint64 drwav__read_bext_to_metadata_obj(drwav__metadata_parser* pParser, drwav_metadata* pMetadata, drwav_uint64 chunkSize)
 {
     drwav_uint8 bextData[DRWAV_BEXT_BYTES];
-    drwav_uint64 bytesRead = drwav__metadata_parser_read(pParser, bextData, sizeof(bextData), NULL);
+    size_t bytesRead = drwav__metadata_parser_read(pParser, bextData, sizeof(bextData), NULL);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
     if (bytesRead == sizeof(bextData)) {
-        drwav_uint8* pReadPointer;
+        drwav_buffer_reader reader;
         drwav_uint32 timeReferenceLow;
         drwav_uint32 timeReferenceHigh;
         size_t extraBytes;
         pMetadata->type = drwav_metadata_type_bext;
-        pReadPointer = bextData;
-        pMetadata->data.bext.pDescription = drwav__metadata_copy_string(pParser, (char*)(pReadPointer), DRWAV_BEXT_DESCRIPTION_BYTES);
-        pReadPointer += DRWAV_BEXT_DESCRIPTION_BYTES;
-        pMetadata->data.bext.pOriginatorName = drwav__metadata_copy_string(pParser, (char*)(pReadPointer), DRWAV_BEXT_ORIGINATOR_NAME_BYTES);
-        pReadPointer += DRWAV_BEXT_ORIGINATOR_NAME_BYTES;
-        pMetadata->data.bext.pOriginatorReference = drwav__metadata_copy_string(pParser, (char*)(pReadPointer), DRWAV_BEXT_ORIGINATOR_REF_BYTES);
-        pReadPointer += DRWAV_BEXT_ORIGINATOR_REF_BYTES;
-        memcpy(pReadPointer, pMetadata->data.bext.pOriginationDate, sizeof(pMetadata->data.bext.pOriginationDate));
-        pReadPointer += sizeof(pMetadata->data.bext.pOriginationDate);
-        memcpy(pReadPointer, pMetadata->data.bext.pOriginationTime, sizeof(pMetadata->data.bext.pOriginationTime));
-        pReadPointer += sizeof(pMetadata->data.bext.pOriginationTime);
-        timeReferenceLow = drwav_bytes_to_u32(pReadPointer);
-        pReadPointer += sizeof(drwav_uint32);
-        timeReferenceHigh = drwav_bytes_to_u32(pReadPointer);
-        pReadPointer += sizeof(drwav_uint32);
-        pMetadata->data.bext.timeReference = ((drwav_uint64)timeReferenceHigh << 32) + timeReferenceLow;
-        pMetadata->data.bext.version = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        pMetadata->data.bext.pUMID = drwav__metadata_get_memory(pParser, DRWAV_BEXT_UMID_BYTES, 1);
-        memcpy(pMetadata->data.bext.pUMID, pReadPointer, DRWAV_BEXT_UMID_BYTES);
-        pReadPointer += DRWAV_BEXT_UMID_BYTES;
-        pMetadata->data.bext.loudnessValue = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        pMetadata->data.bext.loudnessRange = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        pMetadata->data.bext.maxTruePeakLevel = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        pMetadata->data.bext.maxMomentaryLoudness = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        pMetadata->data.bext.maxShortTermLoudness = drwav_bytes_to_u16(pReadPointer);
-        pReadPointer += sizeof(drwav_uint16);
-        DRWAV_ASSERT((pReadPointer + DRWAV_BEXT_RESERVED_BYTES) == (bextData + DRWAV_BEXT_BYTES));
-        extraBytes = (size_t)(chunkSize - DRWAV_BEXT_BYTES);
-        if (extraBytes > 0) {
-            pMetadata->data.bext.pCodingHistory = (char*)drwav__metadata_get_memory(pParser, extraBytes + 1, 1);
-            DRWAV_ASSERT(pMetadata->data.bext.pCodingHistory != NULL);
-            bytesRead += drwav__metadata_parser_read(pParser, pMetadata->data.bext.pCodingHistory, extraBytes, NULL);
-            pMetadata->data.bext.codingHistorySize = (drwav_uint32)strlen(pMetadata->data.bext.pCodingHistory);
-        } else {
-            pMetadata->data.bext.pCodingHistory    = NULL;
-            pMetadata->data.bext.codingHistorySize = 0;
+        if (drwav_buffer_reader_init(bextData, bytesRead, &reader) == DRWAV_SUCCESS) {
+            pMetadata->data.bext.pDescription = drwav__metadata_copy_string(pParser, (const char*)drwav_buffer_reader_ptr(&reader), DRWAV_BEXT_DESCRIPTION_BYTES);
+            drwav_buffer_reader_seek(&reader, DRWAV_BEXT_DESCRIPTION_BYTES);
+            pMetadata->data.bext.pOriginatorName = drwav__metadata_copy_string(pParser, (const char*)drwav_buffer_reader_ptr(&reader), DRWAV_BEXT_ORIGINATOR_NAME_BYTES);
+            drwav_buffer_reader_seek(&reader, DRWAV_BEXT_ORIGINATOR_NAME_BYTES);
+            pMetadata->data.bext.pOriginatorReference = drwav__metadata_copy_string(pParser, (const char*)drwav_buffer_reader_ptr(&reader), DRWAV_BEXT_ORIGINATOR_REF_BYTES);
+            drwav_buffer_reader_seek(&reader, DRWAV_BEXT_ORIGINATOR_REF_BYTES);
+            drwav_buffer_reader_read(&reader, pMetadata->data.bext.pOriginationDate, sizeof(pMetadata->data.bext.pOriginationDate), NULL);
+            drwav_buffer_reader_read(&reader, pMetadata->data.bext.pOriginationTime, sizeof(pMetadata->data.bext.pOriginationTime), NULL);
+            drwav_buffer_reader_read_u32(&reader, &timeReferenceLow);
+            drwav_buffer_reader_read_u32(&reader, &timeReferenceHigh);
+            pMetadata->data.bext.timeReference = ((drwav_uint64)timeReferenceHigh << 32) + timeReferenceLow;
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.version);
+            pMetadata->data.bext.pUMID = drwav__metadata_get_memory(pParser, DRWAV_BEXT_UMID_BYTES, 1);
+            drwav_buffer_reader_read(&reader, pMetadata->data.bext.pUMID, DRWAV_BEXT_UMID_BYTES, NULL);
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.loudnessValue);
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.loudnessRange);
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.maxTruePeakLevel);
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.maxMomentaryLoudness);
+            drwav_buffer_reader_read_u16(&reader, &pMetadata->data.bext.maxShortTermLoudness);
+            DRWAV_ASSERT((drwav_offset_ptr(drwav_buffer_reader_ptr(&reader), DRWAV_BEXT_RESERVED_BYTES)) == (bextData + DRWAV_BEXT_BYTES));
+            extraBytes = (size_t)(chunkSize - DRWAV_BEXT_BYTES);
+            if (extraBytes > 0) {
+                pMetadata->data.bext.pCodingHistory = (char*)drwav__metadata_get_memory(pParser, extraBytes + 1, 1);
+                DRWAV_ASSERT(pMetadata->data.bext.pCodingHistory != NULL);
+                bytesRead += drwav__metadata_parser_read(pParser, pMetadata->data.bext.pCodingHistory, extraBytes, NULL);
+                pMetadata->data.bext.codingHistorySize = (drwav_uint32)strlen(pMetadata->data.bext.pCodingHistory);
+            } else {
+                pMetadata->data.bext.pCodingHistory    = NULL;
+                pMetadata->data.bext.codingHistorySize = 0;
+            }
         }
     }
     return bytesRead;
@@ -53708,7 +53793,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_list_label_or_note_to_metadata_obj(drwav_
             pMetadata->data.labelOrNote.stringLength = sizeIncludingNullTerminator - 1;
             pMetadata->data.labelOrNote.pString      = (char*)drwav__metadata_get_memory(pParser, sizeIncludingNullTerminator, 1);
             DRWAV_ASSERT(pMetadata->data.labelOrNote.pString != NULL);
-            bytesJustRead = drwav__metadata_parser_read(pParser, pMetadata->data.labelOrNote.pString, sizeIncludingNullTerminator, &totalBytesRead);
+            drwav__metadata_parser_read(pParser, pMetadata->data.labelOrNote.pString, sizeIncludingNullTerminator, &totalBytesRead);
         } else {
             pMetadata->data.labelOrNote.stringLength = 0;
             pMetadata->data.labelOrNote.pString      = NULL;
@@ -53740,7 +53825,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_list_labelled_cue_region_to_metadata_obj(
             pMetadata->data.labelledCueRegion.stringLength = sizeIncludingNullTerminator - 1;
             pMetadata->data.labelledCueRegion.pString      = (char*)drwav__metadata_get_memory(pParser, sizeIncludingNullTerminator, 1);
             DRWAV_ASSERT(pMetadata->data.labelledCueRegion.pString != NULL);
-            bytesJustRead = drwav__metadata_parser_read(pParser, pMetadata->data.labelledCueRegion.pString, sizeIncludingNullTerminator, &totalBytesRead);
+            drwav__metadata_parser_read(pParser, pMetadata->data.labelledCueRegion.pString, sizeIncludingNullTerminator, &totalBytesRead);
         } else {
             pMetadata->data.labelledCueRegion.stringLength = 0;
             pMetadata->data.labelledCueRegion.pString      = NULL;
@@ -53806,11 +53891,11 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_unknown_chunk(drwav__metadata
     }
     return bytesRead;
 }
-DRWAV_PRIVATE drwav_bool32 drwav__chunk_matches(drwav_uint64 allowedMetadataTypes, const drwav_uint8* pChunkID, drwav_metadata_type type, const char* pID)
+DRWAV_PRIVATE drwav_bool32 drwav__chunk_matches(drwav_metadata_type allowedMetadataTypes, const drwav_uint8* pChunkID, drwav_metadata_type type, const char* pID)
 {
     return (allowedMetadataTypes & type) && drwav_fourcc_equal(pChunkID, pID);
 }
-DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser* pParser, const drwav_chunk_header* pChunkHeader, drwav_uint64 allowedMetadataTypes)
+DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser* pParser, const drwav_chunk_header* pChunkHeader, drwav_metadata_type allowedMetadataTypes)
 {
     const drwav_uint8 *pChunkID = pChunkHeader->id.fourcc;
     drwav_uint64 bytesRead = 0;
@@ -53826,16 +53911,21 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser*
                 bytesJustRead = drwav__metadata_parser_read(pParser, buffer, sizeof(buffer), &bytesRead);
                 if (bytesJustRead == sizeof(buffer)) {
                     drwav_uint32 loopCount = drwav_bytes_to_u32(buffer);
-                    bytesJustRead = drwav__metadata_parser_read(pParser, buffer, sizeof(buffer), &bytesRead);
-                    if (bytesJustRead == sizeof(buffer)) {
-                        drwav_uint32 samplerSpecificDataSizeInBytes = drwav_bytes_to_u32(buffer);
-                        pParser->metadataCount += 1;
-                        drwav__metadata_request_extra_memory_for_stage_2(pParser, sizeof(drwav_smpl_loop) * loopCount, DRWAV_METADATA_ALIGNMENT);
-                        drwav__metadata_request_extra_memory_for_stage_2(pParser, samplerSpecificDataSizeInBytes, 1);
+                    drwav_uint64 calculatedLoopCount;
+                    calculatedLoopCount = (pChunkHeader->sizeInBytes - DRWAV_SMPL_BYTES) / DRWAV_SMPL_LOOP_BYTES;
+                    if (calculatedLoopCount == loopCount) {
+                        bytesJustRead = drwav__metadata_parser_read(pParser, buffer, sizeof(buffer), &bytesRead);
+                        if (bytesJustRead == sizeof(buffer)) {
+                            drwav_uint32 samplerSpecificDataSizeInBytes = drwav_bytes_to_u32(buffer);
+                            pParser->metadataCount += 1;
+                            drwav__metadata_request_extra_memory_for_stage_2(pParser, sizeof(drwav_smpl_loop) * loopCount, DRWAV_METADATA_ALIGNMENT);
+                            drwav__metadata_request_extra_memory_for_stage_2(pParser, samplerSpecificDataSizeInBytes, 1);
+                        }
+                    } else {
                     }
                 }
             } else {
-                bytesRead = drwav__read_smpl_to_metadata_obj(pParser, &pParser->pMetadata[pParser->metadataCursor]);
+                bytesRead = drwav__read_smpl_to_metadata_obj(pParser, pChunkHeader, &pParser->pMetadata[pParser->metadataCursor]);
                 if (bytesRead == pChunkHeader->sizeInBytes) {
                     pParser->metadataCursor += 1;
                 } else {
@@ -53877,7 +53967,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser*
                 cueCount = (size_t)(pChunkHeader->sizeInBytes - DRWAV_CUE_BYTES) / DRWAV_CUE_POINT_BYTES;
                 drwav__metadata_request_extra_memory_for_stage_2(pParser, sizeof(drwav_cue_point) * cueCount, DRWAV_METADATA_ALIGNMENT);
             } else {
-                bytesRead = drwav__read_cue_to_metadata_obj(pParser, &pParser->pMetadata[pParser->metadataCursor]);
+                bytesRead = drwav__read_cue_to_metadata_obj(pParser, pChunkHeader, &pParser->pMetadata[pParser->metadataCursor]);
                 if (bytesRead == pChunkHeader->sizeInBytes) {
                     pParser->metadataCursor += 1;
                 } else {
@@ -53992,7 +54082,7 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser*
                 subchunkBytesRead = drwav__metadata_process_info_text_chunk(pParser, subchunkDataSize,  drwav_metadata_type_list_info_album);
             } else if (drwav__chunk_matches(allowedMetadataTypes, subchunkId, drwav_metadata_type_list_info_tracknumber, "ITRK")) {
                 subchunkBytesRead = drwav__metadata_process_info_text_chunk(pParser, subchunkDataSize,  drwav_metadata_type_list_info_tracknumber);
-            } else if (allowedMetadataTypes & drwav_metadata_type_unknown) {
+            } else if ((allowedMetadataTypes & drwav_metadata_type_unknown) != 0) {
                 subchunkBytesRead = drwav__metadata_process_unknown_chunk(pParser, subchunkId, subchunkDataSize, listType);
             }
             bytesRead += subchunkBytesRead;
@@ -54011,18 +54101,25 @@ DRWAV_PRIVATE drwav_uint64 drwav__metadata_process_chunk(drwav__metadata_parser*
                 bytesRead += 1;
             }
         }
-    } else if (allowedMetadataTypes & drwav_metadata_type_unknown) {
+    } else if ((allowedMetadataTypes & drwav_metadata_type_unknown) != 0) {
         bytesRead = drwav__metadata_process_unknown_chunk(pParser, pChunkID, pChunkHeader->sizeInBytes, drwav_metadata_location_top_level);
     }
     return bytesRead;
 }
 DRWAV_PRIVATE drwav_uint32 drwav_get_bytes_per_pcm_frame(drwav* pWav)
 {
+    drwav_uint32 bytesPerFrame;
     if ((pWav->bitsPerSample & 0x7) == 0) {
-        return (pWav->bitsPerSample * pWav->fmt.channels) >> 3;
+        bytesPerFrame = (pWav->bitsPerSample * pWav->fmt.channels) >> 3;
     } else {
-        return pWav->fmt.blockAlign;
+        bytesPerFrame = pWav->fmt.blockAlign;
     }
+    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ALAW || pWav->translatedFormatTag == DR_WAVE_FORMAT_MULAW) {
+        if (bytesPerFrame != pWav->fmt.channels) {
+            return 0;
+        }
+    }
+    return bytesPerFrame;
 }
 DRWAV_API drwav_uint16 drwav_fmt_get_format(const drwav_fmt* pFMT)
 {
@@ -54303,7 +54400,11 @@ DRWAV_PRIVATE drwav_bool32 drwav_init__internal(drwav* pWav, drwav_chunk_proc on
     if (sampleCountFromFactChunk != 0) {
         pWav->totalPCMFrameCount = sampleCountFromFactChunk;
     } else {
-        pWav->totalPCMFrameCount = dataChunkSize / drwav_get_bytes_per_pcm_frame(pWav);
+        drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+        if (bytesPerFrame == 0) {
+            return DRWAV_FALSE;
+        }
+        pWav->totalPCMFrameCount = dataChunkSize / bytesPerFrame;
         if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
             drwav_uint64 totalBlockHeaderSizeInBytes;
             drwav_uint64 blockCount = dataChunkSize / fmt.blockAlign;
@@ -54328,6 +54429,9 @@ DRWAV_PRIVATE drwav_bool32 drwav_init__internal(drwav* pWav, drwav_chunk_proc on
         if (pWav->channels > 2) {
             return DRWAV_FALSE;
         }
+    }
+    if (drwav_get_bytes_per_pcm_frame(pWav) == 0) {
+        return DRWAV_FALSE;
     }
 #ifdef DR_WAV_LIBSNDFILE_COMPAT
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
@@ -55830,6 +55934,7 @@ DRWAV_API drwav_result drwav_uninit(drwav* pWav)
 DRWAV_API size_t drwav_read_raw(drwav* pWav, size_t bytesToRead, void* pBufferOut)
 {
     size_t bytesRead;
+    drwav_uint32 bytesPerFrame;
     if (pWav == NULL || bytesToRead == 0) {
         return 0;
     }
@@ -55837,6 +55942,10 @@ DRWAV_API size_t drwav_read_raw(drwav* pWav, size_t bytesToRead, void* pBufferOu
         bytesToRead = (size_t)pWav->bytesRemaining;
     }
     if (bytesToRead == 0) {
+        return 0;
+    }
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    if (bytesPerFrame == 0) {
         return 0;
     }
     if (pBufferOut != NULL) {
@@ -55867,7 +55976,7 @@ DRWAV_API size_t drwav_read_raw(drwav* pWav, size_t bytesToRead, void* pBufferOu
             }
         }
     }
-    pWav->readCursorInPCMFrames += bytesRead / drwav_get_bytes_per_pcm_frame(pWav);
+    pWav->readCursorInPCMFrames += bytesRead / bytesPerFrame;
     pWav->bytesRemaining -= bytesRead;
     return bytesRead;
 }
@@ -55898,7 +56007,11 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_be(drwav* pWav, drwav_uint64 frames
 {
     drwav_uint64 framesRead = drwav_read_pcm_frames_le(pWav, framesToRead, pBufferOut);
     if (pBufferOut != NULL) {
-        drwav__bswap_samples(pBufferOut, framesRead*pWav->channels, drwav_get_bytes_per_pcm_frame(pWav)/pWav->channels, pWav->translatedFormatTag);
+        drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+        if (bytesPerFrame == 0) {
+            return 0;
+        }
+        drwav__bswap_samples(pBufferOut, framesRead*pWav->channels, bytesPerFrame/pWav->channels, pWav->translatedFormatTag);
     }
     return framesRead;
 }
@@ -55978,10 +56091,15 @@ DRWAV_API drwav_bool32 drwav_seek_to_pcm_frame(drwav* pWav, drwav_uint64 targetF
         drwav_uint64 currentBytePos;
         drwav_uint64 targetBytePos;
         drwav_uint64 offset;
-        totalSizeInBytes = pWav->totalPCMFrameCount * drwav_get_bytes_per_pcm_frame(pWav);
+        drwav_uint32 bytesPerFrame;
+        bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+        if (bytesPerFrame == 0) {
+            return DRWAV_FALSE;
+        }
+        totalSizeInBytes = pWav->totalPCMFrameCount * bytesPerFrame;
         DRWAV_ASSERT(totalSizeInBytes >= pWav->bytesRemaining);
         currentBytePos = totalSizeInBytes - pWav->bytesRemaining;
-        targetBytePos  = targetFrameIndex * drwav_get_bytes_per_pcm_frame(pWav);
+        targetBytePos  = targetFrameIndex * bytesPerFrame;
         if (currentBytePos < targetBytePos) {
             offset = (targetBytePos - currentBytePos);
         } else {
@@ -55995,7 +56113,7 @@ DRWAV_API drwav_bool32 drwav_seek_to_pcm_frame(drwav* pWav, drwav_uint64 targetF
             if (!pWav->onSeek(pWav->pUserData, offset32, drwav_seek_origin_current)) {
                 return DRWAV_FALSE;
             }
-            pWav->readCursorInPCMFrames += offset32 / drwav_get_bytes_per_pcm_frame(pWav);
+            pWav->readCursorInPCMFrames += offset32 / bytesPerFrame;
             pWav->bytesRemaining        -= offset32;
             offset                      -= offset32;
         }
@@ -56081,6 +56199,9 @@ DRWAV_API drwav_uint64 drwav_write_pcm_frames_be(drwav* pWav, drwav_uint64 frame
     bytesWritten = 0;
     pRunningData = (const drwav_uint8*)pData;
     bytesPerSample = drwav_get_bytes_per_pcm_frame(pWav) / pWav->channels;
+    if (bytesPerSample == 0) {
+        return 0;
+    }
     while (bytesToWrite > 0) {
         drwav_uint8 temp[4096];
         drwav_uint32 sampleCount;
@@ -56279,7 +56400,7 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uin
                     return totalFramesRead;
                 }
                 pWav->ima.predictor[0] = drwav_bytes_to_s16(header + 0);
-                pWav->ima.stepIndex[0] = header[2];
+                pWav->ima.stepIndex[0] = drwav_clamp(header[2], 0, (drwav_int32)drwav_countof(stepTable)-1);
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 1] = pWav->ima.predictor[0];
                 pWav->ima.cachedFrameCount = 1;
             } else {
@@ -56294,9 +56415,9 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__ima(drwav* pWav, drwav_uin
                     return totalFramesRead;
                 }
                 pWav->ima.predictor[0] = drwav_bytes_to_s16(header + 0);
-                pWav->ima.stepIndex[0] = header[2];
+                pWav->ima.stepIndex[0] = drwav_clamp(header[2], 0, (drwav_int32)drwav_countof(stepTable)-1);
                 pWav->ima.predictor[1] = drwav_bytes_to_s16(header + 4);
-                pWav->ima.stepIndex[1] = header[6];
+                pWav->ima.stepIndex[1] = drwav_clamp(header[6], 0, (drwav_int32)drwav_countof(stepTable)-1);
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 2] = pWav->ima.predictor[0];
                 pWav->ima.cachedFrames[drwav_countof(pWav->ima.cachedFrames) - 1] = pWav->ima.predictor[1];
                 pWav->ima.cachedFrameCount = 1;
@@ -56410,7 +56531,7 @@ static DRWAV_INLINE drwav_int16 drwav__mulaw_to_s16(drwav_uint8 sampleIn)
 }
 DRWAV_PRIVATE void drwav__pcm_to_s16(drwav_int16* pOut, const drwav_uint8* pIn, size_t totalSampleCount, unsigned int bytesPerSample)
 {
-    unsigned int i;
+    size_t i;
     if (bytesPerSample == 1) {
         drwav_u8_to_s16(pOut, pIn, totalSampleCount);
         return;
@@ -56462,8 +56583,10 @@ DRWAV_PRIVATE void drwav__ieee_to_s16(drwav_int16* pOut, const drwav_uint8* pIn,
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__pcm(drwav* pWav, drwav_uint64 framesToRead, drwav_int16* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if ((pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM && pWav->bitsPerSample == 16) || pBufferOut == NULL) {
         return drwav_read_pcm_frames(pWav, framesToRead, pBufferOut);
     }
@@ -56471,14 +56594,25 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__pcm(drwav* pWav, drwav_uin
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__pcm_to_s16(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels), bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__pcm_to_s16(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56487,8 +56621,10 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__pcm(drwav* pWav, drwav_uin
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__ieee(drwav* pWav, drwav_uint64 framesToRead, drwav_int16* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if (pBufferOut == NULL) {
         return drwav_read_pcm_frames(pWav, framesToRead, NULL);
     }
@@ -56496,14 +56632,25 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__ieee(drwav* pWav, drwav_ui
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__ieee_to_s16(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels), bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__ieee_to_s16(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56512,8 +56659,10 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__ieee(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__alaw(drwav* pWav, drwav_uint64 framesToRead, drwav_int16* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if (pBufferOut == NULL) {
         return drwav_read_pcm_frames(pWav, framesToRead, NULL);
     }
@@ -56521,14 +56670,25 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__alaw(drwav* pWav, drwav_ui
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_alaw_to_s16(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_alaw_to_s16(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56537,8 +56697,10 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__alaw(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__mulaw(drwav* pWav, drwav_uint64 framesToRead, drwav_int16* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if (pBufferOut == NULL) {
         return drwav_read_pcm_frames(pWav, framesToRead, NULL);
     }
@@ -56546,14 +56708,25 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s16__mulaw(drwav* pWav, drwav_u
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_mulaw_to_s16(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_mulaw_to_s16(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56734,49 +56907,50 @@ DRWAV_PRIVATE void drwav__ieee_to_f32(float* pOut, const drwav_uint8* pIn, size_
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__pcm(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__pcm_to_f32(pBufferOut, sampleData, (size_t)framesRead*pWav->channels, bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__pcm_to_f32(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
     return totalFramesRead;
 }
-DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__msadpcm(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
+DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__msadpcm_ima(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
 {
-    drwav_uint64 totalFramesRead = 0;
+    drwav_uint64 totalFramesRead;
     drwav_int16 samples16[2048];
+    totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels), samples16);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels);
+        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, framesToReadThisIteration, samples16);
         if (framesRead == 0) {
             break;
         }
-        drwav_s16_to_f32(pBufferOut, samples16, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
-        framesToRead    -= framesRead;
-        totalFramesRead += framesRead;
-    }
-    return totalFramesRead;
-}
-DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__ima(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
-{
-    drwav_uint64 totalFramesRead = 0;
-    drwav_int16 samples16[2048];
-    while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels), samples16);
-        if (framesRead == 0) {
-            break;
-        }
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
         drwav_s16_to_f32(pBufferOut, samples16, (size_t)(framesRead*pWav->channels));
         pBufferOut      += framesRead*pWav->channels;
         framesToRead    -= framesRead;
@@ -56787,8 +56961,10 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__ima(drwav* pWav, drwav_uin
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__ieee(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_IEEE_FLOAT && pWav->bitsPerSample == 32) {
         return drwav_read_pcm_frames(pWav, framesToRead, pBufferOut);
     }
@@ -56796,14 +56972,25 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__ieee(drwav* pWav, drwav_ui
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__ieee_to_f32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels), bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__ieee_to_f32(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56812,19 +56999,33 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__ieee(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__alaw(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_alaw_to_f32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_alaw_to_f32(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56833,19 +57034,33 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__alaw(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_f32__mulaw(drwav* pWav, drwav_uint64 framesToRead, float* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_mulaw_to_f32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_mulaw_to_f32(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -56865,8 +57080,8 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_f32(drwav* pWav, drwav_uint64 frame
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM) {
         return drwav_read_pcm_frames_f32__pcm(pWav, framesToRead, pBufferOut);
     }
-    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
-        return drwav_read_pcm_frames_f32__msadpcm(pWav, framesToRead, pBufferOut);
+    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM || pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+        return drwav_read_pcm_frames_f32__msadpcm_ima(pWav, framesToRead, pBufferOut);
     }
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_IEEE_FLOAT) {
         return drwav_read_pcm_frames_f32__ieee(pWav, framesToRead, pBufferOut);
@@ -56876,9 +57091,6 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_f32(drwav* pWav, drwav_uint64 frame
     }
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_MULAW) {
         return drwav_read_pcm_frames_f32__mulaw(pWav, framesToRead, pBufferOut);
-    }
-    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
-        return drwav_read_pcm_frames_f32__ima(pWav, framesToRead, pBufferOut);
     }
     return 0;
 }
@@ -57036,8 +57248,10 @@ DRWAV_PRIVATE void drwav__ieee_to_s32(drwav_int32* pOut, const drwav_uint8* pIn,
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__pcm(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
+    drwav_uint8 sampleData[4096] = {0};
     drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM && pWav->bitsPerSample == 32) {
         return drwav_read_pcm_frames(pWav, framesToRead, pBufferOut);
     }
@@ -57045,44 +57259,41 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__pcm(drwav* pWav, drwav_uin
     if (bytesPerFrame == 0) {
         return 0;
     }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
+        return 0;
+    }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__pcm_to_s32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels), bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__pcm_to_s32(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
     return totalFramesRead;
 }
-DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__msadpcm(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
+DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__msadpcm_ima(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
 {
     drwav_uint64 totalFramesRead = 0;
     drwav_int16 samples16[2048];
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels), samples16);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels);
+        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, framesToReadThisIteration, samples16);
         if (framesRead == 0) {
             break;
         }
-        drwav_s16_to_s32(pBufferOut, samples16, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
-        framesToRead    -= framesRead;
-        totalFramesRead += framesRead;
-    }
-    return totalFramesRead;
-}
-DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__ima(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
-{
-    drwav_uint64 totalFramesRead = 0;
-    drwav_int16 samples16[2048];
-    while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames_s16(pWav, drwav_min(framesToRead, drwav_countof(samples16)/pWav->channels), samples16);
-        if (framesRead == 0) {
-            break;
-        }
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
         drwav_s16_to_s32(pBufferOut, samples16, (size_t)(framesRead*pWav->channels));
         pBufferOut      += framesRead*pWav->channels;
         framesToRead    -= framesRead;
@@ -57093,19 +57304,33 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__ima(drwav* pWav, drwav_uin
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__ieee(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav__ieee_to_s32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels), bytesPerFrame/pWav->channels);
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav__ieee_to_s32(pBufferOut, sampleData, (size_t)samplesRead, bytesPerSample);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -57114,19 +57339,33 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__ieee(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__alaw(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_alaw_to_s32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_alaw_to_s32(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -57135,19 +57374,33 @@ DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__alaw(drwav* pWav, drwav_ui
 DRWAV_PRIVATE drwav_uint64 drwav_read_pcm_frames_s32__mulaw(drwav* pWav, drwav_uint64 framesToRead, drwav_int32* pBufferOut)
 {
     drwav_uint64 totalFramesRead;
-    drwav_uint8 sampleData[4096];
-    drwav_uint32 bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
+    drwav_uint8 sampleData[4096] = {0};
+    drwav_uint32 bytesPerFrame;
+    drwav_uint32 bytesPerSample;
+    drwav_uint64 samplesRead;
+    bytesPerFrame = drwav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
+        return 0;
+    }
+    bytesPerSample = bytesPerFrame / pWav->channels;
+    if (bytesPerSample == 0 || (bytesPerFrame % pWav->channels) != 0) {
         return 0;
     }
     totalFramesRead = 0;
     while (framesToRead > 0) {
-        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame), sampleData);
+        drwav_uint64 framesToReadThisIteration = drwav_min(framesToRead, sizeof(sampleData)/bytesPerFrame);
+        drwav_uint64 framesRead = drwav_read_pcm_frames(pWav, framesToReadThisIteration, sampleData);
         if (framesRead == 0) {
             break;
         }
-        drwav_mulaw_to_s32(pBufferOut, sampleData, (size_t)(framesRead*pWav->channels));
-        pBufferOut      += framesRead*pWav->channels;
+        DRWAV_ASSERT(framesRead <= framesToReadThisIteration);
+        samplesRead = framesRead * pWav->channels;
+        if ((samplesRead * bytesPerSample) > sizeof(sampleData)) {
+            DRWAV_ASSERT(DRWAV_FALSE);
+            break;
+        }
+        drwav_mulaw_to_s32(pBufferOut, sampleData, (size_t)samplesRead);
+        pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
     }
@@ -57167,8 +57420,8 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_s32(drwav* pWav, drwav_uint64 frame
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_PCM) {
         return drwav_read_pcm_frames_s32__pcm(pWav, framesToRead, pBufferOut);
     }
-    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM) {
-        return drwav_read_pcm_frames_s32__msadpcm(pWav, framesToRead, pBufferOut);
+    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_ADPCM || pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
+        return drwav_read_pcm_frames_s32__msadpcm_ima(pWav, framesToRead, pBufferOut);
     }
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_IEEE_FLOAT) {
         return drwav_read_pcm_frames_s32__ieee(pWav, framesToRead, pBufferOut);
@@ -57178,9 +57431,6 @@ DRWAV_API drwav_uint64 drwav_read_pcm_frames_s32(drwav* pWav, drwav_uint64 frame
     }
     if (pWav->translatedFormatTag == DR_WAVE_FORMAT_MULAW) {
         return drwav_read_pcm_frames_s32__mulaw(pWav, framesToRead, pBufferOut);
-    }
-    if (pWav->translatedFormatTag == DR_WAVE_FORMAT_DVI_ADPCM) {
-        return drwav_read_pcm_frames_s32__ima(pWav, framesToRead, pBufferOut);
     }
     return 0;
 }
