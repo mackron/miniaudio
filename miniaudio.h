@@ -32558,7 +32558,7 @@ static ma_result ma_device_write__sndio(ma_device* pDevice, const void* pPCMFram
 
     result = ((ma_sio_write_proc)pDevice->pContext->sndio.sio_write)((struct ma_sio_hdl*)pDevice->sndio.handlePlayback, pPCMFrames, frameCount * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
     if (result == 0) {
-        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.", MA_IO_ERROR);
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[sndio] Failed to send data from the client to the device.");
         return MA_IO_ERROR;
     }
 
