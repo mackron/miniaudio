@@ -3349,6 +3349,12 @@ extern "C" {
     #endif
 #endif
 
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+    #define MA_SIZEOF_PTR   8
+#else
+    #define MA_SIZEOF_PTR   4
+#endif
+
 #include <stddef.h> /* For size_t. */
 
 /* Sized types. */
@@ -3375,7 +3381,7 @@ typedef unsigned int            ma_uint32;
         #pragma GCC diagnostic pop
     #endif
 #endif
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+#if MA_SIZEOF_PTR == 8
     typedef ma_uint64           ma_uintptr;
 #else
     typedef ma_uint32           ma_uintptr;
@@ -3492,21 +3498,29 @@ MA_LOG_LEVEL_ERROR
 #define MA_LOG_LEVEL_ERROR      1
 
 /*
-An annotation for variables which must be used atomically. This doesn't actually do anything - it's
-just used as a way for humans to identify variables that should be used atomically.
-*/
-#define MA_ATOMIC
+Variables needing to be accessed atomically should be declared with this macro for two reasons:
 
+    1) It allows people who read the code to identify a variable as such; and
+    2) It forces alignment on platforms where it's required or optimal.
+
+Note that for x86/64, alignment is not strictly necessary, but does have some performance
+implications. Where supported by the compiler, alignment will be used, but otherwise if the CPU
+architecture does not require it, it will simply leave it unaligned. This is the case with old
+versions of Visual Studio, which I've confirmed with at least VC6.
+*/
 #if defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #include <stdalign.h>
-    #define MA_ATOMIC_ALIGN(n, type)            alignas(n) type
+    #define MA_ATOMIC(alignment, type)            alignas(alignment) type
 #else
     #if defined(__GNUC__)
-        #define MA_ATOMIC_ALIGN(n, type)        type __attribute__((aligned(n)))
-    #elif defined(_MSC_VER) && _MSC_VER > 1200  /* No alignment supported in VC6. Doesn't matter because only x86 is supported, and atomic alignment is not strictly necessary on that architecture. */
-        #define MA_ATOMIC_ALIGN(n, type)        __declspec(align(n)) type
+        /* GCC-style compilers. */
+        #define MA_ATOMIC(alignment, type)        type __attribute__((aligned(alignment)))
+    #elif defined(_MSC_VER) && _MSC_VER > 1200  /* 1200 = VC6. Alignment not supported, but not necessary because x86 is the only supported target. */
+        /* MSVC. */
+        #define MA_ATOMIC(alignment, type)        __declspec(align(alignment)) type
     #else
-        #define MA_ATOMIC_ALIGN(n, type)        type
+        /* Other compilers. */
+        #define MA_ATOMIC(alignment, type)        type
     #endif
 #endif
 
@@ -5085,10 +5099,10 @@ typedef struct
     ma_uint32 subbufferSizeInBytes;
     ma_uint32 subbufferCount;
     ma_uint32 subbufferStrideInBytes;
-    MA_ATOMIC ma_uint32 encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
-    MA_ATOMIC ma_uint32 encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
-    ma_bool8 ownsBuffer;                    /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
-    ma_bool8 clearOnWriteAcquire;           /* When set, clears the acquired write buffer before returning from ma_rb_acquire_write(). */
+    MA_ATOMIC(4, ma_uint32) encodedReadOffset;  /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
+    MA_ATOMIC(4, ma_uint32) encodedWriteOffset; /* Most significant bit is the loop flag. Lower 31 bits contains the actual offset in bytes. Must be used atomically. */
+    ma_bool8 ownsBuffer;                        /* Used to know whether or not miniaudio is responsible for free()-ing the buffer. */
+    ma_bool8 clearOnWriteAcquire;               /* When set, clears the acquired write buffer before returning from ma_rb_acquire_write(). */
     ma_allocation_callbacks allocationCallbacks;
 } ma_rb;
 
@@ -6257,7 +6271,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    MA_ATOMIC ma_device_state state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
+    MA_ATOMIC(4, ma_device_state) state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;             /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
     void* pUserData;                        /* Application defined data. */
@@ -6271,7 +6285,7 @@ struct ma_device
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
-    MA_ATOMIC float masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
+    MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
@@ -6343,8 +6357,8 @@ struct ma_device
             ma_performance_profile originalPerformanceProfile;
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
-            MA_ATOMIC ma_bool32 isStartedCapture;                   /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
-            MA_ATOMIC ma_bool32 isStartedPlayback;                  /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            MA_ATOMIC(4, ma_bool32) isStartedCapture;               /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            MA_ATOMIC(4, ma_bool32) isStartedPlayback;              /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
             ma_bool8 noDefaultQualitySRC;                           /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
             ma_bool8 noHardwareOffloading;
@@ -6507,7 +6521,7 @@ struct ma_device
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            MA_ATOMIC ma_bool32 isStarted;   /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
+            MA_ATOMIC(4, ma_bool32) isStarted;  /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
 #endif
     };
@@ -8260,7 +8274,7 @@ MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity
 
 typedef struct
 {
-    MA_ATOMIC ma_uint32 bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
+    MA_ATOMIC(4, ma_uint32) bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
 } ma_slot_allocator_group;
 
 typedef struct
@@ -8325,7 +8339,7 @@ typedef struct
     ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
     ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
     ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
-    MA_ATOMIC ma_bool32 isLooping;
+    MA_ATOMIC(4, ma_bool32) isLooping;
 } ma_data_source_base;
 
 MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
@@ -8422,7 +8436,7 @@ thread at a time can read and seek.
 typedef struct ma_paged_audio_buffer_page ma_paged_audio_buffer_page;
 struct ma_paged_audio_buffer_page
 {
-    MA_ATOMIC ma_paged_audio_buffer_page* pNext;
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pNext;
     ma_uint64 sizeInFrames;
     ma_uint8 pAudioData[1];
 };
@@ -8431,8 +8445,8 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
-    ma_paged_audio_buffer_page head;                /* Dummy head for the lock-free algorithm. Always has a size of 0. */
-    MA_ATOMIC ma_paged_audio_buffer_page* pTail;    /* Never null. Initially set to &head. */
+    ma_paged_audio_buffer_page head;                                /* Dummy head for the lock-free algorithm. Always has a size of 0. */
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pTail;    /* Never null. Initially set to &head. */
 } ma_paged_audio_buffer_data;
 
 MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData);
@@ -8929,7 +8943,7 @@ typedef struct
         } breakup;
         ma_uint64 allocation;
     } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
-    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
+    MA_ATOMIC(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
     ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
 
     union
@@ -9032,12 +9046,12 @@ MA_API ma_resource_manager_job_queue_config ma_resource_manager_job_queue_config
 
 typedef struct
 {
-    ma_uint32 flags;            /* Flags passed in at initialization time. */
-    ma_uint32 capacity;         /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
-    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) head; /* The first item in the list. Required for removing from the top of the list. */
-    MA_ATOMIC ma_uint64 tail;   /* The last item in the list. Required for appending to the end of the list. */
+    ma_uint32 flags;                /* Flags passed in at initialization time. */
+    ma_uint32 capacity;             /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
+    MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
+    MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
 #ifndef MA_NO_THREADING
-    ma_semaphore sem;           /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+    ma_semaphore sem;               /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
 #endif
     ma_slot_allocator allocator;
     ma_resource_manager_job* pJobs;
@@ -9097,7 +9111,7 @@ typedef enum
 
 typedef struct
 {
-    MA_ATOMIC ma_resource_manager_data_supply_type type;  /* Read and written from different threads so needs to be accessed atomically. */
+    MA_ATOMIC(4, ma_resource_manager_data_supply_type) type;    /* Read and written from different threads so needs to be accessed atomically. */
     union
     {
         struct
@@ -9127,9 +9141,9 @@ struct ma_resource_manager_data_buffer_node
 {
     ma_uint32 hashedName32;                         /* The hashed name. This is the key. */
     ma_uint32 refCount;
-    MA_ATOMIC ma_result result;                     /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
-    MA_ATOMIC ma_uint32 executionCounter;           /* For allocating execution orders for jobs. */
-    MA_ATOMIC ma_uint32 executionPointer;           /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC(4, ma_result) result;                 /* Result from asynchronous loading. When loading set to MA_BUSY. When fully loaded set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. */
+    MA_ATOMIC(4, ma_uint32) executionCounter;       /* For allocating execution orders for jobs. */
+    MA_ATOMIC(4, ma_uint32) executionPointer;       /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_bool32 isDataOwnedByResourceManager;         /* Set to true when the underlying data buffer was allocated the resource manager. Set to false if it is owned by the application (via ma_resource_manager_register_*()). */
     ma_resource_manager_data_supply data;
     ma_resource_manager_data_buffer_node* pParent;
@@ -9143,12 +9157,12 @@ struct ma_resource_manager_data_buffer
     ma_resource_manager* pResourceManager;          /* A pointer to the resource manager that owns this buffer. */
     ma_resource_manager_data_buffer_node* pNode;    /* The data node. This is reference counted and is what supplies the data. */
     ma_uint32 flags;                                /* The flags that were passed used to initialize the buffer. */
-    MA_ATOMIC ma_uint32 executionCounter;           /* For allocating execution orders for jobs. */
-    MA_ATOMIC ma_uint32 executionPointer;           /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC(4, ma_uint32) executionCounter;       /* For allocating execution orders for jobs. */
+    MA_ATOMIC(4, ma_uint32) executionPointer;       /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
     ma_uint64 seekTargetInPCMFrames;                /* Only updated by the public API. Never written nor read from the job thread. */
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
-    MA_ATOMIC ma_result result;                     /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
-    MA_ATOMIC ma_bool32 isLooping;                  /* Can be read and written by different threads at the same time. Must be used atomically. */
+    MA_ATOMIC(4, ma_result) result;                 /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
+    MA_ATOMIC(4, ma_bool32) isLooping;              /* Can be read and written by different threads at the same time. Must be used atomically. */
     ma_bool32 isConnectorInitialized;               /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
     union
     {
@@ -9160,30 +9174,30 @@ struct ma_resource_manager_data_buffer
 
 struct ma_resource_manager_data_stream
 {
-    ma_data_source_base ds;                 /* Base data source. A data stream is a data source. */
-    ma_resource_manager* pResourceManager;  /* A pointer to the resource manager that owns this data stream. */
-    ma_uint32 flags;                        /* The flags that were passed used to initialize the stream. */
-    ma_decoder decoder;                     /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
-    ma_bool32 isDecoderInitialized;         /* Required for determining whether or not the decoder should be uninitialized in MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM. */
-    ma_uint64 totalLengthInPCMFrames;       /* This is calculated when first loaded by the MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM. */
-    ma_uint32 relativeCursor;               /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
-    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) absoluteCursor; /* The playback cursor, in absolute position starting from the start of the file. */
-    ma_uint32 currentPageIndex;             /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
-    MA_ATOMIC ma_uint32 executionCounter;   /* For allocating execution orders for jobs. */
-    MA_ATOMIC ma_uint32 executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    ma_data_source_base ds;                     /* Base data source. A data stream is a data source. */
+    ma_resource_manager* pResourceManager;      /* A pointer to the resource manager that owns this data stream. */
+    ma_uint32 flags;                            /* The flags that were passed used to initialize the stream. */
+    ma_decoder decoder;                         /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
+    ma_bool32 isDecoderInitialized;             /* Required for determining whether or not the decoder should be uninitialized in MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM. */
+    ma_uint64 totalLengthInPCMFrames;           /* This is calculated when first loaded by the MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM. */
+    ma_uint32 relativeCursor;                   /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
+    MA_ATOMIC(8, ma_uint64) absoluteCursor;     /* The playback cursor, in absolute position starting from the start of the file. */
+    ma_uint32 currentPageIndex;                 /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
+    MA_ATOMIC(4, ma_uint32) executionCounter;   /* For allocating execution orders for jobs. */
+    MA_ATOMIC(4, ma_uint32) executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 
     /* Written by the public API, read by the job thread. */
-    MA_ATOMIC ma_bool32 isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
+    MA_ATOMIC(4, ma_bool32) isLooping;          /* Whether or not the stream is looping. It's important to set the looping flag at the data stream level for smooth loop transitions. */
 
     /* Written by the job thread, read by the public API. */
-    void* pPageData;                        /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
-    MA_ATOMIC ma_uint32 pageFrameCount[2];  /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
+    void* pPageData;                            /* Buffer containing the decoded data of each page. Allocated once at initialization time. */
+    MA_ATOMIC(4, ma_uint32) pageFrameCount[2];  /* The number of valid PCM frames in each page. Used to determine the last valid frame. */
 
     /* Written and read by both the public API and the job thread. These must be atomic. */
-    MA_ATOMIC ma_result result;             /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
-    MA_ATOMIC ma_bool32 isDecoderAtEnd;     /* Whether or not the decoder has reached the end. */
-    MA_ATOMIC ma_bool32 isPageValid[2];     /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
-    MA_ATOMIC ma_bool32 seekCounter;        /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
+    MA_ATOMIC(4, ma_result) result;             /* Result from asynchronous loading. When loading set to MA_BUSY. When initialized set to MA_SUCCESS. When deleting set to MA_UNAVAILABLE. If an error occurs when loading, set to an error code. */
+    MA_ATOMIC(4, ma_bool32) isDecoderAtEnd;     /* Whether or not the decoder has reached the end. */
+    MA_ATOMIC(4, ma_bool32) isPageValid[2];     /* Booleans to indicate whether or not a page is valid. Set to false by the public API, set to true by the job thread. Set to false as the pages are consumed, true when they are filled. */
+    MA_ATOMIC(4, ma_bool32) seekCounter;        /* When 0, no seeking is being performed. When > 0, a seek is being performed and reading should be delayed with MA_BUSY. */
 };
 
 struct ma_resource_manager_data_source
@@ -9195,8 +9209,8 @@ struct ma_resource_manager_data_source
     } backend;  /* Must be the first item because we need the first item to be the data source callbacks for the buffer or stream. */
 
     ma_uint32 flags;                          /* The flags that were passed in to ma_resource_manager_data_source_init(). */
-    MA_ATOMIC ma_uint32 executionCounter;     /* For allocating execution orders for jobs. */
-    MA_ATOMIC ma_uint32 executionPointer;     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
+    MA_ATOMIC(4, ma_uint32) executionCounter;     /* For allocating execution orders for jobs. */
+    MA_ATOMIC(4, ma_uint32) executionPointer;     /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
 };
 
 typedef struct
@@ -9408,20 +9422,20 @@ typedef struct ma_node_output_bus ma_node_output_bus;
 struct ma_node_output_bus
 {
     /* Immutable. */
-    ma_node* pNode;                             /* The node that owns this output bus. The input node. Will be null for dummy head and tail nodes. */
-    ma_uint8 outputBusIndex;                    /* The index of the output bus on pNode that this output bus represents. */
-    ma_uint8 channels;                          /* The number of channels in the audio stream for this bus. */
+    ma_node* pNode;                                         /* The node that owns this output bus. The input node. Will be null for dummy head and tail nodes. */
+    ma_uint8 outputBusIndex;                                /* The index of the output bus on pNode that this output bus represents. */
+    ma_uint8 channels;                                      /* The number of channels in the audio stream for this bus. */
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
-    MA_ATOMIC ma_uint8 inputNodeInputBusIndex;  /* The index of the input bus on the input. Required for detaching. */
-    MA_ATOMIC ma_uint32 flags;                  /* Some state flags for tracking the read state of the output buffer. */
-    MA_ATOMIC ma_uint32 refCount;               /* Reference count for some thread-safety when detaching. */
-    MA_ATOMIC ma_bool32 isAttached;             /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
-    MA_ATOMIC ma_spinlock lock;                 /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
-    MA_ATOMIC float volume;                     /* Linear. */
-    MA_ATOMIC ma_node_output_bus* pNext;        /* If null, it's the tail node or detached. */
-    MA_ATOMIC ma_node_output_bus* pPrev;        /* If null, it's the head node or detached. */
-    MA_ATOMIC ma_node* pInputNode;              /* The node that this output bus is attached to. Required for detaching. */
+    MA_ATOMIC(1, ma_uint8) inputNodeInputBusIndex;          /* The index of the input bus on the input. Required for detaching. */
+    MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. */
+    MA_ATOMIC(4, ma_uint32) refCount;                       /* Reference count for some thread-safety when detaching. */
+    MA_ATOMIC(4, ma_bool32) isAttached;                     /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
+    MA_ATOMIC(4, ma_spinlock) lock;                         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    MA_ATOMIC(4, float) volume;                             /* Linear. */
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_node_output_bus*) pNext;    /* If null, it's the tail node or detached. */
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_node_output_bus*) pPrev;    /* If null, it's the head node or detached. */
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_node*) pInputNode;          /* The node that this output bus is attached to. Required for detaching. */
 };
 
 /*
@@ -9432,9 +9446,9 @@ typedef struct ma_node_input_bus ma_node_input_bus;
 struct ma_node_input_bus
 {
     /* Mutable via multiple threads. */
-    ma_node_output_bus head;            /* Dummy head node for simplifying some lock-free thread-safety stuff. */
-    MA_ATOMIC ma_uint32 nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
-    MA_ATOMIC ma_spinlock lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
+    ma_node_output_bus head;                /* Dummy head node for simplifying some lock-free thread-safety stuff. */
+    MA_ATOMIC(4, ma_uint32) nextCounter;    /* This is used to determine whether or not the input bus is finding the next node in the list. Used for thread safety when detaching output buses. */
+    MA_ATOMIC(4, ma_spinlock) lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
 
     /* Set once at startup. */
     ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
@@ -9456,9 +9470,9 @@ struct ma_node_base
     ma_uint16 consumedFrameCountIn;
 
     /* These variables are read and written between different threads. */
-    MA_ATOMIC ma_node_state state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
-    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) stateTimes[2]; /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
-    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) localTime; /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
+    MA_ATOMIC(4, ma_node_state) state;      /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
+    MA_ATOMIC(8, ma_uint64) stateTimes[2];  /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    MA_ATOMIC(8, ma_uint64) localTime;      /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
     ma_node_input_bus* pInputBuses;
@@ -9509,7 +9523,7 @@ struct ma_node_graph
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
 
     /* Read and written by multiple threads. */
-    MA_ATOMIC ma_bool32 isReading;
+    MA_ATOMIC(4, ma_bool32) isReading;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -9821,19 +9835,19 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;                          /* Must be the first member for compatiblity with the ma_node API. */
-    ma_engine* pEngine;                             /* A pointer to the engine. Set based on the value from the config. */
-    ma_uint32 sampleRate;                           /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
+    ma_node_base baseNode;                              /* Must be the first member for compatiblity with the ma_node API. */
+    ma_engine* pEngine;                                 /* A pointer to the engine. Set based on the value from the config. */
+    ma_uint32 sampleRate;                               /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
     ma_fader fader;
-    ma_linear_resampler resampler;                  /* For pitch shift. */
+    ma_linear_resampler resampler;                      /* For pitch shift. */
     ma_spatializer spatializer;
     ma_panner panner;
-    MA_ATOMIC float pitch;
-    float oldPitch;                                 /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
-    float oldDopplerPitch;                          /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
-    MA_ATOMIC ma_bool32 isPitchDisabled;            /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
-    MA_ATOMIC ma_bool32 isSpatializationDisabled;   /* Set to false by default. When set to false, will not have spatialisation applied. */
-    MA_ATOMIC ma_uint32 pinnedListenerIndex;        /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
+    MA_ATOMIC(4, float) pitch;
+    float oldPitch;                                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
+    float oldDopplerPitch;                              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
+    MA_ATOMIC(4, ma_bool32) isPitchDisabled;            /* When set to true, pitching will be disabled which will allow the resampler to be bypassed to save some computation. */
+    MA_ATOMIC(4, ma_bool32) isSpatializationDisabled;   /* Set to false by default. When set to false, will not have spatialisation applied. */
+    MA_ATOMIC(4, ma_uint32) pinnedListenerIndex;        /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 
     /* Memory management. */
     ma_bool8 _ownsHeap;
@@ -9874,7 +9888,7 @@ struct ma_sound
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
     ma_uint64 seekTarget;               /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
-    MA_ATOMIC ma_bool32 atEnd;
+    MA_ATOMIC(4, ma_bool32) atEnd;
     ma_bool8 ownsDataSource;
 
     /*
@@ -9945,10 +9959,10 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;           /* For synchronizing access so the inlined sound list. */
-    ma_sound_inlined* pInlinedSoundHead;    /* The first inlined sound. Inlined sounds are tracked in a linked list. */
-    MA_ATOMIC ma_uint32 inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
-    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. */
+    ma_spinlock inlinedSoundLock;               /* For synchronizing access so the inlined sound list. */
+    ma_sound_inlined* pInlinedSoundHead;        /* The first inlined sound. Inlined sounds are tracked in a linked list. */
+    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. */
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -17913,7 +17927,7 @@ typedef struct
 struct ma_completion_handler_uwp
 {
     ma_completion_handler_uwp_vtbl* lpVtbl;
-    MA_ATOMIC ma_uint32 counter;
+    MA_ATOMIC(4, ma_uint32) counter;
     HANDLE hEvent;
 };
 
