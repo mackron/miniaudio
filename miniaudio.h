@@ -3316,23 +3316,6 @@ extern "C" {
         #pragma GCC diagnostic ignored "-Wc11-extensions"   /* anonymous unions are a C11 extension */
     #endif
 #endif
-
-#if defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
-    #include <stdalign.h>
-    #define MA_ALIGN_TYPE(n)                    alignas(n)
-    #define MA_ALIGN_MEMBER(align, type)        MA_ALIGN_TYPE(align) type
-#else
-    #if defined(__GNUC__)
-        #define MA_ALIGN_TYPE(n)                __attribute__((aligned(n)))
-        #define MA_ALIGN_MEMBER(align, type)    type MA_ALIGN_TYPE(align)
-    #elif defined(_MSC_VER)
-        #define MA_ALIGN_TYPE(n)                __declspec(align(n))
-        #define MA_ALIGN_MEMBER(align, type)    MA_ALIGN_TYPE(align) type
-    #else
-        #define MA_ALIGN_TYPE(n)                /* disabled */
-        #define MA_ALIGN_MEMBER(align, type)    /* disabled */
-    #endif
-#endif
   
 /* Platform/backend detection. */
 #ifdef _WIN32
@@ -3513,6 +3496,19 @@ An annotation for variables which must be used atomically. This doesn't actually
 just used as a way for humans to identify variables that should be used atomically.
 */
 #define MA_ATOMIC
+
+#if defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+    #include <stdalign.h>
+    #define MA_ATOMIC_ALIGN(n, type)            alignas(n) type
+#else
+    #if defined(__GNUC__)
+        #define MA_ATOMIC_ALIGN(n, type)        type __attribute__((aligned(n)))
+    #elif defined(_MSC_VER) && _MSC_VER > 1200  /* No alignment supported in VC6. Doesn't matter because only x86 is supported, and atomic alignment is not strictly necessary on that architecture. */
+        #define MA_ATOMIC_ALIGN(n, type)        __declspec(align(n)) type
+    #else
+        #define MA_ATOMIC_ALIGN(n, type)        type
+    #endif
+#endif
 
 typedef struct ma_context ma_context;
 typedef struct ma_device ma_device;
@@ -8933,7 +8929,7 @@ typedef struct
         } breakup;
         ma_uint64 allocation;
     } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
-    MA_ATOMIC MA_ALIGN_MEMBER(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
+    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
     ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
 
     union
@@ -9038,7 +9034,7 @@ typedef struct
 {
     ma_uint32 flags;            /* Flags passed in at initialization time. */
     ma_uint32 capacity;         /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
-    MA_ATOMIC MA_ALIGN_MEMBER(8, ma_uint64) head; /* The first item in the list. Required for removing from the top of the list. */
+    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) head; /* The first item in the list. Required for removing from the top of the list. */
     MA_ATOMIC ma_uint64 tail;   /* The last item in the list. Required for appending to the end of the list. */
 #ifndef MA_NO_THREADING
     ma_semaphore sem;           /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
@@ -9171,7 +9167,7 @@ struct ma_resource_manager_data_stream
     ma_bool32 isDecoderInitialized;         /* Required for determining whether or not the decoder should be uninitialized in MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM. */
     ma_uint64 totalLengthInPCMFrames;       /* This is calculated when first loaded by the MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM. */
     ma_uint32 relativeCursor;               /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
-    MA_ATOMIC MA_ALIGN_MEMBER(8, ma_uint64) absoluteCursor; /* The playback cursor, in absolute position starting from the start of the file. */
+    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) absoluteCursor; /* The playback cursor, in absolute position starting from the start of the file. */
     ma_uint32 currentPageIndex;             /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
     MA_ATOMIC ma_uint32 executionCounter;   /* For allocating execution orders for jobs. */
     MA_ATOMIC ma_uint32 executionPointer;   /* For managing the order of execution for asynchronous jobs relating to this object. Incremented as jobs complete processing. */
@@ -9461,8 +9457,8 @@ struct ma_node_base
 
     /* These variables are read and written between different threads. */
     MA_ATOMIC ma_node_state state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
-    MA_ATOMIC MA_ALIGN_MEMBER(8, ma_uint64) stateTimes[2]; /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
-    MA_ATOMIC MA_ALIGN_MEMBER(8, ma_uint64) localTime; /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
+    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) stateTimes[2]; /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    MA_ATOMIC MA_ATOMIC_ALIGN(8, ma_uint64) localTime; /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
     ma_node_input_bus* pInputBuses;
