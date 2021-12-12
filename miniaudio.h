@@ -10017,7 +10017,6 @@ MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
 MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume);
-MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
 MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode);
 MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch);
@@ -10072,7 +10071,6 @@ MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume);
-MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB);
 MA_API void ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
 MA_API void ma_sound_group_set_pan_mode(ma_sound_group* pGroup, ma_pan_mode panMode);
 MA_API void ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
@@ -70657,11 +70655,6 @@ MA_API ma_result ma_sound_set_volume(ma_sound* pSound, float volume)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_set_gain_db(ma_sound* pSound, float gainDB)
-{
-    return ma_sound_set_volume(pSound, ma_gain_db_to_factor(gainDB));
-}
-
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan)
 {
     if (pSound == NULL) {
@@ -71222,11 +71215,6 @@ MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup)
 MA_API ma_result ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
 {
     return ma_sound_set_volume(pGroup, volume);
-}
-
-MA_API ma_result ma_sound_group_set_gain_db(ma_sound_group* pGroup, float gainDB)
-{
-    return ma_sound_set_gain_db(pGroup, gainDB);
 }
 
 MA_API void ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
