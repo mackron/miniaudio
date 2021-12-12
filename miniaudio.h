@@ -873,6 +873,11 @@ the current data source will be looped. You can loop the entire chain by linking
 Note that setting up chaining is not thread safe, so care needs to be taken if you're dynamically
 changing links while the audio thread is in the middle of reading.
 
+Do not use `ma_decoder_seek_to_pcm_frame()` as a means to reuse a data source to play multiple
+instances of the same sound simultaneously. Instead, initialize multiple data sources for each
+instance. This can be extremely inefficient depending on the data source and can result in
+glitching due to subtle changes to the state of internal filters.
+
 
 4.1. Custom Data Sources
 ------------------------
@@ -1418,6 +1423,11 @@ source, mainly for convenience:
 Sound groups have the same API as sounds, only they are called `ma_sound_group`, and since they do
 not have any notion of a data source, anything relating to a data source is unavailable.
 
+Internally, sound data is loaded via the `ma_decoder` API which means by default in only supports
+file formats that have built-in support in miniaudio. You can extend this to support any kind of
+file format through the use of custom decoders. To do this you'll need to use a self-managed
+resource manager and configure it appropriately. See the "Resource Management" section below for
+details on how to set this up.
 
 
 6. Resource Management
@@ -1470,6 +1480,29 @@ pre-converted at load time to the device's native data format. If instead you us
 the data format of the file did not match the device's data format, you would need to convert the
 data at mixing time which may be prohibitive in high-performance and large scale scenarios like
 games.
+
+Internally the resource manager uses the `ma_decoder` API to load sounds. This means by default it
+only supports decoders that are built into miniaudio. It's possible to support additional encoding
+formats through the use of custom decoders. To do so, pass in your `ma_decoding_backend_vtable`
+vtables into the resource manager config:
+
+    ```c
+    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    {
+        &g_ma_decoding_backend_vtable_libvorbis,
+        &g_ma_decoding_backend_vtable_libopus
+    };
+
+    ...
+
+    resourceManagerConfig.ppCustomDecodingBackendVTables = pCustomBackendVTables;
+    resourceManagerConfig.customDecodingBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    resourceManagerConfig.pCustomDecodingBackendUserData = NULL;
+    ```
+
+This system can allow you to support any kind of file format. See the "Decoding" section for
+details on how to implement custom decoders. The miniaudio repository includes examples for Opus
+via libopus and libopusfile and Vorbis via libvorbis and libvorbisfile.
 
 Asynchronicity is achieved via a job system. When an operation needs to be performed, such as the
 decoding of a page, a job will be posted to a queue which will then be processed by a job thread.
@@ -1618,6 +1651,15 @@ valid for it's lifetime. Use `ma_resource_manager_unregister_data()` to unregist
 data. It does not make sense to use the `MA_DATA_SOURCE_STREAM` flag with a self-managed data
 pointer. When `MA_DATA_SOURCE_STREAM` is specified, it will try loading the file data through the
 VFS.
+
+
+6.1. Custom Decoders
+--------------------
+Internally the resource manager uses the `ma_decoder` API to load sounds. This means by default it
+only supports decoders that are built into miniaudio.
+
+It's possible to support additional encoding formats through the use of custom decoders. To do so,
+
 
 
 6.1. Resource Manager Implementation Details
@@ -2309,6 +2351,74 @@ See the `ma_encoding_format` enum for possible encoding formats.
 
 The `ma_decoder_init_file()` API will try using the file extension to determine which decoding
 backend to prefer.
+
+
+8.1. Custom Decoders
+--------------------
+It's possible to implement a custom decoder and plug it into miniaudio. This is extremely useful
+when you want to use the `ma_decoder` API, but need to support an encoding format that's not one of
+the stock formats supported by miniaudio. This can be put to particularly good use when using the
+`ma_engine` and/or `ma_resource_manager` APIs because they use `ma_decoder` internally. If, for
+example, you wanted to support Opus, you can do so with a custom decoder (there if a reference
+Opus decoder in the "extras" folder of the miniaudio repository which uses libopus + libousfile).
+
+A custom decoder must implement a data source. A vtable called `ma_decoding_backend_vtable` needs
+to be implemented which is then passed into the decoder config:
+
+    ```c
+    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    {
+        &g_ma_decoding_backend_vtable_libvorbis,
+        &g_ma_decoding_backend_vtable_libopus
+    };
+
+    ...
+
+    decoderConfig = ma_decoder_config_init_default();
+    decoderConfig.pCustomBackendUserData = NULL;
+    decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
+    decoderConfig.customBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    ```
+
+The `ma_decoding_backend_vtable` vtable has the following functions:
+
+    ```
+    onInit
+    onInitFile 
+    onInitFileW
+    onInitMemory
+    onUninit
+    ```
+
+There are only two functions that must be implemented - `onInit` and `onUninit`. The other
+functions can be implemented for a small optimization for loading from a file path or memory. If
+these are not specified, miniaudio will deal with it for you via a generic implementation.
+
+When you initialize a custom data source (by implementing the `onInit` function in the vtable) you
+will need to output a pointer to a `ma_data_source` which implements your custom decoder. See the
+section about data sources for details on how to implemen this. Alternatively, see the
+"custom_decoders" example in the miniaudio repository.
+
+The `onInit` function takes a pointer to some callbacks for the purpose of reading raw audio data
+from some abitrary source. You'll use these functions to read from the raw data and perform the
+decoding. When you call them, you will pass in the `pReadSeekTellUserData` pointer to the relevant
+parameter.
+
+The `pConfig` parameter in `onInit` can be used to configure the backend if appropriate. It's only
+used as a hint and can be ignored. However, if any of the properties are relevant to your decoder,
+an optimal implementation will handle the relevant properties appropriately.
+
+If allocation memory is required, it should be done so via the specified allocation callbacks if
+possible (the `pAllocationCallbacks` parameter).
+
+If an error occurs when initializing the decoder, you should leave `ppBackend` unset, or set to
+NULL, and make sure everything is cleaned up appropriately and an appropriate result code returned.
+When multiple custom backends are specified, miniaudio will cycle through the vtables in the order
+they're listed in the array that's passed into the decoder config so it's important that your
+initialization routine is clean.
+
+When a decoder is uninitialized, the `onUninit` callback will be fired which will give you an
+opportunity to clean up and internal data.
 
 
 
@@ -8626,11 +8736,11 @@ MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format pref
 
 typedef struct
 {
-    ma_result (* onInit         )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
-    ma_result (* onInitFile     )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
-    ma_result (* onInitFileW    )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
-    ma_result (* onInitMemory   )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
-    void      (* onUninit       )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onInit      )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
+    ma_result (* onInitFile  )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
+    ma_result (* onInitFileW )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
+    ma_result (* onInitMemory)(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
+    void      (* onUninit    )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
 } ma_decoding_backend_vtable;
 
 
