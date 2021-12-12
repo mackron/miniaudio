@@ -4434,7 +4434,9 @@ typedef struct
 MA_API ma_result ma_panner_init(const ma_panner_config* pConfig, ma_panner* pPanner);
 MA_API ma_result ma_panner_process_pcm_frames(ma_panner* pPanner, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API void ma_panner_set_mode(ma_panner* pPanner, ma_pan_mode mode);
+MA_API ma_pan_mode ma_panner_get_mode(const ma_panner* pPanner);
 MA_API void ma_panner_set_pan(ma_panner* pPanner, float pan);
+MA_API float ma_panner_get_pan(const ma_panner* pPanner);
 
 
 
@@ -10017,10 +10019,15 @@ MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume);
+MA_API float ma_sound_get_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
+MA_API float ma_sound_get_pan(const ma_sound* pSound);
 MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode);
+MA_API ma_pan_mode ma_sound_get_pan_mode(const ma_sound* pSound);
 MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch);
+MA_API float ma_sound_get_pitch(const ma_sound* pSound);
 MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled);
+MA_API ma_bool32 ma_sound_is_spatialization_enabled(const ma_sound* pSound);
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
@@ -10071,10 +10078,15 @@ MA_API ma_engine* ma_sound_group_get_engine(const ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_start(ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_stop(ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_volume(ma_sound_group* pGroup, float volume);
+MA_API float ma_sound_group_get_volume(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pan(ma_sound_group* pGroup, float pan);
+MA_API float ma_sound_group_get_pan(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pan_mode(ma_sound_group* pGroup, ma_pan_mode panMode);
+MA_API ma_pan_mode ma_sound_group_get_pan_mode(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch);
+MA_API float ma_sound_group_get_pitch(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled);
+MA_API ma_bool32 ma_sound_group_is_spatialization_enabled(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
@@ -45281,6 +45293,15 @@ MA_API void ma_panner_set_mode(ma_panner* pPanner, ma_pan_mode mode)
     pPanner->mode = mode;
 }
 
+MA_API ma_pan_mode ma_panner_get_mode(const ma_panner* pPanner)
+{
+    if (pPanner == NULL) {
+        return ma_pan_mode_balance;
+    }
+
+    return pPanner->mode;
+}
+
 MA_API void ma_panner_set_pan(ma_panner* pPanner, float pan)
 {
     if (pPanner == NULL) {
@@ -45288,6 +45309,15 @@ MA_API void ma_panner_set_pan(ma_panner* pPanner, float pan)
     }
 
     pPanner->pan = ma_clamp(pan, -1.0f, 1.0f);
+}
+
+MA_API float ma_panner_get_pan(const ma_panner* pPanner)
+{
+    if (pPanner == NULL) {
+        return 0;
+    }
+
+    return pPanner->pan;
 }
 
 
@@ -70653,6 +70683,15 @@ MA_API void ma_sound_set_volume(ma_sound* pSound, float volume)
     ma_node_set_output_bus_volume(pSound, 0, volume);
 }
 
+MA_API float ma_sound_get_volume(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_node_get_output_bus_volume(pSound, 0);
+}
+
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan)
 {
     if (pSound == NULL) {
@@ -70660,6 +70699,15 @@ MA_API void ma_sound_set_pan(ma_sound* pSound, float pan)
     }
 
     ma_panner_set_pan(&pSound->engineNode.panner, pan);
+}
+
+MA_API float ma_sound_get_pan(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return ma_panner_get_pan(&pSound->engineNode.panner);
 }
 
 MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode)
@@ -70671,6 +70719,15 @@ MA_API void ma_sound_set_pan_mode(ma_sound* pSound, ma_pan_mode panMode)
     ma_panner_set_mode(&pSound->engineNode.panner, panMode);
 }
 
+MA_API ma_pan_mode ma_sound_get_pan_mode(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return ma_pan_mode_balance;
+    }
+
+    return ma_panner_get_mode(&pSound->engineNode.panner);
+}
+
 MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch)
 {
     if (pSound == NULL) {
@@ -70680,6 +70737,15 @@ MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch)
     c89atomic_exchange_explicit_f32(&pSound->engineNode.pitch, pitch, c89atomic_memory_order_release);
 }
 
+MA_API float ma_sound_get_pitch(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    return c89atomic_load_f32(&pSound->engineNode.pitch);    /* Naughty const-cast for this. */
+}
+
 MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enabled)
 {
     if (pSound == NULL) {
@@ -70687,6 +70753,15 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
     }
 
     c89atomic_exchange_explicit_32(&pSound->engineNode.isSpatializationDisabled, !enabled, c89atomic_memory_order_release);
+}
+
+MA_API ma_bool32 ma_sound_is_spatialization_enabled(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return MA_FALSE;
+    }
+
+    return ma_engine_node_is_spatialization_enabled(&pSound->engineNode);
 }
 
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex)
@@ -71215,9 +71290,19 @@ MA_API void ma_sound_group_set_volume(ma_sound_group* pGroup, float volume)
     ma_sound_set_volume(pGroup, volume);
 }
 
+MA_API float ma_sound_group_get_volume(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_volume(pGroup);
+}
+
 MA_API void ma_sound_group_set_pan(ma_sound_group* pGroup, float pan)
 {
     ma_sound_set_pan(pGroup, pan);
+}
+
+MA_API float ma_sound_group_get_pan(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_pan(pGroup);
 }
 
 MA_API void ma_sound_group_set_pan_mode(ma_sound_group* pGroup, ma_pan_mode panMode)
@@ -71225,14 +71310,29 @@ MA_API void ma_sound_group_set_pan_mode(ma_sound_group* pGroup, ma_pan_mode panM
     ma_sound_set_pan_mode(pGroup, panMode);
 }
 
+MA_API ma_pan_mode ma_sound_group_get_pan_mode(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_pan_mode(pGroup);
+}
+
 MA_API void ma_sound_group_set_pitch(ma_sound_group* pGroup, float pitch)
 {
     ma_sound_set_pitch(pGroup, pitch);
 }
 
+MA_API float ma_sound_group_get_pitch(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_pitch(pGroup);
+}
+
 MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma_bool32 enabled)
 {
     ma_sound_set_spatialization_enabled(pGroup, enabled);
+}
+
+MA_API ma_bool32 ma_sound_group_is_spatialization_enabled(const ma_sound_group* pGroup)
+{
+    return ma_sound_is_spatialization_enabled(pGroup);
 }
 
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex)
