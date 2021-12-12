@@ -30,7 +30,15 @@ In miniaudio, objects are transparent structures. Unlike many other libraries, t
 to opaque objects which means you need to allocate memory for objects yourself. In the examples
 presented in this documentation you will often see objects declared on the stack. You need to be
 careful when translating these examples to your own code so that you don't accidentally declare
-your objects on the stack and then cause them to become invalid once the function returns.
+your objects on the stack and then cause them to become invalid once the function returns. In
+addition, you must ensure the memory address of your objects remain the same throughout their
+lifetime. You therefore cannot be making copies of your objects.
+
+A config/init pattern is used throughout the entire library. The idea is that you set up a config
+object and pass that into the initialization routine. The config object can be allocated on the
+stack and does not need to be maintained after initialization of the corresponding object. The
+advantage to this system is that the config object can be initialized with logical defaults and new
+properties added to it without breaking the API.
 
 
 1.1. Low Level API
