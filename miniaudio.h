@@ -326,7 +326,7 @@ allocating the engine on the heap is more appropriate, you can easily do so with
 to malloc() or whatever heap allocation routine you like:
 
     ```c
-    ma_engine* pEngine = ma_malloc(sizeof(*pEngine), &myAllocationCallbacks);
+    ma_engine* pEngine = malloc(sizeof(*pEngine));
     ```
 
 The `ma_engine` API uses the same config/init pattern used all throughout miniaudio. To configure
@@ -354,7 +354,7 @@ This is particularly useful if you want to have multiple engine's share the same
 The engine must be uninitialized with `ma_engine_uninit()` when it's no longer needed.
 
 By default the engine will be started, but nothing will be playing because no sounds have been
-initialized. The easiest and least flexible way of playing a sound is like so:
+initialized. The easiest but least flexible way of playing a sound is like so:
 
     ```c
     ma_engine_play_sound(&engine, "my_sound.wav", NULL);
@@ -8249,12 +8249,12 @@ MA_API void ma_copy_and_apply_volume_and_clip_pcm_frames(void* pDst, const void*
 /*
 Helper for converting a linear factor to gain in decibels.
 */
-MA_API float ma_factor_to_gain_db(float factor);
+MA_API float ma_volume_linear_to_db(float factor);
 
 /*
 Helper for converting gain in decibels to a linear factor.
 */
-MA_API float ma_gain_db_to_factor(float gain);
+MA_API float ma_volume_db_to_linear(float gain);
 
 
 
@@ -10010,7 +10010,7 @@ MA_API ma_vec3f ma_engine_listener_get_world_up(const ma_engine* pEngine, ma_uin
 MA_API void ma_engine_listener_set_enabled(ma_engine* pEngine, ma_uint32 listenerIndex, ma_bool32 isEnabled);
 MA_API ma_bool32 ma_engine_listener_is_enabled(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
-#if !defined(MA_NO_RESOURCE_MANAGER)
+#ifndef MA_NO_RESOURCE_MANAGER
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 #endif
 
@@ -38318,7 +38318,7 @@ MA_API ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB)
         return MA_INVALID_ARGS;
     }
 
-    return ma_device_set_master_volume(pDevice, ma_gain_db_to_factor(gainDB));
+    return ma_device_set_master_volume(pDevice, ma_volume_db_to_linear(gainDB));
 }
 
 MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
@@ -38336,7 +38336,7 @@ MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB
         return result;
     }
 
-    *pGainDB = ma_factor_to_gain_db(factor);
+    *pGainDB = ma_volume_linear_to_db(factor);
 
     return MA_SUCCESS;
 }
@@ -38891,12 +38891,12 @@ MA_API void ma_copy_and_apply_volume_and_clip_pcm_frames(void* pDst, const void*
 
 
 
-MA_API float ma_factor_to_gain_db(float factor)
+MA_API float ma_volume_linear_to_db(float factor)
 {
     return 20*ma_log10f(factor);
 }
 
-MA_API float ma_gain_db_to_factor(float gain)
+MA_API float ma_volume_db_to_linear(float gain)
 {
     return ma_powf(10, gain/20.0f);
 }
@@ -70035,7 +70035,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
         return MA_INVALID_ARGS;
     }
 
-    return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, ma_gain_db_to_factor(gainDB));
+    return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, ma_volume_db_to_linear(gainDB));
 }
 
 
@@ -88199,6 +88199,8 @@ There are many breaking API changes in this release.
   - ma_waveform_read_pcm_frames() has been updated to return a result code and output the number of
     frames read via an output parameter.
   - The MA_STATE_* tokens have been reanmed to ma_device_state_* and turned into an enum.
+  - ma_factor_to_gain_db() has been renamed to ma_volume_linear_to_db()
+  - ma_gain_db_to_factor() has been renamed to ma_volume_db_to_linear()
 
 
 Changes to Custom Data Sources
