@@ -14285,16 +14285,16 @@ static C89ATOMIC_INLINE void c89atomic_store_explicit_f64(volatile double* dst, 
     x.f = src;
     c89atomic_store_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
 }
-static C89ATOMIC_INLINE float c89atomic_load_explicit_f32(volatile float* ptr, c89atomic_memory_order order)
+static C89ATOMIC_INLINE float c89atomic_load_explicit_f32(volatile const float* ptr, c89atomic_memory_order order)
 {
     c89atomic_if32 r;
-    r.i = c89atomic_load_explicit_32((volatile c89atomic_uint32*)ptr, order);
+    r.i = c89atomic_load_explicit_32((volatile const c89atomic_uint32*)ptr, order);
     return r.f;
 }
-static C89ATOMIC_INLINE double c89atomic_load_explicit_f64(volatile double* ptr, c89atomic_memory_order order)
+static C89ATOMIC_INLINE double c89atomic_load_explicit_f64(volatile const double* ptr, c89atomic_memory_order order)
 {
     c89atomic_if64 r;
-    r.i = c89atomic_load_explicit_64((volatile c89atomic_uint64*)ptr, order);
+    r.i = c89atomic_load_explicit_64((volatile const c89atomic_uint64*)ptr, order);
     return r.f;
 }
 static C89ATOMIC_INLINE float c89atomic_exchange_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
