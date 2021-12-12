@@ -3295,7 +3295,20 @@ Some backends have some nuance details you may want to be aware of.
 
 
 
-16. Miscellaneous Notes
+16. Optimization Tips
+=====================
+
+16.1. High Level API
+--------------------
+- If a sound does not require doppler or pitch shifting, consider disabling pitching by
+  initializing the sound with the `MA_SOUND_FLAG_NO_PITCH` flag.
+- If a sound does not require spatialization, disable it by initialzing the sound with the
+  `MA_SOUND_FLAG_NO_SPATIALIZATION` flag. It can be renabled again post-initialization with
+  `ma_sound_set_spatialization_enabled()`.
+
+
+
+17. Miscellaneous Notes
 =======================
 - Automatic stream routing is enabled on a per-backend basis. Support is explicitly enabled for
   WASAPI and Core Audio, however other backends such as PulseAudio may naturally support it, though
