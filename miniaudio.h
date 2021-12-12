@@ -2833,6 +2833,7 @@ The miniaudio resampler has built-in support for the following algorithms:
     | Algorithm | Enum Token                   |
     +-----------+------------------------------+
     | Linear    | ma_resample_algorithm_linear |
+    | Custom    | ma_resample_algorithm_custom |
     +-----------+------------------------------+
 
 The algorithm cannot be changed after initialization.
@@ -2882,6 +2883,47 @@ the input and output sample rates (Nyquist Frequency).
 
 The API for the linear resampler is the same as the main resampler API, only it's called
 `ma_linear_resampler`.
+
+
+10.3.2. Custom Resamplers
+-------------------------
+You can implement a custom resampler by using the `ma_resample_algorithm_custom` resampling
+algorithm and setting a vtable in the resampler config:
+
+    ```c
+    ma_resampler_config config = ma_resampler_config_init(..., ma_resample_algorithm_linear);
+    config.pBackendVTable = &g_customResamplerVTable;
+    ```
+
+Custom resamplers are useful if the stock algorithms are not appropriate for your use case. You
+need to implement the required functions in `ma_resampling_backend_vtable`. Note that not all
+functions in the vtable need to be implement, but if it's possible to implement, they should be.
+
+You can use the `ma_linear_resampler` object for an example on how to implement the vtable. The
+`onGetHeapSize` callback is used to calculate the size of any internal heap allocation the custom
+resampler will need to make given the supplied config. When you initialize the resampler via the
+`onInit` callback, you'll be given a pointer to a heap allocation which is where you should store
+the heap allocated data. You should not free this data in `onUninit` because miniaudio will manage
+it for you.
+
+The `onProcess` callback is where the actual resampling takes place. In input, `pFrameCountIn`
+points to a variable containing the number of frames in the `pFramesIn` buffer and
+`pFrameCountOut` points to a variable containing the capacity in frames of the `pFramesOut` buffer.
+On output, `pFrameCountIn` should be set to the number of input frames that were fully consumed,
+whereas `pFrameCountOut` should be set to the number of frames that were written to `pFramesOut`.
+
+The `onSetRate` callback is optional and is used for dynamically changing the sample rate. If
+dynamic rate changes are not supported, you can set this callback to NULL.
+
+The `onGetInputLatency` and `onGetOutputLatency` functions are used for retrieving the latency in
+input and output rates respectively. These can be NULL in which case latency calculations will be
+assumed to be NULL.
+
+The `onGetRequiredInputFrameCount` callback is used to give miniaudio a hint as to how many input
+frames are required to be available to produce the given number of output frames. Likewise, the
+`onGetExpectedOutputFrameCount` callback is used to determine how many output frames will be
+produced given the specified number of input frames. miniaudio will use these as a hint, but they
+are optional and can be set to NULL if you're unable to implement them.
 
 
 
