@@ -1465,7 +1465,7 @@ The example below is how you can initialize a resource manager using it's defaul
 You can configure the format, channels and sample rate of the decoded audio data. By default it
 will use the file's native data format, but you can configure it to use a consistent format. This
 is useful for offloading the cost of data conversion to load time rather than dynamically
-converting a mixing time. To do this, you configure the decoded format, channels and sample rate
+converting at mixing time. To do this, you configure the decoded format, channels and sample rate
 like the code below:
 
     ```c
@@ -1559,7 +1559,8 @@ flag. Note that the `MA_RESOURCE_MANAGER_JOB_QUIT` will never be removed from th
 is to give every thread the opportunity to catch the event and terminate naturally.
 
 When loading a file, it's sometimes convenient to be able to customize how files are opened and
-read. This can be done by setting `pVFS` member of the resource manager's config:
+read instead of using standard `fopen()`, `fclose()`, etc. which is what miniaudio will use by
+default. This can be done by setting `pVFS` member of the resource manager's config:
 
     ```c
     // Initialize your custom VFS object. See documentation for VFS for information on how to do this.
@@ -1569,8 +1570,9 @@ read. This can be done by setting `pVFS` member of the resource manager's config
     config.pVFS = &vfs;
     ```
 
-If you do not specify a custom VFS, the resource manager will use the operating system's normal
-file operations. This is default.
+This is particularly useful in programs like games where you want to read straight from an archive
+rather than the normal file system. If you do not specify a custom VFS, the resource manager will
+use the operating system's normal file operations. This is default.
 
 To load a sound file and create a data source, call `ma_resource_manager_data_source_init()`. When
 loading a sound you need to specify the file path and options for how the sounds should be loaded.
@@ -1603,35 +1605,29 @@ The `flags` parameter specifies how you want to perform loading of the sound fil
 combination of the following flags:
 
     ```
-    MA_DATA_SOURCE_STREAM
-    MA_DATA_SOURCE_DECODE
-    MA_DATA_SOURCE_ASYNC
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT
     ```
 
 When no flags are specified (set to 0), the sound will be fully loaded into memory, but not
 decoded, meaning the raw file data will be stored in memory, and then dynamically decoded when
 `ma_data_source_read_pcm_frames()` is called. To instead decode the audio data before storing it in
-memory, use the `MA_DATA_SOURCE_DECODE` flag. By default, the sound file will be loaded
-synchronously, meaning `ma_resource_manager_data_source_init()` will only return after the entire
-file has been loaded. This is good for simplicity, but can be prohibitively slow. You can instead
-load the sound asynchronously using the `MA_DATA_SOURCE_ASYNC` flag. This will result in
-`ma_resource_manager_data_source_init()` returning quickly, but no data will be returned by
+memory, use the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE` flag. By default, the sound file will
+be loaded synchronously, meaning `ma_resource_manager_data_source_init()` will only return after
+the entire file has been loaded. This is good for simplicity, but can be prohibitively slow. You
+can instead load the sound asynchronously using the `MA_DATA_SOURCE_ASYNC` flag. This will result
+in `ma_resource_manager_data_source_init()` returning quickly, but no data will be returned by
 `ma_data_source_read_pcm_frames()` until some data is available. When no data is available because
 the asynchronous decoding hasn't caught up, `MA_BUSY` will be returned by
 `ma_data_source_read_pcm_frames()`.
 
 For large sounds, it's often prohibitive to store the entire file in memory. To mitigate this, you
-can instead stream audio data which you can do by specifying the `MA_DATA_SOURCE_STREAM` flag. When
-streaming, data will be decoded in 1 second pages. When a new page needs to be decoded, a job will
-be posted to the job queue and then subsequently processed in a job thread.
-
-When loading asynchronously, it can be useful to poll whether or not loading has finished. Use
-`ma_resource_manager_data_source_result()` to determine this. For in-memory sounds, this will
-return `MA_SUCCESS` when the file has been *entirely* decoded. If the sound is still being decoded,
-`MA_BUSY` will be returned. Otherwise, some other error code will be returned if the sound failed
-to load. For streaming data sources, `MA_SUCCESS` will be returned when the first page has been
-decoded and the sound is ready to be played. If the first page is still being decoded, `MA_BUSY`
-will be returned. Otherwise, some other error code will be returned if the sound failed to load.
+can instead stream audio data which you can do by specifying the
+`MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` flag. When streaming, data will be decoded in 1
+second pages. When a new page needs to be decoded, a job will be posted to the job queue and then
+subsequently processed in a job thread.
 
 For in-memory sounds, reference counting is used to ensure the data is loaded only once. This means
 multiple calls to `ma_resource_manager_data_source_init()` with the same file path will result in
@@ -1644,25 +1640,107 @@ decoded audio data in the specified data format with the specified name. Likewis
 `ma_resource_manager_register_encoded_data()` is used to associate a pointer to raw self-managed
 encoded audio data (the raw file data) with the specified name. Note that these names need not be
 actual file paths. When `ma_resource_manager_data_source_init()` is called (without the
-`MA_DATA_SOURCE_STREAM` flag), the resource manager will look for these explicitly registered data
-buffers and, if found, will use it as the backing data for the data source. Note that the resource
-manager does *not* make a copy of this data so it is up to the caller to ensure the pointer stays
-valid for it's lifetime. Use `ma_resource_manager_unregister_data()` to unregister the self-managed
-data. It does not make sense to use the `MA_DATA_SOURCE_STREAM` flag with a self-managed data
-pointer. When `MA_DATA_SOURCE_STREAM` is specified, it will try loading the file data through the
-VFS.
+`MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` flag), the resource manager will look for these
+explicitly registered data buffers and, if found, will use it as the backing data for the data
+source. Note that the resource manager does *not* make a copy of this data so it is up to the
+caller to ensure the pointer stays valid for it's lifetime. Use
+`ma_resource_manager_unregister_data()` to unregister the self-managed data. You can also use
+`ma_resource_manager_register_file()` and `ma_resource_manager_unregister_file()` to register and
+unregister a file. It does not make sense to use the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM`
+flag with a self-managed data pointer. When `MA_DATA_SOURCE_STREAM` is specified, it will try
+loading the file data through the VFS.
 
 
-6.1. Custom Decoders
---------------------
-Internally the resource manager uses the `ma_decoder` API to load sounds. This means by default it
-only supports decoders that are built into miniaudio.
+6.1. Asynchronous Loading and Synchronization
+---------------------------------------------
+When loading asynchronously, it can be useful to poll whether or not loading has finished. Use
+`ma_resource_manager_data_source_result()` to determine this. For in-memory sounds, this will
+return `MA_SUCCESS` when the file has been *entirely* decoded. If the sound is still being decoded,
+`MA_BUSY` will be returned. Otherwise, some other error code will be returned if the sound failed
+to load. For streaming data sources, `MA_SUCCESS` will be returned when the first page has been
+decoded and the sound is ready to be played. If the first page is still being decoded, `MA_BUSY`
+will be returned. Otherwise, some other error code will be returned if the sound failed to load.
 
-It's possible to support additional encoding formats through the use of custom decoders. To do so,
+In addition to polling, you can also use a simple synchronization object called a "fence" to wait
+for asynchronously loaded sounds to finish. This is called `ma_fence`. The advantage to using a
+fence is that it can be used to wait for a group of sounds to finish loading rather than waiting
+for sounds on an individual basis. There are two stages to loading a sound:
+
+    1) Initialization of the internal decoder; and
+    2) Completion of decoding of the file (the file is fully decoded)
+
+You can specify separate fences for each of the different stages. Waiting for the initialization
+of the internal decoder is important for when you need to know the sample format, channels and
+sample rate of the file.
+
+The example below shows how you could use a fence when loading a number of sounds:
+
+    ```c
+    // This fence will be released when all sounds are finished loading entirely.
+    ma_fence fence;
+    ma_fence_init(&fence);
+
+    // This will be passed into the initialization routine for each sound.
+    ma_resource_manager_pipeline_notifications notifications = ma_resource_manager_pipeline_notifications_init();
+    notifications.done.pFence = &fence;
+
+    // Now load a bunch of sounds:
+    for (iSound = 0; iSound < soundCount; iSound += 1) {
+        ma_resource_manager_data_source_init(pResourceManager, pSoundFilePaths[iSound], flags, &notifications, &pSoundSources[iSound]);
+    }
+
+    // ... DO SOMETHING ELSE WHILE SOUNDS ARE LOADING ...
+
+    // Wait for loading of sounds to finish.
+    ma_fence_wait(&fence);
+    ```
+
+In the example above we used a fence for waiting until the entire file has been fully decoded. If
+You only need to wait for the initialization of the internal decoder to complete, you can use the
+`init` member of the `ma_resource_manager_pipeline_notifications` object:
+
+    ```c
+    notifications.init.pFence = &fence;
+    ```
+
+If a fence is not appropriate for your situation, you can instead use a callback that is fired on
+an individual sound basis. This is done in a very similar way to fences:
+
+    ```c
+    typedef struct
+    {
+        ma_async_notification_callbacks cb;
+        void* pMyData;
+    } my_notification;
+
+    void my_notification_callback(ma_async_notification* pNotification)
+    {
+        my_notification* pMyNotification = (my_notification*)pNotification;
+
+        // Do something in response to the sound finishing loading.
+    }
+
+    ...
+
+    my_notification myCallback;
+    myCallback.cb.onSignal = my_notification_callback;
+    myCallback.pMyData     = pMyData;
+
+    ma_resource_manager_pipeline_notifications notifications = ma_resource_manager_pipeline_notifications_init();
+    notifications.done.pNotification = &myCallback;
+
+    ma_resource_manager_data_source_init(pResourceManager, "my_sound.wav", flags, &notifications, &mySound);
+    ```
+
+In the example above we just extend the `ma_async_notification_callbacks` object and pass an
+instantiation into the `ma_resource_manager_pipeline_notifications` in the same way as we did with
+the fence, only we set `pNotification` instead of `pFence`. You can set both of these at the same
+time and they should both work as expected. If using the `pNotification` system, you need to ensure
+your `ma_async_notification_callbacks` object stays valid.
 
 
 
-6.1. Resource Manager Implementation Details
+6.2. Resource Manager Implementation Details
 --------------------------------------------
 Resources are managed in two main ways:
 
@@ -1700,23 +1778,81 @@ determine if a data source is ready to have some frames read, use
 available starting from the current position.
 
 
-6.1.1. Data Buffers
+6.2.1. Job Queue
+----------------
+The resource manager uses a job queue which is multi-producer, multi-consumer, and fixed-capacity.
+This job queue is not currently lock-free, and instead uses a spinlock to achieve thread-safety.
+Only a fixed number of jobs can be allocated and inserted into the queue which is done through a
+lock-free data structure for allocating an index into a fixed sized array, with reference counting
+for mitigation of the ABA problem. The reference count is 32-bit.
+
+For many types of jobs it's important that they execute in a specific order. In these cases, jobs
+are executed serially. For the resource manager, serial execution of jobs is only required on a
+per-object basis (per data buffer or per data stream). Each of these objects stores an execution
+counter. When a job is posted it is associated with an execution counter. When the job is
+processed, it checks if the execution counter of the job equals the execution counter of the
+owning object and if so, processes the job. If the counters are not equal, the job will be posted
+back onto the job queue for later processing. When the job finishes processing the execution order
+of the main object is incremented. This system means the no matter how many job threads are
+executing, decoding of an individual sound will always get processed serially. The advantage to
+having multiple threads comes into play when loading multiple sounds at the time time.
+
+The resource manager's job queue is not 100% lock-free and will use a spinlock to achieve
+thread-safety for a very small section of code. This is only relevant when the resource manager
+uses more than one job thread. If only using a single job thread, which is the default, the
+lock should never actually wait in practice. The amount of time spent locking should be quite
+short, but it's something to be aware of for those who have pedantic lock-free requirements and
+need to use more than one job thread. There are plans to remove this lock in a future version.
+
+In addition, posting a job will release a semaphore, which on Win32 is implemented with
+`ReleaseSemaphore` and on POSIX platforms via a condition variable:
+
+    ```c
+    pthread_mutex_lock(&pSemaphore->lock);
+    {
+        pSemaphore->value += 1;
+        pthread_cond_signal(&pSemaphore->cond);
+    }
+    pthread_mutex_unlock(&pSemaphore->lock);
+    ```
+
+Again, this is relevant for those with strict lock-free requirements in the audio thread. To avoid
+this, you can use non-blocking mode (via the `MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING`
+flag) and implement your own job processing routine (see the "Resource Manager" section above for
+details on how to do this).
+
+
+
+6.2.2. Data Buffers
 -------------------
 When the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` flag is excluded at initialization time, the
 resource manager will try to load the data into an in-memory data buffer. Before doing so, however,
-it will first check if the specified file has already been loaded. If so, it will increment a
-reference counter and just use the already loaded data. This saves both time and memory. A binary
-search tree (BST) is used for storing data buffers as it has good balance between efficiency and
-simplicity. The key of the BST is a 64-bit hash of the file path that was passed into
-`ma_resource_manager_data_source_init()`. The advantage of using a hash is that it saves memory
-over storing the entire path, has faster comparisons, and results in a mostly balanced BST due to
-the random nature of the hash. The disadvantage is that file names are case-sensitive. If this is
-an issue, you should normalize your file names to upper- or lower-case before initializing your
-data sources.
+it will first check if the specified file is already loaded. If so, it will increment a reference
+counter and just use the already loaded data. This saves both time and memory. When the data buffer
+is uninitialized, the reference counter will be decremented. If the counter hits zero, the file
+will be unloaded. This is a detail to keep in mind because it could result in excessive loading and
+unloading of a sound. For example, the following sequence will result in a file be loaded twice,
+once after the other:
 
-When a sound file has not already been loaded and the `MMA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC`
-is excluded, the file will be decoded synchronously by the calling thread. There are two options
-for controlling how the audio is stored in the data buffer - encoded or decoded. When the
+    ```c
+    ma_resource_manager_data_source_init(pResourceManager, "my_file", ..., &myDataBuffer0); // Refcount = 1. Initial load.
+    ma_resource_manager_data_source_uninit(pResourceManager, &myDataBuffer0);               // Refcount = 0. Unloaded.
+
+    ma_resource_manager_data_source_init(pResourceManager, "my_file", ..., &myDataBuffer1); // Refcount = 1. Reloaded because previous uninit() unloaded it.
+    ma_resource_manager_data_source_uninit(pResourceManager, &myDataBuffer1);               // Refcount = 0. Unloaded.
+    ```
+
+A binary search tree (BST) is used for storing data buffers as it has good balance between
+efficiency and simplicity. The key of the BST is a 64-bit hash of the file path that was passed
+into `ma_resource_manager_data_source_init()`. The advantage of using a hash is that it saves
+memory over storing the entire path, has faster comparisons, and results in a mostly balanced BST
+due to the random nature of the hash. The disadvantage is that file names are case-sensitive. If
+this is an issue, you should normalize your file names to upper- or lower-case before initializing
+your data sources.
+
+When a sound file has not already been loaded and the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC`
+flag is excluded, the file will be decoded synchronously by the calling thread. There are two
+options for controlling how the audio is stored in the data buffer - encoded or decoded. When the
 `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE` option is excluded, the raw file data will be stored
 in memory. Otherwise the sound will be decoded before storing it in memory. Synchronous loading is
 a very simple and standard process of simply adding an item to the BST, allocating a block of
@@ -1745,12 +1881,12 @@ completion event will be signalled and loading is now complete. If, however, the
 decode, a job with the code `MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE` is posted. This job
 will decode the next page and perform the same process if it reaches the end. If there is more to
 decode, the job will post another `MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE` job which will
-keep on happening until the sound has been fully decoded. For sounds of an unknown length, the
-buffer will be dynamically expanded as necessary, and then shrunk with a final realloc() when the
-end of the file has been reached.
+keep on happening until the sound has been fully decoded. For sounds of an unknown length, each
+page will be linked together as a linked list. Internally this is implemented via the
+`ma_paged_audio_buffer` object.
 
 
-6.1.2. Data Streams
+6.2.3. Data Streams
 -------------------
 Data streams only ever store two pages worth of data for each instance. They are most useful for
 large sounds like music tracks in games that would consume too much memory if fully decoded in
@@ -1779,33 +1915,10 @@ therefore miniaudio needs to ensure everything completes before handing back con
 Also, if the data stream is uninitialized while pages are in the middle of decoding, they must
 complete before destroying any underlying object and the job system handles this cleanly.
 
-Note that when a new page is loaded, a job will be posted to the resource manager's job thread from
-the audio thread. The resource manager's job queue is not 100% lock-free and will use a spinlock to
-achieve thread-safety for a very small section of code.  This is only relevant when the resource
-manager uses more than one job thread. If only using a single job thread, which is the default, the
-lock should never actually wait in practice. The amount of time spent locking should be quite
-short, but it's something to be aware of for those who have pedantic lock-free requirements and
-need to use more than one job thread. There are plans to remove this lock in a future version.
-
-
-6.1.3. Job Queue
-----------------
-The resource manager uses a job queue which is multi-producer, multi-consumer, and fixed-capacity.
-This job queue is not currently lock-free, and instead uses a spinlock to achieve thread-safety.
-Only a fixed number of jobs can be allocated and inserted into the queue which is done through a
-lock-free data structure for allocating an index into a fixed sized array, with reference counting
-for mitigation of the ABA problem. The reference count is 32-bit.
-
-For many types of jobs it's important that they execute in a specific order. In these cases, jobs
-are executed serially. For the resource manager, serial execution of jobs is only required on a
-per-object basis (per data buffer or per data stream). Each of these objects stores an execution
-counter. When a job is posted it is associated with an execution counter. When the job is
-processed, it checks if the execution counter of the job equals the execution counter of the
-owning object and if so, processes the job. If the counters are not equal, the job will be posted
-back onto the job queue for later processing. When the job finishes processing the execution order
-of the main object is incremented. This system means the no matter how many job threads are
-executing, decoding of an individual sound will always get processed serially. The advantage to
-having multiple threads comes into play when loading multiple sounds at the time time.
+Note that when a new page needs to be loaded, a job will be posted to the resource manager's job
+thread from the audio thread. You must keep in mind the details mentioned in the "Job Queue"
+section above regarding locking when posting an event if you require a strictly lock-free audio
+thread.
 
 
 
