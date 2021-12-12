@@ -425,7 +425,7 @@ API. This makes it possible to connect sounds and sound groups to effect nodes t
 effect chains.
 
 A sound can have it's volume changed with `ma_sound_set_volume()`. If you prefer decibel volume
-control you can use `ma_sound_set_gain_db()`.
+control you can use `ma_volume_db_to_linear()` to convert from decibel representation to linear.
 
 Panning and pitching is supported with `ma_sound_set_pan()` and `ma_sound_set_pitch()`. If you know
 a sound will never have it's pitch changed with `ma_sound_set_pitch()` or via the doppler effect,
@@ -498,12 +498,15 @@ entitlements.xcent file:
 2.3. Linux
 ----------
 The Linux build only requires linking to `-ldl`, `-lpthread` and `-lm`. You do not need any
-development packages.
+development packages. You may need to link with `-latomic` if you're compiling for 32-bit ARM.
+
 
 2.4. BSD
 --------
 The BSD build only requires linking to `-lpthread` and `-lm`. NetBSD uses audio(4), OpenBSD uses
-sndio and FreeBSD uses OSS.
+sndio and FreeBSD uses OSS. You may need to link with `-latomic` if you're compiling for 32-bit
+ARM.
+
 
 2.5. Android
 ------------
@@ -514,6 +517,7 @@ versions will fall back to OpenSL|ES which requires API level 16+.
 There have been reports that the OpenSL|ES backend fails to initialize on some Android based
 devices due to `dlopen()` failing to open "libOpenSLES.so". If this happens on your platform
 you'll need to disable run-time linking with `MA_NO_RUNTIME_LINKING` and link with -lOpenSLES.
+
 
 2.6. Emscripten
 ---------------
@@ -774,6 +778,10 @@ way of determining the length such as some decoders. To retrieve the length:
         return result;  // Failed to retrieve the length.
     }
     ```
+
+Care should be taken when retrieving the length of a data source where the underlying decoder is
+pulling data from a data stream with an undefined length, such as internet radio or some kind of
+broadcast. If you do this, `ma_data_source_get_length_in_pcm_frames()` may never return.
 
 The current position of the cursor in PCM frames can also be retrieved:
 
@@ -1412,7 +1420,6 @@ not have any notion of a data source, anything relating to a data source is unav
 
 
 
-
 6. Resource Management
 ======================
 Many programs will want to manage sound resources for things such as reference counting and
@@ -1511,10 +1518,12 @@ need to retrieve a job using `ma_resource_manager_next_job()` and then process i
     }
     ```
 
-In the example above, the `MA_RESOURCE_MANAGER_JOB_QUIT` event is the used as the termination indicator, but you can
-use whatever you would like to terminate the thread. The call to `ma_resource_manager_next_job()`
-is blocking by default, by can be configured to be non-blocking by initializing the resource
-manager with the `MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING` configuration flag.
+In the example above, the `MA_RESOURCE_MANAGER_JOB_QUIT` event is the used as the termination
+indicator, but you can use whatever you would like to terminate the thread. The call to
+`ma_resource_manager_next_job()` is blocking by default, by can be configured to be non-blocking by
+initializing the resource manager with the `MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING` configuration
+flag. Note that the `MA_RESOURCE_MANAGER_JOB_QUIT` will never be removed from the job queue. This
+is to give every thread the opportunity to catch the event and terminate naturally.
 
 When loading a file, it's sometimes convenient to be able to customize how files are opened and
 read. This can be done by setting `pVFS` member of the resource manager's config:
@@ -1727,6 +1736,14 @@ that job has been processed. The reason for this is that the caller owns the dat
 therefore miniaudio needs to ensure everything completes before handing back control to the caller.
 Also, if the data stream is uninitialized while pages are in the middle of decoding, they must
 complete before destroying any underlying object and the job system handles this cleanly.
+
+Note that when a new page is loaded, a job will be posted to the resource manager's job thread from
+the audio thread. The resource manager's job queue is not 100% lock-free and will use a spinlock to
+achieve thread-safety for a very small section of code.  This is only relevant when the resource
+manager uses more than one job thread. If only using a single job thread, which is the default, the
+lock should never actually wait in practice. The amount of time spent locking should be quite
+short, but it's something to be aware of for those who have pedantic lock-free requirements and
+need to use more than one job thread. There are plans to remove this lock in a future version.
 
 
 6.1.3. Job Queue
