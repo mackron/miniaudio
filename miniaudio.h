@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.10.43 - 2021-12-10
+miniaudio - v0.11.0 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3603,8 +3603,8 @@ extern "C" {
 #define MA_XSTRINGIFY(x)    MA_STRINGIFY(x)
 
 #define MA_VERSION_MAJOR    0
-#define MA_VERSION_MINOR    10
-#define MA_VERSION_REVISION 43
+#define MA_VERSION_MINOR    11
+#define MA_VERSION_REVISION 0
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -88716,6 +88716,73 @@ issues with certain devices and configurations. These can be individually enable
 /*
 REVISION HISTORY
 ================
+v0.11.0 - TBD
+  - Add a node graph system for advanced mixing and effect processing.
+  - Add a resource manager for loading and streaming sounds.
+  - Add a high level engine API for sound management and mixing. This wraps around the node graph
+    and resource manager.
+  - Add support for custom resmplers.
+  - Add ma_decoder_get_data_format().
+  - Add support for disabling denormals on the audio thread.
+  - Add a delay/echo effect called ma_delay.
+  - Add a stereo pan effect called ma_panner.
+  - Add a spataializer effect called ma_spatializer.
+  - Remove dependency on MA_MAX_CHANNELS from filters and data conversion.
+  - Increase MA_MAX_CHANNELS from 32 to 254.
+  - API CHANGE: Changes have been made to the way custom data sources are made. See documentation
+    on how to implement custom data sources.
+  - API CHANGE: Remove ma_data_source_map() and ma_data_source_unmap()
+  - API CHANGE: Remove the `loop` parameter from ma_data_source_read_pcm_frames(). Use
+    ma_data_source_set_looping() to enable or disable looping.
+  - API CHANGE: Remove ma_channel_mix_mode_planar_blend. Use ma_channel_mix_mode_rectangular instead.
+  - API CHANGE: Remove MA_MIN_SAMPLE_RATE and MA_MAX_SAMPLE_RATE. Use ma_standard_sample_rate_min
+    and ma_standard_sample_rate_max instead.
+  - API CHANGE: Changes have been made to the ma_device_info structure. See documentation for
+    details of these changes.
+  - API CHANGE: Remove the `shareMode` parameter from ma_context_get_device_info().
+  - API CHANGE: Rename noPreZeroedOutputBuffer to noPreSilencedOutputBuffer in the device config.
+  - API CHANGE: Remove pBufferOut parameter from ring buffer commit functions.
+  - API CHANGE: Remove ma_zero_pcm_frames(). Use ma_silence_pcm_frames() instead.
+  - API CHANGE: Change ma_clip_samples_f32() to take input and output buffers rather than working
+    exclusively in-place.
+  - API CHANGE: Remove ma_clip_pcm_frames_f32(). Use ma_clip_samples_f32() or ma_clip_pcm_frames()
+    instead.
+  - API CHANGE: Remove the onLog callback from the context config and replaced with a more
+    flexible system. See the documentation for how to use logging.
+  - API CHANGE: Remove MA_LOG_LEVEL_VERBOSE and add MA_LOG_LEVEL_DEBUG. Logs using the
+    MA_LOG_LEVEL_DEBUG logging level will only be output when miniaudio is compiled with the
+    MA_DEBUG_OUTPUT option.
+  - API CHANGE: MA_LOG_LEVEL has been removed. All log levels will be posted, except for
+    MA_LOG_LEVEL_DEBUG which will only be output when MA_DEBUG_OUTPUT is enabled.
+  - API CHANGE: Rename ma_resource_format to ma_encoding_format.
+  - API CHANGE: Remove all encoding-specific initialization routines for decoders. Use the
+    encodingFormat properties in the decoder config instead.
+  - API CHANGE: Change ma_decoder_get_length_in_pcm_frames() to return a result code and output the
+    number of frames read via an output parameter.
+  - API CHANGE: Allocation callbacks must now implement the onRealloc() callback.
+  - API CHANGE: Remove ma_get_standard_channel_map() and add ma_channel_map_init_standard().
+  - API CHANGE: Rename ma_channel_map_valid() to ma_channel_map_is_valid().
+  - API CHANGE: Rename ma_channel_map_equal() to ma_channel_map_is_equal().
+  - API CHANGE: Rename ma_channel_map_blank() to ma_channel_map_is_blank().
+  - API CHANGE: Remove the Speex resampler. Use a custom resampler instead.
+  - API CHANGE: Change the following resampler APIs to return a result code and output their result
+    via an output parameter:
+    - ma_linear_resampler_get_required_input_frame_count()
+    - ma_linear_resampler_get_expected_output_frame_count()
+    - ma_resampler_get_required_input_frame_count()
+    - ma_resampler_get_expected_output_frame_count()
+  - API CHANGE: Update relevant init/uninit functions to take a pointer to allocation callbacks.
+  - API CHANGE: Remove ma_scale_buffer_size()
+  - API CHANGE: Update ma_encoder_write_pcm_frames() to return a result code and output the number
+    of frames written via an output parameter.
+  - API CHANGE: Update ma_noise_read_pcm_frames() to return a result code and output the number of
+    frames read via an output parameter.
+  - API CHANGE: Update ma_waveform_read_pcm_frames() to return a result code and output the number
+    of frames read via an output parameter.
+  - API CHANGE: Remove The MA_STATE_* and add ma_device_state_* enums.
+  - API CHANGE: Rename ma_factor_to_gain_db() to ma_volume_linear_to_db()
+  - API CHANGE: Rename ma_gain_db_to_factor() to ma_volume_db_to_linear()
+
 v0.10.43 - 2021-12-10
   - ALSA: Fix use of uninitialized variables.
   - ALSA: Fix enumeration of devices that support both playback and capture.
