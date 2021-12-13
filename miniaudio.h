@@ -283,9 +283,9 @@ the context.
 -------------------
 The high level API consists of three main parts:
 
-  * Resource management
-  * Node graph
-  * Engine
+  * Resource management for loading and streaming sounds.
+  * A node graph for advanced mixing and effect processing.
+  * A high level "engine" that wraps around the resource manager and node graph.
 
 The resource manager (`ma_resource_manager`) is used for loading sounds. It supports loading sounds
 fully into memory and also streaming. It will also deal with reference counting for you which
@@ -6938,6 +6938,9 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_thread_priority_default           |
         |--------------------------------------|
 
+    threadStackSize
+        The desired size of the stack for the audio thread. Defaults to the operating system's default.
+
     pUserData
         A pointer to application-defined data. This can be accessed from the context object directly such as `context.pUserData`.
 
@@ -6992,6 +6995,12 @@ can then be set directly on the structure. Below are the members of the `ma_cont
         | ma_ios_session_category_option_allow_air_play                             | AVAudioSessionCategoryOptionAllowAirPlay                         |
         |---------------------------------------------------------------------------|------------------------------------------------------------------|
 
+    coreaudio.noAudioSessionActivate
+        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:true] on initialization.
+
+    coreaudio.noAudioSessionDeactivate
+        iOS only. When set to true, does not perform an explicit [[AVAudioSession sharedInstace] setActive:false] on uninitialization.
+
     jack.pClientName
         The name of the client to pass to `jack_client_open()`.
 
@@ -7035,9 +7044,12 @@ ma_backend backends[] = {
     ma_backend_dsound
 };
 
+ma_log log;
+ma_log_init(&log);
+ma_log_register_callback(&log, ma_log_callback_init(my_log_callbac, pMyLogUserData));
+
 ma_context_config config = ma_context_config_init();
-config.logCallback = my_log_callback;
-config.pUserData   = pMyUserData;
+config.pLog = &log; // Specify a custom log object in the config so any logs that are posted from ma_context_init() are captured.
 
 ma_context context;
 ma_result result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &config, &context);
@@ -7047,6 +7059,9 @@ if (result != MA_SUCCESS) {
         // Couldn't find an appropriate backend.
     }
 }
+
+// You could also attach a log callback post-initialization:
+ma_log_register_callback(ma_context_get_log(&context), ma_log_callback_init(my_log_callback, pMyLogUserData));
 ```
 
 
@@ -7097,6 +7112,8 @@ Remarks
 -------
 Pass the returned pointer to `ma_log_post()`, `ma_log_postv()` or `ma_log_postf()` to post a log
 message.
+
+You can attach your own logging callback to the log with `ma_log_register_callback()`
 
 
 Return Value
@@ -7462,6 +7479,12 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         The resampling algorithm to use when miniaudio needs to perform resampling between the rate specified by `sampleRate` and the device's native rate. The
         default value is `ma_resample_algorithm_linear`, and the quality can be configured with `resampling.linear.lpfOrder`.
 
+    resampling.pBackendVTable
+        A pointer to an optional vtable that can be used for plugging in a custom resampler.
+
+    resampling.pBackendUserData
+        A pointer that will passed to callbacks in pBackendVTable.
+
     resampling.linear.lpfOrder
         The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the order of the filter. The higher
         the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
@@ -7479,9 +7502,9 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         The number of channels to use for playback. When set to 0 the device's native channel count will be used. This can be retrieved after initialization
         from the device object directly with `device.playback.channels`.
 
-    playback.channelMap
+    playback.pChannelMap
         The channel map to use for playback. When left empty, the device's native channel map will be used. This can be retrieved after initialization from the
-        device object direct with `device.playback.channelMap`.
+        device object direct with `device.playback.pChannelMap`. When set, the buffer should contain `channels` items.
 
     playback.shareMode
         The preferred share mode to use for playback. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
@@ -7500,9 +7523,9 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         The number of channels to use for capture. When set to 0 the device's native channel count will be used. This can be retrieved after initialization
         from the device object directly with `device.capture.channels`.
 
-    capture.channelMap
+    capture.pChannelMap
         The channel map to use for capture. When left empty, the device's native channel map will be used. This can be retrieved after initialization from the
-        device object direct with `device.capture.channelMap`.
+        device object direct with `device.capture.pChannelMap`. When set, the buffer should contain `channels` items.
 
     capture.shareMode
         The preferred share mode to use for capture. Can be either `ma_share_mode_shared` (default) or `ma_share_mode_exclusive`. Note that if you specify
@@ -7546,6 +7569,25 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         that is known to be natively supported by the hardware thereby avoiding the cost of resampling. When set to true, miniaudio will
         find the closest match between the sample rate requested in the device config and the sample rates natively supported by the
         hardware. When set to false, the sample rate currently set by the operating system will always be used.
+
+    opensl.streamType
+        OpenSL only. Explicitly sets the stream type. If left unset (`ma_opensl_stream_type_default`), the
+        stream type will be left unset. Think of this as the type of audio you're playing.
+
+    opensl.recordingPreset
+        OpenSL only. Explicitly sets the type of recording your program will be doing. When left
+        unset, the recording preset will be left unchanged.
+
+    aaudio.usage
+        AAudio only. Explicitly sets the nature of the audio the program will be consuming. When
+        left unset, the usage will be left unchanged.
+
+    aaudio.contentType
+        AAudio only. Sets the content type. When left unset, the content type will be left unchanged.
+
+    aaudio.inputPreset
+        AAudio only. Explicitly sets the type of recording your program will be doing. When left
+        unset, the input preset will be left unchanged.
 
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
