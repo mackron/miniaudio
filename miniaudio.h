@@ -7975,7 +7975,7 @@ MA_API ma_device_state ma_device_get_state(const ma_device* pDevice);
 /*
 Sets the master volume factor for the device.
 
-The volume factor must be between 0 (silence) and 1 (full volume). Use `ma_device_set_master_gain_db()` to use decibel notation, where 0 is full volume and
+The volume factor must be between 0 (silence) and 1 (full volume). Use `ma_device_set_master_volume_db()` to use decibel notation, where 0 is full volume and
 values less than 0 decreases the volume.
 
 
@@ -7985,14 +7985,14 @@ pDevice (in)
     A pointer to the device whose volume is being set.
 
 volume (in)
-    The new volume factor. Must be within the range of [0, 1].
+    The new volume factor. Must be >= 0.
 
 
 Return Value
 ------------
 MA_SUCCESS if the volume was set successfully.
 MA_INVALID_ARGS if pDevice is NULL.
-MA_INVALID_ARGS if the volume factor is not within the range of [0, 1].
+MA_INVALID_ARGS if volume is negative.
 
 
 Thread Safety
@@ -8015,8 +8015,8 @@ This does not change the operating system's volume. It only affects the volume f
 See Also
 --------
 ma_device_get_master_volume()
-ma_device_set_master_volume_gain_db()
-ma_device_get_master_volume_gain_db()
+ma_device_set_master_volume_db()
+ma_device_get_master_volume_db()
 */
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume);
 
@@ -8108,7 +8108,7 @@ ma_device_get_master_volume_gain_db()
 ma_device_set_master_volume()
 ma_device_get_master_volume()
 */
-MA_API ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB);
+MA_API ma_result ma_device_set_master_volume_db(ma_device* pDevice, float gainDB);
 
 /*
 Retrieves the master gain in decibels.
@@ -8147,11 +8147,11 @@ If an error occurs, `*pGainDB` will be set to 0.
 
 See Also
 --------
-ma_device_set_master_volume_gain_db()
+ma_device_set_master_volume_db()
 ma_device_set_master_volume()
 ma_device_get_master_volume()
 */
-MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB);
+MA_API ma_result ma_device_get_master_volume_db(ma_device* pDevice, float* pGainDB);
 
 
 /*
@@ -38625,7 +38625,7 @@ MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
         return MA_INVALID_ARGS;
     }
 
-    if (volume < 0.0f || volume > 1.0f) {
+    if (volume < 0.0f) {
         return MA_INVALID_ARGS;
     }
 
@@ -38650,7 +38650,7 @@ MA_API ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB)
+MA_API ma_result ma_device_set_master_volume_db(ma_device* pDevice, float gainDB)
 {
     if (gainDB > 0) {
         return MA_INVALID_ARGS;
@@ -38659,7 +38659,7 @@ MA_API ma_result ma_device_set_master_gain_db(ma_device* pDevice, float gainDB)
     return ma_device_set_master_volume(pDevice, ma_volume_db_to_linear(gainDB));
 }
 
-MA_API ma_result ma_device_get_master_gain_db(ma_device* pDevice, float* pGainDB)
+MA_API ma_result ma_device_get_master_volume_db(ma_device* pDevice, float* pGainDB)
 {
     float factor;
     ma_result result;
@@ -88770,6 +88770,7 @@ v0.11.0 - TBD
   - Add a delay/echo effect called ma_delay.
   - Add a stereo pan effect called ma_panner.
   - Add a spataializer effect called ma_spatializer.
+  - Add support for amplification for device master volume.
   - Remove dependency on MA_MAX_CHANNELS from filters and data conversion.
   - Increase MA_MAX_CHANNELS from 32 to 254.
   - API CHANGE: Changes have been made to the way custom data sources are made. See documentation
@@ -88823,8 +88824,10 @@ v0.11.0 - TBD
   - API CHANGE: Update ma_waveform_read_pcm_frames() to return a result code and output the number
     of frames read via an output parameter.
   - API CHANGE: Remove The MA_STATE_* and add ma_device_state_* enums.
-  - API CHANGE: Rename ma_factor_to_gain_db() to ma_volume_linear_to_db()
-  - API CHANGE: Rename ma_gain_db_to_factor() to ma_volume_db_to_linear()
+  - API CHANGE: Rename ma_factor_to_gain_db() to ma_volume_linear_to_db().
+  - API CHANGE: Rename ma_gain_db_to_factor() to ma_volume_db_to_linear().
+  - API CHANGE: Rename ma_device_set_master_gain_db() to ma_device_set_master_volume_db().
+  - API CHANGE: Rename ma_device_get_master_gain_db() to ma_device_get_master_volume_db()
 
 v0.10.43 - 2021-12-10
   - ALSA: Fix use of uninitialized variables.
@@ -89270,7 +89273,7 @@ v0.9.8 - 2019-10-07
     the device config.
   - Add support for master volume control for devices.
     - Use ma_device_set_master_volume() to set the volume to a factor between 0 and 1, where 0 is silence and 1 is full volume.
-    - Use ma_device_set_master_gain_db() to set the volume in decibels where 0 is full volume and < 0 reduces the volume.
+    - Use ma_device_set_master_volume_db() to set the volume in decibels where 0 is full volume and < 0 reduces the volume.
   - Fix warnings emitted by GCC when `__inline__` is undefined or defined as nothing.
 
 v0.9.7 - 2019-08-28
