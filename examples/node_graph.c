@@ -22,7 +22,7 @@ node graph.
 This example will be using the following node graph set up:
 
     ```
-    >>>>>>>>>>>>>>>>>>>>>> Data flows left to right >>>>>>>>>>>>>>>>>>>>>>
+    >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Data flows left to right >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
     +---------------+                              +-----------------+
     | Data Source 1 =----+    +----------+    +----= Low Pass Filter =----+

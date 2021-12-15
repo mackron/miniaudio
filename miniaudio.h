@@ -1928,12 +1928,33 @@ miniaudio's routing infrastructure follows a node graph paradigm. The idea is th
 node whose outputs are attached to inputs of another node, thereby creating a graph. There are
 different types of nodes, with each node in the graph processing input data to produce output,
 which is then fed through the chain. Each node in the graph can apply their own custom effects. At
-the end of the graph is an endpoint which represents the end of the chain and is where the final
-output is ultimately extracted from.
+the start of the graph will usually be one or more data source nodes which have no inputs, but
+instead pull their data from a data source. At the end of the graph is an endpoint which represents
+the end of the chain and is where the final output is ultimately extracted from.
 
 Each node has a number of input buses and a number of output buses. An output bus from a node is
 attached to an input bus of another. Multiple nodes can connect their output buses to another
-node's input bus, in which case their outputs will be mixed before processing by the node.
+node's input bus, in which case their outputs will be mixed before processing by the node. Below is
+a diagram that illustrates a hypothetical node graph setup:
+
+    ```
+    >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Data flows left to right >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+    +---------------+                              +-----------------+
+    | Data Source 1 =----+    +----------+    +----= Low Pass Filter =----+
+    +---------------+    |    |          =----+    +-----------------+    |    +----------+
+                         +----= Splitter |                                +----= ENDPOINT |
+    +---------------+    |    |          =----+    +-----------------+    |    +----------+
+    | Data Source 2 =----+    +----------+    +----=  Echo / Delay   =----+
+    +---------------+                              +-----------------+
+    ```
+
+In the above graph, it starts with two data sources whose outputs are attached to the input of a
+splitter node. It's at this point that the two data sources are mixed. After mixing, the splitter
+performs it's processing routine and produces two outputs which is simply a duplication of the
+input stream. One output is attached to a low pass filter, whereas the other output is attached to
+a echo/delay. The outputs of the the low pass filter and the echo are attached to the endpoint, and
+since they're both connected to the same input but, they'll be mixed.
 
 Each input bus must be configured to accept the same number of channels, but input buses and output
 buses can each have different channel counts, in which case miniaudio will automatically convert
