@@ -70063,7 +70063,9 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         */
         #if !defined(MA_NO_DEVICE_IO)
         {
-            listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;
+            if (pEngine->pDevice != NULL) {
+                listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;
+            }
         }
         #endif
 
