@@ -70057,6 +70057,16 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     for (iListener = 0; iListener < engineConfig.listenerCount; iListener += 1) {
         listenerConfig = ma_spatializer_listener_config_init(ma_node_graph_get_channels(&pEngine->nodeGraph));
 
+        /*
+        If we're using a device, use the device's channel map for the listener. Otherwise just use
+        miniaudio's default channel map.
+        */
+        #if !defined(MA_NO_DEVICE_IO)
+        {
+            listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;
+        }
+        #endif
+
         result = ma_spatializer_listener_init(&listenerConfig, &pEngine->allocationCallbacks, &pEngine->listeners[iListener]);  /* TODO: Change this to a pre-allocated heap. */
         if (result != MA_SUCCESS) {
             goto on_error_2;
