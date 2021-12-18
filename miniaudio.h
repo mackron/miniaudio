@@ -3605,10 +3605,10 @@ Some backends have some nuance details you may want to be aware of.
 - By default miniaudio will automatically clip samples. This only applies when the playback sample
   format is configured as `ma_format_f32`. If you are doing clipping yourself, you can disable this
   overhead by setting `noClip` to true in the device config.
+- Note that GCC and Clang requires `-msse2`, `-mavx2`, etc. for SIMD optimizations.
 - The sndio backend is currently only enabled on OpenBSD builds.
 - The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can
   use it.
-- Note that GCC and Clang requires `-msse2`, `-mavx2`, etc. for SIMD optimizations.
 - When compiling with VC6 and earlier, decoding is restricted to files less than 2GB in size. This
   is due to 64-bit file APIs not being available.
 */
