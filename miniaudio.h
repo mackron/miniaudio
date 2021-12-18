@@ -5155,6 +5155,14 @@ typedef enum
     ma_channel_conversion_path_weights      /* Blended based on weights. */
 } ma_channel_conversion_path;
 
+typedef enum
+{
+    ma_mono_expansion_mode_duplicate = 0,   /* The default. */
+    ma_mono_expansion_mode_average,         /* Average the mono channel across all channels. */
+    ma_mono_expansion_mode_stereo_only,     /* Duplicate to the left and right channels only and ignore the others. */
+    ma_mono_expansion_mode_default = ma_mono_expansion_mode_duplicate
+} ma_mono_expansion_mode;
+
 typedef struct
 {
     ma_format format;
@@ -10288,25 +10296,26 @@ MA_API ma_sound_group_config ma_sound_group_config_init(void);
 typedef struct
 {
 #if !defined(MA_NO_RESOURCE_MANAGER)
-    ma_resource_manager* pResourceManager;  /* Can be null in which case a resource manager will be created for you. */
+    ma_resource_manager* pResourceManager;      /* Can be null in which case a resource manager will be created for you. */
 #endif
 #if !defined(MA_NO_DEVICE_IO)
     ma_context* pContext;
-    ma_device* pDevice;                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
-    ma_device_id* pPlaybackDeviceID;        /* The ID of the playback device to use with the default listener. */
+    ma_device* pDevice;                         /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
+    ma_device_id* pPlaybackDeviceID;            /* The ID of the playback device to use with the default listener. */
 #endif
-    ma_log* pLog;                           /* When set to NULL, will use the context's log. */
-    ma_uint32 listenerCount;                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
-    ma_uint32 channels;                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
-    ma_uint32 sampleRate;                   /* The sample rate. When set to 0 will use the native channel count of the device. */
-    ma_uint32 periodSizeInFrames;           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
-    ma_uint32 periodSizeInMilliseconds;     /* Used if periodSizeInFrames is unset. */
-    ma_uint32 gainSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
-    ma_uint32 gainSmoothTimeInMilliseconds; /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
+    ma_log* pLog;                               /* When set to NULL, will use the context's log. */
+    ma_uint32 listenerCount;                    /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
+    ma_uint32 channels;                         /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
+    ma_uint32 sampleRate;                       /* The sample rate. When set to 0 will use the native channel count of the device. */
+    ma_uint32 periodSizeInFrames;               /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
+    ma_uint32 periodSizeInMilliseconds;         /* Used if periodSizeInFrames is unset. */
+    ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
+    ma_uint32 gainSmoothTimeInMilliseconds;     /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_allocation_callbacks allocationCallbacks;
-    ma_bool32 noAutoStart;                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
-    ma_bool32 noDevice;                     /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
-    ma_vfs* pResourceManagerVFS;            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
+    ma_bool32 noAutoStart;                      /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
+    ma_bool32 noDevice;                         /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
+    ma_mono_expansion_mode monoExpansionMode;   /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
+    ma_vfs* pResourceManagerVFS;                /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init(void);
@@ -10332,6 +10341,7 @@ struct ma_engine
     ma_sound_inlined* pInlinedSoundHead;        /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC(4, ma_uint32) inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
     ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. */
+    ma_mono_expansion_mode monoExpansionMode;
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -45927,7 +45937,7 @@ MA_API ma_vec3f ma_vec3f_cross(ma_vec3f a, ma_vec3f b)
 
 
 
-static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode);
+static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode, ma_mono_expansion_mode monoExpansionMode);
 static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition);
 
 
@@ -46672,7 +46682,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
                 ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
             } else {
-                ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular);   /* Safe casts to float* because f32 is the only supported format. */
+                ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular, ma_mono_expansion_mode_default);   /* Safe casts to float* because f32 is the only supported format. */
             }
         } else {
             /* The listener is disabled. Output silence. */
@@ -46894,7 +46904,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         the whole section of code here because we need to update some internal spatialization state.
         */
         if (ma_spatializer_listener_is_enabled(pListener)) {
-            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular);
+            ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular, ma_mono_expansion_mode_default);
         } else {
             ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->config.channelsOut);
         }
@@ -48901,7 +48911,7 @@ static ma_result ma_channel_map_apply_mono_out_f32(float* pFramesOut, const floa
     return MA_SUCCESS;
 }
 
-static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint64 frameCount)
+static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, ma_uint64 frameCount, ma_mono_expansion_mode monoExpansionMode)
 {
     ma_uint64 iFrame;
     ma_uint32 iChannelOut;
@@ -48910,23 +48920,116 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_ch
         return MA_INVALID_ARGS;
     }
 
-    /* In this case we just copy the mono channel to each of the output channels, ignoring NONE. */
-    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-        for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
-            ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
-            if (channelOut != MA_CHANNEL_NONE) {
-                pFramesOut[iChannelOut] = pFramesIn[0];
-            }
-        }
+    /* Note that the MA_CHANNEL_NONE channel must be ignored in all cases. */
+    switch (monoExpansionMode)
+    {
+        case ma_mono_expansion_mode_average:
+        {
+            float weight;
+            ma_uint32 validChannelCount = 0;
 
-        pFramesOut += channelsOut;
-        pFramesIn  += 1;
+            for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                if (channelOut != MA_CHANNEL_NONE) {
+                    validChannelCount += 1;
+                }
+            }
+
+            weight = 1.0f / validChannelCount;
+
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                    if (channelOut != MA_CHANNEL_NONE) {
+                        pFramesOut[iChannelOut] = pFramesIn[0] * weight;
+                    }
+                }
+
+                pFramesOut += channelsOut;
+                pFramesIn  += 1;
+            }
+        } break;
+
+        case ma_mono_expansion_mode_stereo_only:
+        {
+            if (channelsOut >= 2) {
+                ma_uint32 iChannelLeft  = (ma_uint32)-1;
+                ma_uint32 iChannelRight = (ma_uint32)-1;
+
+                /*
+                We first need to find our stereo channels. We prefer front-left and front-right, but
+                if they're not available, we'll also try side-left and side-right. If neither are
+                available we'll fall through to the default case below.
+                */
+                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                    if (channelOut == MA_CHANNEL_SIDE_LEFT) {
+                        iChannelLeft  = iChannelOut;
+                    }
+                    if (channelOut == MA_CHANNEL_SIDE_RIGHT) {
+                        iChannelRight = iChannelOut;
+                    }
+                }
+
+                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                    if (channelOut == MA_CHANNEL_FRONT_LEFT) {
+                        iChannelLeft  = iChannelOut;
+                    }
+                    if (channelOut == MA_CHANNEL_FRONT_RIGHT) {
+                        iChannelRight = iChannelOut;
+                    }
+                }
+
+
+                if (iChannelLeft != (ma_uint32)-1 && iChannelRight != (ma_uint32)-1) {
+                    /* We found our stereo channels so we can duplicate the signal across those channels. */
+                    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                        for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                            ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                            if (channelOut != MA_CHANNEL_NONE) {
+                                if (iChannelOut == iChannelLeft || iChannelOut == iChannelRight) {
+                                    pFramesOut[iChannelOut] = pFramesIn[0];
+                                } else {
+                                    pFramesOut[iChannelOut] = 0.0f;
+                                }
+                            }
+                        }
+
+                        pFramesOut += channelsOut;
+                        pFramesIn  += 1;
+                    }
+
+                    break;  /* Get out of the switch. */
+                } else {
+                    /* Does not have left and right channels. */
+                }
+            } else {
+                /* Does not have stereo channels. */
+            }
+        };  /* Fallthrough. See comments above. */
+
+        case ma_mono_expansion_mode_duplicate:
+        default:
+        {
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                    if (channelOut != MA_CHANNEL_NONE) {
+                        pFramesOut[iChannelOut] = pFramesIn[0];
+                    }
+                }
+
+                pFramesOut += channelsOut;
+                pFramesIn  += 1;
+            }
+        } break;
     }
 
     return MA_SUCCESS;
 }
 
-static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode)
+static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode, ma_mono_expansion_mode monoExpansionMode)
 {
     ma_channel_conversion_path conversionPath = ma_channel_map_get_conversion_path(pChannelMapIn, channelsIn, pChannelMapOut, channelsOut, mode);
 
@@ -48944,7 +49047,7 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
 
     /* Special Path: Mono Input. */
     if (conversionPath == ma_channel_conversion_path_mono_in) {
-        ma_channel_map_apply_mono_in_f32(pFramesOut, pChannelMapOut, channelsOut, pFramesIn, frameCount);
+        ma_channel_map_apply_mono_in_f32(pFramesOut, pChannelMapOut, channelsOut, pFramesIn, frameCount, monoExpansionMode);
         return;
     }
 
@@ -69379,7 +69482,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
                 ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
-                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple);
+                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple, pEngineNode->pEngine->monoExpansionMode);
             }
         }
 
@@ -69884,7 +69987,8 @@ MA_API ma_engine_config ma_engine_config_init(void)
     ma_engine_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.listenerCount = 1;   /* Always want at least one listener. */
+    config.listenerCount     = 1;   /* Always want at least one listener. */
+    config.monoExpansionMode = ma_mono_expansion_mode_default;
 
     return config;
 }
@@ -69944,6 +70048,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         engineConfig = ma_engine_config_init();
     }
 
+    pEngine->monoExpansionMode = engineConfig.monoExpansionMode;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     #if !defined(MA_NO_RESOURCE_MANAGER)
