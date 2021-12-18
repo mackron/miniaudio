@@ -13252,7 +13252,7 @@ typedef unsigned char           c89atomic_bool;
             #define c89atomic_compare_and_swap_32(dst, expected, desired) (c89atomic_uint32)_InterlockedCompareExchange((volatile long*)dst, (long)desired, (long)expected)
         #endif
         #if defined(C89ATOMIC_HAS_64)
-            #define c89atomic_compare_and_swap_64(dst, expected, desired) (c89atomic_uint64)_InterlockedCompareExchange64((volatile long long*)dst, (long long)desired, (long long)expected)
+            #define c89atomic_compare_and_swap_64(dst, expected, desired) (c89atomic_uint64)_InterlockedCompareExchange64((volatile c89atomic_int64*)dst, (c89atomic_int64)desired, (c89atomic_int64)expected)
         #endif
     #endif
     #if defined(C89ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
