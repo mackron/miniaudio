@@ -174,12 +174,13 @@ Major Features
 - Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.
 - Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
 - A low level API with direct access to the raw audio data.
-- A high level API with resource management, node graphs and effects, including 3D spatialization.
-- Custom backends.
+- A high level API with sound management and effects, including 3D spatialization.
 - Supports playback, capture, full-duplex and loopback (WASAPI only).
 - Device enumeration for connecting to specific devices, not just defaults.
 - Connect to multiple devices at once.
 - Shared and exclusive mode on supported backends.
+- Resource management for loading and streaming sounds.
+- A node graph system for advanced mixing and effect processing.
 - Data conversion (sample format conversion, channel conversion and resampling).
 - Filters.
   - Biquads
@@ -190,18 +191,14 @@ Major Features
   - Delay/Echo
   - Spatializer
   - Stereo Pan
-- Waveform generation.
-  - Sine
-  - Square
-  - Triangle
-  - Sawtooth
+- Waveform generation (sine, square, triangle, sawtooth).
 - Noise generation (white, pink, Brownian).
 - Decoding
   - WAV
   - FLAC
   - MP3
   - Vorbis via stb_vorbis (not built in - must be included separately).
-  - Custom decoding backends are also supported.
+  - Custom
 - Encoding
   - WAV
 
