@@ -3187,7 +3187,7 @@ Notch filtering is achieved with the following APIs:
     +-----------+------------------------------------------+
 
 
-9.6. Peaking EQ Filtering
+11.6. Peaking EQ Filtering
 -------------------------
 Peaking filtering is achieved with the following APIs:
 
