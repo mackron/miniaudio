@@ -49002,26 +49002,31 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_ch
 
                     break;  /* Get out of the switch. */
                 } else {
-                    /* Does not have left and right channels. */
+                    /* Fallthrough. Does not have left and right channels. */
+                    goto default_handler;
                 }
             } else {
-                /* Does not have stereo channels. */
+                /* Fallthrough. Does not have stereo channels. */
+                goto default_handler;
             }
         };  /* Fallthrough. See comments above. */
 
         case ma_mono_expansion_mode_duplicate:
         default:
         {
-            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
-                    ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
-                    if (channelOut != MA_CHANNEL_NONE) {
-                        pFramesOut[iChannelOut] = pFramesIn[0];
+            default_handler:
+            {
+                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                        ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                        if (channelOut != MA_CHANNEL_NONE) {
+                            pFramesOut[iChannelOut] = pFramesIn[0];
+                        }
                     }
-                }
 
-                pFramesOut += channelsOut;
-                pFramesIn  += 1;
+                    pFramesOut += channelsOut;
+                    pFramesIn  += 1;
+                }
             }
         } break;
     }
