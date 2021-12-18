@@ -35,10 +35,10 @@ addition, you must ensure the memory address of your objects remain the same thr
 lifetime. You therefore cannot be making copies of your objects.
 
 A config/init pattern is used throughout the entire library. The idea is that you set up a config
-object and pass that into the initialization routine. The config object can be allocated on the
-stack and does not need to be maintained after initialization of the corresponding object. The
-advantage to this system is that the config object can be initialized with logical defaults and new
-properties added to it without breaking the API.
+object and pass that into the initialization routine. The advantage to this system is that the
+config object can be initialized with logical defaults and new properties added to it without
+breaking the API. The config object can be allocated on the stack and does not need to be
+maintained after initialization of the corresponding object. 
 
 
 1.1. Low Level API
@@ -323,7 +323,7 @@ transparent structures. There are no handles to opaque structures in miniaudio w
 to be mindful of how you declare them. In the example above we are declaring it on the stack, but
 this will result in the struct being invalidated once the function encapsulating it returns. If
 allocating the engine on the heap is more appropriate, you can easily do so with a standard call
-to malloc() or whatever heap allocation routine you like:
+to `malloc()` or whatever heap allocation routine you like:
 
     ```c
     ma_engine* pEngine = malloc(sizeof(*pEngine));
@@ -461,7 +461,7 @@ The Windows build should compile cleanly on all popular compilers without the ne
 include paths nor link to any libraries.
 
 The UWP build may require linking to mmdevapi.lib if you get errors about an unresolved external
-symbol for ActivateAudioInterfaceAsync().
+symbol for `ActivateAudioInterfaceAsync()`.
 
 
 2.2. macOS and iOS
@@ -522,7 +522,7 @@ you'll need to disable run-time linking with `MA_NO_RUNTIME_LINKING` and link wi
 2.6. Emscripten
 ---------------
 The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box.
-You cannot use -std=c* compiler flags, nor -ansi.
+You cannot use `-std=c*` compiler flags, nor `-ansi`.
 
 
 2.7. Build Options
@@ -615,21 +615,21 @@ You cannot use -std=c* compiler flags, nor -ansi.
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_MP3                        | Disables the built-in MP3 decoder.                                 |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_DEVICE_IO                  | Disables playback and recording. This will disable ma_context and  |
-    |                                  | ma_device APIs. This is useful if you only want to use miniaudio's |
-    |                                  | data conversion and/or decoding APIs.                              |
+    | MA_NO_DEVICE_IO                  | Disables playback and recording. This will disable `ma_context`    |
+    |                                  | and `ma_device` APIs. This is useful if you only want to use       |
+    |                                  | miniaudio's data conversion and/or decoding APIs.                  |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_THREADING                  | Disables the ma_thread, ma_mutex, ma_semaphore and ma_event APIs.  |
-    |                                  | This option is useful if you only need to use miniaudio for data   |
-    |                                  | conversion, decoding and/or encoding. Some families of APIs        |
-    |                                  | require threading which means the following options must also be   |
-    |                                  | set:                                                               |
+    | MA_NO_THREADING                  | Disables the `ma_thread`, `ma_mutex`, `ma_semaphore` and           |
+    |                                  | `ma_event` APIs. This option is useful if you only need to use     |
+    |                                  | miniaudio for data conversion, decoding and/or encoding. Some      |
+    |                                  | families of APIsrequire threading which means the following        |
+    |                                  | options must also be set:                                          |
     |                                  |                                                                    |
     |                                  |     ```                                                            |
     |                                  |     MA_NO_DEVICE_IO                                                |
     |                                  |     ```                                                            |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_NO_GENERATION                 | Disables generation APIs such a ma_waveform and ma_noise.          |
+    | MA_NO_GENERATION                 | Disables generation APIs such a `ma_waveform` and `ma_noise`.      |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_SSE2                       | Disables SSE2 optimizations.                                       |
     +----------------------------------+--------------------------------------------------------------------+
@@ -646,7 +646,7 @@ You cannot use -std=c* compiler flags, nor -ansi.
     |                                  | You may need to enable this if your target platform does not allow |
     |                                  | runtime linking via `dlopen()`.                                    |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_DEBUG_OUTPUT                  | Enable processing of MA_LOG_LEVEL_DEBUG messages and `printf()`    |
+    | MA_DEBUG_OUTPUT                  | Enable processing of `MA_LOG_LEVEL_DEBUG` messages and `printf()`  |
     |                                  | output.                                                            |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_COINIT_VALUE                  | Windows only. The value to pass to internal calls to               |
@@ -654,11 +654,11 @@ You cannot use -std=c* compiler flags, nor -ansi.
     +----------------------------------+--------------------------------------------------------------------+
     | MA_API                           | Controls how public APIs should be decorated. Default is `extern`. |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_DLL                           | If set, configures MA_API to either import or export APIs          |
+    | MA_DLL                           | If set, configures `MA_API` to either import or export APIs        |
     |                                  | depending on whether or not the implementation is being defined.   |
-    |                                  | If defining the implementation, MA_API will be configured to       |
+    |                                  | If defining the implementation, `MA_API` will be configured to     |
     |                                  | export. Otherwise it will be configured to import. This has no     |
-    |                                  | effect if MA_API is defined externally.                            |
+    |                                  | effect if `MA_API` is defined externally.                          |
     +----------------------------------+--------------------------------------------------------------------+
 
 
@@ -734,7 +734,7 @@ To read data from a data source:
     }
     ```
 
-If you don't need the number of frames that were successfully read you can pass in NULL to the
+If you don't need the number of frames that were successfully read you can pass in `NULL` to the
 `pFramesRead` parameter. If this returns a value less than the number of frames requested it means
 the end of the file has been reached. `MA_AT_END` will be returned only when the number of frames
 read is 0.
@@ -754,7 +754,7 @@ you could plug in a decoder like so:
     }
     ```
 
-If you want to seek forward you can pass in NULL to the `pFramesOut` parameter. Alternatively you
+If you want to seek forward you can pass in `NULL` to the `pFramesOut` parameter. Alternatively you
 can use `ma_data_source_seek_pcm_frames()`.
 
 To seek to a specific PCM frame:
@@ -970,7 +970,8 @@ The `ma_engine` API is a high level API for managing and mixing sounds and effec
 explained in more detail later.
 
 Sounds are called `ma_sound` and are created from an engine. Sounds can be associated with a mixing
-group called `ma_sound_group` which are also created from the engine.
+group called `ma_sound_group` which are also created from the engine. Both `ma_sound` and
+`ma_sound_group` objects are nodes within the engine's node graph.
 
 When the engine is initialized, it will normally create a device internally. If you would rather
 manage the device yourself, you can do so and just pass a pointer to it via the engine config when
@@ -1085,7 +1086,7 @@ device. Attempting to start or stop an engine that is not associated with a devi
 
 The master volume of the engine can be controlled with `ma_engine_set_volume()` which takes a
 linear scale, with 0 resulting in silence and anything above 1 resulting in amplification. If you
-prefer decibel based volume control, use `ma_engine_set_gain_db()`.
+prefer decibel based volume control, use `ma_volume_db_to_linear()` to convert from dB to linear.
 
 When a sound is spatialized, it is done so relative to a listener. An engine can be configured to
 have multiple listeners which can be configured via the config:
@@ -1094,11 +1095,12 @@ have multiple listeners which can be configured via the config:
     engineConfig.listenerCount = 2;
     ```
 
-By default, when a sound is spatialized, it will be done so relative to the closest listener. You
-can also pin a sound to a specific listener which will be explained later. Listener's have a
-position, direction, cone, and velocity (for doppler effect). A listener is referenced by an index,
-the meaning of which is up to the caller (the index is 0 based and cannot go beyond the listener
-count, minus 1). The position, direction and velocity are all specified in absolute terms:
+The maximum number of listeners is restricted to `MA_ENGINE_MAX_LISTENERS`. By default, when a
+sound is spatialized, it will be done so relative to the closest listener. You can also pin a sound
+to a specific listener which will be explained later. Listener's have a position, direction, cone,
+and velocity (for doppler effect). A listener is referenced by an index, the meaning of which is up
+to the caller (the index is 0 based and cannot go beyond the listener count, minus 1). The
+position, direction and velocity are all specified in absolute terms:
 
     ```c
     ma_engine_listener_set_position(&engine, listenerIndex, worldPosX, worldPosY, worldPosZ);
@@ -1260,8 +1262,8 @@ graph.
 Sounds are not started by default. To start a sound, use `ma_sound_start()`. Stop a sound with
 `ma_sound_stop()`.
 
-Sounds can have their volume controlled with `ma_sound_set_volume()` and `ma_sound_set_gain_db()`,
-in the same way as the engine's master volume.
+Sounds can have their volume controlled with `ma_sound_set_volume()` in the same way as the
+engine's master volume.
 
 Sounds support stereo panning and pitching. Set the pan with `ma_sound_set_pan()`. Setting the pan
 to 0 will result in an unpanned sound. Setting it to -1 will shift everything to the left, whereas
@@ -1322,7 +1324,7 @@ The velocity of a sound is used for doppler effect and can be set as such:
 
 The engine supports different attenuation models which can be configured on a per-sound basis. By
 default the attenuation model is set to `ma_attenuation_model_inverse` which is the equivalent to
-OpenAL's AL_INVERSE_DISTANCE_CLAMPED. Configure the attenuation model like so:
+OpenAL's `AL_INVERSE_DISTANCE_CLAMPED`. Configure the attenuation model like so:
 
     ```c
     ma_sound_set_attenuation_model(&sound, ma_attenuation_model_inverse);
@@ -1330,15 +1332,15 @@ OpenAL's AL_INVERSE_DISTANCE_CLAMPED. Configure the attenuation model like so:
 
 The supported attenuation models include the following:
 
-    +----------------------------------+--------------------------------------------+
-    | ma_attenuation_model_none        | No distance attenuation.                   |
-    +----------------------------------+--------------------------------------------+
-    | ma_attenuation_model_inverse     | Equivalent to AL_INVERSE_DISTANCE_CLAMPED. |
-    +----------------------------------+--------------------------------------------+
-    | ma_attenuation_model_linear      | Linear attenuation.                        |
-    +----------------------------------+--------------------------------------------+
-    | ma_attenuation_model_exponential | Exponential attenuation.                   |
-    +----------------------------------+--------------------------------------------+
+    +----------------------------------+----------------------------------------------+
+    | ma_attenuation_model_none        | No distance attenuation.                     |
+    +----------------------------------+----------------------------------------------+
+    | ma_attenuation_model_inverse     | Equivalent to `AL_INVERSE_DISTANCE_CLAMPED`. |
+    +----------------------------------+----------------------------------------------+
+    | ma_attenuation_model_linear      | Linear attenuation.                          |
+    +----------------------------------+----------------------------------------------+
+    | ma_attenuation_model_exponential | Exponential attenuation.                     |
+    +----------------------------------+----------------------------------------------+
 
 To control how quickly a sound rolls off as it moves away from the listener, you need to configure
 the rolloff:
@@ -1437,8 +1439,8 @@ streaming. This is supported by miniaudio via the `ma_resource_manager` API.
 
 The resource manager is mainly responsible for the following:
 
-    1) Loading of sound files into memory with reference counting.
-    2) Streaming of sound data
+  * Loading of sound files into memory with reference counting.
+  * Streaming of sound data
 
 When loading a sound file, the resource manager will give you back a `ma_data_source` compatible
 object called `ma_resource_manager_data_source`. This object can be passed into any
@@ -1553,8 +1555,8 @@ need to retrieve a job using `ma_resource_manager_next_job()` and then process i
 
 In the example above, the `MA_RESOURCE_MANAGER_JOB_QUIT` event is the used as the termination
 indicator, but you can use whatever you would like to terminate the thread. The call to
-`ma_resource_manager_next_job()` is blocking by default, by can be configured to be non-blocking by
-initializing the resource manager with the `MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING` configuration
+`ma_resource_manager_next_job()` is blocking by default, but can be configured to be non-blocking
+by initializing the resource manager with the `MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING` configuration
 flag. Note that the `MA_RESOURCE_MANAGER_JOB_QUIT` will never be removed from the job queue. This
 is to give every thread the opportunity to catch the event and terminate naturally.
 
@@ -1647,8 +1649,7 @@ caller to ensure the pointer stays valid for it's lifetime. Use
 `ma_resource_manager_unregister_data()` to unregister the self-managed data. You can also use
 `ma_resource_manager_register_file()` and `ma_resource_manager_unregister_file()` to register and
 unregister a file. It does not make sense to use the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM`
-flag with a self-managed data pointer. When `MA_DATA_SOURCE_STREAM` is specified, it will try
-loading the file data through the VFS.
+flag with a self-managed data pointer.
 
 
 6.1. Asynchronous Loading and Synchronization
@@ -1666,8 +1667,8 @@ for asynchronously loaded sounds to finish. This is called `ma_fence`. The advan
 fence is that it can be used to wait for a group of sounds to finish loading rather than waiting
 for sounds on an individual basis. There are two stages to loading a sound:
 
-    1) Initialization of the internal decoder; and
-    2) Completion of decoding of the file (the file is fully decoded)
+  * Initialization of the internal decoder; and
+  * Completion of decoding of the file (the file is fully decoded)
 
 You can specify separate fences for each of the different stages. Waiting for the initialization
 of the internal decoder is important for when you need to know the sample format, channels and
@@ -1744,8 +1745,8 @@ your `ma_async_notification_callbacks` object stays valid.
 --------------------------------------------
 Resources are managed in two main ways:
 
-    1) By storing the entire sound inside an in-memory buffer (referred to as a data buffer)
-    2) By streaming audio data on the fly (referred to as a data stream)
+  * By storing the entire sound inside an in-memory buffer (referred to as a data buffer)
+  * By streaming audio data on the fly (referred to as a data stream)
 
 A resource managed data source (`ma_resource_manager_data_source`) encapsulates a data buffer or
 data stream, depending on whether or not the data source was initialized with the
@@ -1795,7 +1796,7 @@ owning object and if so, processes the job. If the counters are not equal, the j
 back onto the job queue for later processing. When the job finishes processing the execution order
 of the main object is incremented. This system means the no matter how many job threads are
 executing, decoding of an individual sound will always get processed serially. The advantage to
-having multiple threads comes into play when loading multiple sounds at the time time.
+having multiple threads comes into play when loading multiple sounds at the same time.
 
 The resource manager's job queue is not 100% lock-free and will use a spinlock to achieve
 thread-safety for a very small section of code. This is only relevant when the resource manager
@@ -1862,7 +1863,7 @@ When the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC` flag is specified, loading
 is done asynchronously. In this case, a job is posted to the queue to start loading and then the
 function immediately returns, setting an internal result code to `MA_BUSY`. This result code is
 returned when the program calls `ma_resource_manager_data_source_result()`. When decoding has fully
-completed `MA_RESULT` will be returned. This can be used to know if loading has fully completed.
+completed `MA_SUCCESS` will be returned. This can be used to know if loading has fully completed.
 
 When loading asynchronously, a single job is posted to the queue of the type
 `MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE`. This involves making a copy of the file path and
@@ -1956,12 +1957,13 @@ input stream. One output is attached to a low pass filter, whereas the other out
 a echo/delay. The outputs of the the low pass filter and the echo are attached to the endpoint, and
 since they're both connected to the same input but, they'll be mixed.
 
-Each input bus must be configured to accept the same number of channels, but input buses and output
-buses can each have different channel counts, in which case miniaudio will automatically convert
-the input data to the output channel count before processing. The number of channels of an output
-bus of one node must match the channel count of the input bus it's attached to. The channel counts
-cannot be changed after the node has been initialized. If you attempt to attach an output bus to
-an input bus with a different channel count, attachment will fail.
+Each input bus must be configured to accept the same number of channels, but the number of channels
+used by input buses can be different to the number of channels for output buses in which case
+miniaudio will automatically convert the input data to the output channel count before processing.
+The number of channels of an output bus of one node must match the channel count of the input bus
+it's attached to. The channel counts cannot be changed after the node has been initialized. If you
+attempt to attach an output bus to an input bus with a different channel count, attachment will
+fail.
 
 To use a node graph, you first need to initialize a `ma_node_graph` object. This is essentially a
 container around the entire graph. The `ma_node_graph` object is required for some thread-safety
@@ -1994,7 +1996,7 @@ data from the graph:
 
 When you read audio data, miniaudio starts at the node graph's endpoint node which then pulls in
 data from it's input attachments, which in turn recusively pull in data from their inputs, and so
-on. At the very base of the graph there will be some kind of data source node which will have zero
+on. At the start of the graph there will be some kind of data source node which will have zero
 inputs and will instead read directly from a data source. The base nodes don't literally need to
 read from a `ma_data_source` object, but they will always have some kind of underlying object that
 sources some kind of audio. The `ma_data_source_node` node can be used to read from a
@@ -2008,7 +2010,7 @@ node which reads directly from a data source (`ma_data_source_node`) which is an
 of the stock nodes that comes with miniaudio:
 
     ```c
-    ma_data_source_node_config config = ma_data_source_node_config_init(pMyDataSource, isLooping);
+    ma_data_source_node_config config = ma_data_source_node_config_init(pMyDataSource);
 
     ma_data_source_node dataSourceNode;
     result = ma_data_source_node_init(&nodeGraph, &config, NULL, &dataSourceNode);
@@ -2019,7 +2021,7 @@ of the stock nodes that comes with miniaudio:
 
 The data source node will use the output channel count to determine the channel count of the output
 bus. There will be 1 output bus and 0 input buses (data will be drawn directly from the data
-source). The data source must output to floating-point (ma_format_f32) or else an error will be
+source). The data source must output to floating-point (`ma_format_f32`) or else an error will be
 returned from `ma_data_source_node_init()`.
 
 By default the node will not be attached to the graph. To do so, use `ma_node_attach_output_bus()`:
@@ -2494,7 +2496,7 @@ when you want to use the `ma_decoder` API, but need to support an encoding forma
 the stock formats supported by miniaudio. This can be put to particularly good use when using the
 `ma_engine` and/or `ma_resource_manager` APIs because they use `ma_decoder` internally. If, for
 example, you wanted to support Opus, you can do so with a custom decoder (there if a reference
-Opus decoder in the "extras" folder of the miniaudio repository which uses libopus + libousfile).
+Opus decoder in the "extras" folder of the miniaudio repository which uses libopus + libopusfile).
 
 A custom decoder must implement a data source. A vtable called `ma_decoding_backend_vtable` needs
 to be implemented which is then passed into the decoder config:
@@ -2542,7 +2544,7 @@ The `pConfig` parameter in `onInit` can be used to configure the backend if appr
 used as a hint and can be ignored. However, if any of the properties are relevant to your decoder,
 an optimal implementation will handle the relevant properties appropriately.
 
-If allocation memory is required, it should be done so via the specified allocation callbacks if
+If memory allocation is required, it should be done so via the specified allocation callbacks if
 possible (the `pAllocationCallbacks` parameter).
 
 If an error occurs when initializing the decoder, you should leave `ppBackend` unset, or set to
@@ -2912,13 +2914,13 @@ You can implement a custom resampler by using the `ma_resample_algorithm_custom`
 algorithm and setting a vtable in the resampler config:
 
     ```c
-    ma_resampler_config config = ma_resampler_config_init(..., ma_resample_algorithm_linear);
+    ma_resampler_config config = ma_resampler_config_init(..., ma_resample_algorithm_custom);
     config.pBackendVTable = &g_customResamplerVTable;
     ```
 
 Custom resamplers are useful if the stock algorithms are not appropriate for your use case. You
 need to implement the required functions in `ma_resampling_backend_vtable`. Note that not all
-functions in the vtable need to be implement, but if it's possible to implement, they should be.
+functions in the vtable need to be implemented, but if it's possible to implement, they should be.
 
 You can use the `ma_linear_resampler` object for an example on how to implement the vtable. The
 `onGetHeapSize` callback is used to calculate the size of any internal heap allocation the custom
@@ -2927,7 +2929,7 @@ resampler will need to make given the supplied config. When you initialize the r
 the heap allocated data. You should not free this data in `onUninit` because miniaudio will manage
 it for you.
 
-The `onProcess` callback is where the actual resampling takes place. In input, `pFrameCountIn`
+The `onProcess` callback is where the actual resampling takes place. On input, `pFrameCountIn`
 points to a variable containing the number of frames in the `pFramesIn` buffer and
 `pFrameCountOut` points to a variable containing the capacity in frames of the `pFramesOut` buffer.
 On output, `pFrameCountIn` should be set to the number of input frames that were fully consumed,
