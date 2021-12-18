@@ -137,7 +137,7 @@ int main(int argc, char** argv)
             return -1;
         }
 
-        /* Connect the output bus fo the delay node to the input bus of the endpoint. */
+        /* Connect the output bus of the delay node to the input bus of the endpoint. */
         ma_node_attach_output_bus(&g_delayNode, 0, ma_node_graph_get_endpoint(&g_nodeGraph), 0);
 
         /* Set the volume of the delay filter to make it more of less impactful. */

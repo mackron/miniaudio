@@ -8,10 +8,11 @@ The following features are demonstrated:
   * Multiple engines with a shared resource manager.
   * Creation and management of `ma_sound` objects.
 
-This example will play the sound that's passed in the command line.
+This example will play the sound that's passed in on the command line.
 
-If you were wanting to support multiple listeners, this example will show you how to do that. You achieve this by
-initializing one `ma_engine` object for each listener, each of which share a single self-managed resource manager.
+Using a shared resource manager, as we do in this example, is useful for when you want to user
+multiple engines so that you can output to multiple playback devices simultaneoulys. An example
+might be a local co-op multiplayer game where each player has their own headphones.
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -24,9 +25,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     (void)pInput;
 
     /*
-    Since we're managing the underlying device ourselves, we need to manually call the engine's data handler. To do
-    this we need access to the `ma_engine` object which we passed in to the user data. The advantage of this is that
-    you could do your own audio processing in addition to the engine's standard processing.
+    Since we're managing the underlying device ourselves, we need to read from the engine directly.
+    To do this we need access to the `ma_engine` object which we passed in to the user data. One
+    advantage of this is that you could do your own audio processing in addition to the engine's
+    standard processing.
     */
     ma_engine_read_pcm_frames((ma_engine*)pDevice->pUserData, pOutput, frameCount, NULL);
 }
