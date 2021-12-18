@@ -6,9 +6,8 @@ show you how to manage `ma_sound` objects and how to insert an effect into the g
 
 The `ma_engine` object is a node graph and is compatible with the `ma_node_graph` API. The
 `ma_sound` object is a node within the node and is compatible with the `ma_node` API. This means
-that applying an effect is as simple as inserting an effect node into the node graph and plugging
-in the sound's output into the effect's input. See the "node_graph" example for how to use the
-node graph API.
+that applying an effect is as simple as inserting an effect node into the graph and plugging in the
+sound's output into the effect's input. See the Node Graph example for how to use the node graph.
 
 This example is playing only a single sound at a time which means only a single `ma_sound` object
 it being used. If you want to play multiple sounds at the same time, even if they're for the same
@@ -70,7 +69,7 @@ int main(int argc, char** argv)
             return -1;
         }
 
-        /* Connect the output bus of the delay node to the input bus of the endpoint. */
+        /* Connect the output of the delay node to the input of the endpoint. */
         ma_node_attach_output_bus(&g_delayNode, 0, ma_engine_get_endpoint(&g_engine), 0);
     }
 
