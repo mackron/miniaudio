@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Resource Manager</h1><p>
+Demonstrates how you can use the resource manager to manage loaded sounds.
+</p>
+<p>
+
+This example loads the first sound specified on the command line via the resource manager and then plays it using the
+low level API.
+</p>
+<p>
+
+You can control whether or not you want to load the sound asynchronously and whether or not you want to store the data
+in-memory or stream it. When storing the sound in-memory you can also control whether or not it is decoded. To do this,
+specify a combination of the following options in <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span>:
+</p>
+<ul style="overflow:hidden;">
+<li>
+MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC  - Load asynchronously.</li>
+<li>
+MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE - Store the sound in-memory in uncompressed/decoded format.</li>
+<li>
+MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM - Stream the sound from disk rather than storing entirely in memory. Useful for music.</li>
+</ul>
+<p>
+
+The object returned by the resource manager is just a standard data source which means it can be plugged into any of
+<span style="font-family:monospace;">ma_data_source_*()</span> APIs just like any other data source and it should just work.
+</p>
+<p>
+
+Internally, there&#39;s a background thread that&#39;s used to process jobs and enable asynchronicity. By default there is only
+a single job thread, but this can be configured in the resource manager config. You can also implement your own threads
+for processing jobs. That is more advanced, and beyond the scope of this example.
+</p>
+<p>
+
+When you initialize a resource manager you can specify the sample format, channels and sample rate to use when reading
+data from the data source. This means the resource manager will ensure all sounds will have a standard format. When not
+set, each sound will have their own formats and you&#39;ll need to do the necessary data conversion yourself.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MA_NO_ENGINE        <span style="color:#009900">/* We&#39;re intentionally not using the ma_engine API here. */</span>
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;emscripten.h&gt;</span>
+
+<span style="color:#0033ff">void</span> main_loop__em(<span style="color:#0033ff">void</span>* pUserData)
+{
+    ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
+    MA_ASSERT(pResourceManager != NULL);
+
+    <span style="color:#009900">/*
+    The Emscripten build does not support threading which means we need to process jobs manually. If
+    there are no jobs needing to be processed this will return immediately with MA_NO_DATA_AVAILABLE.
+    */</span>
+    ma_resource_manager_process_next_job(pResourceManager);
+}
+<span style="color:#666666">#endif</span>
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
+{
+    ma_data_source_read_pcm_frames((<span style="color:#0099cc">ma_data_source</span>*)pDevice-&gt;pUserData, pOutput, frameCount, NULL);
+
+    (<span style="color:#0033ff">void</span>)pInput;
+}
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
+    ma_resource_manager_config resourceManagerConfig;
+    ma_resource_manager resourceManager;
+    ma_resource_manager_data_source dataSource;
+
+    <span style="color:#0033ff">if</span> (argc &lt; 2) {
+        printf(<span style="color:#cc3300">&quot;No input file.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    <span style="color:#009900">/* We&#39;ll initialize the device first. */</span>
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.dataCallback = data_callback;
+    deviceConfig.pUserData    = &amp;dataSource;    <span style="color:#009900">/* &lt;-- We&#39;ll be reading from this in the data callback. */</span>
+
+    result = ma_device_init(NULL, &amp;deviceConfig, &amp;device);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize device.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    <span style="color:#009900">/*
+    We have the device so now we want to initialize the resource manager. We&#39;ll use the resource manager to load a
+    sound based on the command line.
+    */</span>
+    resourceManagerConfig = ma_resource_manager_config_init();
+    resourceManagerConfig.decodedFormat     = device.playback.format;
+    resourceManagerConfig.decodedChannels   = device.playback.channels;
+    resourceManagerConfig.decodedSampleRate = device.sampleRate;
+
+    <span style="color:#009900">/*
+    We&#39;re not supporting threading with Emscripten so go ahead and disable threading. It&#39;s important
+    that we set the appropriate flag and also the job thread count to 0.
+    */</span>
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+    resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+    resourceManagerConfig.jobThreadCount = 0;
+<span style="color:#666666">#endif</span>
+
+    result = ma_resource_manager_init(&amp;resourceManagerConfig, &amp;resourceManager);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_device_uninit(&amp;device);
+        printf(<span style="color:#cc3300">&quot;Failed to initialize the resource manager.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/* Now that we have a resource manager we can load a sound. */</span>
+    result = ma_resource_manager_data_source_init(
+        &amp;resourceManager,
+        argv[1],
+        MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM,
+        NULL,   <span style="color:#009900">/* Async notification. */</span>
+        &amp;dataSource);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to load sound \&quot;%s\&quot;.&quot;</span>, argv[1]);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/* In this example we&#39;ll enable looping. */</span>
+    ma_data_source_set_looping(&amp;dataSource, MA_TRUE);
+
+
+    <span style="color:#009900">/* Now that we have a sound we can start the device. */</span>
+    result = ma_device_start(&amp;device);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_device_uninit(&amp;device);
+        printf(<span style="color:#cc3300">&quot;Failed to start device.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+<span style="color:#666666">#ifdef</span> __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(main_loop__em, &amp;resourceManager, 0, 1);
+<span style="color:#666666">#else</span>
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...\n&quot;</span>);
+    getchar();
+<span style="color:#666666">#endif</span>
+
+    <span style="color:#009900">/* Teardown. */</span>
+
+    <span style="color:#009900">/* Uninitialize the device first to ensure the data callback is stopped and doesn&#39;t try to access any data. */</span>
+    ma_device_uninit(&amp;device);
+
+    <span style="color:#009900">/*
+    Before uninitializing the resource manager we need to uninitialize every data source. The data source is owned by
+    the caller which means you&#39;re responsible for uninitializing it.
+    */</span>
+    ma_resource_manager_data_source_uninit(&amp;dataSource);
+
+    <span style="color:#009900">/* Uninitialize the resource manager after each data source. */</span>
+    ma_resource_manager_uninit(&amp;resourceManager);
+
+    <span style="color:#0033ff">return</span> 0;
+}
+</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2021 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>

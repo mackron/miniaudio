@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Resource Manager Advanced</h1><p>
+Demonstrates how you can use the resource manager to manage loaded sounds.
+</p>
+<p>
+
+The resource manager can be used to create a data source whose resources are managed internally by miniaudio. The data
+sources can then be read just like any other data source such as decoders and audio buffers.
+</p>
+<p>
+
+In this example we use the resource manager independently of the <span style="font-family:monospace;">ma_engine</span> API so that we can demonstrate how it can
+be used by itself without getting it confused with <span style="font-family:monospace;">ma_engine</span>.
+</p>
+<p>
+
+The main feature of the resource manager is the ability to decode and stream audio data asynchronously. Asynchronicity
+is achieved with a job system. The resource manager will issue jobs which are processed by a configurable number of job
+threads. You can also implement your own custom job threads which this example also demonstrates.
+</p>
+<p>
+
+In this example we show how you can create a data source, mix them with other data sources, configure the number of job
+threads to manage internally and how to implement your own custom job thread.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MA_NO_ENGINE        <span style="color:#009900">/* We&#39;re intentionally not using the ma_engine API here. */</span>
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+
+<span style="color:#0033ff">static</span> ma_resource_manager_data_source g_dataSources[16];
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_uint32</span>                       g_dataSourceCount;
+
+
+<span style="color:#009900">/*
+TODO: Consider putting these public functions in miniaudio.h. Will depend on ma_mix_pcm_frames_f32()
+being merged into miniaudio.h (it&#39;s currently in miniaudio_engine.h).
+*/</span>
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_data_source_read_pcm_frames_f32_ex(<span style="color:#0099cc">ma_data_source</span>* pDataSource, <span style="color:#0033ff">float</span>* pFramesOut, <span style="color:#0099cc">ma_uint64</span> frameCount, <span style="color:#0099cc">ma_uint64</span>* pFramesRead, ma_format dataSourceFormat, <span style="color:#0099cc">ma_uint32</span> dataSourceChannels)
+{
+    <span style="color:#009900">/*
+    This function is intended to be used when the format and channel count of the data source is
+    known beforehand. The idea is to avoid overhead due to redundant calls to ma_data_source_get_data_format().
+    */</span>
+    MA_ASSERT(pDataSource != NULL);
+
+    <span style="color:#0033ff">if</span> (dataSourceFormat == ma_format_f32) {
+        <span style="color:#009900">/* Fast path. No conversion necessary. */</span>
+        <span style="color:#0033ff">return</span> ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead);
+    } <span style="color:#0033ff">else</span> {
+        <span style="color:#009900">/* Slow path. Conversion necessary. */</span>
+        <span style="color:#0099cc">ma_result</span> result;
+        <span style="color:#0099cc">ma_uint64</span> totalFramesRead;
+        <span style="color:#0099cc">ma_uint8</span> temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
+        <span style="color:#0099cc">ma_uint64</span> tempCapInFrames = <span style="color:#0033ff">sizeof</span>(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
+        
+        totalFramesRead = 0;
+        <span style="color:#0033ff">while</span> (totalFramesRead &lt; frameCount) {
+            <span style="color:#0099cc">ma_uint64</span> framesJustRead;
+            <span style="color:#0099cc">ma_uint64</span> framesToRead = frameCount - totalFramesRead;
+            <span style="color:#0033ff">if</span> (framesToRead &gt; tempCapInFrames) {
+                framesToRead = tempCapInFrames;
+            }
+
+            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &amp;framesJustRead);
+
+            ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
+            totalFramesRead += framesJustRead;
+
+            <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+                <span style="color:#0033ff">break</span>;
+            }
+        }
+
+        <span style="color:#0033ff">return</span> MA_SUCCESS;
+    }
+}
+
+MA_API <span style="color:#0099cc">ma_result</span> ma_data_source_read_pcm_frames_f32(<span style="color:#0099cc">ma_data_source</span>* pDataSource, <span style="color:#0033ff">float</span>* pFramesOut, <span style="color:#0099cc">ma_uint64</span> frameCount, <span style="color:#0099cc">ma_uint64</span>* pFramesRead)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_format format;
+    <span style="color:#0099cc">ma_uint32</span> channels;
+
+    result = ma_data_source_get_data_format(pDataSource, &amp;format, &amp;channels, NULL, NULL, 0);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> result;  <span style="color:#009900">/* Failed to retrieve the data format of the data source. */</span>
+    }
+
+    <span style="color:#0033ff">return</span> ma_data_source_read_pcm_frames_f32_ex(pDataSource, pFramesOut, frameCount, pFramesRead, format, channels);
+}
+
+MA_API <span style="color:#0099cc">ma_result</span> ma_data_source_read_pcm_frames_and_mix_f32(<span style="color:#0099cc">ma_data_source</span>* pDataSource, <span style="color:#0033ff">float</span>* pFramesOut, <span style="color:#0099cc">ma_uint64</span> frameCount, <span style="color:#0099cc">ma_uint64</span>* pFramesRead, <span style="color:#0033ff">float</span> volume)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_format format;
+    <span style="color:#0099cc">ma_uint32</span> channels;
+    <span style="color:#0099cc">ma_uint64</span> totalFramesRead;
+
+    <span style="color:#0033ff">if</span> (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    <span style="color:#0033ff">if</span> (pDataSource == NULL) {
+        <span style="color:#0033ff">return</span> MA_INVALID_ARGS;
+    }
+
+    result = ma_data_source_get_data_format(pDataSource, &amp;format, &amp;channels, NULL, NULL, 0);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> result;  <span style="color:#009900">/* Failed to retrieve the data format of the data source. */</span>
+    }
+
+    totalFramesRead = 0;
+    <span style="color:#0033ff">while</span> (totalFramesRead &lt; frameCount) {
+        <span style="color:#0033ff">float</span> temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE/<span style="color:#0033ff">sizeof</span>(<span style="color:#0033ff">float</span>)];
+        <span style="color:#0099cc">ma_uint64</span> tempCapInFrames = ma_countof(temp) / channels;
+        <span style="color:#0099cc">ma_uint64</span> framesJustRead;
+        <span style="color:#0099cc">ma_uint64</span> framesToRead = frameCount - totalFramesRead;
+        <span style="color:#0033ff">if</span> (framesToRead &gt; tempCapInFrames) {
+            framesToRead = tempCapInFrames;
+        }
+        
+        result = ma_data_source_read_pcm_frames_f32_ex(pDataSource, temp, framesToRead, &amp;framesJustRead, format, channels);
+
+        ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), temp, framesJustRead, channels, volume);
+        totalFramesRead += framesJustRead;
+
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">break</span>;
+        }
+    }
+
+    <span style="color:#0033ff">if</span> (pFramesRead != NULL) {
+        *pFramesRead = totalFramesRead;
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
+{
+    <span style="color:#009900">/*
+    In this example we&#39;re just going to play our data sources layered on top of each other. This
+    assumes the device&#39;s format is f32 and that the buffer is not pre-silenced.
+    */</span>
+    <span style="color:#0099cc">ma_uint32</span> iDataSource;
+
+    MA_ASSERT(pDevice-&gt;playback.format == ma_format_f32);
+
+    (<span style="color:#0033ff">void</span>)pInput;   <span style="color:#009900">/* Unused. */</span>
+
+    <span style="color:#009900">/*
+    If the device was configured with noPreSilencedOutputBuffer then you would need to silence the
+    buffer here, or make sure the first data source to be mixed is copied rather than mixed.
+    */</span>
+    <span style="color:#009900">/*ma_silence_pcm_frames(pOutput, frameCount, ma_format_f32, pDevice-&gt;playback.channels);*/</span>
+
+    <span style="color:#009900">/* For each sound, mix as much data as we can. */</span>
+    <span style="color:#0033ff">for</span> (iDataSource = 0; iDataSource &lt; g_dataSourceCount; iDataSource += 1) {
+        ma_data_source_read_pcm_frames_and_mix_f32(&amp;g_dataSources[iDataSource], (<span style="color:#0033ff">float</span>*)pOutput, frameCount, NULL, <span style="color:#009900">/* volume = */</span>1);
+    }
+}
+
+<span style="color:#0033ff">static</span> ma_thread_result MA_THREADCALL custom_job_thread(<span style="color:#0033ff">void</span>* pUserData)
+{
+    ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
+    MA_ASSERT(pResourceManager != NULL);
+
+    <span style="color:#0033ff">for</span> (;;) {
+        <span style="color:#0099cc">ma_result</span> result;
+        ma_resource_manager_job job;
+
+        <span style="color:#009900">/*
+        Retrieve a job from the queue first. This defines what it is you&#39;re about to do. By default this will be
+        blocking. You can initialize the resource manager with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING to not block in
+        which case MA_NO_DATA_AVAILABLE will be returned if no jobs are available.
+
+        When the quit job is returned (MA_RESOURCE_MANAGER_JOB_QUIT), the return value will always be MA_CANCELLED. If you don&#39;t want
+        to check the return value (you should), you can instead check if the job code is MA_RESOURCE_MANAGER_JOB_QUIT and use that
+        instead.
+        */</span>
+        result = ma_resource_manager_next_job(pResourceManager, &amp;job);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">if</span> (result == MA_CANCELLED) {
+                printf(<span style="color:#cc3300">&quot;CUSTOM JOB THREAD TERMINATING VIA MA_CANCELLED... &quot;</span>);
+            } <span style="color:#0033ff">else</span> {
+                printf(<span style="color:#cc3300">&quot;CUSTOM JOB THREAD ERROR: %s. TERMINATING... &quot;</span>, ma_result_description(result));
+            }
+
+            <span style="color:#0033ff">break</span>;
+        }
+
+        <span style="color:#009900">/*
+        Terminate if we got a quit message. You don&#39;t need to terminate like this, but&#39;s a bit more robust. You can
+        just use a global variable or something similar if it&#39;s easier for your particular situation. The quit job
+        remains in the queue and will continue to be returned by future calls to ma_resource_manager_next_job(). The
+        reason for this is to give every job thread visibility to the quit job so they have a chance to exit.
+
+        We won&#39;t actually be hitting this code because the call above will return MA_CANCELLED when the MA_RESOURCE_MANAGER_JOB_QUIT
+        event is received which means the <span style="font-family:monospace;">result != MA_SUCCESS</span> logic above will catch it. If you do not check the
+        return value of ma_resource_manager_next_job() you will want to check for MA_RESOURCE_MANAGER_JOB_QUIT like the code below.
+        */</span>
+        <span style="color:#0033ff">if</span> (job.toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
+            printf(<span style="color:#cc3300">&quot;CUSTOM JOB THREAD TERMINATING VIA MA_RESOURCE_MANAGER_JOB_QUIT... &quot;</span>);
+            <span style="color:#0033ff">break</span>;
+        }
+
+        <span style="color:#009900">/* Call ma_resource_manager_process_job() to actually do the work to process the job. */</span>
+        printf(<span style="color:#cc3300">&quot;PROCESSING IN CUSTOM JOB THREAD: %d\n&quot;</span>, job.toc.breakup.code);
+        ma_resource_manager_process_job(pResourceManager, &amp;job);
+    }
+
+    printf(<span style="color:#cc3300">&quot;TERMINATED\n&quot;</span>);
+    <span style="color:#0033ff">return</span> (ma_thread_result)0;
+}
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+    <span style="color:#0099cc">ma_device</span> device;
+    ma_resource_manager_config resourceManagerConfig;
+    ma_resource_manager resourceManager;
+    <span style="color:#0099cc">ma_thread</span> jobThread;
+    <span style="color:#0033ff">int</span> iFile;
+
+    deviceConfig = ma_device_config_init(ma_device_type_playback);
+    deviceConfig.playback.format = ma_format_f32;
+    deviceConfig.dataCallback    = data_callback;
+    deviceConfig.pUserData       = NULL;
+
+    result = ma_device_init(NULL, &amp;deviceConfig, &amp;device);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize device.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    <span style="color:#009900">/* We can start the device before loading any sounds. We&#39;ll just end up outputting silence. */</span>
+    result = ma_device_start(&amp;device);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_device_uninit(&amp;device);
+        printf(<span style="color:#cc3300">&quot;Failed to start device.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+
+    <span style="color:#009900">/*
+    We have the device so now we want to initialize the resource manager. We&#39;ll use the resource manager to load some
+    sounds based on the command line.
+    */</span>
+    resourceManagerConfig = ma_resource_manager_config_init();
+
+    <span style="color:#009900">/*
+    We&#39;ll set a standard decoding format to save us to processing time at mixing time. If you&#39;re wanting to use
+    spatialization with your decoded sounds, you may want to consider leaving this as 0 to ensure the file&#39;s native
+    channel count is used so you can do proper spatialization.
+    */</span>
+    resourceManagerConfig.decodedFormat     = device.playback.format;
+    resourceManagerConfig.decodedChannels   = device.playback.channels;
+    resourceManagerConfig.decodedSampleRate = device.sampleRate;
+
+    <span style="color:#009900">/* The number of job threads to be managed internally. Set this to 0 if you want to self-manage your job threads */</span>
+    resourceManagerConfig.jobThreadCount = 4;
+
+    result = ma_resource_manager_init(&amp;resourceManagerConfig, &amp;resourceManager);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_device_uninit(&amp;device);
+        printf(<span style="color:#cc3300">&quot;Failed to initialize the resource manager.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/*
+    Now that we have a resource manager we can set up our custom job thread. This is optional. Normally when doing
+    self-managed job threads you would set the internal job thread count to zero. We&#39;re doing both internal and
+    self-managed job threads in this example just for demonstration purposes.
+    */</span>
+    ma_thread_create(&amp;jobThread, ma_thread_priority_default, 0, custom_job_thread, &amp;resourceManager, NULL);
+
+    <span style="color:#009900">/* Create each data source from the resource manager. Note that the caller is the owner. */</span>
+    <span style="color:#0033ff">for</span> (iFile = 0; iFile &lt; ma_countof(g_dataSources) &amp;&amp; iFile &lt; argc-1; iFile += 1) {
+        result = ma_resource_manager_data_source_init(
+            &amp;resourceManager,
+            argv[iFile+1],
+            MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC <span style="color:#009900">/*| MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM*/</span>,
+            NULL,   <span style="color:#009900">/* Async notification. */</span>
+            &amp;g_dataSources[iFile]);
+
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">break</span>;
+        }
+
+        <span style="color:#009900">/* Use looping in this example. */</span>
+        ma_data_source_set_looping(&amp;g_dataSources[iFile], MA_TRUE);
+
+        g_dataSourceCount += 1;
+    }
+
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...&quot;</span>);
+    getchar();
+
+
+    <span style="color:#009900">/* Teardown. */</span>
+
+    <span style="color:#009900">/*
+    Uninitialize the device first to ensure the data callback is stopped and doesn&#39;t try to access
+    any data.
+    */</span>
+    ma_device_uninit(&amp;device);
+
+    <span style="color:#009900">/*
+    Our data sources need to be explicitly uninitialized. ma_resource_manager_uninit() will not do
+    it for us. This needs to be done before posting the quit event and uninitializing the resource
+    manager or else we&#39;ll get stuck in a deadlock because ma_resource_manager_data_source_uninit()
+    will be waiting for the job thread(s) to finish work, which will never happen because they were
+    just terminated.
+    */</span>
+    <span style="color:#0033ff">for</span> (iFile = 0; (size_t)iFile &lt; g_dataSourceCount; iFile += 1) {
+        ma_resource_manager_data_source_uninit(&amp;g_dataSources[iFile]);
+    }
+
+    <span style="color:#009900">/*
+    Before uninitializing the resource manager we need to make sure a quit event has been posted to
+    ensure we can get out of our custom thread. The call to ma_resource_manager_uninit() will also
+    do this, but we need to call it explicitly so that our self-managed thread can exit naturally.
+    You only need to post a quit job if you&#39;re using that as the exit indicator. You can instead
+    use whatever variable you want to terminate your job thread, but since this example is using a
+    quit job we need to post one. Note that you don&#39;t need to do this if you&#39;re not managing your
+    own threads - ma_resource_manager_uninit() alone will suffice in that case.
+    */</span>
+    ma_resource_manager_post_job_quit(&amp;resourceManager);
+    ma_thread_wait(&amp;jobThread); <span style="color:#009900">/* Wait for the custom job thread to finish so it doesn&#39;t try to access any data. */</span>
+    
+    <span style="color:#009900">/* Uninitialize the resource manager after each data source. */</span>
+    ma_resource_manager_uninit(&amp;resourceManager);
+
+    <span style="color:#0033ff">return</span> 0;
+}
+</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2021 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>

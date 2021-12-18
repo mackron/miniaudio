@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Node Graph</h1><p>
+This example shows how to use the node graph system.
+</p>
+<p>
+
+The node graph system can be used for doing complex mixing and effect processing. The idea is that
+you have a number of nodes that are connected to each other to form a graph. At the end of the
+graph is an endpoint which all nodes eventually connect to.
+</p>
+<p>
+
+A node is used to do some kind of processing on zero or more input streams and produce one or more
+output streams. Each node can have a number of inputs and outputs. Each of these is called a bus in
+miniaudio. Some nodes, particularly data source nodes, have no inputs and instead generate their
+outputs dynamically. All nodes will have at least one output or else it&#39;ll be disconnected from the
+graph and will never get processed. Each output bus of a node will be connected to an input bus of
+another node, but they don&#39;t all need to connect to the same input node. For example, a splitter
+node has 1 input bus and 2 output buses and is used to duplicate a signal. You could then branch
+off and have one output bus connected to one input node and the other connected to a different
+input node, and then have two different effects process for each of the duplicated branches.
+</p>
+<p>
+
+Any number of output buses can be connected to an input bus in which case the output buses will be
+mixed before processing by the input node. This is how you would achieve the mixing part of the
+node graph.
+</p>
+<p>
+
+This example will be using the following node graph set up:
+</p>
+<p>
+
+</p>
+<div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; Data flows left to right &gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
++---------------+                              +-----------------+
+| Data Source 1 =----+    +----------+    +----= Low Pass Filter =----+
++---------------+    |    |          =----+    +-----------------+    |    +----------+
+                     +----= Splitter |                                +----= ENDPOINT |
++---------------+    |    |          =----+    +-----------------+    |    +----------+
+| Data Source 2 =----+    +----------+    +----=  Echo / Delay   =----+
++---------------+                              +-----------------+
+</pre></div><p>
+
+This does not represent a realistic real-world scenario, but it demonstrates how to make use of
+mixing, multiple outputs and multiple effects.
+</p>
+<p>
+
+The data source nodes are connected to the input of the splitter. They&#39;ll be mixed before being
+processed by the splitter. The splitter has two output buses. In the graph above, one bus will be
+routed to a low pass filter, whereas the other bus will be routed to an echo effect. Then, the
+outputs of these two effects will be connected to the input bus of the endpoint. Because both of
+the outputs are connected to the same input bus, they&#39;ll be mixed at that point.
+</p>
+<p>
+
+The two data sources at the start of the graph have no inputs. They&#39;ll instead generate their
+output by reading from a data source. The data source in this case will be one <span style="font-family:monospace;">ma_decoder</span> for
+each input file specified on the command line.
+</p>
+<p>
+
+You can also control the volume of an output bus. In this example, we set the volumes of the low
+pass and echo effects so that one of them becomes more obvious than the other.
+</p>
+<p>
+
+When you want to read from the graph, you simply call <span style="font-family:monospace;">ma_node_graph_read_pcm_frames()</span>.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+
+<span style="color:#009900">/* Data Format */</span>
+<span style="color:#666666">#define</span> FORMAT              ma_format_f32   <span style="color:#009900">/* Must always be f32. */</span>
+<span style="color:#666666">#define</span> CHANNELS            2
+<span style="color:#666666">#define</span> SAMPLE_RATE         48000
+
+<span style="color:#009900">/* Effect Properties */</span>
+<span style="color:#666666">#define</span> LPF_BIAS            0.9f    <span style="color:#009900">/* Higher values means more bias towards the low pass filter (the low pass filter will be more audible). Lower values means more bias towards the echo. Must be between 0 and 1. */</span>
+<span style="color:#666666">#define</span> LPF_CUTOFF_FACTOR   80      <span style="color:#009900">/* High values = more filter. */</span>
+<span style="color:#666666">#define</span> LPF_ORDER           8
+<span style="color:#666666">#define</span> DELAY_IN_SECONDS    0.2f
+<span style="color:#666666">#define</span> DECAY               0.5f    <span style="color:#009900">/* Volume falloff for each echo. */</span>
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
+{
+    ma_data_source_node node;   <span style="color:#009900">/* If you make this the first member, you can pass a pointer to this struct into any <span style="font-family:monospace;">ma_node_*</span> API and it will &quot;Just Work&quot;. */</span>
+    <span style="color:#0099cc">ma_decoder</span> decoder;
+} sound_node;
+
+<span style="color:#0033ff">static</span> ma_node_graph    g_nodeGraph;
+<span style="color:#0033ff">static</span> ma_lpf_node      g_lpfNode;
+<span style="color:#0033ff">static</span> ma_delay_node    g_delayNode;
+<span style="color:#0033ff">static</span> ma_splitter_node g_splitterNode;
+<span style="color:#0033ff">static</span> sound_node*      g_pSoundNodes;
+<span style="color:#0033ff">static</span> <span style="color:#0033ff">int</span>              g_soundNodeCount;
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
+{
+    MA_ASSERT(pDevice-&gt;playback.channels == CHANNELS);
+
+    <span style="color:#009900">/*
+    Hearing the output of the node graph is as easy as reading straight into the output buffer. You just need to
+    make sure you use a consistent data format or else you&#39;ll need to do your own conversion.
+    */</span>
+    ma_node_graph_read_pcm_frames(&amp;g_nodeGraph, pOutput, frameCount, NULL);
+
+    (<span style="color:#0033ff">void</span>)pInput;   <span style="color:#009900">/* Unused. */</span>
+}
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0033ff">int</span> iarg;
+    <span style="color:#0099cc">ma_result</span> result;
+
+    <span style="color:#009900">/* We&#39;ll set up our nodes starting from the end and working our way back to the start. We&#39;ll need to set up the graph first. */</span>
+    {
+        ma_node_graph_config nodeGraphConfig = ma_node_graph_config_init(CHANNELS);
+
+        result = ma_node_graph_init(&amp;nodeGraphConfig, NULL, &amp;g_nodeGraph);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;ERROR: Failed to initialize node graph.&quot;</span>);
+            <span style="color:#0033ff">return</span> -1;
+        }
+    }
+
+
+    <span style="color:#009900">/* Low Pass Filter. */</span>
+    {
+        ma_lpf_node_config lpfNodeConfig = ma_lpf_node_config_init(CHANNELS, SAMPLE_RATE, SAMPLE_RATE / LPF_CUTOFF_FACTOR, LPF_ORDER);
+
+        result = ma_lpf_node_init(&amp;g_nodeGraph, &amp;lpfNodeConfig, NULL, &amp;g_lpfNode);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;ERROR: Failed to initialize low pass filter node.&quot;</span>);
+            <span style="color:#0033ff">return</span> -1;
+        }
+
+        <span style="color:#009900">/* Connect the output bus of the low pass filter node to the input bus of the endpoint. */</span>
+        ma_node_attach_output_bus(&amp;g_lpfNode, 0, ma_node_graph_get_endpoint(&amp;g_nodeGraph), 0);
+
+        <span style="color:#009900">/* Set the volume of the low pass filter to make it more of less impactful. */</span>
+        ma_node_set_output_bus_volume(&amp;g_lpfNode, 0, LPF_BIAS);
+    }
+
+
+    <span style="color:#009900">/* Echo / Delay. */</span>
+    {
+        ma_delay_node_config delayNodeConfig = ma_delay_node_config_init(CHANNELS, SAMPLE_RATE, (<span style="color:#0099cc">ma_uint32</span>)(SAMPLE_RATE * DELAY_IN_SECONDS), DECAY);
+
+        result = ma_delay_node_init(&amp;g_nodeGraph, &amp;delayNodeConfig, NULL, &amp;g_delayNode);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;ERROR: Failed to initialize delay node.&quot;</span>);
+            <span style="color:#0033ff">return</span> -1;
+        }
+
+        <span style="color:#009900">/* Connect the output bus of the delay node to the input bus of the endpoint. */</span>
+        ma_node_attach_output_bus(&amp;g_delayNode, 0, ma_node_graph_get_endpoint(&amp;g_nodeGraph), 0);
+
+        <span style="color:#009900">/* Set the volume of the delay filter to make it more of less impactful. */</span>
+        ma_node_set_output_bus_volume(&amp;g_delayNode, 0, 1 - LPF_BIAS);
+    }
+
+
+    <span style="color:#009900">/* Splitter. */</span>
+    {
+        ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(CHANNELS);
+
+        result = ma_splitter_node_init(&amp;g_nodeGraph, &amp;splitterNodeConfig, NULL, &amp;g_splitterNode);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;ERROR: Failed to initialize splitter node.&quot;</span>);
+            <span style="color:#0033ff">return</span> -1;
+        }
+
+        <span style="color:#009900">/* Connect output bus 0 to the input bus of the low pass filter node, and output bus 1 to the input bus of the delay node. */</span>
+        ma_node_attach_output_bus(&amp;g_splitterNode, 0, &amp;g_lpfNode,   0);
+        ma_node_attach_output_bus(&amp;g_splitterNode, 1, &amp;g_delayNode, 0);
+    }
+
+
+    <span style="color:#009900">/* Data sources. Ignore any that cannot be loaded. */</span>
+    g_pSoundNodes = (sound_node*)ma_malloc(<span style="color:#0033ff">sizeof</span>(*g_pSoundNodes) * argc-1, NULL);
+    <span style="color:#0033ff">if</span> (g_pSoundNodes == NULL) {
+        printf(<span style="color:#cc3300">&quot;Failed to allocate memory for sounds.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    g_soundNodeCount = 0;
+    <span style="color:#0033ff">for</span> (iarg = 1; iarg &lt; argc; iarg += 1) {
+        <span style="color:#0099cc">ma_decoder_config</span> decoderConfig = ma_decoder_config_init(FORMAT, CHANNELS, SAMPLE_RATE);
+
+        result = ma_decoder_init_file(argv[iarg], &amp;decoderConfig, &amp;g_pSoundNodes[g_soundNodeCount].decoder);
+        <span style="color:#0033ff">if</span> (result == MA_SUCCESS) {
+            ma_data_source_node_config dataSourceNodeConfig = ma_data_source_node_config_init(&amp;g_pSoundNodes[g_soundNodeCount].decoder);
+
+            result = ma_data_source_node_init(&amp;g_nodeGraph, &amp;dataSourceNodeConfig, NULL, &amp;g_pSoundNodes[g_soundNodeCount].node);
+            <span style="color:#0033ff">if</span> (result == MA_SUCCESS) {
+                <span style="color:#009900">/* The data source node has been created successfully. Attach it to the splitter. */</span>
+                ma_node_attach_output_bus(&amp;g_pSoundNodes[g_soundNodeCount].node, 0, &amp;g_splitterNode, 0);
+                g_soundNodeCount += 1;
+            } <span style="color:#0033ff">else</span> {
+                printf(<span style="color:#cc3300">&quot;WARNING: Failed to init data source node for sound \&quot;%s\&quot;. Ignoring.&quot;</span>, argv[iarg]);
+                ma_decoder_uninit(&amp;g_pSoundNodes[g_soundNodeCount].decoder);
+            }
+        } <span style="color:#0033ff">else</span> {
+            printf(<span style="color:#cc3300">&quot;WARNING: Failed to load sound \&quot;%s\&quot;. Ignoring.&quot;</span>, argv[iarg]);
+        }
+    }
+
+    <span style="color:#009900">/* Everything has been initialized successfully so now we can set up a playback device so we can listen to the result. */</span>
+    {
+        <span style="color:#0099cc">ma_device_config</span> deviceConfig;
+        <span style="color:#0099cc">ma_device</span> device;
+
+        deviceConfig = ma_device_config_init(ma_device_type_playback);
+        deviceConfig.playback.format   = FORMAT;
+        deviceConfig.playback.channels = CHANNELS;
+        deviceConfig.sampleRate        = SAMPLE_RATE;
+        deviceConfig.dataCallback      = data_callback;
+        deviceConfig.pUserData         = NULL;
+
+        result = ma_device_init(NULL, &amp;deviceConfig, &amp;device);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;ERROR: Failed to initialize device.&quot;</span>);
+            <span style="color:#0033ff">goto</span> cleanup_graph;
+        }
+
+        result = ma_device_start(&amp;device);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            ma_device_uninit(&amp;device);
+            <span style="color:#0033ff">goto</span> cleanup_graph;
+        }
+
+        printf(<span style="color:#cc3300">&quot;Press Enter to quit...\n&quot;</span>);
+        getchar();
+
+        <span style="color:#009900">/* We&#39;re done. Clean up the device. */</span>
+        ma_device_uninit(&amp;device);
+    }
+
+
+cleanup_graph:
+    {
+        <span style="color:#009900">/* It&#39;s good practice to tear down the graph from the lowest level nodes first. */</span>
+        <span style="color:#0033ff">int</span> iSound;
+
+        <span style="color:#009900">/* Sounds. */</span>
+        <span style="color:#0033ff">for</span> (iSound = 0; iSound &lt; g_soundNodeCount; iSound += 1) {
+            ma_data_source_node_uninit(&amp;g_pSoundNodes[iSound].node, NULL);
+            ma_decoder_uninit(&amp;g_pSoundNodes[iSound].decoder);
+        }
+
+        <span style="color:#009900">/* Splitter. */</span>
+        ma_splitter_node_uninit(&amp;g_splitterNode, NULL);
+        
+        <span style="color:#009900">/* Echo / Delay */</span>
+        ma_delay_node_uninit(&amp;g_delayNode, NULL);
+
+        <span style="color:#009900">/* Low Pass Filter */</span>
+        ma_lpf_node_uninit(&amp;g_lpfNode, NULL);
+
+        <span style="color:#009900">/* Node Graph */</span>
+        ma_node_graph_uninit(&amp;g_nodeGraph, NULL);
+    }    
+
+    <span style="color:#0033ff">return</span> 0;
+}
+</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2021 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>

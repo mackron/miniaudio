@@ -245,7 +245,7 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
 <h1>Custom Backend</h1><p>
 This example show how a custom backend can be implemented.
 </p>
@@ -551,7 +551,8 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 
     tempDeviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
     <span style="color:#0033ff">if</span> (tempDeviceID == 0) {
-        <span style="color:#0033ff">return</span> ma_context_post_error(pContext, NULL, MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL device.&quot;</span>, MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL device.&quot;</span>);
+        <span style="color:#0033ff">return</span> MA_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
     ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(tempDeviceID);
@@ -658,7 +659,8 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 
     deviceID = ((MA_PFN_SDL_OpenAudioDevice)pContextEx-&gt;sdl.SDL_OpenAudioDevice)(pDeviceName, (pConfig-&gt;deviceType == ma_device_type_playback) ? 0 : 1, &amp;desiredSpec, &amp;obtainedSpec, MA_SDL_AUDIO_ALLOW_ANY_CHANGE);
     <span style="color:#0033ff">if</span> (deviceID == 0) {
-        <span style="color:#0033ff">return</span> ma_post_error((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL2 device.&quot;</span>, MA_FAILED_TO_OPEN_BACKEND_DEVICE);
+        ma_log_postf(ma_device_get_log((<span style="color:#0099cc">ma_device</span>*)pDeviceEx), MA_LOG_LEVEL_ERROR, <span style="color:#cc3300">&quot;Failed to open SDL2 device.&quot;</span>);
+        <span style="color:#0033ff">return</span> MA_FAILED_TO_OPEN_BACKEND_DEVICE;
     }
 
     <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_playback) {
@@ -671,7 +673,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     pDescriptor-&gt;format             = ma_format_from_sdl(obtainedSpec.format);
     pDescriptor-&gt;channels           = obtainedSpec.channels;
     pDescriptor-&gt;sampleRate         = (<span style="color:#0099cc">ma_uint32</span>)obtainedSpec.freq;
-    ma_get_standard_channel_map(ma_standard_channel_map_default, pDescriptor-&gt;channels, pDescriptor-&gt;channelMap);
+    ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptor-&gt;channelMap, ma_countof(pDescriptor-&gt;channelMap), pDescriptor-&gt;channels);
     pDescriptor-&gt;periodSizeInFrames = obtainedSpec.samples;
     pDescriptor-&gt;periodCount        = 1;    <span style="color:#009900">/* SDL doesn&#39;t use the notion of period counts, so just set to 1. */</span>
 
@@ -903,7 +905,7 @@ Main program starts here.
         pSineWave = (<span style="color:#0099cc">ma_waveform</span>*)pDevice-&gt;pUserData;
         MA_ASSERT(pSineWave != NULL);
 
-        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount);
+        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
     }
 
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
