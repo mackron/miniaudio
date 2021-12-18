@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.0 - TBD
+miniaudio - v0.11.0 - 2021-12-18
 
 David Reid - mackron@gmail.com
 
@@ -88904,7 +88904,7 @@ issues with certain devices and configurations. These can be individually enable
 /*
 REVISION HISTORY
 ================
-v0.11.0 - TBD
+v0.11.0 - 2021-12-18
   - Add a node graph system for advanced mixing and effect processing.
   - Add a resource manager for loading and streaming sounds.
   - Add a high level engine API for sound management and mixing. This wraps around the node graph
