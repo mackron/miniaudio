@@ -70046,6 +70046,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     if (pEngine != NULL) {
         MA_ZERO_OBJECT(pEngine);
+    } else {
+        return MA_INVALID_ARGS;
     }
 
     /* The config is allowed to be NULL in which case we use defaults for everything. */
