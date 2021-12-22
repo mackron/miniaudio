@@ -35640,6 +35640,7 @@ return_default_device:;
     if (cbResult) {
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -35648,6 +35649,7 @@ return_default_device:;
     if (cbResult) {
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
@@ -35746,10 +35748,12 @@ return_default_device:
         }
     }
 
-    /* Name / Description */
+    /* ID and Name / Description */
     if (deviceType == ma_device_type_playback) {
+        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     } else {
+        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
