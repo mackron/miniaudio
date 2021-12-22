@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.0 - 2021-12-18
+miniaudio - v0.11.1 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -70044,9 +70044,11 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_spatializer_listener_config listenerConfig;
     ma_uint32 iListener;
 
-    if (pEngine != NULL) {
-        MA_ZERO_OBJECT(pEngine);
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
     }
+
+    MA_ZERO_OBJECT(pEngine);
 
     /* The config is allowed to be NULL in which case we use defaults for everything. */
     if (pConfig != NULL) {
@@ -88904,6 +88906,9 @@ issues with certain devices and configurations. These can be individually enable
 /*
 REVISION HISTORY
 ================
+v0.11.1 - TBD
+  - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
+
 v0.11.0 - 2021-12-18
   - Add a node graph system for advanced mixing and effect processing.
   - Add a resource manager for loading and streaming sounds.
