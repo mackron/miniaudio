@@ -36043,7 +36043,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
 
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
         locatorDevice.deviceType  = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID    = (pDescriptorCapture->pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDescriptorCapture->pDeviceID->opensl;
+        locatorDevice.deviceID    = SL_DEFAULTDEVICEID_AUDIOINPUT;  /* Must always use the default device with Android. */
         locatorDevice.device      = NULL;
 
         source.pLocator = &locatorDevice;
