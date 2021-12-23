@@ -3854,61 +3854,64 @@ typedef struct ma_context ma_context;
 typedef struct ma_device ma_device;
 
 typedef ma_uint8 ma_channel;
-#define MA_CHANNEL_NONE                                0
-#define MA_CHANNEL_MONO                                1
-#define MA_CHANNEL_FRONT_LEFT                          2
-#define MA_CHANNEL_FRONT_RIGHT                         3
-#define MA_CHANNEL_FRONT_CENTER                        4
-#define MA_CHANNEL_LFE                                 5
-#define MA_CHANNEL_BACK_LEFT                           6
-#define MA_CHANNEL_BACK_RIGHT                          7
-#define MA_CHANNEL_FRONT_LEFT_CENTER                   8
-#define MA_CHANNEL_FRONT_RIGHT_CENTER                  9
-#define MA_CHANNEL_BACK_CENTER                         10
-#define MA_CHANNEL_SIDE_LEFT                           11
-#define MA_CHANNEL_SIDE_RIGHT                          12
-#define MA_CHANNEL_TOP_CENTER                          13
-#define MA_CHANNEL_TOP_FRONT_LEFT                      14
-#define MA_CHANNEL_TOP_FRONT_CENTER                    15
-#define MA_CHANNEL_TOP_FRONT_RIGHT                     16
-#define MA_CHANNEL_TOP_BACK_LEFT                       17
-#define MA_CHANNEL_TOP_BACK_CENTER                     18
-#define MA_CHANNEL_TOP_BACK_RIGHT                      19
-#define MA_CHANNEL_AUX_0                               20
-#define MA_CHANNEL_AUX_1                               21
-#define MA_CHANNEL_AUX_2                               22
-#define MA_CHANNEL_AUX_3                               23
-#define MA_CHANNEL_AUX_4                               24
-#define MA_CHANNEL_AUX_5                               25
-#define MA_CHANNEL_AUX_6                               26
-#define MA_CHANNEL_AUX_7                               27
-#define MA_CHANNEL_AUX_8                               28
-#define MA_CHANNEL_AUX_9                               29
-#define MA_CHANNEL_AUX_10                              30
-#define MA_CHANNEL_AUX_11                              31
-#define MA_CHANNEL_AUX_12                              32
-#define MA_CHANNEL_AUX_13                              33
-#define MA_CHANNEL_AUX_14                              34
-#define MA_CHANNEL_AUX_15                              35
-#define MA_CHANNEL_AUX_16                              36
-#define MA_CHANNEL_AUX_17                              37
-#define MA_CHANNEL_AUX_18                              38
-#define MA_CHANNEL_AUX_19                              39
-#define MA_CHANNEL_AUX_20                              40
-#define MA_CHANNEL_AUX_21                              41
-#define MA_CHANNEL_AUX_22                              42
-#define MA_CHANNEL_AUX_23                              43
-#define MA_CHANNEL_AUX_24                              44
-#define MA_CHANNEL_AUX_25                              45
-#define MA_CHANNEL_AUX_26                              46
-#define MA_CHANNEL_AUX_27                              47
-#define MA_CHANNEL_AUX_28                              48
-#define MA_CHANNEL_AUX_29                              49
-#define MA_CHANNEL_AUX_30                              50
-#define MA_CHANNEL_AUX_31                              51
-#define MA_CHANNEL_LEFT                                MA_CHANNEL_FRONT_LEFT
-#define MA_CHANNEL_RIGHT                               MA_CHANNEL_FRONT_RIGHT
-#define MA_CHANNEL_POSITION_COUNT                      (MA_CHANNEL_AUX_31 + 1)
+typedef enum
+{
+    MA_CHANNEL_NONE               = 0,
+    MA_CHANNEL_MONO               = 1,
+    MA_CHANNEL_FRONT_LEFT         = 2,
+    MA_CHANNEL_FRONT_RIGHT        = 3,
+    MA_CHANNEL_FRONT_CENTER       = 4,
+    MA_CHANNEL_LFE                = 5,
+    MA_CHANNEL_BACK_LEFT          = 6,
+    MA_CHANNEL_BACK_RIGHT         = 7,
+    MA_CHANNEL_FRONT_LEFT_CENTER  = 8,
+    MA_CHANNEL_FRONT_RIGHT_CENTER = 9,
+    MA_CHANNEL_BACK_CENTER        = 10,
+    MA_CHANNEL_SIDE_LEFT          = 11,
+    MA_CHANNEL_SIDE_RIGHT         = 12,
+    MA_CHANNEL_TOP_CENTER         = 13,
+    MA_CHANNEL_TOP_FRONT_LEFT     = 14,
+    MA_CHANNEL_TOP_FRONT_CENTER   = 15,
+    MA_CHANNEL_TOP_FRONT_RIGHT    = 16,
+    MA_CHANNEL_TOP_BACK_LEFT      = 17,
+    MA_CHANNEL_TOP_BACK_CENTER    = 18,
+    MA_CHANNEL_TOP_BACK_RIGHT     = 19,
+    MA_CHANNEL_AUX_0              = 20,
+    MA_CHANNEL_AUX_1              = 21,
+    MA_CHANNEL_AUX_2              = 22,
+    MA_CHANNEL_AUX_3              = 23,
+    MA_CHANNEL_AUX_4              = 24,
+    MA_CHANNEL_AUX_5              = 25,
+    MA_CHANNEL_AUX_6              = 26,
+    MA_CHANNEL_AUX_7              = 27,
+    MA_CHANNEL_AUX_8              = 28,
+    MA_CHANNEL_AUX_9              = 29,
+    MA_CHANNEL_AUX_10             = 30,
+    MA_CHANNEL_AUX_11             = 31,
+    MA_CHANNEL_AUX_12             = 32,
+    MA_CHANNEL_AUX_13             = 33,
+    MA_CHANNEL_AUX_14             = 34,
+    MA_CHANNEL_AUX_15             = 35,
+    MA_CHANNEL_AUX_16             = 36,
+    MA_CHANNEL_AUX_17             = 37,
+    MA_CHANNEL_AUX_18             = 38,
+    MA_CHANNEL_AUX_19             = 39,
+    MA_CHANNEL_AUX_20             = 40,
+    MA_CHANNEL_AUX_21             = 41,
+    MA_CHANNEL_AUX_22             = 42,
+    MA_CHANNEL_AUX_23             = 43,
+    MA_CHANNEL_AUX_24             = 44,
+    MA_CHANNEL_AUX_25             = 45,
+    MA_CHANNEL_AUX_26             = 46,
+    MA_CHANNEL_AUX_27             = 47,
+    MA_CHANNEL_AUX_28             = 48,
+    MA_CHANNEL_AUX_29             = 49,
+    MA_CHANNEL_AUX_30             = 50,
+    MA_CHANNEL_AUX_31             = 51,
+    MA_CHANNEL_LEFT               = MA_CHANNEL_FRONT_LEFT,
+    MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT,
+    MA_CHANNEL_POSITION_COUNT     = (MA_CHANNEL_AUX_31 + 1)
+} _ma_channel_position; /* Do not use `_ma_channel_position` directly. Use `ma_channel` instead. */
 
 
 typedef int ma_result;
@@ -88906,6 +88909,7 @@ issues with certain devices and configurations. These can be individually enable
 REVISION HISTORY
 ================
 v0.11.1 - TBD
+  - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
