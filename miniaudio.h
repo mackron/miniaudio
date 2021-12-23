@@ -35095,12 +35095,6 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    /* No exclusive mode with AAudio. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
-
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
         if (result != MA_SUCCESS) {
@@ -88913,6 +88907,8 @@ REVISION HISTORY
 ================
 v0.11.1 - TBD
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
+  - AAudio: Fix an incorrect assert.
+  - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
 
 v0.11.0 - 2021-12-18
   - Add a node graph system for advanced mixing and effect processing.
