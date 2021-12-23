@@ -6076,7 +6076,7 @@ callbacks defined in this structure.
 Once the context has been initialized you can initialize a device. Before doing so, however, the application may want to know which
 physical devices are available. This is where `onContextEnumerateDevices()` comes in. This is fairly simple. For each device, fire the
 given callback with, at a minimum, the basic information filled out in `ma_device_info`. When the callback returns `MA_FALSE`, enumeration
-needs to stop and the `onContextEnumerateDevices()` function return with a success code.
+needs to stop and the `onContextEnumerateDevices()` function returns with a success code.
 
 Detailed device information can be retrieved from a device ID using `onContextGetDeviceInfo()`. This takes as input the device type and ID,
 and on output returns detailed information about the device in `ma_device_info`. The `onContextGetDeviceInfo()` callback must handle the
@@ -9739,7 +9739,7 @@ typedef struct
     /*
     Extended processing callback. This callback is used for effects that process input and output
     at different rates (i.e. they perform resampling). This is similar to the simple version, only
-    they take two sepate frame counts: one for input, and one for output.
+    they take two seperate frame counts: one for input, and one for output.
 
     On input, `pFrameCountOut` is equal to the capacity of the output buffer for each bus, whereas
     `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.
@@ -34878,8 +34878,9 @@ static ma_result ma_open_stream__aaudio(ma_device* pDevice, const ma_device_conf
     ma_result result;
     ma_AAudioStreamBuilder* pBuilder;
 
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pConfig->deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pDescriptor != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
 
     *ppStream = NULL;
 
