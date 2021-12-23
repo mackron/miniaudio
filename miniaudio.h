@@ -88913,6 +88913,7 @@ v0.11.1 - TBD
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
+  - OpenSL: Fix an error when initializing a device with a non-NULL device ID.
 
 v0.11.0 - 2021-12-18
   - Add a node graph system for advanced mixing and effect processing.
