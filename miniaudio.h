@@ -36056,14 +36056,14 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pFormat  = (SLDataFormat_PCM*)&pcm;
 
         resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
-        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED || resultSL == SL_RESULT_PARAMETER_INVALID) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType    = SL_DATAFORMAT_PCM;
             pcm.numChannels   = 1;
             ((SLDataFormat_PCM*)&pcm)->samplesPerSec = SL_SAMPLINGRATE_16;  /* The name of the sample rate variable is different between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM. */
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
-            pcm.channelMask   = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            pcm.channelMask   = 0;
             resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         }
 
@@ -36179,7 +36179,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pFormat  = NULL;
 
         resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
-        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED || resultSL == SL_RESULT_PARAMETER_INVALID) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType = SL_DATAFORMAT_PCM;
             pcm.numChannels = 2;
