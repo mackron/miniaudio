@@ -88734,6 +88734,7 @@ There have also been some other smaller changes added to this release.
 REVISION HISTORY
 ================
 v0.11.1 - TBD
+  - Result codes are now declared as an enum rather than #defines.
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - AAudio: Fix an incorrect assert.
