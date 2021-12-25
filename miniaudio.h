@@ -8880,8 +8880,11 @@ appropriate for a given situation.
 typedef void      ma_vfs;
 typedef ma_handle ma_vfs_file;
 
-#define MA_OPEN_MODE_READ   0x00000001
-#define MA_OPEN_MODE_WRITE  0x00000002
+typedef enum
+{
+    MA_OPEN_MODE_READ  = 0x00000001,
+    MA_OPEN_MODE_WRITE = 0x00000002
+} ma_open_mode_flags;
 
 typedef enum
 {
@@ -9277,22 +9280,28 @@ typedef struct ma_resource_manager_data_buffer      ma_resource_manager_data_buf
 typedef struct ma_resource_manager_data_stream      ma_resource_manager_data_stream;
 typedef struct ma_resource_manager_data_source      ma_resource_manager_data_source;
 
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM     0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE     0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC      0x00000004  /* When set, the resource manager will load the data source asynchronously. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT  0x00000008  /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+typedef enum
+{
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM    = 0x00000001,    /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE    = 0x00000002,    /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC     = 0x00000004,    /* When set, the resource manager will load the data source asynchronously. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+} ma_resource_manager_data_source_flags;
 
-#define MA_RESOURCE_MANAGER_JOB_QUIT                    0x00000000
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE   0x00000001
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE   0x00000002
-#define MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE   0x00000003
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER        0x00000004
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER        0x00000005
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM        0x00000006
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM        0x00000007
-#define MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM        0x00000008
-#define MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM        0x00000009
-#define MA_RESOURCE_MANAGER_JOB_CUSTOM                  0x00000100  /* Number your custom job codes as (MA_RESOURCE_MANAGER_JOB_CUSTOM + 0), (MA_RESOURCE_MANAGER_JOB_CUSTOM + 1), etc. */
+typedef enum
+{
+    MA_RESOURCE_MANAGER_JOB_QUIT                   = 0x00000000,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE  = 0x00000001,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE  = 0x00000002,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE  = 0x00000003,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER       = 0x00000004,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER       = 0x00000005,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM       = 0x00000006,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
+    MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009,
+    MA_RESOURCE_MANAGER_JOB_CUSTOM                 = 0x00000100  /* Number your custom job codes as (MA_RESOURCE_MANAGER_JOB_CUSTOM + 0), (MA_RESOURCE_MANAGER_JOB_CUSTOM + 1), etc. */
+} ma_resource_manager_job_type;
 
 
 /*
@@ -9415,7 +9424,10 @@ ma_resource_manager_job_queue_post(). ma_resource_manager_job_queue_next() will 
 
 This flag should always be used for platforms that do not support multithreading.
 */
-#define MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING  0x00000001
+typedef enum
+{
+    MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
+} ma_resource_manager_job_queue_flags;
 
 typedef struct
 {
@@ -9459,12 +9471,14 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
 #define MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT    64
 #endif
 
-/* Indicates ma_resource_manager_next_job() should not block. Only valid when the job thread count is 0. */
-#define MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING   0x00000001
+typedef enum
+{
+    /* Indicates ma_resource_manager_next_job() should not block. Only valid when the job thread count is 0. */
+    MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING = 0x00000001,
 
-/* Disables any kind of multithreading. Implicitly enables MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING. */
-#define MA_RESOURCE_MANAGER_FLAG_NO_THREADING   0x00000002
-
+    /* Disables any kind of multithreading. Implicitly enables MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING. */
+    MA_RESOURCE_MANAGER_FLAG_NO_THREADING = 0x00000002
+} ma_resource_manager_flags;
 
 typedef struct
 {
@@ -9724,10 +9738,13 @@ typedef void ma_node;
 
 
 /* Node flags. */
-#define MA_NODE_FLAG_PASSTHROUGH                0x00000001
-#define MA_NODE_FLAG_CONTINUOUS_PROCESSING      0x00000002
-#define MA_NODE_FLAG_ALLOW_NULL_INPUT           0x00000004
-#define MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES 0x00000008
+typedef enum
+{
+    MA_NODE_FLAG_PASSTHROUGH                = 0x00000001,
+    MA_NODE_FLAG_CONTINUOUS_PROCESSING      = 0x00000002,
+    MA_NODE_FLAG_ALLOW_NULL_INPUT           = 0x00000004,
+    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008
+} ma_node_flags;
 
 
 /* The playback state of a node. Either started or stopped. */
@@ -9798,8 +9815,6 @@ MA_API ma_node_config ma_node_config_init(void);
 A node has multiple output buses. An output bus is attached to an input bus as an item in a linked
 list. Think of the input bus as a linked list, with the output bus being an item in that list.
 */
-#define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
-
 typedef struct ma_node_output_bus ma_node_output_bus;
 struct ma_node_output_bus
 {
@@ -9810,7 +9825,7 @@ struct ma_node_output_bus
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
     MA_ATOMIC(1, ma_uint8) inputNodeInputBusIndex;          /* The index of the input bus on the input. Required for detaching. */
-    MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. */
+    MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. A combination of MA_NODE_OUTPUT_BUS_FLAG_*. */
     MA_ATOMIC(4, ma_uint32) refCount;                       /* Reference count for some thread-safety when detaching. */
     MA_ATOMIC(4, ma_bool32) isAttached;                     /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
     MA_ATOMIC(4, ma_spinlock) lock;                         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
@@ -10180,13 +10195,16 @@ typedef struct ma_sound  ma_sound;
 
 
 /* Sound flags. */
-#define MA_SOUND_FLAG_STREAM                MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM      /* 0x00000001 */
-#define MA_SOUND_FLAG_DECODE                MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE      /* 0x00000002 */
-#define MA_SOUND_FLAG_ASYNC                 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC       /* 0x00000004 */
-#define MA_SOUND_FLAG_WAIT_INIT             MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT   /* 0x00000008 */
-#define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
-#define MA_SOUND_FLAG_NO_PITCH              0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
-#define MA_SOUND_FLAG_NO_SPATIALIZATION     0x00000040  /* Disable spatialization. */
+typedef enum
+{
+    MA_SOUND_FLAG_STREAM                = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM,      /* 0x00000001 */
+    MA_SOUND_FLAG_DECODE                = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE,      /* 0x00000002 */
+    MA_SOUND_FLAG_ASYNC                 = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC,       /* 0x00000004 */
+    MA_SOUND_FLAG_WAIT_INIT             = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT,   /* 0x00000008 */
+    MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00000010,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+    MA_SOUND_FLAG_NO_PITCH              = 0x00000020,   /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
+    MA_SOUND_FLAG_NO_SPATIALIZATION     = 0x00000040    /* Disable spatialization. */
+} ma_sound_flags;
 
 #ifndef MA_ENGINE_MAX_LISTENERS
 #define MA_ENGINE_MAX_LISTENERS             4
@@ -66682,6 +66700,7 @@ MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 glo
 }
 
 
+#define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
 
 static ma_result ma_node_output_bus_init(ma_node* pNode, ma_uint32 outputBusIndex, ma_uint32 channels, ma_node_output_bus* pOutputBus)
 {
