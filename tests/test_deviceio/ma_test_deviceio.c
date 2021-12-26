@@ -528,10 +528,14 @@ int main(int argc, char** argv)
 
     /* Print the name of the device. */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        printf("Playback Device: %s\n", g_State.device.playback.name);
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
+        ma_device_get_name(&g_State.device, ma_device_type_playback, name, sizeof(name), NULL);
+        printf("Playback Device: %s\n", name);
     }
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
-        printf("Capture Device:  %s\n", g_State.device.capture.name);
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
+        ma_device_get_name(&g_State.device, ma_device_type_capture, name, sizeof(name), NULL);
+        printf("Capture Device:  %s\n", name);
     }
     
 

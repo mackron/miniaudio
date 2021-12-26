@@ -5931,11 +5931,15 @@ typedef struct ma_backend_callbacks ma_backend_callbacks;
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
+#ifndef MA_MAX_DEVICE_NAME_LENGTH
+#define MA_MAX_DEVICE_NAME_LENGTH   255
+#endif
+
 typedef struct
 {
     /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
-    char name[256];
+    char name[MA_MAX_DEVICE_NAME_LENGTH + 1];   /* +1 for null terminator. */
     ma_bool32 isDefault;
 
     ma_uint32 nativeDataFormatCount;
@@ -6644,7 +6648,7 @@ struct ma_device
     struct
     {
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -6665,7 +6669,7 @@ struct ma_device
     struct
     {
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -7855,7 +7859,8 @@ MA_SUCCESS if successful; any other error code otherwise.
 
 Thread Safety
 -------------
-Unsafe. This should be considered unsafe because it may be calling into the backend.
+Unsafe. This should be considered unsafe because it may be calling into the backend which may or
+may not be safe.
 
 
 Callback Safety
@@ -7864,6 +7869,59 @@ Unsafe. You should avoid calling this in the data callback because it may call i
 which may or may not be safe.
 */
 MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
+
+
+/*
+Retrieves the name of the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose information is being retrieved.
+
+type (in)
+    The device type. This parameter is required for duplex devices. When retrieving device
+    information, you are doing so for an individual playback or capture device.
+
+pName (out)
+    A pointer to the buffer that will receive the name.
+
+nameCap (in)
+    The capacity of the output buffer, including space for the null terminator.
+
+pLengthNotIncludingNullTerminator (out, optional)
+    A pointer to the variable that will receive the length of the name, not including the null
+    terminator.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This should be considered unsafe because it may be calling into the backend which may or
+may not be safe.
+
+
+Callback Safety
+---------------
+Unsafe. You should avoid calling this in the data callback because it may call into the backend
+which may or may not be safe.
+
+
+Remarks
+-------
+If the name does not fully fit into the output buffer, it'll be truncated. You can pass in NULL to
+`pName` if you want to first get the length of the name for the purpose of memory allocation of the
+output buffer. Allocating a buffer of size `MA_MAX_DEVICE_NAME_LENGTH + 1` should be enough for
+most cases and will avoid the need for the inefficiency of calling this function twice.
+
+This is implemented in terms of `ma_device_get_info()`.
+*/
+MA_API ma_result ma_device_get_name(ma_device* pDevice, ma_device_type type, char* pName, size_t nameCap, size_t* pLengthNotIncludingNullTerminator);
 
 
 /*
@@ -38634,6 +38692,45 @@ MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_
     } else {
         return ma_context_get_device_info(pDevice->pContext, type, &pDevice->capture.id, pDeviceInfo);
     }
+}
+
+MA_API ma_result ma_device_get_name(ma_device* pDevice, ma_device_type type, char* pName, size_t nameCap, size_t* pLengthNotIncludingNullTerminator)
+{
+    ma_result result;
+    ma_device_info deviceInfo;
+
+    if (pLengthNotIncludingNullTerminator != NULL) {
+        *pLengthNotIncludingNullTerminator = 0;
+    }
+
+    if (pName != NULL && nameCap > 0) {
+        pName[0] = '\0';
+    }
+
+    result = ma_device_get_info(pDevice, type, &deviceInfo);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pName != NULL) {
+        ma_strncpy_s(pName, nameCap, deviceInfo.name, (size_t)-1);
+
+        /*
+        For safety, make sure the length is based on the truncated output string rather than the
+        source. Otherwise the caller might assume the output buffer contains more content than it
+        actually does.
+        */
+        if (pLengthNotIncludingNullTerminator != NULL) {
+            *pLengthNotIncludingNullTerminator = strlen(pName);
+        }
+    } else {
+        /* Name not specified. Just report the length of the source string. */
+        if (pLengthNotIncludingNullTerminator != NULL) {
+            *pLengthNotIncludingNullTerminator = strlen(deviceInfo.name);
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_device_start(ma_device* pDevice)
@@ -88851,6 +88948,7 @@ v0.11.1 - TBD
   - Result codes are now declared as an enum rather than #defines.
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
   - Add ma_device_get_info() for retrieving device information from an initialized device.
+  - Add ma_device_get_name() for retrieving the name of an initialized device.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
