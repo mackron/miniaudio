@@ -6122,6 +6122,9 @@ callback. When the device is stopped, the `ma_device_get_state() == ma_device_st
 which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceDataLoop()` callback,
 look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceDataLoopWakeup()` callback if you need a mechanism to
 wake up the audio thread.
+
+If the backend supports an optimized retrieval of device information from an initialized `ma_device` object, it should implement the
+`onDeviceGetInfo()` callback. This is optional, in which case it will fall back to `onContextGetDeviceInfo()` which is less efficient.
 */
 struct ma_backend_callbacks
 {
@@ -6137,6 +6140,7 @@ struct ma_backend_callbacks
     ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
     ma_result (* onDeviceDataLoop)(ma_device* pDevice);
     ma_result (* onDeviceDataLoopWakeup)(ma_device* pDevice);
+    ma_result (* onDeviceGetInfo)(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
 };
 
 struct ma_context_config
@@ -7825,6 +7829,41 @@ MA_API ma_context* ma_device_get_context(ma_device* pDevice);
 Helper function for retrieving the log object associated with the context that owns this device.
 */
 MA_API ma_log* ma_device_get_log(ma_device* pDevice);
+
+
+/*
+Retrieves information about the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose information is being retrieved.
+
+type (in)
+    The device type. This parameter is required for duplex devices. When retrieving device
+    information, you are doing so for an individual playback or capture device.
+
+pDeviceInfo (out)
+    A pointer to the `ma_device_info` that will receive the device information.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This should be considered unsafe because it may be calling into the backend.
+
+
+Callback Safety
+---------------
+Unsafe. You should avoid calling this in the data callback because it may call into the backend
+which may or may not be safe.
+*/
+MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
 
 
 /*
@@ -15275,7 +15314,7 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     ma_thread_proxy_data* pProxyData;
 
     if (pThread == NULL || entryProc == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
     pProxyData = (ma_thread_proxy_data*)ma_malloc(sizeof(*pProxyData), pAllocationCallbacks);   /* Will be freed by the proxy entry proc. */
@@ -35256,6 +35295,36 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
+{
+    ma_AAudioStream* pStream = NULL;
+
+    MA_ASSERT(pDevice     != NULL);
+    MA_ASSERT(type        != ma_device_type_duplex);
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    if (type == ma_device_type_playback) {
+        pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamCapture;
+        pDeviceInfo->id.aaudio = pDevice->capture.id.aaudio;
+        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);     /* Only supporting default devices. */
+    }
+    if (type == ma_device_type_capture) {
+        pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback;
+        pDeviceInfo->id.aaudio = pDevice->playback.id.aaudio;
+        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);    /* Only supporting default devices. */
+    }
+
+    /* Safety. Should never happen. */
+    if (pStream == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pDeviceInfo->nativeDataFormatCount = 0;
+    ma_context_add_native_data_format_from_AAudioStream__aaudio(pDevice->pContext, pStream, 0, pDeviceInfo);
+
+    return MA_SUCCESS;
+}
+
 
 static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 {
@@ -35327,6 +35396,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceRead              = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceDataLoop          = NULL;   /* Not used because AAudio is asynchronous. */
+    pCallbacks->onDeviceGetInfo           = ma_device_get_info__aaudio;
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -38312,7 +38382,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_device_info deviceInfo;
 
         if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-            result = ma_context_get_device_info(pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, descriptorCapture.pDeviceID, &deviceInfo);
+            result = ma_device_get_info(pDevice, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
             } else {
@@ -38326,7 +38396,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
 
         if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, &deviceInfo);
+            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
             } else {
@@ -38539,6 +38609,31 @@ MA_API ma_context* ma_device_get_context(ma_device* pDevice)
 MA_API ma_log* ma_device_get_log(ma_device* pDevice)
 {
     return ma_context_get_log(ma_device_get_context(pDevice));
+}
+
+MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
+{
+    if (pDeviceInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pDeviceInfo);
+
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If the onDeviceGetInfo() callback is set, use that. Otherwise we'll fall back to ma_context_get_device_info(). */
+    if (pDevice->pContext->callbacks.onDeviceGetInfo != NULL) {
+        return pDevice->pContext->callbacks.onDeviceGetInfo(pDevice, type, pDeviceInfo);
+    }
+
+    /* Getting here means onDeviceGetInfo is not implemented so we need to fall back to an alternative. */
+    if (type == ma_device_type_playback) {
+        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->playback.id, pDeviceInfo);
+    } else {
+        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->capture.id, pDeviceInfo);
+    }
 }
 
 MA_API ma_result ma_device_start(ma_device* pDevice)
@@ -62983,7 +63078,7 @@ static ma_result ma_resource_manager_data_buffer_node_result(const ma_resource_m
 {
     MA_ASSERT(pDataBufferNode != NULL);
 
-    return c89atomic_load_i32((ma_result*)&pDataBufferNode->result);    /* Need a naughty const-cast here. */
+    return (ma_result)c89atomic_load_i32((ma_result*)&pDataBufferNode->result);    /* Need a naughty const-cast here. */
 }
 
 
@@ -63039,7 +63134,7 @@ static void ma_resource_manager_inline_notification_wait(ma_resource_manager_inl
     } else {
         while (ma_async_notification_poll_is_signalled(&pNotification->backend.p) == MA_FALSE) {
             ma_result result = ma_resource_manager_process_next_job(pNotification->pResourceManager);
-            if (result == MA_NO_DATA_AVAILABLE || result == MA_RESOURCE_MANAGER_JOB_QUIT) {
+            if (result == MA_NO_DATA_AVAILABLE || result == MA_CANCELLED) {
                 break;
             }
         }
@@ -64119,7 +64214,7 @@ stage2:
             if (ma_resource_manager_is_threading_enabled(pResourceManager) == MA_FALSE) {
                 while (ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_BUSY) {
                     result = ma_resource_manager_process_next_job(pResourceManager);
-                    if (result == MA_NO_DATA_AVAILABLE || result == MA_RESOURCE_MANAGER_JOB_QUIT) {
+                    if (result == MA_NO_DATA_AVAILABLE || result == MA_CANCELLED) {
                         result = MA_SUCCESS;
                         break;
                     }
@@ -64676,7 +64771,7 @@ MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return c89atomic_load_i32((ma_result*)&pDataBuffer->result);    /* Need a naughty const-cast here. */
+    return (ma_result)c89atomic_load_i32((ma_result*)&pDataBuffer->result);    /* Need a naughty const-cast here. */
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping)
@@ -65493,7 +65588,7 @@ MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return c89atomic_load_i32(&pDataStream->result);
+    return (ma_result)c89atomic_load_i32(&pDataStream->result);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
@@ -88755,6 +88850,7 @@ REVISION HISTORY
 v0.11.1 - TBD
   - Result codes are now declared as an enum rather than #defines.
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
+  - Add ma_device_get_info() for retrieving device information from an initialized device.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
