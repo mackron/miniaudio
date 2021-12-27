@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.1 - TBD
+miniaudio - v0.11.1 - 2021-12-27
 
 David Reid - mackron@gmail.com
 
@@ -3627,7 +3627,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 0
+#define MA_VERSION_REVISION 1
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -56157,7 +56157,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  32
+#define DRFLAC_VERSION_REVISION  33
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -56183,7 +56183,7 @@ typedef unsigned int            drflac_uint32;
         #pragma GCC diagnostic pop
     #endif
 #endif
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
     typedef drflac_uint64       drflac_uintptr;
 #else
     typedef drflac_uint32       drflac_uintptr;
@@ -81061,6 +81061,9 @@ static drflac_bool32 drflac__seek_to_pcm_frame__seek_table(drflac* pFlac, drflac
     if (pFlac->pSeekpoints == NULL || pFlac->seekpointCount == 0) {
         return DRFLAC_FALSE;
     }
+    if (pFlac->pSeekpoints[0].firstPCMFrame > pcmFrameIndex) {
+        return DRFLAC_FALSE;
+    }
     for (iSeekpoint = 0; iSeekpoint < pFlac->seekpointCount; ++iSeekpoint) {
         if (pFlac->pSeekpoints[iSeekpoint].firstPCMFrame >= pcmFrameIndex) {
             break;
@@ -89123,7 +89126,7 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
-v0.11.1 - TBD
+v0.11.1 - 2021-12-27
   - Result codes are now declared as an enum rather than #defines.
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
   - Add ma_device_get_info() for retrieving device information from an initialized device.

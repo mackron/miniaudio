@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.0 - 2021-12-18
+miniaudio - v0.11.1 - 2021-12-27
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 0
+#define MA_VERSION_REVISION 1
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -36,39 +36,9 @@ extern "C" {
     #endif
 #endif
   
-/* Platform/backend detection. */
-#ifdef _WIN32
-    #define MA_WIN32
-    #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
-        #define MA_WIN32_UWP
-    #else
-        #define MA_WIN32_DESKTOP
-    #endif
-#else
-    #define MA_POSIX
-    #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
 
-    #ifdef __unix__
-        #define MA_UNIX
-        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-            #define MA_BSD
-        #endif
-    #endif
-    #ifdef __linux__
-        #define MA_LINUX
-    #endif
-    #ifdef __APPLE__
-        #define MA_APPLE
-    #endif
-    #ifdef __ANDROID__
-        #define MA_ANDROID
-    #endif
-    #ifdef __EMSCRIPTEN__
-        #define MA_EMSCRIPTEN
-    #endif
-#endif
 
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
     #define MA_SIZEOF_PTR   8
 #else
     #define MA_SIZEOF_PTR   4
@@ -128,6 +98,56 @@ typedef ma_uint16 wchar_t;
     #define MA_SIZE_MAX    SIZE_MAX
 #else
     #define MA_SIZE_MAX    0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
+#endif
+
+
+/* Platform/backend detection. */
+#ifdef _WIN32
+    #define MA_WIN32
+    #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
+        #define MA_WIN32_UWP
+    #else
+        #define MA_WIN32_DESKTOP
+    #endif
+#else
+    #define MA_POSIX
+
+    /*
+    Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
+    You can use this to avoid including pthread.h in the header section. The downside is that it
+    results in some fixed sized structures being declared for the various types that are used in
+    miniaudio. The risk here is that these types might be too small for a given platform. This
+    risk is yours to take and no support will be offered if you enable this option.
+    */
+    #ifndef MA_NO_PTHREAD_IN_HEADER
+        #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
+        typedef pthread_t       ma_pthread_t;
+        typedef pthread_mutex_t ma_pthread_mutex_t;
+        typedef pthread_cond_t  ma_pthread_cond_t;
+    #else
+        typedef ma_uintptr      ma_pthread_t;
+        typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
+        typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+    #endif
+
+    #ifdef __unix__
+        #define MA_UNIX
+        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+            #define MA_BSD
+        #endif
+    #endif
+    #ifdef __linux__
+        #define MA_LINUX
+    #endif
+    #ifdef __APPLE__
+        #define MA_APPLE
+    #endif
+    #ifdef __ANDROID__
+        #define MA_ANDROID
+    #endif
+    #ifdef __EMSCRIPTEN__
+        #define MA_EMSCRIPTEN
+    #endif
 #endif
 
 
@@ -247,148 +267,152 @@ typedef struct ma_context ma_context;
 typedef struct ma_device ma_device;
 
 typedef ma_uint8 ma_channel;
-#define MA_CHANNEL_NONE                                0
-#define MA_CHANNEL_MONO                                1
-#define MA_CHANNEL_FRONT_LEFT                          2
-#define MA_CHANNEL_FRONT_RIGHT                         3
-#define MA_CHANNEL_FRONT_CENTER                        4
-#define MA_CHANNEL_LFE                                 5
-#define MA_CHANNEL_BACK_LEFT                           6
-#define MA_CHANNEL_BACK_RIGHT                          7
-#define MA_CHANNEL_FRONT_LEFT_CENTER                   8
-#define MA_CHANNEL_FRONT_RIGHT_CENTER                  9
-#define MA_CHANNEL_BACK_CENTER                         10
-#define MA_CHANNEL_SIDE_LEFT                           11
-#define MA_CHANNEL_SIDE_RIGHT                          12
-#define MA_CHANNEL_TOP_CENTER                          13
-#define MA_CHANNEL_TOP_FRONT_LEFT                      14
-#define MA_CHANNEL_TOP_FRONT_CENTER                    15
-#define MA_CHANNEL_TOP_FRONT_RIGHT                     16
-#define MA_CHANNEL_TOP_BACK_LEFT                       17
-#define MA_CHANNEL_TOP_BACK_CENTER                     18
-#define MA_CHANNEL_TOP_BACK_RIGHT                      19
-#define MA_CHANNEL_AUX_0                               20
-#define MA_CHANNEL_AUX_1                               21
-#define MA_CHANNEL_AUX_2                               22
-#define MA_CHANNEL_AUX_3                               23
-#define MA_CHANNEL_AUX_4                               24
-#define MA_CHANNEL_AUX_5                               25
-#define MA_CHANNEL_AUX_6                               26
-#define MA_CHANNEL_AUX_7                               27
-#define MA_CHANNEL_AUX_8                               28
-#define MA_CHANNEL_AUX_9                               29
-#define MA_CHANNEL_AUX_10                              30
-#define MA_CHANNEL_AUX_11                              31
-#define MA_CHANNEL_AUX_12                              32
-#define MA_CHANNEL_AUX_13                              33
-#define MA_CHANNEL_AUX_14                              34
-#define MA_CHANNEL_AUX_15                              35
-#define MA_CHANNEL_AUX_16                              36
-#define MA_CHANNEL_AUX_17                              37
-#define MA_CHANNEL_AUX_18                              38
-#define MA_CHANNEL_AUX_19                              39
-#define MA_CHANNEL_AUX_20                              40
-#define MA_CHANNEL_AUX_21                              41
-#define MA_CHANNEL_AUX_22                              42
-#define MA_CHANNEL_AUX_23                              43
-#define MA_CHANNEL_AUX_24                              44
-#define MA_CHANNEL_AUX_25                              45
-#define MA_CHANNEL_AUX_26                              46
-#define MA_CHANNEL_AUX_27                              47
-#define MA_CHANNEL_AUX_28                              48
-#define MA_CHANNEL_AUX_29                              49
-#define MA_CHANNEL_AUX_30                              50
-#define MA_CHANNEL_AUX_31                              51
-#define MA_CHANNEL_LEFT                                MA_CHANNEL_FRONT_LEFT
-#define MA_CHANNEL_RIGHT                               MA_CHANNEL_FRONT_RIGHT
-#define MA_CHANNEL_POSITION_COUNT                      (MA_CHANNEL_AUX_31 + 1)
+typedef enum
+{
+    MA_CHANNEL_NONE               = 0,
+    MA_CHANNEL_MONO               = 1,
+    MA_CHANNEL_FRONT_LEFT         = 2,
+    MA_CHANNEL_FRONT_RIGHT        = 3,
+    MA_CHANNEL_FRONT_CENTER       = 4,
+    MA_CHANNEL_LFE                = 5,
+    MA_CHANNEL_BACK_LEFT          = 6,
+    MA_CHANNEL_BACK_RIGHT         = 7,
+    MA_CHANNEL_FRONT_LEFT_CENTER  = 8,
+    MA_CHANNEL_FRONT_RIGHT_CENTER = 9,
+    MA_CHANNEL_BACK_CENTER        = 10,
+    MA_CHANNEL_SIDE_LEFT          = 11,
+    MA_CHANNEL_SIDE_RIGHT         = 12,
+    MA_CHANNEL_TOP_CENTER         = 13,
+    MA_CHANNEL_TOP_FRONT_LEFT     = 14,
+    MA_CHANNEL_TOP_FRONT_CENTER   = 15,
+    MA_CHANNEL_TOP_FRONT_RIGHT    = 16,
+    MA_CHANNEL_TOP_BACK_LEFT      = 17,
+    MA_CHANNEL_TOP_BACK_CENTER    = 18,
+    MA_CHANNEL_TOP_BACK_RIGHT     = 19,
+    MA_CHANNEL_AUX_0              = 20,
+    MA_CHANNEL_AUX_1              = 21,
+    MA_CHANNEL_AUX_2              = 22,
+    MA_CHANNEL_AUX_3              = 23,
+    MA_CHANNEL_AUX_4              = 24,
+    MA_CHANNEL_AUX_5              = 25,
+    MA_CHANNEL_AUX_6              = 26,
+    MA_CHANNEL_AUX_7              = 27,
+    MA_CHANNEL_AUX_8              = 28,
+    MA_CHANNEL_AUX_9              = 29,
+    MA_CHANNEL_AUX_10             = 30,
+    MA_CHANNEL_AUX_11             = 31,
+    MA_CHANNEL_AUX_12             = 32,
+    MA_CHANNEL_AUX_13             = 33,
+    MA_CHANNEL_AUX_14             = 34,
+    MA_CHANNEL_AUX_15             = 35,
+    MA_CHANNEL_AUX_16             = 36,
+    MA_CHANNEL_AUX_17             = 37,
+    MA_CHANNEL_AUX_18             = 38,
+    MA_CHANNEL_AUX_19             = 39,
+    MA_CHANNEL_AUX_20             = 40,
+    MA_CHANNEL_AUX_21             = 41,
+    MA_CHANNEL_AUX_22             = 42,
+    MA_CHANNEL_AUX_23             = 43,
+    MA_CHANNEL_AUX_24             = 44,
+    MA_CHANNEL_AUX_25             = 45,
+    MA_CHANNEL_AUX_26             = 46,
+    MA_CHANNEL_AUX_27             = 47,
+    MA_CHANNEL_AUX_28             = 48,
+    MA_CHANNEL_AUX_29             = 49,
+    MA_CHANNEL_AUX_30             = 50,
+    MA_CHANNEL_AUX_31             = 51,
+    MA_CHANNEL_LEFT               = MA_CHANNEL_FRONT_LEFT,
+    MA_CHANNEL_RIGHT              = MA_CHANNEL_FRONT_RIGHT,
+    MA_CHANNEL_POSITION_COUNT     = (MA_CHANNEL_AUX_31 + 1)
+} _ma_channel_position; /* Do not use `_ma_channel_position` directly. Use `ma_channel` instead. */
+
+typedef enum
+{
+    MA_SUCCESS                        =  0,
+    MA_ERROR                          = -1,  /* A generic error. */
+    MA_INVALID_ARGS                   = -2,
+    MA_INVALID_OPERATION              = -3,
+    MA_OUT_OF_MEMORY                  = -4,
+    MA_OUT_OF_RANGE                   = -5,
+    MA_ACCESS_DENIED                  = -6,
+    MA_DOES_NOT_EXIST                 = -7,
+    MA_ALREADY_EXISTS                 = -8,
+    MA_TOO_MANY_OPEN_FILES            = -9,
+    MA_INVALID_FILE                   = -10,
+    MA_TOO_BIG                        = -11,
+    MA_PATH_TOO_LONG                  = -12,
+    MA_NAME_TOO_LONG                  = -13,
+    MA_NOT_DIRECTORY                  = -14,
+    MA_IS_DIRECTORY                   = -15,
+    MA_DIRECTORY_NOT_EMPTY            = -16,
+    MA_AT_END                         = -17,
+    MA_NO_SPACE                       = -18,
+    MA_BUSY                           = -19,
+    MA_IO_ERROR                       = -20,
+    MA_INTERRUPT                      = -21,
+    MA_UNAVAILABLE                    = -22,
+    MA_ALREADY_IN_USE                 = -23,
+    MA_BAD_ADDRESS                    = -24,
+    MA_BAD_SEEK                       = -25,
+    MA_BAD_PIPE                       = -26,
+    MA_DEADLOCK                       = -27,
+    MA_TOO_MANY_LINKS                 = -28,
+    MA_NOT_IMPLEMENTED                = -29,
+    MA_NO_MESSAGE                     = -30,
+    MA_BAD_MESSAGE                    = -31,
+    MA_NO_DATA_AVAILABLE              = -32,
+    MA_INVALID_DATA                   = -33,
+    MA_TIMEOUT                        = -34,
+    MA_NO_NETWORK                     = -35,
+    MA_NOT_UNIQUE                     = -36,
+    MA_NOT_SOCKET                     = -37,
+    MA_NO_ADDRESS                     = -38,
+    MA_BAD_PROTOCOL                   = -39,
+    MA_PROTOCOL_UNAVAILABLE           = -40,
+    MA_PROTOCOL_NOT_SUPPORTED         = -41,
+    MA_PROTOCOL_FAMILY_NOT_SUPPORTED  = -42,
+    MA_ADDRESS_FAMILY_NOT_SUPPORTED   = -43,
+    MA_SOCKET_NOT_SUPPORTED           = -44,
+    MA_CONNECTION_RESET               = -45,
+    MA_ALREADY_CONNECTED              = -46,
+    MA_NOT_CONNECTED                  = -47,
+    MA_CONNECTION_REFUSED             = -48,
+    MA_NO_HOST                        = -49,
+    MA_IN_PROGRESS                    = -50,
+    MA_CANCELLED                      = -51,
+    MA_MEMORY_ALREADY_MAPPED          = -52,
+
+    /* General miniaudio-specific errors. */
+    MA_FORMAT_NOT_SUPPORTED           = -100,
+    MA_DEVICE_TYPE_NOT_SUPPORTED      = -101,
+    MA_SHARE_MODE_NOT_SUPPORTED       = -102,
+    MA_NO_BACKEND                     = -103,
+    MA_NO_DEVICE                      = -104,
+    MA_API_NOT_FOUND                  = -105,
+    MA_INVALID_DEVICE_CONFIG          = -106,
+    MA_LOOP                           = -107,
+
+    /* State errors. */
+    MA_DEVICE_NOT_INITIALIZED         = -200,
+    MA_DEVICE_ALREADY_INITIALIZED     = -201,
+    MA_DEVICE_NOT_STARTED             = -202,
+    MA_DEVICE_NOT_STOPPED             = -203,
+
+    /* Operation errors. */
+    MA_FAILED_TO_INIT_BACKEND         = -300,
+    MA_FAILED_TO_OPEN_BACKEND_DEVICE  = -301,
+    MA_FAILED_TO_START_BACKEND_DEVICE = -302,
+    MA_FAILED_TO_STOP_BACKEND_DEVICE  = -303
+} ma_result;
 
 
-typedef int ma_result;
-#define MA_SUCCESS                                      0
-#define MA_ERROR                                       -1   /* A generic error. */
-#define MA_INVALID_ARGS                                -2
-#define MA_INVALID_OPERATION                           -3
-#define MA_OUT_OF_MEMORY                               -4
-#define MA_OUT_OF_RANGE                                -5
-#define MA_ACCESS_DENIED                               -6
-#define MA_DOES_NOT_EXIST                              -7
-#define MA_ALREADY_EXISTS                              -8
-#define MA_TOO_MANY_OPEN_FILES                         -9
-#define MA_INVALID_FILE                                -10
-#define MA_TOO_BIG                                     -11
-#define MA_PATH_TOO_LONG                               -12
-#define MA_NAME_TOO_LONG                               -13
-#define MA_NOT_DIRECTORY                               -14
-#define MA_IS_DIRECTORY                                -15
-#define MA_DIRECTORY_NOT_EMPTY                         -16
-#define MA_AT_END                                      -17
-#define MA_NO_SPACE                                    -18
-#define MA_BUSY                                        -19
-#define MA_IO_ERROR                                    -20
-#define MA_INTERRUPT                                   -21
-#define MA_UNAVAILABLE                                 -22
-#define MA_ALREADY_IN_USE                              -23
-#define MA_BAD_ADDRESS                                 -24
-#define MA_BAD_SEEK                                    -25
-#define MA_BAD_PIPE                                    -26
-#define MA_DEADLOCK                                    -27
-#define MA_TOO_MANY_LINKS                              -28
-#define MA_NOT_IMPLEMENTED                             -29
-#define MA_NO_MESSAGE                                  -30
-#define MA_BAD_MESSAGE                                 -31
-#define MA_NO_DATA_AVAILABLE                           -32
-#define MA_INVALID_DATA                                -33
-#define MA_TIMEOUT                                     -34
-#define MA_NO_NETWORK                                  -35
-#define MA_NOT_UNIQUE                                  -36
-#define MA_NOT_SOCKET                                  -37
-#define MA_NO_ADDRESS                                  -38
-#define MA_BAD_PROTOCOL                                -39
-#define MA_PROTOCOL_UNAVAILABLE                        -40
-#define MA_PROTOCOL_NOT_SUPPORTED                      -41
-#define MA_PROTOCOL_FAMILY_NOT_SUPPORTED               -42
-#define MA_ADDRESS_FAMILY_NOT_SUPPORTED                -43
-#define MA_SOCKET_NOT_SUPPORTED                        -44
-#define MA_CONNECTION_RESET                            -45
-#define MA_ALREADY_CONNECTED                           -46
-#define MA_NOT_CONNECTED                               -47
-#define MA_CONNECTION_REFUSED                          -48
-#define MA_NO_HOST                                     -49
-#define MA_IN_PROGRESS                                 -50
-#define MA_CANCELLED                                   -51
-#define MA_MEMORY_ALREADY_MAPPED                       -52
-
-/* General miniaudio-specific errors. */
-#define MA_FORMAT_NOT_SUPPORTED                        -100
-#define MA_DEVICE_TYPE_NOT_SUPPORTED                   -101
-#define MA_SHARE_MODE_NOT_SUPPORTED                    -102
-#define MA_NO_BACKEND                                  -103
-#define MA_NO_DEVICE                                   -104
-#define MA_API_NOT_FOUND                               -105
-#define MA_INVALID_DEVICE_CONFIG                       -106
-#define MA_LOOP                                        -107
-
-/* State errors. */
-#define MA_DEVICE_NOT_INITIALIZED                      -200
-#define MA_DEVICE_ALREADY_INITIALIZED                  -201
-#define MA_DEVICE_NOT_STARTED                          -202
-#define MA_DEVICE_NOT_STOPPED                          -203
-
-/* Operation errors. */
-#define MA_FAILED_TO_INIT_BACKEND                      -300
-#define MA_FAILED_TO_OPEN_BACKEND_DEVICE               -301
-#define MA_FAILED_TO_START_BACKEND_DEVICE              -302
-#define MA_FAILED_TO_STOP_BACKEND_DEVICE               -303
-
-
-#define MA_MIN_CHANNELS                                1
-#ifndef MA_MAX_CHANNELS
-#define MA_MAX_CHANNELS                                254
+#define MA_MIN_CHANNELS                 1
+#ifndef MA_MAX_CHANNELS                 
+#define MA_MAX_CHANNELS                 254
 #endif
 
 #ifndef MA_MAX_FILTER_ORDER
-#define MA_MAX_FILTER_ORDER                            8
+#define MA_MAX_FILTER_ORDER             8
 #endif
 
 typedef enum
@@ -515,14 +539,14 @@ typedef enum
 typedef ma_handle ma_thread;
 #endif
 #if defined(MA_POSIX)
-typedef pthread_t ma_thread;
+typedef ma_pthread_t ma_thread;
 #endif
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_mutex;
 #endif
 #if defined(MA_POSIX)
-typedef pthread_mutex_t ma_mutex;
+typedef ma_pthread_mutex_t ma_mutex;
 #endif
 
 #if defined(MA_WIN32)
@@ -532,8 +556,8 @@ typedef ma_handle ma_event;
 typedef struct
 {
     ma_uint32 value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    ma_pthread_mutex_t lock;
+    ma_pthread_cond_t cond;
 } ma_event;
 #endif  /* MA_POSIX */
 
@@ -544,8 +568,8 @@ typedef ma_handle ma_semaphore;
 typedef struct
 {
     int value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    ma_pthread_mutex_t lock;
+    ma_pthread_cond_t cond;
 } ma_semaphore;
 #endif  /* MA_POSIX */
 #else
@@ -1280,7 +1304,8 @@ typedef struct
     float coneInnerAngleInRadians;
     float coneOuterAngleInRadians;
     float coneOuterGain;
-    float dopplerFactor;                /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. */
+    float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
@@ -1327,12 +1352,15 @@ MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAng
 MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_spatializer_set_doppler_factor(ma_spatializer* pSpatializer, float dopplerFactor);
 MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pSpatializer, float directionalAttenuationFactor);
+MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener, ma_vec3f* pRelativePos, ma_vec3f* pRelativeDir);
 
 
 
@@ -2320,11 +2348,15 @@ typedef struct ma_backend_callbacks ma_backend_callbacks;
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
+#ifndef MA_MAX_DEVICE_NAME_LENGTH
+#define MA_MAX_DEVICE_NAME_LENGTH   255
+#endif
+
 typedef struct
 {
     /* Basic info. This is the only information guaranteed to be filled in during device enumeration. */
     ma_device_id id;
-    char name[256];
+    char name[MA_MAX_DEVICE_NAME_LENGTH + 1];   /* +1 for null terminator. */
     ma_bool32 isDefault;
 
     ma_uint32 nativeDataFormatCount;
@@ -2469,7 +2501,7 @@ callbacks defined in this structure.
 Once the context has been initialized you can initialize a device. Before doing so, however, the application may want to know which
 physical devices are available. This is where `onContextEnumerateDevices()` comes in. This is fairly simple. For each device, fire the
 given callback with, at a minimum, the basic information filled out in `ma_device_info`. When the callback returns `MA_FALSE`, enumeration
-needs to stop and the `onContextEnumerateDevices()` function return with a success code.
+needs to stop and the `onContextEnumerateDevices()` function returns with a success code.
 
 Detailed device information can be retrieved from a device ID using `onContextGetDeviceInfo()`. This takes as input the device type and ID,
 and on output returns detailed information about the device in `ma_device_info`. The `onContextGetDeviceInfo()` callback must handle the
@@ -2511,6 +2543,9 @@ callback. When the device is stopped, the `ma_device_get_state() == ma_device_st
 which will then fall through to the part that stops the device. For an example on how to implement the `onDeviceDataLoop()` callback,
 look at `ma_device_audio_thread__default_read_write()`. Implement the `onDeviceDataLoopWakeup()` callback if you need a mechanism to
 wake up the audio thread.
+
+If the backend supports an optimized retrieval of device information from an initialized `ma_device` object, it should implement the
+`onDeviceGetInfo()` callback. This is optional, in which case it will fall back to `onContextGetDeviceInfo()` which is less efficient.
 */
 struct ma_backend_callbacks
 {
@@ -2526,6 +2561,7 @@ struct ma_backend_callbacks
     ma_result (* onDeviceWrite)(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
     ma_result (* onDeviceDataLoop)(ma_device* pDevice);
     ma_result (* onDeviceDataLoopWakeup)(ma_device* pDevice);
+    ma_result (* onDeviceGetInfo)(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
 };
 
 struct ma_context_config
@@ -3029,7 +3065,7 @@ struct ma_device
     struct
     {
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -3050,7 +3086,7 @@ struct ma_device
     struct
     {
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[256];                     /* Maybe temporary. Likely to be replaced with a query API. */
+        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -4217,6 +4253,95 @@ MA_API ma_log* ma_device_get_log(ma_device* pDevice);
 
 
 /*
+Retrieves information about the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose information is being retrieved.
+
+type (in)
+    The device type. This parameter is required for duplex devices. When retrieving device
+    information, you are doing so for an individual playback or capture device.
+
+pDeviceInfo (out)
+    A pointer to the `ma_device_info` that will receive the device information.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This should be considered unsafe because it may be calling into the backend which may or
+may not be safe.
+
+
+Callback Safety
+---------------
+Unsafe. You should avoid calling this in the data callback because it may call into the backend
+which may or may not be safe.
+*/
+MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
+
+
+/*
+Retrieves the name of the device.
+
+
+Parameters
+----------
+pDevice (in)
+    A pointer to the device whose information is being retrieved.
+
+type (in)
+    The device type. This parameter is required for duplex devices. When retrieving device
+    information, you are doing so for an individual playback or capture device.
+
+pName (out)
+    A pointer to the buffer that will receive the name.
+
+nameCap (in)
+    The capacity of the output buffer, including space for the null terminator.
+
+pLengthNotIncludingNullTerminator (out, optional)
+    A pointer to the variable that will receive the length of the name, not including the null
+    terminator.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error code otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This should be considered unsafe because it may be calling into the backend which may or
+may not be safe.
+
+
+Callback Safety
+---------------
+Unsafe. You should avoid calling this in the data callback because it may call into the backend
+which may or may not be safe.
+
+
+Remarks
+-------
+If the name does not fully fit into the output buffer, it'll be truncated. You can pass in NULL to
+`pName` if you want to first get the length of the name for the purpose of memory allocation of the
+output buffer. Allocating a buffer of size `MA_MAX_DEVICE_NAME_LENGTH + 1` should be enough for
+most cases and will avoid the need for the inefficiency of calling this function twice.
+
+This is implemented in terms of `ma_device_get_info()`.
+*/
+MA_API ma_result ma_device_get_name(ma_device* pDevice, ma_device_type type, char* pName, size_t nameCap, size_t* pLengthNotIncludingNullTerminator);
+
+
+/*
 Starts the device. For playback devices this begins playback. For capture devices it begins recording.
 
 Use `ma_device_stop()` to stop the device.
@@ -5269,8 +5394,11 @@ appropriate for a given situation.
 typedef void      ma_vfs;
 typedef ma_handle ma_vfs_file;
 
-#define MA_OPEN_MODE_READ   0x00000001
-#define MA_OPEN_MODE_WRITE  0x00000002
+typedef enum
+{
+    MA_OPEN_MODE_READ  = 0x00000001,
+    MA_OPEN_MODE_WRITE = 0x00000002
+} ma_open_mode_flags;
 
 typedef enum
 {
@@ -5666,22 +5794,28 @@ typedef struct ma_resource_manager_data_buffer      ma_resource_manager_data_buf
 typedef struct ma_resource_manager_data_stream      ma_resource_manager_data_stream;
 typedef struct ma_resource_manager_data_source      ma_resource_manager_data_source;
 
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM     0x00000001  /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE     0x00000002  /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC      0x00000004  /* When set, the resource manager will load the data source asynchronously. */
-#define MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT  0x00000008  /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+typedef enum
+{
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM    = 0x00000001,    /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE    = 0x00000002,    /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC     = 0x00000004,    /* When set, the resource manager will load the data source asynchronously. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+} ma_resource_manager_data_source_flags;
 
-#define MA_RESOURCE_MANAGER_JOB_QUIT                    0x00000000
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE   0x00000001
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE   0x00000002
-#define MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE   0x00000003
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER        0x00000004
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER        0x00000005
-#define MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM        0x00000006
-#define MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM        0x00000007
-#define MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM        0x00000008
-#define MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM        0x00000009
-#define MA_RESOURCE_MANAGER_JOB_CUSTOM                  0x00000100  /* Number your custom job codes as (MA_RESOURCE_MANAGER_JOB_CUSTOM + 0), (MA_RESOURCE_MANAGER_JOB_CUSTOM + 1), etc. */
+typedef enum
+{
+    MA_RESOURCE_MANAGER_JOB_QUIT                   = 0x00000000,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE  = 0x00000001,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE  = 0x00000002,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE  = 0x00000003,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER       = 0x00000004,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER       = 0x00000005,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM       = 0x00000006,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
+    MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009,
+    MA_RESOURCE_MANAGER_JOB_CUSTOM                 = 0x00000100  /* Number your custom job codes as (MA_RESOURCE_MANAGER_JOB_CUSTOM + 0), (MA_RESOURCE_MANAGER_JOB_CUSTOM + 1), etc. */
+} ma_resource_manager_job_type;
 
 
 /*
@@ -5804,7 +5938,10 @@ ma_resource_manager_job_queue_post(). ma_resource_manager_job_queue_next() will 
 
 This flag should always be used for platforms that do not support multithreading.
 */
-#define MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING  0x00000001
+typedef enum
+{
+    MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
+} ma_resource_manager_job_queue_flags;
 
 typedef struct
 {
@@ -5848,12 +5985,14 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
 #define MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT    64
 #endif
 
-/* Indicates ma_resource_manager_next_job() should not block. Only valid when the job thread count is 0. */
-#define MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING   0x00000001
+typedef enum
+{
+    /* Indicates ma_resource_manager_next_job() should not block. Only valid when the job thread count is 0. */
+    MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING = 0x00000001,
 
-/* Disables any kind of multithreading. Implicitly enables MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING. */
-#define MA_RESOURCE_MANAGER_FLAG_NO_THREADING   0x00000002
-
+    /* Disables any kind of multithreading. Implicitly enables MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING. */
+    MA_RESOURCE_MANAGER_FLAG_NO_THREADING = 0x00000002
+} ma_resource_manager_flags;
 
 typedef struct
 {
@@ -6113,10 +6252,13 @@ typedef void ma_node;
 
 
 /* Node flags. */
-#define MA_NODE_FLAG_PASSTHROUGH                0x00000001
-#define MA_NODE_FLAG_CONTINUOUS_PROCESSING      0x00000002
-#define MA_NODE_FLAG_ALLOW_NULL_INPUT           0x00000004
-#define MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES 0x00000008
+typedef enum
+{
+    MA_NODE_FLAG_PASSTHROUGH                = 0x00000001,
+    MA_NODE_FLAG_CONTINUOUS_PROCESSING      = 0x00000002,
+    MA_NODE_FLAG_ALLOW_NULL_INPUT           = 0x00000004,
+    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008
+} ma_node_flags;
 
 
 /* The playback state of a node. Either started or stopped. */
@@ -6132,7 +6274,7 @@ typedef struct
     /*
     Extended processing callback. This callback is used for effects that process input and output
     at different rates (i.e. they perform resampling). This is similar to the simple version, only
-    they take two sepate frame counts: one for input, and one for output.
+    they take two seperate frame counts: one for input, and one for output.
 
     On input, `pFrameCountOut` is equal to the capacity of the output buffer for each bus, whereas
     `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.
@@ -6187,8 +6329,6 @@ MA_API ma_node_config ma_node_config_init(void);
 A node has multiple output buses. An output bus is attached to an input bus as an item in a linked
 list. Think of the input bus as a linked list, with the output bus being an item in that list.
 */
-#define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
-
 typedef struct ma_node_output_bus ma_node_output_bus;
 struct ma_node_output_bus
 {
@@ -6199,7 +6339,7 @@ struct ma_node_output_bus
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
     MA_ATOMIC(1, ma_uint8) inputNodeInputBusIndex;          /* The index of the input bus on the input. Required for detaching. */
-    MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. */
+    MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. A combination of MA_NODE_OUTPUT_BUS_FLAG_*. */
     MA_ATOMIC(4, ma_uint32) refCount;                       /* Reference count for some thread-safety when detaching. */
     MA_ATOMIC(4, ma_bool32) isAttached;                     /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
     MA_ATOMIC(4, ma_spinlock) lock;                         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
@@ -6569,13 +6709,16 @@ typedef struct ma_sound  ma_sound;
 
 
 /* Sound flags. */
-#define MA_SOUND_FLAG_STREAM                MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM      /* 0x00000001 */
-#define MA_SOUND_FLAG_DECODE                MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE      /* 0x00000002 */
-#define MA_SOUND_FLAG_ASYNC                 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC       /* 0x00000004 */
-#define MA_SOUND_FLAG_WAIT_INIT             MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT   /* 0x00000008 */
-#define MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT 0x00000010  /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
-#define MA_SOUND_FLAG_NO_PITCH              0x00000020  /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
-#define MA_SOUND_FLAG_NO_SPATIALIZATION     0x00000040  /* Disable spatialization. */
+typedef enum
+{
+    MA_SOUND_FLAG_STREAM                = 0x00000001,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM */
+    MA_SOUND_FLAG_DECODE                = 0x00000002,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE */
+    MA_SOUND_FLAG_ASYNC                 = 0x00000004,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC */
+    MA_SOUND_FLAG_WAIT_INIT             = 0x00000008,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT */
+    MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00000010,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+    MA_SOUND_FLAG_NO_PITCH              = 0x00000020,   /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
+    MA_SOUND_FLAG_NO_SPATIALIZATION     = 0x00000040    /* Disable spatialization. */
+} ma_sound_flags;
 
 #ifndef MA_ENGINE_MAX_LISTENERS
 #define MA_ENGINE_MAX_LISTENERS             4
@@ -6802,6 +6945,8 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
 MA_API ma_bool32 ma_sound_is_spatialization_enabled(const ma_sound* pSound);
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
+MA_API ma_uint32 ma_sound_get_listener_index(const ma_sound* pSound);
+MA_API ma_vec3f ma_sound_get_direction_to_listener(const ma_sound* pSound);
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
 MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
@@ -6826,6 +6971,8 @@ MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor);
 MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound);
+MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float directionalAttenuationFactor);
+MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound);
 MA_API void ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API float ma_sound_get_current_fade_volume(ma_sound* pSound);
@@ -6861,6 +7008,8 @@ MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma
 MA_API ma_bool32 ma_sound_group_is_spatialization_enabled(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
+MA_API ma_uint32 ma_sound_group_get_listener_index(const ma_sound_group* pGroup);
+MA_API ma_vec3f ma_sound_group_get_direction_to_listener(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
@@ -6885,6 +7034,8 @@ MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRa
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor);
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_directional_attenuation_factor(ma_sound_group* pGroup, float directionalAttenuationFactor);
+MA_API float ma_sound_group_get_directional_attenuation_factor(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API float ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup);

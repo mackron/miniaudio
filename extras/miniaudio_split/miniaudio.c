@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.0 - 2021-12-18
+miniaudio - v0.11.1 - 2021-12-27
 
 David Reid - mackron@gmail.com
 
@@ -34,6 +34,7 @@ GitHub:        https://github.com/mackron/miniaudio
 #include <string.h>     /* For memset() */
 #include <sched.h>
 #include <sys/time.h>   /* select() (used for ma_sleep()). */
+#include <pthread.h>
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
@@ -4536,7 +4537,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     (void)stackSize;
 #endif
 
-    result = pthread_create(pThread, pAttr, entryProc, pData);
+    result = pthread_create((pthread_t*)pThread, pAttr, entryProc, pData);
 
     /* The thread attributes object is no longer required. */
     if (pAttr != NULL) {
@@ -4552,8 +4553,8 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
-    pthread_join(*pThread, NULL);
-    pthread_detach(*pThread);
+    pthread_join((pthread_t)*pThread, NULL);
+    pthread_detach((pthread_t)*pThread);
 }
 
 
@@ -4587,14 +4588,14 @@ static ma_result ma_event_init__posix(ma_event* pEvent)
 {
     int result;
 
-    result = pthread_mutex_init(&pEvent->lock, NULL);
+    result = pthread_mutex_init((pthread_mutex_t*)&pEvent->lock, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
 
-    result = pthread_cond_init(&pEvent->cond, NULL);
+    result = pthread_cond_init((pthread_cond_t*)&pEvent->cond, NULL);
     if (result != 0) {
-        pthread_mutex_destroy(&pEvent->lock);
+        pthread_mutex_destroy((pthread_mutex_t*)&pEvent->lock);
         return ma_result_from_errno(result);
     }
 
@@ -4604,32 +4605,32 @@ static ma_result ma_event_init__posix(ma_event* pEvent)
 
 static void ma_event_uninit__posix(ma_event* pEvent)
 {
-    pthread_cond_destroy(&pEvent->cond);
-    pthread_mutex_destroy(&pEvent->lock);
+    pthread_cond_destroy((pthread_cond_t*)&pEvent->cond);
+    pthread_mutex_destroy((pthread_mutex_t*)&pEvent->lock);
 }
 
 static ma_result ma_event_wait__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pEvent->lock);
     {
         while (pEvent->value == 0) {
-            pthread_cond_wait(&pEvent->cond, &pEvent->lock);
+            pthread_cond_wait((pthread_cond_t*)&pEvent->cond, (pthread_mutex_t*)&pEvent->lock);
         }
         pEvent->value = 0;  /* Auto-reset. */
     }
-    pthread_mutex_unlock(&pEvent->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pEvent->lock);
 
     return MA_SUCCESS;
 }
 
 static ma_result ma_event_signal__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pEvent->lock);
     {
         pEvent->value = 1;
-        pthread_cond_signal(&pEvent->cond);
+        pthread_cond_signal((pthread_cond_t*)&pEvent->cond);
     }
-    pthread_mutex_unlock(&pEvent->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pEvent->lock);
 
     return MA_SUCCESS;
 }
@@ -4645,14 +4646,14 @@ static ma_result ma_semaphore_init__posix(int initialValue, ma_semaphore* pSemap
 
     pSemaphore->value = initialValue;
 
-    result = pthread_mutex_init(&pSemaphore->lock, NULL);
+    result = pthread_mutex_init((pthread_mutex_t*)&pSemaphore->lock, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);  /* Failed to create mutex. */
     }
 
-    result = pthread_cond_init(&pSemaphore->cond, NULL);
+    result = pthread_cond_init((pthread_cond_t*)&pSemaphore->cond, NULL);
     if (result != 0) {
-        pthread_mutex_destroy(&pSemaphore->lock);
+        pthread_mutex_destroy((pthread_mutex_t*)&pSemaphore->lock);
         return ma_result_from_errno(result);  /* Failed to create condition variable. */
     }
 
@@ -4665,8 +4666,8 @@ static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
         return;
     }
 
-    pthread_cond_destroy(&pSemaphore->cond);
-    pthread_mutex_destroy(&pSemaphore->lock);
+    pthread_cond_destroy((pthread_cond_t*)&pSemaphore->cond);
+    pthread_mutex_destroy((pthread_mutex_t*)&pSemaphore->lock);
 }
 
 static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
@@ -4675,16 +4676,16 @@ static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-    pthread_mutex_lock(&pSemaphore->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pSemaphore->lock);
     {
         /* We need to wait on a condition variable before escaping. We can't return from this function until the semaphore has been signaled. */
         while (pSemaphore->value == 0) {
-            pthread_cond_wait(&pSemaphore->cond, &pSemaphore->lock);
+            pthread_cond_wait((pthread_cond_t*)&pSemaphore->cond, (pthread_mutex_t*)&pSemaphore->lock);
         }
 
         pSemaphore->value -= 1;
     }
-    pthread_mutex_unlock(&pSemaphore->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pSemaphore->lock);
 
     return MA_SUCCESS;
 }
@@ -4695,12 +4696,12 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-    pthread_mutex_lock(&pSemaphore->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pSemaphore->lock);
     {
         pSemaphore->value += 1;
-        pthread_cond_signal(&pSemaphore->cond);
+        pthread_cond_signal((pthread_cond_t*)&pSemaphore->cond);
     }
-    pthread_mutex_unlock(&pSemaphore->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pSemaphore->lock);
 
     return MA_SUCCESS;
 }
@@ -4745,7 +4746,7 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     ma_thread_proxy_data* pProxyData;
 
     if (pThread == NULL || entryProc == NULL) {
-        return MA_FALSE;
+        return MA_INVALID_ARGS;
     }
 
     pProxyData = (ma_thread_proxy_data*)ma_malloc(sizeof(*pProxyData), pAllocationCallbacks);   /* Will be freed by the proxy entry proc. */
@@ -24370,8 +24371,9 @@ static ma_result ma_open_stream__aaudio(ma_device* pDevice, const ma_device_conf
     ma_result result;
     ma_AAudioStreamBuilder* pBuilder;
 
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pConfig->deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pDescriptor != NULL);
+    MA_ASSERT(deviceType != ma_device_type_duplex);   /* This function should not be called for a full-duplex device type. */
 
     *ppStream = NULL;
 
@@ -24586,12 +24588,6 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    /* No exclusive mode with AAudio. */
-    if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
-        ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
-        return MA_SHARE_MODE_NOT_SUPPORTED;
-    }
-
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
         if (result != MA_SUCCESS) {
@@ -24731,6 +24727,36 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
+static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
+{
+    ma_AAudioStream* pStream = NULL;
+
+    MA_ASSERT(pDevice     != NULL);
+    MA_ASSERT(type        != ma_device_type_duplex);
+    MA_ASSERT(pDeviceInfo != NULL);
+
+    if (type == ma_device_type_playback) {
+        pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamCapture;
+        pDeviceInfo->id.aaudio = pDevice->capture.id.aaudio;
+        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);     /* Only supporting default devices. */
+    }
+    if (type == ma_device_type_capture) {
+        pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback;
+        pDeviceInfo->id.aaudio = pDevice->playback.id.aaudio;
+        ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);    /* Only supporting default devices. */
+    }
+
+    /* Safety. Should never happen. */
+    if (pStream == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pDeviceInfo->nativeDataFormatCount = 0;
+    ma_context_add_native_data_format_from_AAudioStream__aaudio(pDevice->pContext, pStream, 0, pDeviceInfo);
+
+    return MA_SUCCESS;
+}
+
 
 static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 {
@@ -24802,6 +24828,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceRead              = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceWrite             = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceDataLoop          = NULL;   /* Not used because AAudio is asynchronous. */
+    pCallbacks->onDeviceGetInfo           = ma_device_get_info__aaudio;
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -25132,6 +25159,7 @@ return_default_device:;
     if (cbResult) {
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
     }
@@ -25140,6 +25168,7 @@ return_default_device:;
     if (cbResult) {
         ma_device_info deviceInfo;
         MA_ZERO_OBJECT(&deviceInfo);
+        deviceInfo.id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
         ma_strncpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
         cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
     }
@@ -25238,10 +25267,12 @@ return_default_device:
         }
     }
 
-    /* Name / Description */
+    /* ID and Name / Description */
     if (deviceType == ma_device_type_playback) {
+        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOOUTPUT;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
     } else {
+        pDeviceInfo->id.opensl = SL_DEFAULTDEVICEID_AUDIOINPUT;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
@@ -25407,8 +25438,8 @@ static ma_result ma_SLDataFormat_PCM_init__opensl(ma_format format, ma_uint32 ch
 #endif
 
     pDataFormat->numChannels   = channels;
-    ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = ma_round_to_standard_sample_rate__opensl(sampleRate) * 1000;  /* In millihertz. Annoyingly, the sample rate variable is named differently between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM */
-    pDataFormat->bitsPerSample = ma_get_bytes_per_sample(format)*8;
+    ((SLDataFormat_PCM*)pDataFormat)->samplesPerSec = ma_round_to_standard_sample_rate__opensl(sampleRate * 1000);  /* In millihertz. Annoyingly, the sample rate variable is named differently between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM */
+    pDataFormat->bitsPerSample = ma_get_bytes_per_sample(format) * 8;
     pDataFormat->channelMask   = ma_channel_map_to_channel_mask__opensl(channelMap, channels);
     pDataFormat->endianness    = (ma_is_little_endian()) ? SL_BYTEORDER_LITTLEENDIAN : SL_BYTEORDER_BIGENDIAN;
 
@@ -25535,7 +25566,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
 
         locatorDevice.locatorType = SL_DATALOCATOR_IODEVICE;
         locatorDevice.deviceType  = SL_IODEVICE_AUDIOINPUT;
-        locatorDevice.deviceID    = (pDescriptorCapture->pDeviceID == NULL) ? SL_DEFAULTDEVICEID_AUDIOINPUT : pDescriptorCapture->pDeviceID->opensl;
+        locatorDevice.deviceID    = SL_DEFAULTDEVICEID_AUDIOINPUT;  /* Must always use the default device with Android. */
         locatorDevice.device      = NULL;
 
         source.pLocator = &locatorDevice;
@@ -25547,14 +25578,14 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pFormat  = (SLDataFormat_PCM*)&pcm;
 
         resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
-        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED || resultSL == SL_RESULT_PARAMETER_INVALID) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType    = SL_DATAFORMAT_PCM;
             pcm.numChannels   = 1;
             ((SLDataFormat_PCM*)&pcm)->samplesPerSec = SL_SAMPLINGRATE_16;  /* The name of the sample rate variable is different between SLAndroidDataFormat_PCM_EX and SLDataFormat_PCM. */
             pcm.bitsPerSample = 16;
             pcm.containerSize = pcm.bitsPerSample;  /* Always tightly packed for now. */
-            pcm.channelMask   = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
+            pcm.channelMask   = 0;
             resultSL = (*g_maEngineSL)->CreateAudioRecorder(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioRecorderObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
         }
 
@@ -25670,7 +25701,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const ma_device_conf
         sink.pFormat  = NULL;
 
         resultSL = (*g_maEngineSL)->CreateAudioPlayer(g_maEngineSL, (SLObjectItf*)&pDevice->opensl.pAudioPlayerObj, &source, &sink, ma_countof(itfIDs), itfIDs, itfIDsRequired);
-        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED) {
+        if (resultSL == SL_RESULT_CONTENT_UNSUPPORTED || resultSL == SL_RESULT_PARAMETER_INVALID) {
             /* Unsupported format. Fall back to something safer and try again. If this fails, just abort. */
             pcm.formatType = SL_DATAFORMAT_PCM;
             pcm.numChannels = 2;
@@ -27783,7 +27814,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_device_info deviceInfo;
 
         if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-            result = ma_context_get_device_info(pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, descriptorCapture.pDeviceID, &deviceInfo);
+            result = ma_device_get_info(pDevice, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
             } else {
@@ -27797,7 +27828,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
 
         if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-            result = ma_context_get_device_info(pContext, ma_device_type_playback, descriptorPlayback.pDeviceID, &deviceInfo);
+            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
             if (result == MA_SUCCESS) {
                 ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
             } else {
@@ -27845,34 +27876,44 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         ma_device__set_state(pDevice, ma_device_state_stopped);
     }
 
+    /* Restricting this to debug output because it's a bit spamy and only really needed for debugging. */
+    #if defined(MA_DEBUG_OUTPUT)
+    {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[%s]\n", ma_get_backend_name(pDevice->pContext->backend));
+        if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+            char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
+            ma_device_get_name(pDevice, ma_device_type_capture, name, sizeof(name), NULL);
 
-    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[%s]\n", ma_get_backend_name(pDevice->pContext->backend));
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "  %s (%s)\n", pDevice->capture.name, "Capture");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Format:      %s -> %s\n", ma_get_format_name(pDevice->capture.internalFormat), ma_get_format_name(pDevice->capture.format));
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d\n", pDevice->capture.internalChannels, pDevice->capture.channels);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d\n", pDevice->capture.internalSampleRate, pDevice->sampleRate);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)\n", pDevice->capture.internalPeriodSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods));
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Conversion:\n");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Pre Format Conversion:    %s\n", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Post Format Conversion:   %s\n", pDevice->capture.converter.hasPostFormatConversion ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Routing:          %s\n", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Resampling:               %s\n", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Passthrough:              %s\n", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  %s (%s)\n", name, "Capture");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Format:      %s -> %s\n", ma_get_format_name(pDevice->capture.internalFormat), ma_get_format_name(pDevice->capture.format));
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Channels:    %d -> %d\n", pDevice->capture.internalChannels, pDevice->capture.channels);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Sample Rate: %d -> %d\n", pDevice->capture.internalSampleRate, pDevice->sampleRate);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Buffer Size: %d*%d (%d)\n", pDevice->capture.internalPeriodSizeInFrames, pDevice->capture.internalPeriods, (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalPeriods));
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Conversion:\n");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Pre Format Conversion:  %s\n", pDevice->capture.converter.hasPreFormatConversion  ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Post Format Conversion: %s\n", pDevice->capture.converter.hasPostFormatConversion ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Channel Routing:        %s\n", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Resampling:             %s\n", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Passthrough:            %s\n", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
+        }
+        if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+            char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
+            ma_device_get_name(pDevice, ma_device_type_playback, name, sizeof(name), NULL);
+
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  %s (%s)\n", name, "Playback");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Format:      %s -> %s\n", ma_get_format_name(pDevice->playback.format), ma_get_format_name(pDevice->playback.internalFormat));
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Channels:    %d -> %d\n", pDevice->playback.channels, pDevice->playback.internalChannels);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->playback.internalSampleRate);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Buffer Size: %d*%d (%d)\n", pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalPeriods, (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods));
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "    Conversion:\n");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Pre Format Conversion:  %s\n", pDevice->playback.converter.hasPreFormatConversion  ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Post Format Conversion: %s\n", pDevice->playback.converter.hasPostFormatConversion ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Channel Routing:        %s\n", pDevice->playback.converter.hasChannelConverter     ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Resampling:             %s\n", pDevice->playback.converter.hasResampler            ? "YES" : "NO");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "      Passthrough:            %s\n", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
+        }
     }
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "  %s (%s)\n", pDevice->playback.name, "Playback");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Format:      %s -> %s\n", ma_get_format_name(pDevice->playback.format), ma_get_format_name(pDevice->playback.internalFormat));
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Channels:    %d -> %d\n", pDevice->playback.channels, pDevice->playback.internalChannels);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Sample Rate: %d -> %d\n", pDevice->sampleRate, pDevice->playback.internalSampleRate);
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Buffer Size: %d*%d (%d)\n", pDevice->playback.internalPeriodSizeInFrames, pDevice->playback.internalPeriods, (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods));
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "    Conversion:\n");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Pre Format Conversion:    %s\n", pDevice->playback.converter.hasPreFormatConversion  ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Post Format Conversion:   %s\n", pDevice->playback.converter.hasPostFormatConversion ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Routing:          %s\n", pDevice->playback.converter.hasChannelConverter     ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Resampling:               %s\n", pDevice->playback.converter.hasResampler            ? "YES" : "NO");
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Passthrough:              %s\n", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
-    }
+    #endif
 
     MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
     return MA_SUCCESS;
@@ -28010,6 +28051,70 @@ MA_API ma_context* ma_device_get_context(ma_device* pDevice)
 MA_API ma_log* ma_device_get_log(ma_device* pDevice)
 {
     return ma_context_get_log(ma_device_get_context(pDevice));
+}
+
+MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
+{
+    if (pDeviceInfo == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pDeviceInfo);
+
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If the onDeviceGetInfo() callback is set, use that. Otherwise we'll fall back to ma_context_get_device_info(). */
+    if (pDevice->pContext->callbacks.onDeviceGetInfo != NULL) {
+        return pDevice->pContext->callbacks.onDeviceGetInfo(pDevice, type, pDeviceInfo);
+    }
+
+    /* Getting here means onDeviceGetInfo is not implemented so we need to fall back to an alternative. */
+    if (type == ma_device_type_playback) {
+        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->playback.id, pDeviceInfo);
+    } else {
+        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->capture.id, pDeviceInfo);
+    }
+}
+
+MA_API ma_result ma_device_get_name(ma_device* pDevice, ma_device_type type, char* pName, size_t nameCap, size_t* pLengthNotIncludingNullTerminator)
+{
+    ma_result result;
+    ma_device_info deviceInfo;
+
+    if (pLengthNotIncludingNullTerminator != NULL) {
+        *pLengthNotIncludingNullTerminator = 0;
+    }
+
+    if (pName != NULL && nameCap > 0) {
+        pName[0] = '\0';
+    }
+
+    result = ma_device_get_info(pDevice, type, &deviceInfo);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pName != NULL) {
+        ma_strncpy_s(pName, nameCap, deviceInfo.name, (size_t)-1);
+
+        /*
+        For safety, make sure the length is based on the truncated output string rather than the
+        source. Otherwise the caller might assume the output buffer contains more content than it
+        actually does.
+        */
+        if (pLengthNotIncludingNullTerminator != NULL) {
+            *pLengthNotIncludingNullTerminator = strlen(pName);
+        }
+    } else {
+        /* Name not specified. Just report the length of the source string. */
+        if (pLengthNotIncludingNullTerminator != NULL) {
+            *pLengthNotIncludingNullTerminator = strlen(deviceInfo.name);
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_device_start(ma_device* pDevice)
@@ -35900,22 +36005,23 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     ma_spatializer_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.channelsIn              = channelsIn;
-    config.channelsOut             = channelsOut;
-    config.pChannelMapIn           = NULL;
-    config.attenuationModel        = ma_attenuation_model_inverse;
-    config.positioning             = ma_positioning_absolute;
-    config.handedness              = ma_handedness_right;
-    config.minGain                 = 0;
-    config.maxGain                 = 1;
-    config.minDistance             = 1;
-    config.maxDistance             = MA_FLT_MAX;
-    config.rolloff                 = 1;
-    config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
-    config.coneOuterAngleInRadians = 6.283185f; /* 360 degress. */
-    config.coneOuterGain           = 0.0f;
-    config.dopplerFactor           = 1;
-    config.gainSmoothTimeInFrames  = 360;       /* 7.5ms @ 48K. */
+    config.channelsIn                   = channelsIn;
+    config.channelsOut                  = channelsOut;
+    config.pChannelMapIn                = NULL;
+    config.attenuationModel             = ma_attenuation_model_inverse;
+    config.positioning                  = ma_positioning_absolute;
+    config.handedness                   = ma_handedness_right;
+    config.minGain                      = 0;
+    config.maxGain                      = 1;
+    config.minDistance                  = 1;
+    config.maxDistance                  = MA_FLT_MAX;
+    config.rolloff                      = 1;
+    config.coneInnerAngleInRadians      = 6.283185f; /* 360 degrees. */
+    config.coneOuterAngleInRadians      = 6.283185f; /* 360 degress. */
+    config.coneOuterGain                = 0.0f;
+    config.dopplerFactor                = 1;
+    config.directionalAttenuationFactor = 1;
+    config.gainSmoothTimeInFrames       = 360;       /* 7.5ms @ 48K. */
 
     return config;
 }
@@ -36227,64 +36333,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             sound's position and direction so that it's relative to listener. Later on we'll use
             this for determining the factors to apply to each channel to apply the panning effect.
             */
-            ma_vec3f v;
-            ma_vec3f axisX;
-            ma_vec3f axisY;
-            ma_vec3f axisZ;
-            float m[4][4];
-
-            /*
-            We need to calcualte the right vector from our forward and up vectors. This is done with
-            a cross product.
-            */
-            axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
-            axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
-
-            /*
-            The calculation of axisX above can result in a zero-length vector if the listener is
-            looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
-            the calculations below don't fall apart. This is where a quaternion based listener and
-            sound orientation would come in handy.
-            */
-            if (ma_vec3f_len2(axisX) == 0) {
-                axisX = ma_vec3f_init_3f(1, 0, 0);
-            }
-
-            axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
-
-            /*
-            We need to swap the X axis if we're left handed because otherwise the cross product above
-            will have resulted in it pointing in the wrong direction (right handed was assumed in the
-            cross products above).
-            */
-            if (pListener->config.handedness == ma_handedness_left) {
-                axisX = ma_vec3f_neg(axisX);
-            }
-
-            /* Lookat. */
-            m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
-            m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
-            m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
-            m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
-
-            /*
-            Multiply the lookat matrix by the spatializer position to transform it to listener
-            space. This allows calculations to work based on the sound being relative to the
-            origin which makes things simpler.
-            */
-            v = pSpatializer->position;
-            relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
-            relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
-            relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
-
-            /*
-            The direction of the sound needs to also be transformed so that it's relative to the
-            rotation of the listener.
-            */
-            v = pSpatializer->direction;
-            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            ma_spatializer_get_relative_position_and_direction(pSpatializer, pListener, &relativePos, &relativeDir);
         }
 
         distance = ma_vec3f_len(relativePos);
@@ -36421,7 +36470,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
                 channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannel);
                 if (ma_is_spatial_channel_position(channelOut)) {
-                    d = ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut));
+                    d = ma_mix_f32_fast(1, ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut)), pSpatializer->config.directionalAttenuationFactor);
                 } else {
                     d = 1;  /* It's not a spatial channel so there's no real notion of direction. */
                 }
@@ -36702,6 +36751,24 @@ MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatialize
     return pSpatializer->config.dopplerFactor;
 }
 
+MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pSpatializer, float directionalAttenuationFactor)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.directionalAttenuationFactor = directionalAttenuationFactor;
+}
+
+MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 1;
+    }
+
+    return pSpatializer->config.directionalAttenuationFactor;
+}
+
 MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z)
 {
     if (pSpatializer == NULL) {
@@ -36754,6 +36821,98 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
     }
 
     return pSpatializer->velocity;
+}
+
+MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener, ma_vec3f* pRelativePos, ma_vec3f* pRelativeDir)
+{
+    if (pRelativePos != NULL) {
+        pRelativePos->x = 0;
+        pRelativePos->y = 0;
+        pRelativePos->z = 0;
+    }
+
+    if (pRelativeDir != NULL) {
+        pRelativeDir->x = 0;
+        pRelativeDir->y = 0;
+        pRelativeDir->z = -1;
+    }
+
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
+        /* There's no listener or we're using relative positioning. */
+        if (pRelativePos != NULL) {
+            *pRelativePos = pSpatializer->position;
+        }
+        if (pRelativeDir != NULL) {
+            *pRelativeDir = pSpatializer->direction;
+        }
+    } else {
+        ma_vec3f v;
+        ma_vec3f axisX;
+        ma_vec3f axisY;
+        ma_vec3f axisZ;
+        float m[4][4];
+
+        /*
+        We need to calcualte the right vector from our forward and up vectors. This is done with
+        a cross product.
+        */
+        axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
+        axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
+
+        /*
+        The calculation of axisX above can result in a zero-length vector if the listener is
+        looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
+        the calculations below don't fall apart. This is where a quaternion based listener and
+        sound orientation would come in handy.
+        */
+        if (ma_vec3f_len2(axisX) == 0) {
+            axisX = ma_vec3f_init_3f(1, 0, 0);
+        }
+
+        axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
+
+        /*
+        We need to swap the X axis if we're left handed because otherwise the cross product above
+        will have resulted in it pointing in the wrong direction (right handed was assumed in the
+        cross products above).
+        */
+        if (pListener->config.handedness == ma_handedness_left) {
+            axisX = ma_vec3f_neg(axisX);
+        }
+
+        /* Lookat. */
+        m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
+        m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
+        m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+        m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
+
+        /*
+        Multiply the lookat matrix by the spatializer position to transform it to listener
+        space. This allows calculations to work based on the sound being relative to the
+        origin which makes things simpler.
+        */
+        if (pRelativePos != NULL) {
+            v = pSpatializer->position;
+            pRelativePos->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
+            pRelativePos->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
+            pRelativePos->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
+        }
+
+        /*
+        The direction of the sound needs to also be transformed so that it's relative to the
+        rotation of the listener.
+        */
+        if (pRelativeDir != NULL) {
+            v = pSpatializer->direction;
+            pRelativeDir->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+            pRelativeDir->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+            pRelativeDir->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+        }
+    }
 }
 
 
@@ -45339,7 +45498,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  32
+#define DRFLAC_VERSION_REVISION  33
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -45365,7 +45524,7 @@ typedef unsigned int            drflac_uint32;
         #pragma GCC diagnostic pop
     #endif
 #endif
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
     typedef drflac_uint64       drflac_uintptr;
 #else
     typedef drflac_uint32       drflac_uintptr;
@@ -52454,7 +52613,7 @@ static ma_result ma_resource_manager_data_buffer_node_result(const ma_resource_m
 {
     MA_ASSERT(pDataBufferNode != NULL);
 
-    return c89atomic_load_i32((ma_result*)&pDataBufferNode->result);    /* Need a naughty const-cast here. */
+    return (ma_result)c89atomic_load_i32((ma_result*)&pDataBufferNode->result);    /* Need a naughty const-cast here. */
 }
 
 
@@ -52510,7 +52669,7 @@ static void ma_resource_manager_inline_notification_wait(ma_resource_manager_inl
     } else {
         while (ma_async_notification_poll_is_signalled(&pNotification->backend.p) == MA_FALSE) {
             ma_result result = ma_resource_manager_process_next_job(pNotification->pResourceManager);
-            if (result == MA_NO_DATA_AVAILABLE || result == MA_RESOURCE_MANAGER_JOB_QUIT) {
+            if (result == MA_NO_DATA_AVAILABLE || result == MA_CANCELLED) {
                 break;
             }
         }
@@ -53590,7 +53749,7 @@ stage2:
             if (ma_resource_manager_is_threading_enabled(pResourceManager) == MA_FALSE) {
                 while (ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_BUSY) {
                     result = ma_resource_manager_process_next_job(pResourceManager);
-                    if (result == MA_NO_DATA_AVAILABLE || result == MA_RESOURCE_MANAGER_JOB_QUIT) {
+                    if (result == MA_NO_DATA_AVAILABLE || result == MA_CANCELLED) {
                         result = MA_SUCCESS;
                         break;
                     }
@@ -54147,7 +54306,7 @@ MA_API ma_result ma_resource_manager_data_buffer_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return c89atomic_load_i32((ma_result*)&pDataBuffer->result);    /* Need a naughty const-cast here. */
+    return (ma_result)c89atomic_load_i32((ma_result*)&pDataBuffer->result);    /* Need a naughty const-cast here. */
 }
 
 MA_API ma_result ma_resource_manager_data_buffer_set_looping(ma_resource_manager_data_buffer* pDataBuffer, ma_bool32 isLooping)
@@ -54964,7 +55123,7 @@ MA_API ma_result ma_resource_manager_data_stream_result(const ma_resource_manage
         return MA_INVALID_ARGS;
     }
 
-    return c89atomic_load_i32(&pDataStream->result);
+    return (ma_result)c89atomic_load_i32(&pDataStream->result);
 }
 
 MA_API ma_result ma_resource_manager_data_stream_set_looping(ma_resource_manager_data_stream* pDataStream, ma_bool32 isLooping)
@@ -56171,6 +56330,7 @@ MA_API ma_result ma_node_graph_set_time(ma_node_graph* pNodeGraph, ma_uint64 glo
 }
 
 
+#define MA_NODE_OUTPUT_BUS_FLAG_HAS_READ    0x01    /* Whether or not this bus ready to read more data. Only used on nodes with multiple output buses. */
 
 static ma_result ma_node_output_bus_init(ma_node* pNode, ma_uint32 outputBusIndex, ma_uint32 channels, ma_node_output_bus* pOutputBus)
 {
@@ -57619,6 +57779,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         */
                         if (frameCountIn > 0 || (pNodeBase->vtable->flags & MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES) != 0) {
                             ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                        } else {
+                            frameCountOut = 0;  /* No data was processed. */
                         }
                     }
 
@@ -59536,9 +59698,11 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     ma_spatializer_listener_config listenerConfig;
     ma_uint32 iListener;
 
-    if (pEngine != NULL) {
-        MA_ZERO_OBJECT(pEngine);
+    if (pEngine == NULL) {
+        return MA_INVALID_ARGS;
     }
+
+    MA_ZERO_OBJECT(pEngine);
 
     /* The config is allowed to be NULL in which case we use defaults for everything. */
     if (pConfig != NULL) {
@@ -59668,7 +59832,13 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         #if !defined(MA_NO_DEVICE_IO)
         {
             if (pEngine->pDevice != NULL) {
-                listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;
+                /*
+                Temporarily disabled. There is a subtle bug here where front-left and front-right
+                will be used by the device's channel map, but this is not what we want to use for
+                spatialization. Instead we want to use side-left and side-right. I need to figure
+                out a better solution for this. For now, disabling the user of device channel maps.
+                */
+                /*listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;*/
             }
         }
         #endif
@@ -60765,6 +60935,42 @@ MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
     return c89atomic_load_explicit_32(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
+MA_API ma_uint32 ma_sound_get_listener_index(const ma_sound* pSound)
+{
+    ma_uint32 listenerIndex;
+
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    listenerIndex = ma_sound_get_pinned_listener_index(pSound);
+    if (listenerIndex == MA_LISTENER_INDEX_CLOSEST) {
+        ma_vec3f position = ma_sound_get_position(pSound);
+        return ma_engine_find_closest_listener(ma_sound_get_engine(pSound), position.x, position.y, position.z);
+    }
+
+    return listenerIndex;
+}
+
+MA_API ma_vec3f ma_sound_get_direction_to_listener(const ma_sound* pSound)
+{
+    ma_vec3f relativePos;
+    ma_engine* pEngine;
+
+    if (pSound == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    pEngine = ma_sound_get_engine(pSound);
+    if (pEngine == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    ma_spatializer_get_relative_position_and_direction(&pSound->engineNode.spatializer, &pEngine->listeners[ma_sound_get_listener_index(pSound)], &relativePos, NULL);
+
+    return ma_vec3f_normalize(ma_vec3f_neg(relativePos));
+}
+
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
 {
     if (pSound == NULL) {
@@ -60987,6 +61193,24 @@ MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound)
     }
 
     return ma_spatializer_get_doppler_factor(&pSound->engineNode.spatializer);
+}
+
+MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float directionalAttenuationFactor)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_directional_attenuation_factor(&pSound->engineNode.spatializer, directionalAttenuationFactor);
+}
+
+MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 1;
+    }
+
+    return ma_spatializer_get_directional_attenuation_factor(&pSound->engineNode.spatializer);
 }
 
 
@@ -61328,6 +61552,16 @@ MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* 
     return ma_sound_get_pinned_listener_index(pGroup);
 }
 
+MA_API ma_uint32 ma_sound_group_get_listener_index(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_listener_index(pGroup);
+}
+
+MA_API ma_vec3f ma_sound_group_get_direction_to_listener(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_direction_to_listener(pGroup);
+}
+
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
 {
     ma_sound_set_position(pGroup, x, y, z);
@@ -61446,6 +61680,16 @@ MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopp
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup)
 {
     return ma_sound_get_doppler_factor(pGroup);
+}
+
+MA_API void ma_sound_group_set_directional_attenuation_factor(ma_sound_group* pGroup, float directionalAttenuationFactor)
+{
+    ma_sound_set_directional_attenuation_factor(pGroup, directionalAttenuationFactor);
+}
+
+MA_API float ma_sound_group_get_directional_attenuation_factor(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_directional_attenuation_factor(pGroup);
 }
 
 MA_API void ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
@@ -70156,6 +70400,9 @@ static drflac_bool32 drflac__seek_to_pcm_frame__seek_table(drflac* pFlac, drflac
     drflac_uint32 iSeekpoint;
     DRFLAC_ASSERT(pFlac != NULL);
     if (pFlac->pSeekpoints == NULL || pFlac->seekpointCount == 0) {
+        return DRFLAC_FALSE;
+    }
+    if (pFlac->pSeekpoints[0].firstPCMFrame > pcmFrameIndex) {
         return DRFLAC_FALSE;
     }
     for (iSeekpoint = 0; iSeekpoint < pFlac->seekpointCount; ++iSeekpoint) {
