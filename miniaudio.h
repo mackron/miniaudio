@@ -4911,7 +4911,8 @@ typedef struct
     float coneInnerAngleInRadians;
     float coneOuterAngleInRadians;
     float coneOuterGain;
-    float dopplerFactor;                /* Set to 0 to disable doppler effect. This will run on a fast path. */
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. */
+    float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
@@ -4958,12 +4959,15 @@ MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAng
 MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_spatializer_set_doppler_factor(ma_spatializer* pSpatializer, float dopplerFactor);
 MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pSpatializer, float directionalAttenuationFactor);
+MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, float y, float z);
 MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer);
+MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener, ma_vec3f* pRelativePos, ma_vec3f* pRelativeDir);
 
 
 
@@ -10548,6 +10552,8 @@ MA_API void ma_sound_set_spatialization_enabled(ma_sound* pSound, ma_bool32 enab
 MA_API ma_bool32 ma_sound_is_spatialization_enabled(const ma_sound* pSound);
 MA_API void ma_sound_set_pinned_listener_index(ma_sound* pSound, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound);
+MA_API ma_uint32 ma_sound_get_listener_index(const ma_sound* pSound);
+MA_API ma_vec3f ma_sound_get_direction_to_listener(const ma_sound* pSound);
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z);
 MA_API ma_vec3f ma_sound_get_position(const ma_sound* pSound);
 MA_API void ma_sound_set_direction(ma_sound* pSound, float x, float y, float z);
@@ -10572,6 +10578,8 @@ MA_API void ma_sound_set_cone(ma_sound* pSound, float innerAngleInRadians, float
 MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_set_doppler_factor(ma_sound* pSound, float dopplerFactor);
 MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound);
+MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float directionalAttenuationFactor);
+MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound);
 MA_API void ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API float ma_sound_get_current_fade_volume(ma_sound* pSound);
@@ -10607,6 +10615,8 @@ MA_API void ma_sound_group_set_spatialization_enabled(ma_sound_group* pGroup, ma
 MA_API ma_bool32 ma_sound_group_is_spatialization_enabled(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_pinned_listener_index(ma_sound_group* pGroup, ma_uint32 listenerIndex);
 MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* pGroup);
+MA_API ma_uint32 ma_sound_group_get_listener_index(const ma_sound_group* pGroup);
+MA_API ma_vec3f ma_sound_group_get_direction_to_listener(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z);
 MA_API ma_vec3f ma_sound_group_get_position(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_direction(ma_sound_group* pGroup, float x, float y, float z);
@@ -10631,6 +10641,8 @@ MA_API void ma_sound_group_set_cone(ma_sound_group* pGroup, float innerAngleInRa
 MA_API void ma_sound_group_get_cone(const ma_sound_group* pGroup, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain);
 MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopplerFactor);
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup);
+MA_API void ma_sound_group_set_directional_attenuation_factor(ma_sound_group* pGroup, float directionalAttenuationFactor);
+MA_API float ma_sound_group_get_directional_attenuation_factor(const ma_sound_group* pGroup);
 MA_API void ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_group_set_fade_in_milliseconds(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
 MA_API float ma_sound_group_get_current_fade_volume(ma_sound_group* pGroup);
@@ -46652,22 +46664,23 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     ma_spatializer_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.channelsIn              = channelsIn;
-    config.channelsOut             = channelsOut;
-    config.pChannelMapIn           = NULL;
-    config.attenuationModel        = ma_attenuation_model_inverse;
-    config.positioning             = ma_positioning_absolute;
-    config.handedness              = ma_handedness_right;
-    config.minGain                 = 0;
-    config.maxGain                 = 1;
-    config.minDistance             = 1;
-    config.maxDistance             = MA_FLT_MAX;
-    config.rolloff                 = 1;
-    config.coneInnerAngleInRadians = 6.283185f; /* 360 degrees. */
-    config.coneOuterAngleInRadians = 6.283185f; /* 360 degress. */
-    config.coneOuterGain           = 0.0f;
-    config.dopplerFactor           = 1;
-    config.gainSmoothTimeInFrames  = 360;       /* 7.5ms @ 48K. */
+    config.channelsIn                   = channelsIn;
+    config.channelsOut                  = channelsOut;
+    config.pChannelMapIn                = NULL;
+    config.attenuationModel             = ma_attenuation_model_inverse;
+    config.positioning                  = ma_positioning_absolute;
+    config.handedness                   = ma_handedness_right;
+    config.minGain                      = 0;
+    config.maxGain                      = 1;
+    config.minDistance                  = 1;
+    config.maxDistance                  = MA_FLT_MAX;
+    config.rolloff                      = 1;
+    config.coneInnerAngleInRadians      = 6.283185f; /* 360 degrees. */
+    config.coneOuterAngleInRadians      = 6.283185f; /* 360 degress. */
+    config.coneOuterGain                = 0.0f;
+    config.dopplerFactor                = 1;
+    config.directionalAttenuationFactor = 1;
+    config.gainSmoothTimeInFrames       = 360;       /* 7.5ms @ 48K. */
 
     return config;
 }
@@ -46979,64 +46992,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             sound's position and direction so that it's relative to listener. Later on we'll use
             this for determining the factors to apply to each channel to apply the panning effect.
             */
-            ma_vec3f v;
-            ma_vec3f axisX;
-            ma_vec3f axisY;
-            ma_vec3f axisZ;
-            float m[4][4];
-
-            /*
-            We need to calcualte the right vector from our forward and up vectors. This is done with
-            a cross product.
-            */
-            axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
-            axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
-
-            /*
-            The calculation of axisX above can result in a zero-length vector if the listener is
-            looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
-            the calculations below don't fall apart. This is where a quaternion based listener and
-            sound orientation would come in handy.
-            */
-            if (ma_vec3f_len2(axisX) == 0) {
-                axisX = ma_vec3f_init_3f(1, 0, 0);
-            }
-
-            axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
-
-            /*
-            We need to swap the X axis if we're left handed because otherwise the cross product above
-            will have resulted in it pointing in the wrong direction (right handed was assumed in the
-            cross products above).
-            */
-            if (pListener->config.handedness == ma_handedness_left) {
-                axisX = ma_vec3f_neg(axisX);
-            }
-
-            /* Lookat. */
-            m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
-            m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
-            m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
-            m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
-
-            /*
-            Multiply the lookat matrix by the spatializer position to transform it to listener
-            space. This allows calculations to work based on the sound being relative to the
-            origin which makes things simpler.
-            */
-            v = pSpatializer->position;
-            relativePos.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
-            relativePos.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
-            relativePos.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
-
-            /*
-            The direction of the sound needs to also be transformed so that it's relative to the
-            rotation of the listener.
-            */
-            v = pSpatializer->direction;
-            relativeDir.x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
-            relativeDir.y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
-            relativeDir.z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+            ma_spatializer_get_relative_position_and_direction(pSpatializer, pListener, &relativePos, &relativeDir);
         }
 
         distance = ma_vec3f_len(relativePos);
@@ -47173,7 +47129,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
                 channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannel);
                 if (ma_is_spatial_channel_position(channelOut)) {
-                    d = ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut));
+                    d = ma_mix_f32_fast(1, ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut)), pSpatializer->config.directionalAttenuationFactor);
                 } else {
                     d = 1;  /* It's not a spatial channel so there's no real notion of direction. */
                 }
@@ -47454,6 +47410,24 @@ MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatialize
     return pSpatializer->config.dopplerFactor;
 }
 
+MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pSpatializer, float directionalAttenuationFactor)
+{
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    pSpatializer->config.directionalAttenuationFactor = directionalAttenuationFactor;
+}
+
+MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatializer* pSpatializer)
+{
+    if (pSpatializer == NULL) {
+        return 1;
+    }
+
+    return pSpatializer->config.directionalAttenuationFactor;
+}
+
 MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z)
 {
     if (pSpatializer == NULL) {
@@ -47506,6 +47480,98 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
     }
 
     return pSpatializer->velocity;
+}
+
+MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener, ma_vec3f* pRelativePos, ma_vec3f* pRelativeDir)
+{
+    if (pRelativePos != NULL) {
+        pRelativePos->x = 0;
+        pRelativePos->y = 0;
+        pRelativePos->z = 0;
+    }
+
+    if (pRelativeDir != NULL) {
+        pRelativeDir->x = 0;
+        pRelativeDir->y = 0;
+        pRelativeDir->z = -1;
+    }
+
+    if (pSpatializer == NULL) {
+        return;
+    }
+
+    if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
+        /* There's no listener or we're using relative positioning. */
+        if (pRelativePos != NULL) {
+            *pRelativePos = pSpatializer->position;
+        }
+        if (pRelativeDir != NULL) {
+            *pRelativeDir = pSpatializer->direction;
+        }
+    } else {
+        ma_vec3f v;
+        ma_vec3f axisX;
+        ma_vec3f axisY;
+        ma_vec3f axisZ;
+        float m[4][4];
+
+        /*
+        We need to calcualte the right vector from our forward and up vectors. This is done with
+        a cross product.
+        */
+        axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
+        axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
+
+        /*
+        The calculation of axisX above can result in a zero-length vector if the listener is
+        looking straight up on the Y axis. We'll need to fall back to a +X in this case so that
+        the calculations below don't fall apart. This is where a quaternion based listener and
+        sound orientation would come in handy.
+        */
+        if (ma_vec3f_len2(axisX) == 0) {
+            axisX = ma_vec3f_init_3f(1, 0, 0);
+        }
+
+        axisY = ma_vec3f_cross(axisX, axisZ);                                           /* No normalization is required here because axisX and axisZ are unit length and perpendicular. */
+
+        /*
+        We need to swap the X axis if we're left handed because otherwise the cross product above
+        will have resulted in it pointing in the wrong direction (right handed was assumed in the
+        cross products above).
+        */
+        if (pListener->config.handedness == ma_handedness_left) {
+            axisX = ma_vec3f_neg(axisX);
+        }
+
+        /* Lookat. */
+        m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
+        m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
+        m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+        m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
+
+        /*
+        Multiply the lookat matrix by the spatializer position to transform it to listener
+        space. This allows calculations to work based on the sound being relative to the
+        origin which makes things simpler.
+        */
+        if (pRelativePos != NULL) {
+            v = pSpatializer->position;
+            pRelativePos->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
+            pRelativePos->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
+            pRelativePos->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
+        }
+
+        /*
+        The direction of the sound needs to also be transformed so that it's relative to the
+        rotation of the listener.
+        */
+        if (pRelativeDir != NULL) {
+            v = pSpatializer->direction;
+            pRelativeDir->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
+            pRelativeDir->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
+            pRelativeDir->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
+        }
+    }
 }
 
 
@@ -68372,6 +68438,8 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         */
                         if (frameCountIn > 0 || (pNodeBase->vtable->flags & MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES) != 0) {
                             ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                        } else {
+                            frameCountOut = 0;  /* No data was processed. */
                         }
                     }
 
@@ -70423,7 +70491,13 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         #if !defined(MA_NO_DEVICE_IO)
         {
             if (pEngine->pDevice != NULL) {
-                listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;
+                /*
+                Temporarily disabled. There is a subtle bug here where front-left and front-right
+                will be used by the device's channel map, but this is not what we want to use for
+                spatialization. Instead we want to use side-left and side-right. I need to figure
+                out a better solution for this. For now, disabling the user of device channel maps.
+                */
+                /*listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;*/
             }
         }
         #endif
@@ -71520,6 +71594,42 @@ MA_API ma_uint32 ma_sound_get_pinned_listener_index(const ma_sound* pSound)
     return c89atomic_load_explicit_32(&pSound->engineNode.pinnedListenerIndex, c89atomic_memory_order_acquire);
 }
 
+MA_API ma_uint32 ma_sound_get_listener_index(const ma_sound* pSound)
+{
+    ma_uint32 listenerIndex;
+
+    if (pSound == NULL) {
+        return 0;
+    }
+
+    listenerIndex = ma_sound_get_pinned_listener_index(pSound);
+    if (listenerIndex == MA_LISTENER_INDEX_CLOSEST) {
+        ma_vec3f position = ma_sound_get_position(pSound);
+        return ma_engine_find_closest_listener(ma_sound_get_engine(pSound), position.x, position.y, position.z);
+    }
+
+    return listenerIndex;
+}
+
+MA_API ma_vec3f ma_sound_get_direction_to_listener(const ma_sound* pSound)
+{
+    ma_vec3f relativePos;
+    ma_engine* pEngine;
+
+    if (pSound == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    pEngine = ma_sound_get_engine(pSound);
+    if (pEngine == NULL) {
+        return ma_vec3f_init_3f(0, 0, -1);
+    }
+
+    ma_spatializer_get_relative_position_and_direction(&pSound->engineNode.spatializer, &pEngine->listeners[ma_sound_get_listener_index(pSound)], &relativePos, NULL);
+
+    return ma_vec3f_normalize(ma_vec3f_neg(relativePos));
+}
+
 MA_API void ma_sound_set_position(ma_sound* pSound, float x, float y, float z)
 {
     if (pSound == NULL) {
@@ -71742,6 +71852,24 @@ MA_API float ma_sound_get_doppler_factor(const ma_sound* pSound)
     }
 
     return ma_spatializer_get_doppler_factor(&pSound->engineNode.spatializer);
+}
+
+MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float directionalAttenuationFactor)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    ma_spatializer_set_directional_attenuation_factor(&pSound->engineNode.spatializer, directionalAttenuationFactor);
+}
+
+MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound)
+{
+    if (pSound == NULL) {
+        return 1;
+    }
+
+    return ma_spatializer_get_directional_attenuation_factor(&pSound->engineNode.spatializer);
 }
 
 
@@ -72083,6 +72211,16 @@ MA_API ma_uint32 ma_sound_group_get_pinned_listener_index(const ma_sound_group* 
     return ma_sound_get_pinned_listener_index(pGroup);
 }
 
+MA_API ma_uint32 ma_sound_group_get_listener_index(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_listener_index(pGroup);
+}
+
+MA_API ma_vec3f ma_sound_group_get_direction_to_listener(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_direction_to_listener(pGroup);
+}
+
 MA_API void ma_sound_group_set_position(ma_sound_group* pGroup, float x, float y, float z)
 {
     ma_sound_set_position(pGroup, x, y, z);
@@ -72201,6 +72339,16 @@ MA_API void ma_sound_group_set_doppler_factor(ma_sound_group* pGroup, float dopp
 MA_API float ma_sound_group_get_doppler_factor(const ma_sound_group* pGroup)
 {
     return ma_sound_get_doppler_factor(pGroup);
+}
+
+MA_API void ma_sound_group_set_directional_attenuation_factor(ma_sound_group* pGroup, float directionalAttenuationFactor)
+{
+    ma_sound_set_directional_attenuation_factor(pGroup, directionalAttenuationFactor);
+}
+
+MA_API float ma_sound_group_get_directional_attenuation_factor(const ma_sound_group* pGroup)
+{
+    return ma_sound_get_directional_attenuation_factor(pGroup);
 }
 
 MA_API void ma_sound_group_set_fade_in_pcm_frames(ma_sound_group* pGroup, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames)
@@ -88980,7 +89128,9 @@ v0.11.1 - TBD
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
   - Add ma_device_get_info() for retrieving device information from an initialized device.
   - Add ma_device_get_name() for retrieving the name of an initialized device.
+  - Add support for setting the directional attenuation factor to sounds and groups.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
+  - Fix a bug where the node graph will output silence if a node has zero input connections.
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
   - AAudio: Fix a bug that resulted in a capture device incorrectly being detected as disconnected.
