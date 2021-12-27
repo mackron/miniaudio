@@ -9615,7 +9615,7 @@ typedef struct
     ma_uint32 flags;
 } ma_resource_manager_data_source_config;
 
-MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init();
+MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init(void);
 
 
 typedef enum
@@ -63646,7 +63646,7 @@ MA_API ma_log* ma_resource_manager_get_log(ma_resource_manager* pResourceManager
 
 
 
-MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init()
+MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init(void)
 {
     ma_resource_manager_data_source_config config;
 
