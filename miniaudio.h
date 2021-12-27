@@ -10314,10 +10314,10 @@ typedef struct ma_sound  ma_sound;
 /* Sound flags. */
 typedef enum
 {
-    MA_SOUND_FLAG_STREAM                = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM,      /* 0x00000001 */
-    MA_SOUND_FLAG_DECODE                = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE,      /* 0x00000002 */
-    MA_SOUND_FLAG_ASYNC                 = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC,       /* 0x00000004 */
-    MA_SOUND_FLAG_WAIT_INIT             = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT,   /* 0x00000008 */
+    MA_SOUND_FLAG_STREAM                = 0x00000001,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM */
+    MA_SOUND_FLAG_DECODE                = 0x00000002,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE */
+    MA_SOUND_FLAG_ASYNC                 = 0x00000004,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC */
+    MA_SOUND_FLAG_WAIT_INIT             = 0x00000008,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT */
     MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00000010,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
     MA_SOUND_FLAG_NO_PITCH              = 0x00000020,   /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
     MA_SOUND_FLAG_NO_SPATIALIZATION     = 0x00000040    /* Disable spatialization. */
@@ -10681,6 +10681,7 @@ IMPLEMENTATION
 #include <string.h>     /* For memset() */
 #include <sched.h>
 #include <sys/time.h>   /* select() (used for ma_sleep()). */
+#include <pthread.h>
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
@@ -15118,8 +15119,6 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 
 
 #ifdef MA_POSIX
-#include <pthread.h>
-
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
