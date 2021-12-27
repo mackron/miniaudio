@@ -89131,6 +89131,7 @@ v0.11.1 - TBD
   - Add support for setting the directional attenuation factor to sounds and groups.
   - Fix a crash when passing in NULL for the pEngine parameter of ma_engine_init().
   - Fix a bug where the node graph will output silence if a node has zero input connections.
+  - Fix a bug in the engine where sounds in front of the listener are too loud.
   - AAudio: Fix an incorrect assert.
   - AAudio: Fix a bug that resulted in exclusive mode always resulting in initialization failure.
   - AAudio: Fix a bug that resulted in a capture device incorrectly being detected as disconnected.
