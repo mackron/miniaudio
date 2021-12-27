@@ -3643,37 +3643,7 @@ extern "C" {
     #endif
 #endif
   
-/* Platform/backend detection. */
-#ifdef _WIN32
-    #define MA_WIN32
-    #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
-        #define MA_WIN32_UWP
-    #else
-        #define MA_WIN32_DESKTOP
-    #endif
-#else
-    #define MA_POSIX
-    #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
 
-    #ifdef __unix__
-        #define MA_UNIX
-        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-            #define MA_BSD
-        #endif
-    #endif
-    #ifdef __linux__
-        #define MA_LINUX
-    #endif
-    #ifdef __APPLE__
-        #define MA_APPLE
-    #endif
-    #ifdef __ANDROID__
-        #define MA_ANDROID
-    #endif
-    #ifdef __EMSCRIPTEN__
-        #define MA_EMSCRIPTEN
-    #endif
-#endif
 
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
     #define MA_SIZEOF_PTR   8
@@ -3735,6 +3705,56 @@ typedef ma_uint16 wchar_t;
     #define MA_SIZE_MAX    SIZE_MAX
 #else
     #define MA_SIZE_MAX    0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
+#endif
+
+
+/* Platform/backend detection. */
+#ifdef _WIN32
+    #define MA_WIN32
+    #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
+        #define MA_WIN32_UWP
+    #else
+        #define MA_WIN32_DESKTOP
+    #endif
+#else
+    #define MA_POSIX
+
+    /*
+    Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
+    You can use this to avoid including pthread.h in the header section. The downside is that it
+    results in some fixed sized structures being declared for the various types that are used in
+    miniaudio. The risk here is that these types might be too small for a given platform. This
+    risk is yours to take and no support will be offered if you enable this option.
+    */
+    #ifndef MA_NO_PTHREAD_IN_HEADER
+        #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
+        typedef pthread_t       ma_pthread_t;
+        typedef pthread_mutex_t ma_pthread_mutex_t;
+        typedef pthread_cond_t  ma_pthread_cond_t;
+    #else
+        typedef ma_uintptr      ma_pthread_t;
+        typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
+        typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+    #endif
+
+    #ifdef __unix__
+        #define MA_UNIX
+        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+            #define MA_BSD
+        #endif
+    #endif
+    #ifdef __linux__
+        #define MA_LINUX
+    #endif
+    #ifdef __APPLE__
+        #define MA_APPLE
+    #endif
+    #ifdef __ANDROID__
+        #define MA_ANDROID
+    #endif
+    #ifdef __EMSCRIPTEN__
+        #define MA_EMSCRIPTEN
+    #endif
 #endif
 
 
@@ -4126,14 +4146,14 @@ typedef enum
 typedef ma_handle ma_thread;
 #endif
 #if defined(MA_POSIX)
-typedef pthread_t ma_thread;
+typedef ma_pthread_t ma_thread;
 #endif
 
 #if defined(MA_WIN32)
 typedef ma_handle ma_mutex;
 #endif
 #if defined(MA_POSIX)
-typedef pthread_mutex_t ma_mutex;
+typedef ma_pthread_mutex_t ma_mutex;
 #endif
 
 #if defined(MA_WIN32)
@@ -4143,8 +4163,8 @@ typedef ma_handle ma_event;
 typedef struct
 {
     ma_uint32 value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    ma_pthread_mutex_t lock;
+    ma_pthread_cond_t cond;
 } ma_event;
 #endif  /* MA_POSIX */
 
@@ -4155,8 +4175,8 @@ typedef ma_handle ma_semaphore;
 typedef struct
 {
     int value;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    ma_pthread_mutex_t lock;
+    ma_pthread_cond_t cond;
 } ma_semaphore;
 #endif  /* MA_POSIX */
 #else
@@ -15098,6 +15118,8 @@ static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
 
 
 #ifdef MA_POSIX
+#include <pthread.h>
+
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
     int result;
@@ -15163,7 +15185,7 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     (void)stackSize;
 #endif
 
-    result = pthread_create(pThread, pAttr, entryProc, pData);
+    result = pthread_create((pthread_t*)pThread, pAttr, entryProc, pData);
 
     /* The thread attributes object is no longer required. */
     if (pAttr != NULL) {
@@ -15179,8 +15201,8 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
-    pthread_join(*pThread, NULL);
-    pthread_detach(*pThread);
+    pthread_join((pthread_t)*pThread, NULL);
+    pthread_detach((pthread_t)*pThread);
 }
 
 
@@ -15214,14 +15236,14 @@ static ma_result ma_event_init__posix(ma_event* pEvent)
 {
     int result;
 
-    result = pthread_mutex_init(&pEvent->lock, NULL);
+    result = pthread_mutex_init((pthread_mutex_t*)&pEvent->lock, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
 
-    result = pthread_cond_init(&pEvent->cond, NULL);
+    result = pthread_cond_init((pthread_cond_t*)&pEvent->cond, NULL);
     if (result != 0) {
-        pthread_mutex_destroy(&pEvent->lock);
+        pthread_mutex_destroy((pthread_mutex_t*)&pEvent->lock);
         return ma_result_from_errno(result);
     }
 
@@ -15231,32 +15253,32 @@ static ma_result ma_event_init__posix(ma_event* pEvent)
 
 static void ma_event_uninit__posix(ma_event* pEvent)
 {
-    pthread_cond_destroy(&pEvent->cond);
-    pthread_mutex_destroy(&pEvent->lock);
+    pthread_cond_destroy((pthread_cond_t*)&pEvent->cond);
+    pthread_mutex_destroy((pthread_mutex_t*)&pEvent->lock);
 }
 
 static ma_result ma_event_wait__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pEvent->lock);
     {
         while (pEvent->value == 0) {
-            pthread_cond_wait(&pEvent->cond, &pEvent->lock);
+            pthread_cond_wait((pthread_cond_t*)&pEvent->cond, (pthread_mutex_t*)&pEvent->lock);
         }
         pEvent->value = 0;  /* Auto-reset. */
     }
-    pthread_mutex_unlock(&pEvent->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pEvent->lock);
 
     return MA_SUCCESS;
 }
 
 static ma_result ma_event_signal__posix(ma_event* pEvent)
 {
-    pthread_mutex_lock(&pEvent->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pEvent->lock);
     {
         pEvent->value = 1;
-        pthread_cond_signal(&pEvent->cond);
+        pthread_cond_signal((pthread_cond_t*)&pEvent->cond);
     }
-    pthread_mutex_unlock(&pEvent->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pEvent->lock);
 
     return MA_SUCCESS;
 }
@@ -15272,14 +15294,14 @@ static ma_result ma_semaphore_init__posix(int initialValue, ma_semaphore* pSemap
 
     pSemaphore->value = initialValue;
 
-    result = pthread_mutex_init(&pSemaphore->lock, NULL);
+    result = pthread_mutex_init((pthread_mutex_t*)&pSemaphore->lock, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);  /* Failed to create mutex. */
     }
 
-    result = pthread_cond_init(&pSemaphore->cond, NULL);
+    result = pthread_cond_init((pthread_cond_t*)&pSemaphore->cond, NULL);
     if (result != 0) {
-        pthread_mutex_destroy(&pSemaphore->lock);
+        pthread_mutex_destroy((pthread_mutex_t*)&pSemaphore->lock);
         return ma_result_from_errno(result);  /* Failed to create condition variable. */
     }
 
@@ -15292,8 +15314,8 @@ static void ma_semaphore_uninit__posix(ma_semaphore* pSemaphore)
         return;
     }
 
-    pthread_cond_destroy(&pSemaphore->cond);
-    pthread_mutex_destroy(&pSemaphore->lock);
+    pthread_cond_destroy((pthread_cond_t*)&pSemaphore->cond);
+    pthread_mutex_destroy((pthread_mutex_t*)&pSemaphore->lock);
 }
 
 static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
@@ -15302,16 +15324,16 @@ static ma_result ma_semaphore_wait__posix(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-    pthread_mutex_lock(&pSemaphore->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pSemaphore->lock);
     {
         /* We need to wait on a condition variable before escaping. We can't return from this function until the semaphore has been signaled. */
         while (pSemaphore->value == 0) {
-            pthread_cond_wait(&pSemaphore->cond, &pSemaphore->lock);
+            pthread_cond_wait((pthread_cond_t*)&pSemaphore->cond, (pthread_mutex_t*)&pSemaphore->lock);
         }
 
         pSemaphore->value -= 1;
     }
-    pthread_mutex_unlock(&pSemaphore->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pSemaphore->lock);
 
     return MA_SUCCESS;
 }
@@ -15322,12 +15344,12 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-    pthread_mutex_lock(&pSemaphore->lock);
+    pthread_mutex_lock((pthread_mutex_t*)&pSemaphore->lock);
     {
         pSemaphore->value += 1;
-        pthread_cond_signal(&pSemaphore->cond);
+        pthread_cond_signal((pthread_cond_t*)&pSemaphore->cond);
     }
-    pthread_mutex_unlock(&pSemaphore->lock);
+    pthread_mutex_unlock((pthread_mutex_t*)&pSemaphore->lock);
 
     return MA_SUCCESS;
 }
