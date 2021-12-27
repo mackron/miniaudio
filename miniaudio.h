@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.1 - 2021-12-27
+miniaudio - v0.11.2 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3627,7 +3627,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 1
+#define MA_VERSION_REVISION 2
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -37024,7 +37024,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         how well this would work. Although ScriptProccessorNode is deprecated, in practice it seems to have pretty good browser support so I'm leaving it like
         this for now. If anyone knows how I could get raw PCM data using the MediaRecorder API please let me know!
         */
-        device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, channels, channels);
+        device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, (isCapture) ? channels : 0, (isCapture) ? 0 : channels);
 
         if (isCapture) {
             device.scriptNode.onaudioprocess = function(e) {
@@ -37032,7 +37032,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                     return; /* This means the device has been uninitialized. */
                 }
 
-                if(device.intermediaryBufferView.length == 0) {
+                if (device.intermediaryBufferView.length == 0) {
                     /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
                     device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
                 }
@@ -37130,8 +37130,10 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                         }
                     } else {
                         for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                            var outputBuffer = e.outputBuffer.getChannelData(iChannel);
+                            var intermediaryBuffer = device.intermediaryBufferView;
                             for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
-                                e.outputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame] = device.intermediaryBufferView[iFrame*channels + iChannel];
+                                outputBuffer[totalFramesProcessed + iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
                             }
                         }
                     }
@@ -89126,6 +89128,9 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
+v0.11.2 - TBD
+  - WebAudio: Optimizations to some JavaScript code.
+
 v0.11.1 - 2021-12-27
   - Result codes are now declared as an enum rather than #defines.
   - Channel positions (MA_CHANNEL_*) are now declared as an enum rather than #defines.
