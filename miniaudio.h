@@ -89129,6 +89129,7 @@ There have also been some other smaller changes added to this release.
 REVISION HISTORY
 ================
 v0.11.2 - TBD
+  - iOS: The IO buffer size is now configured based on the device's configured period size.
   - WebAudio: Optimizations to some JavaScript code.
 
 v0.11.1 - 2021-12-27
