@@ -31272,7 +31272,6 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 -(void)dealloc
 {
     [self remove_handler];
-    [super dealloc];
 }
 
 -(void)remove_handler
@@ -31428,8 +31427,6 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     AURenderCallbackStruct callbackInfo;
 #if defined(MA_APPLE_DESKTOP)
     AudioObjectID deviceObjectID;
-#else
-    UInt32 actualPeriodSizeInFramesSize = sizeof(actualPeriodSizeInFrames);
 #endif
 
     /* This API should only be used for a single device type: playback or capture. No full-duplex mode. */
@@ -31714,13 +31711,16 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     }
 #else
     /*
-    I don't know how to configure buffer sizes on iOS so for now we're not allowing it to be configured. Instead we're
-    just going to set it to the value of kAudioUnitProperty_MaximumFramesPerSlice.
+    On iOS, the size of the IO buffer needs to be specified in seconds and is a floating point
+    number. I don't trust any potential truncation errors due to converting from float to integer
+    so I'm going to explicitly set the actual period size to the next power of 2.
     */
-    status = ((ma_AudioUnitGetProperty_proc)pContext->coreaudio.AudioUnitGetProperty)(pData->audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &actualPeriodSizeInFrames, &actualPeriodSizeInFramesSize);
-    if (status != noErr) {
-        ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
-        return ma_result_from_OSStatus(status);
+    @autoreleasepool {
+        AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
+        MA_ASSERT(pAudioSession != NULL);
+        
+        [pAudioSession setPreferredIOBufferDuration:((float)actualPeriodSizeInFrames / pAudioSession.sampleRate) error:nil];
+        actualPeriodSizeInFrames = ma_next_power_of_2((ma_uint32)(pAudioSession.IOBufferDuration * pAudioSession.sampleRate));
     }
 #endif
 
