@@ -3654,29 +3654,42 @@ extern "C" {
 #include <stddef.h> /* For size_t. */
 
 /* Sized types. */
-typedef   signed char           ma_int8;
-typedef unsigned char           ma_uint8;
-typedef   signed short          ma_int16;
-typedef unsigned short          ma_uint16;
-typedef   signed int            ma_int32;
-typedef unsigned int            ma_uint32;
-#if defined(_MSC_VER) && !defined(__clang__)
-    typedef   signed __int64    ma_int64;
-    typedef unsigned __int64    ma_uint64;
+#if defined(MA_USE_STDINT)
+    #include <stdint.h>
+    typedef int8_t   ma_int8;
+    typedef uint8_t  ma_uint8;
+    typedef int16_t  ma_int16;
+    typedef uint16_t ma_uint16;
+    typedef int32_t  ma_int32;
+    typedef uint32_t ma_uint32;
+    typedef int64_t  ma_int64;
+    typedef uint64_t ma_uint64;
 #else
-    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlong-long"
-        #if defined(__clang__)
-            #pragma GCC diagnostic ignored "-Wc++11-long-long"
+    typedef   signed char           ma_int8;
+    typedef unsigned char           ma_uint8;
+    typedef   signed short          ma_int16;
+    typedef unsigned short          ma_uint16;
+    typedef   signed int            ma_int32;
+    typedef unsigned int            ma_uint32;
+    #if defined(_MSC_VER) && !defined(__clang__)
+        typedef   signed __int64    ma_int64;
+        typedef unsigned __int64    ma_uint64;
+    #else
+        #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+            #pragma GCC diagnostic push
+            #pragma GCC diagnostic ignored "-Wlong-long"
+            #if defined(__clang__)
+                #pragma GCC diagnostic ignored "-Wc++11-long-long"
+            #endif
+        #endif
+        typedef   signed long long  ma_int64;
+        typedef unsigned long long  ma_uint64;
+        #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+            #pragma GCC diagnostic pop
         #endif
     #endif
-    typedef   signed long long  ma_int64;
-    typedef unsigned long long  ma_uint64;
-    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
-        #pragma GCC diagnostic pop
-    #endif
-#endif
+#endif  /* MA_USE_STDINT */
+
 #if MA_SIZEOF_PTR == 8
     typedef ma_uint64           ma_uintptr;
 #else
