@@ -13,13 +13,13 @@ will receive the captured audio.
 
 "backend" is one of the miniaudio backends:
     wasapi
-    dsound
+    dsound or directsound
     winmm
     coreaudio
     sndio
     audio4
     oss
-    pulseaudio
+    pulseaudio or pulse
     alsa
     jack
     aaudio
@@ -124,7 +124,7 @@ ma_bool32 try_parse_backend(const char* arg, ma_backend* pBackends, ma_uint32 ba
         pBackends[backendCount++] = ma_backend_wasapi;
         goto done;
     }
-    if (strcmp(arg, "dsound") == 0) {
+    if (strcmp(arg, "dsound") == 0 || strcmp(arg, "directsound") == 0) {
         pBackends[backendCount++] = ma_backend_dsound;
         goto done;
     }
@@ -148,7 +148,7 @@ ma_bool32 try_parse_backend(const char* arg, ma_backend* pBackends, ma_uint32 ba
         pBackends[backendCount++] = ma_backend_oss;
         goto done;
     }
-    if (strcmp(arg, "pulseaudio") == 0) {
+    if (strcmp(arg, "pulseaudio") == 0 || strcmp(arg, "pulse") == 0) {
         pBackends[backendCount++] = ma_backend_pulseaudio;
         goto done;
     }
@@ -304,10 +304,39 @@ void on_log(void* pUserData, ma_uint32 logLevel, const char* message)
     printf("%s: %s", ma_log_level_to_string(logLevel), message);
 }
 
-void on_stop(ma_device* pDevice)
+void on_notification(const ma_device_notification* pNotification)
 {
-    (void)pDevice;
-    printf("Stopped\n");
+    MA_ASSERT(pNotification != NULL);
+    
+    switch (pNotification->type)
+    {
+        case ma_device_notification_type_started:
+        {
+            printf("Started\n");
+        } break;
+
+        case ma_device_notification_type_stopped:
+        {
+            printf("Stopped\n");
+        } break;
+
+        case ma_device_notification_type_rerouted:
+        {
+            printf("Rerouted\n");
+        } break;
+
+        case ma_device_notification_type_interruption_began:
+        {
+            printf("Interruption Began\n");
+        } break;
+
+        case ma_device_notification_type_interruption_ended:
+        {
+            printf("Interruption Ended\n");
+        } break;
+
+        default: break;
+    }
 }
 
 void on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
@@ -458,13 +487,13 @@ int main(int argc, char** argv)
     }
 
     deviceConfig = ma_device_config_init(deviceType);
-    deviceConfig.playback.format   = deviceFormat;
-    deviceConfig.playback.channels = deviceChannels;
-    deviceConfig.capture.format    = deviceFormat;
-    deviceConfig.capture.channels  = deviceChannels;
-    deviceConfig.sampleRate        = deviceSampleRate;
-    deviceConfig.dataCallback      = on_data;
-    deviceConfig.stopCallback      = on_stop;
+    deviceConfig.playback.format      = deviceFormat;
+    deviceConfig.playback.channels    = deviceChannels;
+    deviceConfig.capture.format       = deviceFormat;
+    deviceConfig.capture.channels     = deviceChannels;
+    deviceConfig.sampleRate           = deviceSampleRate;
+    deviceConfig.dataCallback         = on_data;
+    deviceConfig.notificationCallback = on_notification;
     result = ma_device_init(&g_State.context, &deviceConfig, &g_State.device);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize device.\n");

@@ -5750,6 +5750,69 @@ typedef enum
 #define MA_BACKEND_COUNT (ma_backend_null+1)
 
 
+/* Device notification types. */
+typedef enum
+{
+    ma_device_notification_type_started,
+    ma_device_notification_type_stopped,
+    ma_device_notification_type_rerouted,
+    ma_device_notification_type_interruption_began,
+    ma_device_notification_type_interruption_ended
+} ma_device_notification_type;
+
+typedef struct
+{
+    ma_device* pDevice;
+    ma_device_notification_type type;
+    union
+    {
+        struct
+        {
+            int __unused;
+        } started;
+        struct
+        {
+            int __unused;
+        } stopped;
+        struct
+        {
+            int __unused;
+        } rerouted;
+        struct
+        {
+            int __unused;
+        } interruption;
+    } data;
+} ma_device_notification;
+
+/*
+The notification callback for when the application should be notified of a change to the device.
+
+This callback is used for notifying the application of changes such as when the device has started,
+stopped, rerouted or an interruption has occurred. Note that not all backends will post all
+notification types. For example, some backends will perform automatic stream routing without any
+kind of notification to the host program which means miniaudio will never know about it and will
+never be able to fire the rerouted notification. You should keep this in mind when designing your
+program.
+
+The stopped notification will *not* get fired when a device is rerouted.
+
+
+Parameters
+----------
+pNotification (in)
+    A pointer to a structure containing information about the event. Use the `pDevice` member of
+    this object to retrieve the relevant device. The `type` member can be used to discriminate
+    against each of the notification types.
+
+
+Remarks
+-------
+Do not restart or uninitialize the device from the callback.
+*/
+typedef void (* ma_device_notification_proc)(const ma_device_notification* pNotification);
+
+
 /*
 The callback for processing audio data from the device.
 
@@ -5792,7 +5855,12 @@ The proper way to stop the device is to call `ma_device_stop()` from a different
 */
 typedef void (* ma_device_data_proc)(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount);
 
+
+
+
 /*
+DEPRECATED. Use ma_device_notification_proc instead.
+
 The callback for when the device has been stopped.
 
 This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
@@ -5809,7 +5877,7 @@ Remarks
 -------
 Do not restart or uninitialize the device from the callback.
 */
-typedef void (* ma_stop_proc)(ma_device* pDevice);
+typedef void (* ma_stop_proc)(ma_device* pDevice);  /* DEPRECATED. Use ma_device_notification_proc instead. */
 
 typedef enum
 {
@@ -5988,6 +6056,7 @@ struct ma_device_config
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
     ma_bool8 noDisableDenormals;        /* Do not disable denormals when firing the data callback. */
     ma_device_data_proc dataCallback;
+    ma_device_notification_proc notificationCallback;
     ma_stop_proc stopCallback;
     void* pUserData;
     ma_resampler_config resampling;
@@ -6644,21 +6713,22 @@ struct ma_device
     ma_device_type type;
     ma_uint32 sampleRate;
     MA_ATOMIC(4, ma_device_state) state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
-    ma_device_data_proc onData;             /* Set once at initialization time and should not be changed after. */
-    ma_stop_proc onStop;                    /* Set once at initialization time and should not be changed after. */
-    void* pUserData;                        /* Application defined data. */
+    ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
+    ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
+    ma_stop_proc onStop;                        /* DEPRECATED. Use the notification callback instead. Set once at initialization time and should not be changed after. */
+    void* pUserData;                            /* Application defined data. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
     ma_event stopEvent;
     ma_thread thread;
-    ma_result workResult;                   /* This is set by the worker thread after it's finished doing a job. */
-    ma_bool8 isOwnerOfContext;              /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
+    ma_result workResult;                       /* This is set by the worker thread after it's finished doing a job. */
+    ma_bool8 isOwnerOfContext;                  /* When set to true, uninitializing the device will also uninitialize the context. Set to true when NULL is passed into ma_device_init(). */
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
     MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
-    ma_duplex_rb duplexRB;                  /* Intermediary buffer for duplex device on asynchronous backends. */
+    ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
         ma_resample_algorithm algorithm;
@@ -7535,9 +7605,8 @@ then be set directly on the structure. Below are the members of the `ma_device_c
     dataCallback
         The callback to fire whenever data is ready to be delivered to or from the device.
 
-    stopCallback
-        The callback to fire whenever the device has stopped, either explicitly via `ma_device_stop()`, or implicitly due to things like the device being
-        disconnected.
+    notificationCallback
+        The callback to fire when something has changed with the device, such as whether or not it has been started or stopped.
 
     pUserData
         The user data pointer to use with the device. You can access this directly from the device object like `device.pUserData`.
@@ -16617,6 +16686,57 @@ static MA_INLINE void ma_device_restore_denormals(ma_device* pDevice, unsigned i
         (void)prevState;
     }
 }
+
+static ma_device_notification ma_device_notification_init(ma_device* pDevice, ma_device_notification_type type)
+{
+    ma_device_notification notification;
+
+    MA_ZERO_OBJECT(&notification);
+    notification.pDevice = pDevice;
+    notification.type    = type;
+
+    return notification;
+}
+
+static void ma_device__on_notification(ma_device_notification notification)
+{
+    MA_ASSERT(notification.pDevice != NULL);
+
+    if (notification.pDevice->onNotification != NULL) {
+        notification.pDevice->onNotification(&notification);
+    }
+
+    /* TEMP FOR COMPATIBILITY: If it's a stopped notification, fire the onStop callback as well. This is only for backwards compatibility and will be removed. */
+    if (notification.pDevice->onStop != NULL && notification.type == ma_device_notification_type_stopped) {
+        notification.pDevice->onStop(notification.pDevice);
+    }
+}
+
+void ma_device__on_notification_started(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_started));
+}
+
+void ma_device__on_notification_stopped(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_stopped));
+}
+
+void ma_device__on_notification_rerouted(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_rerouted));
+}
+
+void ma_device__on_notification_interruption_began(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_began));
+}
+
+void ma_device__on_notification_interruption_ended(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_ended));
+}
+
 
 static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -27729,12 +27849,10 @@ static void ma_device_on_suspended__pulse(ma_pa_stream* pStream, void* pUserData
 
     if (suspended == 1) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Suspended.\n");
-
-        if (pDevice->onStop) {
-            pDevice->onStop(pDevice);
-        }
+        ma_device__on_notification_stopped(pDevice);
     } else {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[Pulse] Device suspended state changed. Resumed.\n");
+        ma_device__on_notification_started(pDevice);
     }
 }
 
@@ -29007,17 +29125,13 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
 static ma_result ma_device_stop__jack(ma_device* pDevice)
 {
     ma_context* pContext = pDevice->pContext;
-    ma_stop_proc onStop;
 
     if (((ma_jack_deactivate_proc)pContext->jack.jack_deactivate)((ma_jack_client_t*)pDevice->jack.pClient) != 0) {
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] An error occurred when deactivating the JACK client.");
         return MA_ERROR;
     }
 
-    onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
-    }
+    ma_device__on_notification_stopped(pDevice);
 
     return MA_SUCCESS;
 }
@@ -30981,11 +31095,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     Audio APIs in the callback when the device has been stopped or uninitialized.
     */
     if (ma_device_get_state(pDevice) == ma_device_state_uninitialized || ma_device_get_state(pDevice) == ma_device_state_stopping || ma_device_get_state(pDevice) == ma_device_state_stopped) {
-        ma_stop_proc onStop = pDevice->onStop;
-        if (onStop) {
-            onStop(pDevice);
-        }
-
+        ma_device__on_notification_stopped(pDevice);
         ma_event_signal(&pDevice->coreaudio.stopEvent);
     } else {
         UInt32 isRunning;
@@ -30996,8 +31106,6 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
         }
 
         if (!isRunning) {
-            ma_stop_proc onStop;
-
             /*
             The stop event is a bit annoying in Core Audio because it will be called when we automatically switch the default device. Some scenarios to consider:
 
@@ -31011,7 +31119,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
                 /*
                 It looks like the device is switching through an external event, such as the user unplugging the device or changing the default device
                 via the operating system's sound settings. If we're re-initializing the device, we just terminate because we want the stopping of the
-                device to be seamless to the client (we don't want them receiving the onStop event and thinking that the device has stopped when it
+                device to be seamless to the client (we don't want them receiving the stopped event and thinking that the device has stopped when it
                 hasn't!).
                 */
                 if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isSwitchingPlaybackDevice) ||
@@ -31024,16 +31132,13 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
                 will try switching to the new default device seamlessly. We need to somehow find a way to determine whether or not Core Audio will most
                 likely be successful in switching to the new device.
 
-                TODO: Try to predict if Core Audio will switch devices. If not, the onStop callback needs to be posted.
+                TODO: Try to predict if Core Audio will switch devices. If not, the stopped callback needs to be posted.
                 */
                 return;
             }
 
             /* Getting here means we need to stop the device. */
-            onStop = pDevice->onStop;
-            if (onStop) {
-                onStop(pDevice);
-            }
+            ma_device__on_notification_stopped(pDevice);
         }
     }
 
@@ -35360,8 +35465,6 @@ static ma_result ma_device_start__aaudio(ma_device* pDevice)
 
 static ma_result ma_device_stop__aaudio(ma_device* pDevice)
 {
-    ma_stop_proc onStop;
-
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
@@ -35378,10 +35481,7 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
         }
     }
 
-    onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
-    }
+    ma_device__on_notification_stopped(pDevice);
 
     return MA_SUCCESS;
 }
@@ -36537,7 +36637,6 @@ static ma_result ma_device_drain__opensl(ma_device* pDevice, ma_device_type devi
 static ma_result ma_device_stop__opensl(ma_device* pDevice)
 {
     SLresult resultSL;
-    ma_stop_proc onStop;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -36571,10 +36670,7 @@ static ma_result ma_device_stop__opensl(ma_device* pDevice)
     }
 
     /* Make sure the client is aware that the device has stopped. There may be an OpenSL|ES callback for this, but I haven't found it. */
-    onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
-    }
+    ma_device__on_notification_stopped(pDevice);
 
     return MA_SUCCESS;
 }
@@ -37255,10 +37351,7 @@ static ma_result ma_device_stop__webaudio(ma_device* pDevice)
         }, pDevice->webaudio.indexPlayback);
     }
 
-    ma_stop_proc onStop = pDevice->onStop;
-    if (onStop) {
-        onStop(pDevice);
-    }
+    ma_device__on_notification_stopped(pDevice);
 
     return MA_SUCCESS;
 }
@@ -37587,7 +37680,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 
     for (;;) {  /* <-- This loop just keeps the thread alive. The main audio loop is inside. */
         ma_result startResult;
-        ma_result stopResult;   /* <-- This will store the result from onDeviceStop(). If it returns an error, we don't fire the onStop callback. */
+        ma_result stopResult;   /* <-- This will store the result from onDeviceStop(). If it returns an error, we don't fire the stopped notification callback. */
 
         /* We wait on an event to know when something has requested that the device be started and the main loop entered. */
         ma_event_wait(&pDevice->wakeupEvent);
@@ -37623,6 +37716,8 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         ma_device__set_state(pDevice, ma_device_state_started);
         ma_event_signal(&pDevice->startEvent);
 
+        ma_device__on_notification_started(pDevice);
+
         if (pDevice->pContext->callbacks.onDeviceDataLoop != NULL) {
             pDevice->pContext->callbacks.onDeviceDataLoop(pDevice);
         } else {
@@ -37638,12 +37733,12 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         }
 
         /*
-        After the device has stopped, make sure an event is posted. Don't post an onStop event if
+        After the device has stopped, make sure an event is posted. Don't post a stopped event if
         stopping failed. This can happen on some backends when the underlying stream has been
         stopped due to the device being physically unplugged or disabled via an OS setting.
         */
-        if (pDevice->onStop && stopResult != MA_SUCCESS) {
-            pDevice->onStop(pDevice);
+        if (stopResult == MA_SUCCESS) {
+            ma_device__on_notification_stopped(pDevice);
         }
 
         /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
@@ -38315,9 +38410,10 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->pContext = pContext;
 
     /* Set the user data and log callback ASAP to ensure it is available for the entire initialization process. */
-    pDevice->pUserData = pConfig->pUserData;
-    pDevice->onData    = pConfig->dataCallback;
-    pDevice->onStop    = pConfig->stopCallback;
+    pDevice->pUserData      = pConfig->pUserData;
+    pDevice->onData         = pConfig->dataCallback;
+    pDevice->onNotification = pConfig->notificationCallback;
+    pDevice->onStop         = pConfig->stopCallback;
 
     if (pConfig->playback.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->playback.id, pConfig->playback.pDeviceID, sizeof(pDevice->playback.id));
@@ -38811,6 +38907,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
             if (result == MA_SUCCESS) {
                 ma_device__set_state(pDevice, ma_device_state_started);
+                ma_device__on_notification_started(pDevice);
             }
         } else {
             /*
@@ -89129,6 +89226,10 @@ There have also been some other smaller changes added to this release.
 REVISION HISTORY
 ================
 v0.11.2 - TBD
+  - Add a new device notification system to replace the stop callback. The stop callback is still
+    in place, but will be removed in the next version. New code should use the notificationCallback
+    member in the device config instead of stopCallback.
+  - Fix a bug where the stopped notification doesn't get fired.
   - iOS: The IO buffer size is now configured based on the device's configured period size.
   - WebAudio: Optimizations to some JavaScript code.
 
