@@ -89240,7 +89240,7 @@ REVISION HISTORY
 ================
 v0.11.2 - TBD
   - Add a new device notification system to replace the stop callback. The stop callback is still
-    in place, but will be removed in the next version. New code should use the notificationCallback
+    in place, but will be removed in version 0.12. New code should use the notificationCallback
     member in the device config instead of stopCallback.
   - Fix a bug where the stopped notification doesn't get fired.
   - iOS: The IO buffer size is now configured based on the device's configured period size.
