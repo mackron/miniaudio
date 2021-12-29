@@ -2453,7 +2453,7 @@ read. If this is less than the requested number of PCM frames it means you've re
 return value will be `MA_AT_END` if no samples have been read and the end has been reached.
 
     ```c
-    ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead, &framesRead);
+    ma_result result = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead, &framesRead);
     if (framesRead < framesToRead) {
         // Reached the end.
     }
