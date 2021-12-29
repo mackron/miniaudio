@@ -2448,12 +2448,12 @@ count, sample rate and channel map:
 When passing in `NULL` for decoder config in `ma_decoder_init*()`, the output format will be the
 same as that defined by the decoding backend.
 
-Data is read from the decoder as PCM frames. This will return the number of PCM frames actually
-read. If the return value is less than the requested number of PCM frames it means you've reached
-the end:
+Data is read from the decoder as PCM frames. This will output the number of PCM frames actually
+read. If this is less than the requested number of PCM frames it means you've reached the end. The
+return value will be `MA_AT_END` if no samples have been read and the end has been reached.
 
     ```c
-    ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
+    ma_uint64 framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead, &framesRead);
     if (framesRead < framesToRead) {
         // Reached the end.
     }
