@@ -5781,19 +5781,19 @@ typedef struct
     {
         struct
         {
-            int __unused;
+            int _unused;
         } started;
         struct
         {
-            int __unused;
+            int _unused;
         } stopped;
         struct
         {
-            int __unused;
+            int _unused;
         } rerouted;
         struct
         {
-            int __unused;
+            int _unused;
         } interruption;
     } data;
 } ma_device_notification;
@@ -6906,7 +6906,7 @@ struct ma_device
             ma_bool32 isDefaultCaptureDevice;
             ma_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             ma_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
-            void* pRouteChangeHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
+            void* pNotificationHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
         } coreaudio;
 #endif
 #ifdef MA_SUPPORT_SNDIO
@@ -30922,7 +30922,7 @@ static ma_result ma_device_realloc_AudioBufferList__coreaudio(ma_device* pDevice
         AudioBufferList* pNewAudioBufferList;
 
         pNewAudioBufferList = ma_allocate_AudioBufferList__coreaudio(sizeInFrames, format, channels, layout, &pDevice->pContext->allocationCallbacks);
-        if (pNewAudioBufferList != NULL) {
+        if (pNewAudioBufferList == NULL) {
             return MA_OUT_OF_MEMORY;
         }
 
@@ -31052,6 +31052,9 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "Failed to allocate AudioBufferList for capture.");
         return noErr;
     }
+    
+    pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
+    MA_ASSERT(pRenderedBufferList);
 
     /*
     When you call AudioUnitRender(), Core Audio tries to be helpful by setting the mDataByteSize to the number of bytes
@@ -31424,18 +31427,22 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 #endif
 
 #if defined(MA_APPLE_MOBILE)
-@interface ma_router_change_handler:NSObject {
+@interface ma_ios_notification_handler:NSObject {
     ma_device* m_pDevice;
 }
 @end
 
-@implementation ma_router_change_handler
+@implementation ma_ios_notification_handler
 -(id)init:(ma_device*)pDevice
 {
     self = [super init];
     m_pDevice = pDevice;
 
+    /* For route changes. */
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handle_route_change:) name:AVAudioSessionRouteChangeNotification object:[AVAudioSession sharedInstance]];
+
+    /* For interruptions. */
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handle_interruption:) name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
 
     return self;
 }
@@ -31448,6 +31455,26 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 -(void)remove_handler
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionRouteChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionInterruptionNotification object:nil];
+}
+
+-(void)handle_interruption:(NSNotification*)pNotification
+{
+    NSInteger type = [[[pNotification userInfo] objectForKey:AVAudioSessionInterruptionTypeKey] integerValue];
+    switch (type)
+    {
+        case AVAudioSessionInterruptionTypeBegan:
+        {
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeBegan\n");
+            ma_device__on_notification_interruption_began(m_pDevice);
+        } break;
+        
+        case AVAudioSessionInterruptionTypeEnded:
+        {
+            ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeEnded\n");
+            ma_device__on_notification_interruption_ended(m_pDevice);
+        } break;
+    }
 }
 
 -(void)handle_route_change:(NSNotification*)pNotification
@@ -31495,30 +31522,9 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     }
 
     ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
-
-    /* Temporarily disabling this section of code because it appears to be causing errors. */
-#if 0
-    ma_uint32 previousState = ma_device_get_state(m_pDevice);
-
-    if (previousState == ma_device_state_started) {
-        ma_device_stop(m_pDevice);
-    }
-
-    if (m_pDevice->type == ma_device_type_capture || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->capture.internalChannels   = (ma_uint32)pSession.inputNumberOfChannels;
-        m_pDevice->capture.internalSampleRate = (ma_uint32)pSession.sampleRate;
-        ma_device__post_init_setup(m_pDevice, ma_device_type_capture);
-    }
-    if (m_pDevice->type == ma_device_type_playback || m_pDevice->type == ma_device_type_duplex) {
-        m_pDevice->playback.internalChannels   = (ma_uint32)pSession.outputNumberOfChannels;
-        m_pDevice->playback.internalSampleRate = (ma_uint32)pSession.sampleRate;
-        ma_device__post_init_setup(m_pDevice, ma_device_type_playback);
-    }
-
-    if (previousState == ma_device_state_started) {
-        ma_device_start(m_pDevice);
-    }
-#endif
+    
+    /* Let the application know about the route change. */
+    ma_device__on_notification_rerouted(m_pDevice);
 }
 @end
 #endif
@@ -31536,9 +31542,9 @@ static ma_result ma_device_uninit__coreaudio(ma_device* pDevice)
     ma_device__untrack__coreaudio(pDevice);
 #endif
 #if defined(MA_APPLE_MOBILE)
-    if (pDevice->coreaudio.pRouteChangeHandler != NULL) {
-        ma_router_change_handler* pRouteChangeHandler = (MA_BRIDGE_TRANSFER ma_router_change_handler*)pDevice->coreaudio.pRouteChangeHandler;
-        [pRouteChangeHandler remove_handler];
+    if (pDevice->coreaudio.pNotificationHandler != NULL) {
+        ma_ios_notification_handler* pNotificationHandler = (MA_BRIDGE_TRANSFER ma_ios_notification_handler*)pDevice->coreaudio.pNotificationHandler;
+        [pNotificationHandler remove_handler];
     }
 #endif
 
@@ -32212,7 +32218,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
     differently on non-Desktop Apple platforms.
     */
 #if defined(MA_APPLE_MOBILE)
-    pDevice->coreaudio.pRouteChangeHandler = (MA_BRIDGE_RETAINED void*)[[ma_router_change_handler alloc] init:pDevice];
+    pDevice->coreaudio.pNotificationHandler = (MA_BRIDGE_RETAINED void*)[[ma_ios_notification_handler alloc] init:pDevice];
 #endif
 
     return MA_SUCCESS;
