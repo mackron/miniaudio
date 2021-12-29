@@ -23419,10 +23419,10 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
             if (((MA_PFN_RegOpenKeyExA)pContext->win32.RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
                 BYTE nameFromReg[512];
                 DWORD nameFromRegSize = sizeof(nameFromReg);
-                result = ((MA_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
+                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
                 ((MA_PFN_RegCloseKey)pContext->win32.RegCloseKey)(hKey);
 
-                if (result == ERROR_SUCCESS) {
+                if (resultWin32 == ERROR_SUCCESS) {
                     /* We have the value from the registry, so now we need to construct the name string. */
                     char name[1024];
                     if (ma_strcpy_s(name, sizeof(name), pDeviceInfo->name) == 0) {
