@@ -2214,12 +2214,11 @@ The volume of an output bus can be configured on a per-bus basis:
 In the code above we're using the splitter node from before and changing the volume of each of the
 copied streams.
 
-You can start, stop and mute a node with the following:
+You can start and stop a node with the following:
 
     ```c
     ma_node_set_state(&splitterNode, ma_node_state_started);    // The default state.
     ma_node_set_state(&splitterNode, ma_node_state_stopped);
-    ma_node_set_state(&splitterNode, ma_node_state_muted);
     ```
 
 By default the node is in a started state, but since it won't be connected to anything won't
