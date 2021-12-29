@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>miniaudio - A single file audio playback and capture library.</title>
+    <meta name="description" content="miniaudio is a single file audio playback and capture library written in C.">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="../../img/favicon.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-81135233-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'UA-81135233-2');
+</script>
+
+    <style>
+body {
+    font-family:sans-serif;
+    font-size:11pt;
+    line-height:18pt;
+    background-color:#003800;
+}
+
+h1,h2 {
+    color:#333;
+    line-height:0.2em;
+    margin-bottom:0;
+    padding:0;
+}
+h1.man {
+    margin-top:2em;
+}
+h2.man {
+    margin-top:1.5em;
+}
+
+a {
+    text-decoration:none;
+    color:#28f;
+}
+a:hover {
+    text-decoration:underline;
+    color:#26d;
+}
+
+.a-download {
+    text-decoration:none;
+    color:#ddd;
+    border:solid 1px #000;
+    border-radius:4px;
+    padding:16px 32px;
+    background-color:#003800;
+}
+.a-download:hover {
+    background-color:#003000;
+    text-decoration:none;
+    color:#ddd;
+}
+
+.a-sublink {
+    font-size:11pt;
+}
+
+#preview {
+    font-family:monospace;
+    font-size:10pt;
+    text-align:left;
+}
+
+.footer-links {
+    margin:        0px;
+    margin-bottom: 10px;
+    padding: 0px;
+}
+.footer-links li {
+    display: inline;
+    padding: 0 2px;
+}
+.footer-links li:first-child {
+    padding-left: 0;
+}
+
+.feature-header {
+    color:#666;
+    font-size: 24pt;
+    font-weight:bold;
+}
+.feature-header2 {
+    color:#444;
+    font-size: 1.5em;
+    font-weight:bold;
+    /*margin-bottom:1em;*/
+    line-height: 1em;
+    text-align:left;
+}
+
+.header-link-table {
+}
+.header-link-table td {
+    padding-right:1em;
+    vertical-align:center;
+    line-height:0;
+    /*border:solid 1px #f00;*/
+}
+.header-link-table a {
+    /*color:#e0d7cf;*/
+    color:#dddddd;
+    text-decoration:none;
+}
+.header-link-table a:hover {
+    color:#ffffff;
+}
+
+.footer-link {
+    color:#e0d7cf;
+    text-decoration:none;
+}
+.footer-link:hover {
+    color:#ffffff;
+}
+
+
+
+.mobile-main-link {
+    text-align:left;
+    background-color:#e0d7cf;
+    color:#036;
+    border-bottom:solid 1px #333;
+    padding-left:16px;
+}
+.mobile-main-link a {
+    display:block;
+    padding-top:8px;
+    padding-bottom:8px;
+    color:#036;
+    width:100%;
+    height:100%;
+    max-width:100%;
+}
+
+
+table.doc {
+    border:solid 0px #333;
+    border-collapse:collapse;
+}
+
+th.doc, td.doc {
+    padding:0.5em;
+}
+
+th.doc {
+    border:solid 1px #003800;
+    background-color:#003800;
+    color:#FFF;
+    text-align:left;
+}
+
+td.doc {
+    border:solid 1px #666;
+}
+
+td.doc p, th.doc p {
+    padding:0;
+    margin:0;
+}
+
+a.doc-navigation {
+    display:block;
+    padding:0.5em;
+    color:#003800;
+    border-bottom:solid 1px #bbbbbb;
+}
+
+a.doc-navigation:hover {
+    color:#fff;
+    background-color:#003800;
+    text-decoration:none;
+    /*border-bottom:solid 1px #003800;*/
+}
+
+/*
+a.doc-navigation:hover {
+    background-color:#c5ecc5;
+    text-decoration:none;
+}
+*/
+
+a.doc-navigation-active {
+    background-color:#cccccc;
+}
+a.doc-navigation-active:hover {
+    color:#003800;
+    background-color:#cccccc;
+}
+
+a.doc-navigation-l1 {
+    padding:0.1em;
+    padding-left:1.5em;
+}
+a.doc-navigation-l2 {
+    padding:0.1em;
+    padding-left:3em;
+}
+a.doc-navigation-l3 {
+    padding:0.1em;
+    padding-left:4em;
+}
+a.doc-navigation-l4 {
+    padding:0.1em;
+    padding-left:5em;
+}
+    </style>
+</head>
+
+<body style="margin:0; padding:0">
+    <div style="background-color:#003800; color:#bfa792;">
+        <div style="max-width:100%; width:100%; margin:0 auto;">
+            <table class="header-link-table" style="border-collapse:collapse; border-spacing:0; padding:0; padding-right:1em;">
+                <tr>
+                    <td style="padding:0.75em; width:100%; text-align:left;">
+                        <table class="header-link-table" style="border-collapse:collapse; margin:0; padding:0">
+                            <tr>
+                                <td style="vertical-align:bottom; padding:0em; padding-right:2em;"><a href="../../index.html"><img src="../../img/logo1_large_white.png" style="height:24px; min-width:100%;"></a></td>
+                                <td><a href="../manual/index.html">Documentation</a></td>
+                                <td><a href="index.html">Examples</a></td>
+                            </tr>
+                        </table>    
+                    </td>
+                    
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="margin:0; padding:0; height:32px; width:32px;"></a>
+                    </td>
+                    <td style="padding:0.1em; padding-right:1em; width:25%; text-align:right; vertical-align:center;">
+                        <a href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="margin:0; padding:0; height:24px; width:24px;"></a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
+<table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
+<td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Engine Steamaudio</a><a href="fixed_size_callback.html" class="doc-navigation doc-navigation-l1 ">Fixed Size Callback</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Engine Steamaudio</h1><p>
+Demonstrates integration of Steam Audio with miniaudio&#39;s engine API.
+</p>
+<p>
+
+In this example we&#39;ll apply a HRTF effect from Steam Audio. To do this a custom node will be
+implemented which uses Steam Audio&#39;s IPLBinauralEffect and IPLHRTF objects.
+</p>
+<p>
+
+By implementing this as a node, it can be plugged into any position within the graph. The output
+channel count of this node is always stereo.</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;phonon.h&gt;</span> <span style="color:#009900">/* Steam Audio */</span>
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdint.h&gt;</span> <span style="color:#009900">/* Required for uint32_t which is used by STEAMAUDIO_VERSION. */</span>
+
+<span style="color:#666666">#define</span> FORMAT      ma_format_f32   <span style="color:#009900">/* Must be floating point. */</span>
+<span style="color:#666666">#define</span> CHANNELS    2               <span style="color:#009900">/* Must be stereo for this example. */</span>
+<span style="color:#666666">#define</span> SAMPLE_RATE 48000
+
+
+<span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_result_from_IPLerror(IPLerror error)
+{
+    <span style="color:#0033ff">switch</span> (error)
+    {
+        <span style="color:#0033ff">case</span> IPL_STATUS_SUCCESS:     <span style="color:#0033ff">return</span> MA_SUCCESS;
+        <span style="color:#0033ff">case</span> IPL_STATUS_OUTOFMEMORY: <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+        <span style="color:#0033ff">case</span> IPL_STATUS_INITIALIZATION:
+        <span style="color:#0033ff">case</span> IPL_STATUS_FAILURE:
+        <span style="color:#0033ff">default</span>: <span style="color:#0033ff">return</span> MA_ERROR;
+    }
+}
+
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
+{
+    ma_node_config nodeConfig;
+    <span style="color:#0099cc">ma_uint32</span> channelsIn;
+    IPLAudioSettings iplAudioSettings;
+    IPLContext iplContext;
+    IPLHRTF iplHRTF;   <span style="color:#009900">/* There is one HRTF object to many binaural effect objects. */</span>
+} ma_steamaudio_binaural_node_config;
+
+MA_API ma_steamaudio_binaural_node_config ma_steamaudio_binaural_node_config_init(<span style="color:#0099cc">ma_uint32</span> channelsIn, IPLAudioSettings iplAudioSettings, IPLContext iplContext, IPLHRTF iplHRTF);
+
+
+<span style="color:#0033ff">typedef</span> <span style="color:#0033ff">struct</span>
+{
+    ma_node_base baseNode;
+    IPLAudioSettings iplAudioSettings;
+    IPLContext iplContext;
+    IPLHRTF iplHRTF;
+    IPLBinauralEffect iplEffect;
+    ma_vec3f direction;
+    <span style="color:#0033ff">float</span>* ppBuffersIn[2];      <span style="color:#009900">/* Each buffer is an offset of _pHeap. */</span>
+    <span style="color:#0033ff">float</span>* ppBuffersOut[2];     <span style="color:#009900">/* Each buffer is an offset of _pHeap. */</span>
+    <span style="color:#0033ff">void</span>* _pHeap;
+} ma_steamaudio_binaural_node;
+
+MA_API <span style="color:#0099cc">ma_result</span> ma_steamaudio_binaural_node_init(ma_node_graph* pNodeGraph, <span style="color:#0033ff">const</span> ma_steamaudio_binaural_node_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, ma_steamaudio_binaural_node* pBinauralNode);
+MA_API <span style="color:#0033ff">void</span> ma_steamaudio_binaural_node_uninit(ma_steamaudio_binaural_node* pBinauralNode, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks);
+MA_API <span style="color:#0099cc">ma_result</span> ma_steamaudio_binaural_node_set_direction(ma_steamaudio_binaural_node* pBinauralNode, <span style="color:#0033ff">float</span> x, <span style="color:#0033ff">float</span> y, <span style="color:#0033ff">float</span> z);
+
+
+MA_API ma_steamaudio_binaural_node_config ma_steamaudio_binaural_node_config_init(<span style="color:#0099cc">ma_uint32</span> channelsIn, IPLAudioSettings iplAudioSettings, IPLContext iplContext, IPLHRTF iplHRTF)
+{
+    ma_steamaudio_binaural_node_config config;
+
+    MA_ZERO_OBJECT(&amp;config);
+    config.nodeConfig       = ma_node_config_init();
+    config.channelsIn       = channelsIn;
+    config.iplAudioSettings = iplAudioSettings;
+    config.iplContext       = iplContext;
+    config.iplHRTF          = iplHRTF;
+
+    <span style="color:#0033ff">return</span> config;
+}
+
+
+<span style="color:#0033ff">static</span> <span style="color:#0033ff">void</span> ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, <span style="color:#0033ff">const</span> <span style="color:#0033ff">float</span>** ppFramesIn, <span style="color:#0099cc">ma_uint32</span>* pFrameCountIn, <span style="color:#0033ff">float</span>** ppFramesOut, <span style="color:#0099cc">ma_uint32</span>* pFrameCountOut)
+{
+    ma_steamaudio_binaural_node* pBinauralNode = (ma_steamaudio_binaural_node*)pNode;
+    IPLBinauralEffectParams binauralParams;
+    IPLAudioBuffer inputBufferDesc;
+    IPLAudioBuffer outputBufferDesc;
+    <span style="color:#0099cc">ma_uint32</span> totalFramesToProcess = *pFrameCountOut;
+    <span style="color:#0099cc">ma_uint32</span> totalFramesProcessed = 0;
+
+    binauralParams.direction.x   = pBinauralNode-&gt;direction.x;
+    binauralParams.direction.y   = pBinauralNode-&gt;direction.y;
+    binauralParams.direction.z   = pBinauralNode-&gt;direction.z;
+    binauralParams.interpolation = IPL_HRTFINTERPOLATION_NEAREST;
+    binauralParams.spatialBlend  = 1.0f;
+    binauralParams.hrtf          = pBinauralNode-&gt;iplHRTF;
+
+    inputBufferDesc.numChannels = (IPLint32)ma_node_get_input_channels(pNode, 0);
+
+    <span style="color:#009900">/* We&#39;ll run this in a loop just in case our deinterleaved buffers are too small. */</span>
+    outputBufferDesc.numSamples  = pBinauralNode-&gt;iplAudioSettings.frameSize;
+    outputBufferDesc.numChannels = 2;
+    outputBufferDesc.data        = pBinauralNode-&gt;ppBuffersOut;
+
+    <span style="color:#0033ff">while</span> (totalFramesProcessed &lt; totalFramesToProcess) {
+        <span style="color:#0099cc">ma_uint32</span> framesToProcessThisIteration = totalFramesToProcess - totalFramesProcessed;
+        <span style="color:#0033ff">if</span> (framesToProcessThisIteration &gt; (<span style="color:#0099cc">ma_uint32</span>)pBinauralNode-&gt;iplAudioSettings.frameSize) {
+            framesToProcessThisIteration = (<span style="color:#0099cc">ma_uint32</span>)pBinauralNode-&gt;iplAudioSettings.frameSize;
+        }
+
+        <span style="color:#0033ff">if</span> (inputBufferDesc.numChannels == 1) {
+            <span style="color:#009900">/* Fast path. No need for deinterleaving since it&#39;s a mono stream. */</span>
+            pBinauralNode-&gt;ppBuffersIn[0] = (<span style="color:#0033ff">float</span>*)ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessed, 1);
+        } <span style="color:#0033ff">else</span> {
+            <span style="color:#009900">/* Slow path. Need to deinterleave the input data. */</span>
+            ma_deinterleave_pcm_frames(ma_format_f32, inputBufferDesc.numChannels, framesToProcessThisIteration, ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessed, inputBufferDesc.numChannels), pBinauralNode-&gt;ppBuffersIn);
+        }
+
+        inputBufferDesc.data       = pBinauralNode-&gt;ppBuffersIn;
+        inputBufferDesc.numSamples = (IPLint32)framesToProcessThisIteration;
+
+        <span style="color:#009900">/* Apply the effect. */</span>
+        iplBinauralEffectApply(pBinauralNode-&gt;iplEffect, &amp;binauralParams, &amp;inputBufferDesc, &amp;outputBufferDesc);
+
+        <span style="color:#009900">/* Interleave straight into the output buffer. */</span>
+        ma_interleave_pcm_frames(ma_format_f32, 2, framesToProcessThisIteration, pBinauralNode-&gt;ppBuffersOut, ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesProcessed, 2));
+
+        <span style="color:#009900">/* Advance. */</span>
+        totalFramesProcessed += framesToProcessThisIteration;
+    }
+
+    (<span style="color:#0033ff">void</span>)pFrameCountIn;    <span style="color:#009900">/* Unused. */</span>
+}
+
+<span style="color:#0033ff">static</span> ma_node_vtable g_ma_steamaudio_binaural_node_vtable =
+{
+    ma_steamaudio_binaural_node_process_pcm_frames,
+    NULL,
+    1,  <span style="color:#009900">/* 1 input channel. */</span>
+    1,  <span style="color:#009900">/* 1 output channel. */</span>
+    0
+};
+
+MA_API <span style="color:#0099cc">ma_result</span> ma_steamaudio_binaural_node_init(ma_node_graph* pNodeGraph, <span style="color:#0033ff">const</span> ma_steamaudio_binaural_node_config* pConfig, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks, ma_steamaudio_binaural_node* pBinauralNode)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_node_config baseConfig;
+    <span style="color:#0099cc">ma_uint32</span> channelsIn;
+    <span style="color:#0099cc">ma_uint32</span> channelsOut;
+    IPLBinauralEffectSettings iplBinauralEffectSettings;
+    size_t heapSizeInBytes;
+
+    <span style="color:#0033ff">if</span> (pBinauralNode == NULL) {
+        <span style="color:#0033ff">return</span> MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pBinauralNode);
+
+    <span style="color:#0033ff">if</span> (pConfig == NULL || pConfig-&gt;iplAudioSettings.frameSize == 0 || pConfig-&gt;iplContext == NULL || pConfig-&gt;iplHRTF == NULL) {
+        <span style="color:#0033ff">return</span> MA_INVALID_ARGS;
+    }
+
+    <span style="color:#009900">/* Steam Audio only supports mono and stereo input. */</span>
+    <span style="color:#0033ff">if</span> (pConfig-&gt;channelsIn &lt; 1 || pConfig-&gt;channelsIn &gt; 2) {
+        <span style="color:#0033ff">return</span> MA_INVALID_ARGS;
+    }
+
+    channelsIn  = pConfig-&gt;channelsIn;
+    channelsOut = 2;    <span style="color:#009900">/* Always stereo output. */</span>
+
+    baseConfig = ma_node_config_init();
+    baseConfig.vtable          = &amp;g_ma_steamaudio_binaural_node_vtable;
+    baseConfig.pInputChannels  = &amp;channelsIn;
+    baseConfig.pOutputChannels = &amp;channelsOut;
+    result = ma_node_init(pNodeGraph, &amp;baseConfig, pAllocationCallbacks, &amp;pBinauralNode-&gt;baseNode);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    pBinauralNode-&gt;iplAudioSettings = pConfig-&gt;iplAudioSettings;
+    pBinauralNode-&gt;iplContext       = pConfig-&gt;iplContext;
+    pBinauralNode-&gt;iplHRTF          = pConfig-&gt;iplHRTF;
+
+    MA_ZERO_OBJECT(&amp;iplBinauralEffectSettings);
+    iplBinauralEffectSettings.hrtf = pBinauralNode-&gt;iplHRTF;
+
+    result = ma_result_from_IPLerror(iplBinauralEffectCreate(pBinauralNode-&gt;iplContext, &amp;pBinauralNode-&gt;iplAudioSettings, &amp;iplBinauralEffectSettings, &amp;pBinauralNode-&gt;iplEffect));
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_node_uninit(&amp;pBinauralNode-&gt;baseNode, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+    <span style="color:#009900">/*
+    Unfortunately Steam Audio uses deinterleaved buffers for everything so we&#39;ll need to use some
+    intermediary buffers. We&#39;ll allocate one big buffer on the heap and then use offsets. We&#39;ll
+    use the frame size from the IPLAudioSettings structure as a basis for the size of the buffer.
+    */</span>
+    heapSizeInBytes = <span style="color:#0033ff">sizeof</span>(<span style="color:#0033ff">float</span>) * channelsOut * pBinauralNode-&gt;iplAudioSettings.frameSize;  <span style="color:#009900">/* Output buffer. */</span>
+
+    <span style="color:#009900">/* Only need input buffers if we&#39;re not using mono input. */</span>
+    <span style="color:#0033ff">if</span> (channelsIn &gt; 1) {
+        heapSizeInBytes += <span style="color:#0033ff">sizeof</span>(<span style="color:#0033ff">float</span>) * channelsIn * pBinauralNode-&gt;iplAudioSettings.frameSize;
+    }
+
+    pBinauralNode-&gt;_pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+    <span style="color:#0033ff">if</span> (pBinauralNode-&gt;_pHeap == NULL) {
+        iplBinauralEffectRelease(&amp;pBinauralNode-&gt;iplEffect);
+        ma_node_uninit(&amp;pBinauralNode-&gt;baseNode, pAllocationCallbacks);
+        <span style="color:#0033ff">return</span> MA_OUT_OF_MEMORY;
+    }
+
+    pBinauralNode-&gt;ppBuffersOut[0] = (<span style="color:#0033ff">float</span>*)pBinauralNode-&gt;_pHeap;
+    pBinauralNode-&gt;ppBuffersOut[1] = (<span style="color:#0033ff">float</span>*)ma_offset_ptr(pBinauralNode-&gt;_pHeap, <span style="color:#0033ff">sizeof</span>(<span style="color:#0033ff">float</span>) * pBinauralNode-&gt;iplAudioSettings.frameSize);
+
+    <span style="color:#0033ff">if</span> (channelsIn &gt; 1) {
+        <span style="color:#0099cc">ma_uint32</span> iChannelIn;
+        <span style="color:#0033ff">for</span> (iChannelIn = 0; iChannelIn &lt; channelsIn; iChannelIn += 1) {
+            pBinauralNode-&gt;ppBuffersIn[iChannelIn] = (<span style="color:#0033ff">float</span>*)ma_offset_ptr(pBinauralNode-&gt;_pHeap, <span style="color:#0033ff">sizeof</span>(<span style="color:#0033ff">float</span>) * pBinauralNode-&gt;iplAudioSettings.frameSize * (channelsOut + iChannelIn));
+        }
+    }
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+MA_API <span style="color:#0033ff">void</span> ma_steamaudio_binaural_node_uninit(ma_steamaudio_binaural_node* pBinauralNode, <span style="color:#0033ff">const</span> ma_allocation_callbacks* pAllocationCallbacks)
+{
+    <span style="color:#0033ff">if</span> (pBinauralNode == NULL) {
+        <span style="color:#0033ff">return</span>;
+    }
+
+    <span style="color:#009900">/* The base node is always uninitialized first. */</span>
+    ma_node_uninit(&amp;pBinauralNode-&gt;baseNode, pAllocationCallbacks);
+
+    <span style="color:#009900">/*
+    The Steam Audio objects are deleted after the base node. This ensures the base node is removed from the graph
+    first to ensure these objects aren&#39;t getting used by the audio thread.
+    */</span>
+    iplBinauralEffectRelease(&amp;pBinauralNode-&gt;iplEffect);
+    ma_free(pBinauralNode-&gt;_pHeap, pAllocationCallbacks);
+}
+
+MA_API <span style="color:#0099cc">ma_result</span> ma_steamaudio_binaural_node_set_direction(ma_steamaudio_binaural_node* pBinauralNode, <span style="color:#0033ff">float</span> x, <span style="color:#0033ff">float</span> y, <span style="color:#0033ff">float</span> z)
+{
+    <span style="color:#0033ff">if</span> (pBinauralNode == NULL) {
+        <span style="color:#0033ff">return</span> MA_INVALID_ARGS;
+    }
+
+    pBinauralNode-&gt;direction.x = x;
+    pBinauralNode-&gt;direction.y = y;
+    pBinauralNode-&gt;direction.z = z;
+
+    <span style="color:#0033ff">return</span> MA_SUCCESS;
+}
+
+
+
+
+<span style="color:#0033ff">static</span> ma_engine g_engine;
+<span style="color:#0033ff">static</span> ma_sound g_sound;            <span style="color:#009900">/* This example will play only a single sound at once, so we only need one <span style="font-family:monospace;">ma_sound</span> object. */</span>
+<span style="color:#0033ff">static</span> ma_steamaudio_binaural_node g_binauralNode;   <span style="color:#009900">/* The echo effect is achieved using a delay node. */</span>
+
+<span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
+{
+    <span style="color:#0099cc">ma_result</span> result;
+    ma_engine_config engineConfig;
+    IPLAudioSettings iplAudioSettings;
+    IPLContextSettings iplContextSettings;
+    IPLContext iplContext;
+    IPLHRTFSettings iplHRTFSettings;
+    IPLHRTF iplHRTF;
+
+    <span style="color:#0033ff">if</span> (argc &lt; 2) {
+        printf(<span style="color:#cc3300">&quot;No input file.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/* The engine needs to be initialized first. */</span>
+    engineConfig = ma_engine_config_init();
+    engineConfig.channels           = CHANNELS;
+    engineConfig.sampleRate         = SAMPLE_RATE;
+    engineConfig.periodSizeInFrames = 256;
+
+    result = ma_engine_init(&amp;engineConfig, &amp;g_engine);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize audio engine.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/*
+    Now that we have the engine we can initialize the Steam Audio objects.
+    */</span>
+    MA_ZERO_OBJECT(&amp;iplAudioSettings);
+    iplAudioSettings.samplingRate = ma_engine_get_sample_rate(&amp;g_engine);
+
+    <span style="color:#009900">/*
+    If there&#39;s any Steam Audio developers reading this, why is the frame size needed? This needs to
+    be documented. If this is for some kind of buffer management with FFT or something, then this
+    need not be exposed to the public API. There should be no need for the public API to require a
+    fixed sized update.
+    */</span>
+    iplAudioSettings.frameSize = g_engine.pDevice-&gt;playback.internalPeriodSizeInFrames;
+
+
+    <span style="color:#009900">/* IPLContext */</span>
+    MA_ZERO_OBJECT(&amp;iplContextSettings);
+    iplContextSettings.version = STEAMAUDIO_VERSION;
+    
+    result = ma_result_from_IPLerror(iplContextCreate(&amp;iplContextSettings, &amp;iplContext));
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        ma_engine_uninit(&amp;g_engine);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+
+    <span style="color:#009900">/* IPLHRTF */</span>
+    MA_ZERO_OBJECT(&amp;iplHRTFSettings);
+    iplHRTFSettings.<span style="color:#0033ff">type</span> = IPL_HRTFTYPE_DEFAULT;
+
+    result = ma_result_from_IPLerror(iplHRTFCreate(iplContext, &amp;iplAudioSettings, &amp;iplHRTFSettings, &amp;iplHRTF));
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        iplContextRelease(&amp;iplContext);
+        ma_engine_uninit(&amp;g_engine);
+        <span style="color:#0033ff">return</span> result;
+    }
+
+
+    <span style="color:#009900">/*
+    The binaural node will need to know the input channel count of the sound so we&#39;ll need to load
+    the sound first. We&#39;ll initialize this such that it&#39;ll be initially detached from the graph.
+    It will be attached to the graph after the binaural node is initialized.
+    */</span>
+    {
+        ma_sound_config soundConfig;
+
+        soundConfig = ma_sound_config_init();
+        soundConfig.pFilePath   = argv[1];
+        soundConfig.flags       = MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;  <span style="color:#009900">/* We&#39;ll attach this to the graph later. */</span>
+
+        result = ma_sound_init_ex(&amp;g_engine, &amp;soundConfig, &amp;g_sound);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            <span style="color:#0033ff">return</span> result;
+        }
+
+        <span style="color:#009900">/* We&#39;ll let the Steam Audio binaural effect do the directional attenuation for us. */</span>
+        ma_sound_set_directional_attenuation_factor(&amp;g_sound, 0);
+
+        <span style="color:#009900">/* Loop the sound so we can get a continuous sound. */</span>
+        ma_sound_set_looping(&amp;g_sound, MA_TRUE);
+    }
+
+
+    <span style="color:#009900">/*
+    We&#39;ll build our graph starting from the end so initialize the binaural node now. The output of
+    this node will be connected straight to the output. You could also attach it to a sound group
+    or any other node that accepts an input.
+
+    Creating a node requires a pointer to the node graph that owns it. The engine itself is a node
+    graph. In the code below we can get a pointer to the node graph with <span style="font-family:monospace;">ma_engine_get_node_graph()</span>
+    or we could simple cast the engine to a ma_node_graph* like so:
+    
+        (ma_node_graph*)&amp;g_engine
+
+    The endpoint of the graph can be retrieved with <span style="font-family:monospace;">ma_engine_get_endpoint()</span>.
+    */</span>
+    {
+        ma_steamaudio_binaural_node_config binauralNodeConfig;
+
+        <span style="color:#009900">/*
+        For this example we&#39;re just using the engine&#39;s channel count, but a more optimal solution
+        might be to set this to mono if the source data is also mono.
+        */</span>
+        binauralNodeConfig = ma_steamaudio_binaural_node_config_init(CHANNELS, iplAudioSettings, iplContext, iplHRTF);
+
+        result = ma_steamaudio_binaural_node_init(ma_engine_get_node_graph(&amp;g_engine), &amp;binauralNodeConfig, NULL, &amp;g_binauralNode);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+            printf(<span style="color:#cc3300">&quot;Failed to initialize binaural node.&quot;</span>);
+            <span style="color:#0033ff">return</span> -1;
+        }
+
+        <span style="color:#009900">/* Connect the output of the delay node to the input of the endpoint. */</span>
+        ma_node_attach_output_bus(&amp;g_binauralNode, 0, ma_engine_get_endpoint(&amp;g_engine), 0);
+    }
+
+
+    <span style="color:#009900">/* We can now wire up the sound to the binaural node and start it. */</span>
+    ma_node_attach_output_bus(&amp;g_sound, 0, &amp;g_binauralNode, 0);
+    ma_sound_start(&amp;g_sound);
+
+<span style="color:#666666">#if</span> 1
+    {
+        <span style="color:#009900">/*
+        We&#39;ll move the sound around the listener which we&#39;ll leave at the origin. We&#39;ll then get
+        the direction to the listener and update the binaural node appropriately.
+        */</span>
+        <span style="color:#0033ff">float</span> stepAngle = 0.002f;
+        <span style="color:#0033ff">float</span> angle = 0;
+        <span style="color:#0033ff">float</span> distance = 2;
+
+        <span style="color:#0033ff">for</span> (;;) {
+            <span style="color:#0033ff">double</span> x = ma_cosd(angle) - ma_sind(angle);
+            <span style="color:#0033ff">double</span> y = ma_sind(angle) + ma_cosd(angle);
+            ma_vec3f direction;
+
+            ma_sound_set_position(&amp;g_sound, (<span style="color:#0033ff">float</span>)x * distance, 0, (<span style="color:#0033ff">float</span>)y * distance);
+            direction = ma_sound_get_direction_to_listener(&amp;g_sound);
+
+            <span style="color:#009900">/* Update the direction of the sound. */</span>
+            ma_steamaudio_binaural_node_set_direction(&amp;g_binauralNode, direction.x, direction.y, direction.z);
+            angle += stepAngle;
+
+            ma_sleep(1);
+        }
+    }
+<span style="color:#666666">#else</span>
+    printf(<span style="color:#cc3300">&quot;Press Enter to quit...&quot;</span>);
+    getchar();
+<span style="color:#666666">#endif</span>
+
+    ma_sound_uninit(&amp;g_sound);
+    ma_steamaudio_binaural_node_uninit(&amp;g_binauralNode, NULL);
+    ma_engine_uninit(&amp;g_engine);
+
+    <span style="color:#0033ff">return</span> 0;
+}</pre></div></td>
+</tr></table>
+    </div>
+    <table style="margin:0 auto; padding:1em 0px; text-align:center;">
+        <tr>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://discord.gg/9vpqbjU"><img src="../../img/Discord-Logo-White.svg" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://twitter.com/mackron"><img src="../../img/twitter_white.png" style="padding:0; height:32px; width:32px;"></a></td>
+            <td style="vertical-align:center;"><a style="padding:0;" href="https://github.com/mackron/miniaudio"><img src="../../img/github_white.png" style="padding:0; height:24px; width:24px;"></a></td>
+        </tr>
+    </table>
+
+    <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
+        Copyright &copy; 2021 David Reid<br/>
+        Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
+    </div>
+</body>
+</html>

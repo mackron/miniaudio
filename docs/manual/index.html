@@ -3998,15 +3998,15 @@ same as that defined by the decoding backend.
 </p>
 <p>
 
-Data is read from the decoder as PCM frames. This will return the number of PCM frames actually
-read. If the return value is less than the requested number of PCM frames it means you&#39;ve reached
-the end:
+Data is read from the decoder as PCM frames. This will output the number of PCM frames actually
+read. If this is less than the requested number of PCM frames it means you&#39;ve reached the end. The
+return value will be <span style="font-family:monospace;">MA_AT_END</span> if no samples have been read and the end has been reached.
 </p>
 <p>
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#0099cc">ma_uint64</span> framesRead = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead);
+<span style="color:#0099cc">ma_result</span> result = ma_decoder_read_pcm_frames(pDecoder, pFrames, framesToRead, &amp;framesRead);
 <span style="color:#0033ff">if</span> (framesRead &lt; framesToRead) {
     <span style="color:#009900">// Reached the end.</span>
 }
