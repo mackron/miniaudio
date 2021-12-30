@@ -31283,6 +31283,8 @@ static OSStatus ma_default_device_changed__coreaudio(AudioObjectID objectID, UIn
                             }
                         }
                     }
+
+                    ma_device__on_notification_rerouted(pDevice);
                 }
             }
         }
