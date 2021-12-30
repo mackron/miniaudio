@@ -20665,6 +20665,8 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
 
     ma_device__post_init_setup(pDevice, deviceType);
 
+    ma_device__on_notification_rerouted(pDevice);
+
     return MA_SUCCESS;
 }
 
