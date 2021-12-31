@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.2 - TBD
+miniaudio - v0.11.2 - 2021-12-31
 
 David Reid - mackron@gmail.com
 
@@ -89335,7 +89335,7 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
-v0.11.2 - TBD
+v0.11.2 - 2021-12-31
   - Add a new device notification system to replace the stop callback. The stop callback is still
     in place, but will be removed in version 0.12. New code should use the notificationCallback
     member in the device config instead of stopCallback.
