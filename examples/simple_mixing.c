@@ -48,21 +48,22 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
     contents of the output buffer by simply adding the samples together. You could also clip the samples to -1..+1, but I'm not
     doing that in this example.
     */
+    ma_result result;
     float temp[4096];
     ma_uint32 tempCapInFrames = ma_countof(temp) / CHANNEL_COUNT;
     ma_uint32 totalFramesRead = 0;
 
     while (totalFramesRead < frameCount) {
-        ma_uint32 iSample;
-        ma_uint32 framesReadThisIteration;
+        ma_uint64 iSample;
+        ma_uint64 framesReadThisIteration;
         ma_uint32 totalFramesRemaining = frameCount - totalFramesRead;
         ma_uint32 framesToReadThisIteration = tempCapInFrames;
         if (framesToReadThisIteration > totalFramesRemaining) {
             framesToReadThisIteration = totalFramesRemaining;
         }
 
-        framesReadThisIteration = (ma_uint32)ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration, NULL);
-        if (framesReadThisIteration == 0) {
+        result = ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration, &framesReadThisIteration);
+        if (result != MA_SUCCESS || framesReadThisIteration == 0) {
             break;
         }
 
@@ -71,9 +72,9 @@ ma_uint32 read_and_mix_pcm_frames_f32(ma_decoder* pDecoder, float* pOutputF32, m
             pOutputF32[totalFramesRead*CHANNEL_COUNT + iSample] += temp[iSample];
         }
 
-        totalFramesRead += framesReadThisIteration;
+        totalFramesRead += (ma_uint32)framesReadThisIteration;
 
-        if (framesReadThisIteration < framesToReadThisIteration) {
+        if (framesReadThisIteration < (ma_uint32)framesToReadThisIteration) {
             break;  /* Reached EOF. */
         }
     }
