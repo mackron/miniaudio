@@ -2184,6 +2184,15 @@ and include the following:
     |                                         | should set this for any nodes that perform        |
     |                                         | resampling.                                       |
     +-----------------------------------------+---------------------------------------------------+
+    | MA_NODE_FLAG_SILENT_OUTPUT              | Used to tell miniaudio that a node produces only  |
+    |                                         | silent output. This is useful for nodes where you |
+    |                                         | don't want the output to contribute to the final  |
+    |                                         | mix. An example might be if you want split your   |
+    |                                         | stream and have one branch be output to a file.   |
+    |                                         | When using this flag, you should avoid writing to |
+    |                                         | the output buffer of the node's processing        |
+    |                                         | callback because miniaudio will ignore it anyway. |
+    +-----------------------------------------+---------------------------------------------------+
 
 
 If you need to make a copy of an audio stream for effect processing you can use a splitter node
@@ -9965,7 +9974,8 @@ typedef enum
     MA_NODE_FLAG_PASSTHROUGH                = 0x00000001,
     MA_NODE_FLAG_CONTINUOUS_PROCESSING      = 0x00000002,
     MA_NODE_FLAG_ALLOW_NULL_INPUT           = 0x00000004,
-    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008
+    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008,
+    MA_NODE_FLAG_SILENT_OUTPUT              = 0x00000010
 } ma_node_flags;
 
 
@@ -67535,6 +67545,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     ma_node_output_bus* pOutputBus;
     ma_node_output_bus* pFirst;
     ma_uint32 inputChannels;
+    ma_bool32 doesOutputBufferHaveContent = MA_FALSE;
 
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
@@ -67575,8 +67586,11 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
     for (pOutputBus = pFirst; pOutputBus != NULL; pOutputBus = ma_node_input_bus_next(pInputBus, pOutputBus)) {
         ma_uint32 framesProcessed = 0;
+        ma_bool32 isSilentOutput = MA_FALSE;
 
         MA_ASSERT(pOutputBus->pNode != NULL);
+
+        isSilentOutput = (((ma_node_base*)pOutputBus->pNode)->vtable->flags & MA_NODE_FLAG_SILENT_OUTPUT) != 0;
 
         if (pFramesOut != NULL) {
             /* Read. */
@@ -67595,14 +67609,16 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
                 pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, inputChannels);
 
-                if (pOutputBus == pFirst) {
+                if (doesOutputBufferHaveContent == MA_FALSE) {
                     /* Fast path. First attachment. We just read straight into the output buffer (no mixing required). */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
                     if (result == MA_SUCCESS || result == MA_AT_END) {
-                        ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
+                        if (isSilentOutput == MA_FALSE) {   /* Don't mix if the node outputs silence. */
+                            ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
+                        }
                     }
                 }
 
@@ -67623,10 +67639,19 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
             if (pOutputBus == pFirst && framesProcessed < frameCount) {
                 ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, framesProcessed, ma_format_f32, inputChannels), (frameCount - framesProcessed), ma_format_f32, inputChannels);
             }
+
+            if (isSilentOutput == MA_FALSE) {
+                doesOutputBufferHaveContent = MA_TRUE;
+            }
         } else {
             /* Seek. */
             ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, NULL, frameCount, &framesProcessed, globalTime);
         }
+    }
+
+    /* If we didn't output anything, output silence. */
+    if (doesOutputBufferHaveContent == MA_FALSE && pFramesOut != NULL) {
+        ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, inputChannels);
     }
 
     /* In this path we always "process" the entire amount. */
