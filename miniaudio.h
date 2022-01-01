@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.2 - 2021-12-31
+miniaudio - v0.11.3 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3635,7 +3635,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 2
+#define MA_VERSION_REVISION 3
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -89360,6 +89360,13 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
+v0.11.3 - TBD
+  - Add a new flag for nodes called MA_NODE_FLAG_SILENT_OUTPUT which tells miniaudio that the
+    output of the node should always be treated as silence. This gives miniaudio an optimization
+    opportunity by skipping mixing of those nodes. Useful for special nodes that need to have
+    their outputs wired up to the graph so they're processed, but don't want the output to
+    contribute to the final mix.
+
 v0.11.2 - 2021-12-31
   - Add a new device notification system to replace the stop callback. The stop callback is still
     in place, but will be removed in version 0.12. New code should use the notificationCallback
