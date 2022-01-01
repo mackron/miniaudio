@@ -1,11 +1,11 @@
 /*
 Shows how to use the high level engine API with SDL.
 
-By default, miniaudio's engine API will initialize a device internally which will be used for audio
-output. You can instead use the engine independently of a device. To show this off, this example
-will use SDL for audio output instead of miniaudio.
+By default, miniaudio's engine API will initialize a device internally for audio output. You can
+instead use the engine independently of a device. To show this off, this example will use SDL for
+audio output instead of miniaudio.
 
-This example will load sound specified on the command line and rotate it around the listener's
+This example will load the sound specified on the command line and rotate it around the listener's
 head.
 */
 #define MA_NO_DEVICE_IO /* <-- Disables the `ma_device` API. We don't need that in this example since SDL will be doing that part for us. */
