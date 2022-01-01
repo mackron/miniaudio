@@ -105,10 +105,7 @@ int main(int argc, char** argv)
 
 #if 1
     {
-        /*
-        We'll move the sound around the listener which we'll leave at the origin. We'll then get
-        the direction to the listener and update the binaural node appropriately.
-        */
+        /* We'll move the sound around the listener which we'll leave at the origin. */
         float stepAngle = 0.002f;
         float angle = 0;
         float distance = 2;
