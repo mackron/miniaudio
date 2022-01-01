@@ -295,7 +295,7 @@ int main(int argc, char** argv)
     need not be exposed to the public API. There should be no need for the public API to require a
     fixed sized update.
     */
-    iplAudioSettings.frameSize = g_engine.pDevice->playback.internalPeriodSizeInFrames;
+    iplAudioSettings.frameSize = engineConfig.periodSizeInFrames;
 
 
     /* IPLContext */
