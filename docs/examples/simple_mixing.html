@@ -300,21 +300,22 @@ For simplicity, this example requires the device to use floating point samples.
     contents of the output buffer by simply adding the samples together. You could also clip the samples to -1..+1, but I&#39;m not
     doing that in this example.
     */</span>
+    <span style="color:#0099cc">ma_result</span> result;
     <span style="color:#0033ff">float</span> temp[4096];
     <span style="color:#0099cc">ma_uint32</span> tempCapInFrames = ma_countof(temp) / CHANNEL_COUNT;
     <span style="color:#0099cc">ma_uint32</span> totalFramesRead = 0;
 
     <span style="color:#0033ff">while</span> (totalFramesRead &lt; frameCount) {
-        <span style="color:#0099cc">ma_uint32</span> iSample;
-        <span style="color:#0099cc">ma_uint32</span> framesReadThisIteration;
+        <span style="color:#0099cc">ma_uint64</span> iSample;
+        <span style="color:#0099cc">ma_uint64</span> framesReadThisIteration;
         <span style="color:#0099cc">ma_uint32</span> totalFramesRemaining = frameCount - totalFramesRead;
         <span style="color:#0099cc">ma_uint32</span> framesToReadThisIteration = tempCapInFrames;
         <span style="color:#0033ff">if</span> (framesToReadThisIteration &gt; totalFramesRemaining) {
             framesToReadThisIteration = totalFramesRemaining;
         }
 
-        framesReadThisIteration = (<span style="color:#0099cc">ma_uint32</span>)ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration, NULL);
-        <span style="color:#0033ff">if</span> (framesReadThisIteration == 0) {
+        result = ma_decoder_read_pcm_frames(pDecoder, temp, framesToReadThisIteration, &amp;framesReadThisIteration);
+        <span style="color:#0033ff">if</span> (result != MA_SUCCESS || framesReadThisIteration == 0) {
             <span style="color:#0033ff">break</span>;
         }
 
@@ -323,9 +324,9 @@ For simplicity, this example requires the device to use floating point samples.
             pOutputF32[totalFramesRead*CHANNEL_COUNT + iSample] += temp[iSample];
         }
 
-        totalFramesRead += framesReadThisIteration;
+        totalFramesRead += (<span style="color:#0099cc">ma_uint32</span>)framesReadThisIteration;
 
-        <span style="color:#0033ff">if</span> (framesReadThisIteration &lt; framesToReadThisIteration) {
+        <span style="color:#0033ff">if</span> (framesReadThisIteration &lt; (<span style="color:#0099cc">ma_uint32</span>)framesToReadThisIteration) {
             <span style="color:#0033ff">break</span>;  <span style="color:#009900">/* Reached EOF. */</span>
         }
     }
@@ -460,7 +461,7 @@ For simplicity, this example requires the device to use floating point samples.
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2021 David Reid<br/>
+        Copyright &copy; 2022 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>
