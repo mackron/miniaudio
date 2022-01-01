@@ -275,7 +275,7 @@ int main(int argc, char** argv)
     engineConfig = ma_engine_config_init();
     engineConfig.channels           = CHANNELS;
     engineConfig.sampleRate         = SAMPLE_RATE;
-    engineConfig.periodSizeInFrames = 256;
+    engineConfig.periodSizeInFrames = 512;
 
     result = ma_engine_init(&engineConfig, &g_engine);
     if (result != MA_SUCCESS) {

@@ -10127,7 +10127,7 @@ struct ma_node_base
     ma_bool32 _ownsHeap;    /* If set to true, the node owns the heap allocation and _pHeap will be freed in ma_node_uninit(). */
 };
 
-MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_node_get_heap_size(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, size_t* pHeapSizeInBytes);
 MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, void* pHeap, ma_node* pNode);
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
 MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
@@ -10154,6 +10154,7 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 typedef struct
 {
     ma_uint32 channels;
+    ma_uint16 nodeCacheCapInFrames;
 } ma_node_graph_config;
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
@@ -10163,6 +10164,7 @@ struct ma_node_graph
 {
     /* Immutable. */
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
+    ma_uint16 nodeCacheCapInFrames;
 
     /* Read and written by multiple threads. */
     MA_ATOMIC(4, ma_bool32) isReading;
@@ -67202,7 +67204,8 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
     ma_node_graph_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.channels = channels;
+    config.channels             = channels;
+    config.nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
 
     return config;
 }
@@ -67266,6 +67269,10 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
+    pNodeGraph->nodeCacheCapInFrames = pConfig->nodeCacheCapInFrames;
+    if (pNodeGraph->nodeCacheCapInFrames == 0) {
+        pNodeGraph->nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+    }
 
     endpointConfig = ma_node_config_init();
     endpointConfig.vtable          = &g_node_graph_endpoint_vtable;
@@ -67962,7 +67969,7 @@ static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_heap_layout* pHeapLayout)
+static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, ma_node_heap_layout* pHeapLayout)
 {
     ma_result result;
     ma_uint32 inputBusCount;
@@ -68023,14 +68030,12 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
         size_t cachedDataSizeInBytes = 0;
         ma_uint32 iBus;
 
-        MA_ASSERT(MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS <= 0xFFFF);    /* Clamped to 16 bits. */
-
         for (iBus = 0; iBus < inputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
+            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
         }
 
         for (iBus = 0; iBus < outputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
+            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
         }
 
         pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
@@ -68051,7 +68056,7 @@ static ma_result ma_node_get_heap_layout(const ma_node_config* pConfig, ma_node_
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pHeapSizeInBytes)
+MA_API ma_result ma_node_get_heap_size(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, size_t* pHeapSizeInBytes)
 {
     ma_result result;
     ma_node_heap_layout heapLayout;
@@ -68062,7 +68067,7 @@ MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pH
 
     *pHeapSizeInBytes = 0;
 
-    result = ma_node_get_heap_layout(pConfig, &heapLayout);
+    result = ma_node_get_heap_layout(pNodeGraph, pConfig, &heapLayout);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -68086,7 +68091,7 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
 
     MA_ZERO_OBJECT(pNodeBase);
 
-    result = ma_node_get_heap_layout(pConfig, &heapLayout);
+    result = ma_node_get_heap_layout(pNodeGraph, pConfig, &heapLayout);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -68116,7 +68121,7 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
 
     if (heapLayout.cachedDataOffset != MA_SIZE_MAX) {
         pNodeBase->pCachedData = (float*)ma_offset_ptr(pHeap, heapLayout.cachedDataOffset);
-        pNodeBase->cachedDataCapInFramesPerBus = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+        pNodeBase->cachedDataCapInFramesPerBus = pNodeGraph->nodeCacheCapInFrames;
     } else {
         pNodeBase->pCachedData = NULL;
     }
@@ -68171,7 +68176,7 @@ MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* p
     size_t heapSizeInBytes;
     void* pHeap;
 
-    result = ma_node_get_heap_size(pConfig, &heapSizeInBytes);
+    result = ma_node_get_heap_size(pNodeGraph, pConfig, &heapSizeInBytes);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -70468,7 +70473,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     baseNodeConfig.pInputChannels  = &channelsIn;
     baseNodeConfig.pOutputChannels = &channelsOut;
 
-    result = ma_node_get_heap_size(&baseNodeConfig, &tempHeapSize);
+    result = ma_node_get_heap_size(ma_engine_get_node_graph(pConfig->pEngine), &baseNodeConfig, &tempHeapSize);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the size of the heap for the base node. */
     }
@@ -70873,6 +70878,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
+    nodeGraphConfig.nodeCacheCapInFrames = engineConfig.periodSizeInFrames;
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
     if (result != MA_SUCCESS) {
