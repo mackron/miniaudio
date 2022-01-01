@@ -28118,8 +28118,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     MA_ASSERT(pDevice != NULL);
     MA_ZERO_OBJECT(&pDevice->pulse);
 
-    printf("TESTING\n");
-
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
