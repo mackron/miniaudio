@@ -6091,6 +6091,7 @@ struct ma_device_config
     ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
     ma_bool8 noDisableDenormals;        /* Do not disable denormals when firing the data callback. */
+    ma_bool8 noFixedSizedCallback;      /* Disables strict fixed-sized data callbacks. Setting this to true will result in the period size being treated only as a hint to the backend. This is an optimization for those who don't need fixed sized callbacks. */
     ma_device_data_proc dataCallback;
     ma_device_notification_proc notificationCallback;
     ma_stop_proc stopCallback;
@@ -6766,6 +6767,7 @@ struct ma_device
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
+    ma_bool8 noFixedSizedCallback;
     MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
@@ -6794,6 +6796,9 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
+        void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
+        ma_uint32 intermediaryBufferCap;
+        ma_uint32 intermediaryBufferLen;    /* How many valid frames are sitting in the intermediary buffer. */
         void* pInputCache;                  /* In external format. Can be null. */
         ma_uint64 inputCacheCap;
         ma_uint64 inputCacheConsumed;
@@ -6815,6 +6820,9 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
+        void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
+        ma_uint32 intermediaryBufferCap;
+        ma_uint32 intermediaryBufferLen;    /* How many valid frames are sitting in the intermediary buffer. */
     } capture;
 
     union
@@ -7642,6 +7650,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     noDisableDenormals
         By default, miniaudio will disable denormals when the data callback is called. Setting this to true will prevent the disabling of denormals.
+
+    noFixedSizedCallback
+        Allows miniaudio to fire the data callback with any frame count. When this is set to true, the data callback will be fired with a consistent frame
+        count as specified by `periodSizeInFrames` or `periodSizeInMilliseconds`. When set to false, miniaudio will fire the callback with whatever the
+        backend requests, which could be anything.
 
     dataCallback
         The callback to fire whenever data is ready to be delivered to or from the device.
@@ -16784,7 +16797,109 @@ void ma_device__on_notification_interruption_ended(ma_device* pDevice)
 }
 
 
+static void ma_device__on_data_inner(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
+{
+    MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(pDevice->onData != NULL);
+
+    if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
+        ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+    }
+
+    pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
+}
+
 static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->noFixedSizedCallback) {
+        /* Fast path. Not using a fixed sized callback. Process directly from the specified buffers. */
+        ma_device__on_data_inner(pDevice, pFramesOut, pFramesIn, frameCount);
+    } else {
+        /* Slow path. Using a fixed sized callback. Need to use the intermediary buffer. */
+        ma_uint32 totalFramesProcessed = 0;
+
+        while (totalFramesProcessed < frameCount) {
+            ma_uint32 totalFramesRemaining = frameCount - totalFramesProcessed;
+            ma_uint32 framesToProcessThisIteration = 0;
+
+            if (pFramesIn != NULL) {
+                /* Capturing. Write to the intermediary buffer. If there's no room, fire the callback to empty it. */
+                if (pDevice->capture.intermediaryBufferLen < pDevice->capture.intermediaryBufferCap) {
+                    /* There's some room left in the intermediary buffer. Write to it without firing the callback. */
+                    framesToProcessThisIteration = totalFramesRemaining;
+                    if (framesToProcessThisIteration > pDevice->capture.intermediaryBufferCap - pDevice->capture.intermediaryBufferLen) {
+                        framesToProcessThisIteration = pDevice->capture.intermediaryBufferCap - pDevice->capture.intermediaryBufferLen;
+                    }
+
+                    ma_copy_pcm_frames(
+                        ma_offset_pcm_frames_ptr(pDevice->capture.pIntermediaryBuffer, pDevice->capture.intermediaryBufferLen, pDevice->capture.format, pDevice->capture.channels),
+                        ma_offset_pcm_frames_const_ptr(pFramesIn, totalFramesProcessed, pDevice->capture.format, pDevice->capture.channels),
+                        framesToProcessThisIteration,
+                        pDevice->capture.format, pDevice->capture.channels);
+
+                    pDevice->capture.intermediaryBufferLen += framesToProcessThisIteration;
+                }
+
+                if (pDevice->capture.intermediaryBufferLen == pDevice->capture.intermediaryBufferCap) {
+                    /* No room left in the intermediary buffer. Fire the data callback. */
+                    if (pDevice->type == ma_device_type_duplex) {
+                        ma_device__on_data_inner(pDevice, pDevice->playback.pIntermediaryBuffer, pDevice->capture.pIntermediaryBuffer, pDevice->capture.intermediaryBufferCap);
+
+                        /* The playback buffer will have just been filled. */
+                        pDevice->playback.intermediaryBufferLen = pDevice->capture.intermediaryBufferCap;
+                    } else {
+                        ma_device__on_data_inner(pDevice, NULL, pDevice->capture.pIntermediaryBuffer, pDevice->capture.intermediaryBufferCap);
+                    }
+
+                    /* The intermediary buffer has just been drained. */
+                    pDevice->capture.intermediaryBufferLen = 0;
+                }
+            }
+
+            if (pFramesOut != NULL) {
+                /* Playing back. Read from the intermediary buffer. If there's nothing in it, fire the callback to fill it. */
+                if (pDevice->playback.intermediaryBufferLen > 0) {
+                    /* There's some content in the intermediary buffer. Read from that without firing the callback. */
+                    if (pDevice->type == ma_device_type_duplex) {
+                        /* The frames processed this iteration for a duplex device will always be based on the capture side. Leave it unmodified. */
+                    } else {
+                        framesToProcessThisIteration = totalFramesRemaining;
+                        if (framesToProcessThisIteration > pDevice->playback.intermediaryBufferLen) {
+                            framesToProcessThisIteration = pDevice->playback.intermediaryBufferLen;
+                        }
+                    }
+
+                    ma_copy_pcm_frames(
+                        ma_offset_pcm_frames_ptr(pFramesOut, totalFramesProcessed, pDevice->playback.format, pDevice->playback.channels),
+                        ma_offset_pcm_frames_ptr(pDevice->playback.pIntermediaryBuffer, pDevice->playback.intermediaryBufferCap - pDevice->playback.intermediaryBufferLen, pDevice->playback.format, pDevice->playback.channels),
+                        framesToProcessThisIteration,
+                        pDevice->playback.format, pDevice->playback.channels);
+
+                    pDevice->playback.intermediaryBufferLen -= framesToProcessThisIteration;
+                }
+
+                if (pDevice->playback.intermediaryBufferLen == 0) {
+                    /* There's nothing in the intermediary buffer. Fire the data callback to fill it. */
+                    if (pDevice->type == ma_device_type_duplex) {
+                        /* In duplex mode, the data callback will be fired from the capture side. Nothing to do here. */
+                    } else {
+                        ma_device__on_data_inner(pDevice, pDevice->playback.pIntermediaryBuffer, NULL, pDevice->playback.intermediaryBufferCap);
+
+                        /* The intermediary buffer has just been filled. */
+                        pDevice->playback.intermediaryBufferLen = pDevice->playback.intermediaryBufferCap;
+                    }
+                }   
+            }
+
+            /* Make sure this is only incremented once in the duplex case. */
+            totalFramesProcessed += framesToProcessThisIteration;
+        }
+    }
+}
+
+static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
     float masterVolumeFactor;
 
@@ -16793,10 +16908,6 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
     if (pDevice->onData) {
         unsigned int prevDenormalState = ma_device_disable_denormals(pDevice);
         {
-            if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
-                ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
-            }
-
             /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
             if (pFramesIn != NULL && masterVolumeFactor < 1) {
                 ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
@@ -16811,12 +16922,12 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 
                     ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, masterVolumeFactor);
 
-                    pDevice->onData(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
+                    ma_device__on_data(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
 
                     totalFramesProcessed += framesToProcessThisIteration;
                 }
             } else {
-                pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
+                ma_device__on_data(pDevice, pFramesOut, pFramesIn, frameCount);
             }
 
             /* Volume control and clipping for playback devices. */
@@ -16846,7 +16957,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
     MA_ASSERT(pFramesOut != NULL);
 
     if (pDevice->playback.converter.isPassthrough) {
-        ma_device__on_data(pDevice, pFramesOut, NULL, frameCount);
+        ma_device__handle_data_callback(pDevice, pFramesOut, NULL, frameCount);
     } else {
         ma_result result;
         ma_uint64 totalFramesReadOut;
@@ -16891,7 +17002,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
 
                 /* Getting here means there's no data in the cache and we need to fill it up with data from the client. */
                 if (pDevice->playback.inputCacheRemaining == 0) {
-                    ma_device__on_data(pDevice, pDevice->playback.pInputCache, NULL, (ma_uint32)pDevice->playback.inputCacheCap);
+                    ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, NULL, (ma_uint32)pDevice->playback.inputCacheCap);
 
                     pDevice->playback.inputCacheConsumed  = 0;
                     pDevice->playback.inputCacheRemaining = pDevice->playback.inputCacheCap;
@@ -16919,7 +17030,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                 }
 
                 if (framesToReadThisIterationIn > 0) {
-                    ma_device__on_data(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
+                    ma_device__handle_data_callback(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
                 }
 
                 /*
@@ -16952,7 +17063,7 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
     MA_ASSERT(pFramesInDeviceFormat != NULL);
 
     if (pDevice->capture.converter.isPassthrough) {
-        ma_device__on_data(pDevice, NULL, pFramesInDeviceFormat, frameCountInDeviceFormat);
+        ma_device__handle_data_callback(pDevice, NULL, pFramesInDeviceFormat, frameCountInDeviceFormat);
     } else {
         ma_result result;
         ma_uint8 pFramesInClientFormat[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
@@ -16975,7 +17086,7 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
             }
 
             if (clientFramesProcessedThisIteration > 0) {
-                ma_device__on_data(pDevice, NULL, pFramesInClientFormat, (ma_uint32)clientFramesProcessedThisIteration);    /* Safe cast. */
+                ma_device__handle_data_callback(pDevice, NULL, pFramesInClientFormat, (ma_uint32)clientFramesProcessedThisIteration);    /* Safe cast. */
             }
 
             pRunningFramesInDeviceFormat = ma_offset_ptr(pRunningFramesInDeviceFormat, deviceFramesProcessedThisIteration * ma_get_bytes_per_frame(pDevice->capture.internalFormat, pDevice->capture.internalChannels));
@@ -17090,7 +17201,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
             result = ma_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
             if (result == MA_SUCCESS) {
                 if (inputFrameCount > 0) {
-                    ma_device__on_data(pDevice, pDevice->playback.pInputCache, pInputFrames, inputFrameCount);
+                    ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, pInputFrames, inputFrameCount);
                 } else {
                     if (ma_pcm_rb_pointer_distance(pRB) == 0) {
                         break;  /* Underrun. */
@@ -17099,7 +17210,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
             } else {
                 /* No capture data available. Feed in silence. */
                 inputFrameCount = (ma_uint32)ma_min(pDevice->playback.inputCacheCap, sizeof(silentInputFrames) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-                ma_device__on_data(pDevice, pDevice->playback.pInputCache, silentInputFrames, inputFrameCount);
+                ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, silentInputFrames, inputFrameCount);
             }
 
             pDevice->playback.inputCacheConsumed  = 0;
@@ -17249,7 +17360,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                             break;
                         }
 
-                        ma_device__on_data(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
+                        ma_device__handle_data_callback(pDevice, playbackClientData, capturedClientData, (ma_uint32)capturedClientFramesToProcessThisIteration);    /* Safe cast .*/
 
                         capturedDeviceFramesProcessed += (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
                         capturedDeviceFramesRemaining -= (ma_uint32)capturedDeviceFramesToProcessThisIteration; /* Safe cast. */
@@ -21001,7 +21112,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                                 framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, mappedDeviceBufferFramesRemainingPlayback);
                                 framesProcessed = framesToProcess;
 
-                                ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, pRunningDeviceBufferCapture, framesToProcess);
+                                ma_device__handle_data_callback(pDevice, pRunningDeviceBufferPlayback, pRunningDeviceBufferCapture, framesToProcess);
 
                                 mappedDeviceBufferFramesRemainingCapture  -= framesProcessed;
                                 mappedDeviceBufferFramesRemainingPlayback -= framesProcessed;
@@ -21017,7 +21128,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                                 framesToProcess = ma_min(mappedDeviceBufferFramesRemainingCapture, outputDataInClientFormatCap);
                                 framesProcessed = framesToProcess;
 
-                                ma_device__on_data(pDevice, outputDataInClientFormat, pRunningDeviceBufferCapture, framesToProcess);
+                                ma_device__handle_data_callback(pDevice, outputDataInClientFormat, pRunningDeviceBufferCapture, framesToProcess);
                                 outputDataInClientFormatCount    = framesProcessed;
                                 outputDataInClientFormatConsumed = 0;
 
@@ -21039,7 +21150,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                                     break;
                                 }
 
-                                ma_device__on_data(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);   /* Safe cast. */
+                                ma_device__handle_data_callback(pDevice, pRunningDeviceBufferPlayback, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);   /* Safe cast. */
 
                                 mappedDeviceBufferFramesRemainingCapture  -= (ma_uint32)capturedDeviceFramesToProcess;
                                 mappedDeviceBufferFramesRemainingPlayback -= (ma_uint32)capturedClientFramesToProcess;
@@ -21056,7 +21167,7 @@ static ma_result ma_device_data_loop__wasapi(ma_device* pDevice)
                                     break;
                                 }
 
-                                ma_device__on_data(pDevice, outputDataInClientFormat, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);
+                                ma_device__handle_data_callback(pDevice, outputDataInClientFormat, inputDataInClientFormat, (ma_uint32)capturedClientFramesToProcess);
 
                                 mappedDeviceBufferFramesRemainingCapture -= (ma_uint32)capturedDeviceFramesToProcess;
                                 outputDataInClientFormatCount             = (ma_uint32)capturedClientFramesToProcess;
@@ -22735,7 +22846,7 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
                     outputFramesInClientFormatCount     = (ma_uint32)clientCapturedFramesToProcess;
                     mappedDeviceFramesProcessedCapture += (ma_uint32)deviceCapturedFramesToProcess;
 
-                    ma_device__on_data(pDevice, outputFramesInClientFormat, inputFramesInClientFormat, (ma_uint32)clientCapturedFramesToProcess);
+                    ma_device__handle_data_callback(pDevice, outputFramesInClientFormat, inputFramesInClientFormat, (ma_uint32)clientCapturedFramesToProcess);
 
                     /* At this point we have input and output data in client format. All we need to do now is convert it to the output device format. This may take a few passes. */
                     for (;;) {
@@ -38545,6 +38656,8 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     pDevice->noPreSilencedOutputBuffer   = pConfig->noPreSilencedOutputBuffer;
     pDevice->noClip                      = pConfig->noClip;
+    pDevice->noDisableDenormals          = pConfig->noDisableDenormals;
+    pDevice->noFixedSizedCallback        = pConfig->noFixedSizedCallback;
     pDevice->masterVolumeFactor          = 1;
 
     pDevice->type                        = pConfig->deviceType;
@@ -38721,6 +38834,61 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
 
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
+
+
+    /*
+    If we're using fixed sized callbacks we'll need to make use of an intermediary buffer. Needs to
+    be done after post_init_setup() because we'll need access to the sample rate.
+    */
+    if (pConfig->noFixedSizedCallback == MA_FALSE) {
+        /* We're using a fixed sized data callback so we'll need an intermediary buffer. */
+        ma_uint32 intermediaryBufferCap = pConfig->periodSizeInFrames;
+        if (intermediaryBufferCap == 0) {
+            intermediaryBufferCap = ma_calculate_buffer_size_in_frames_from_milliseconds(pConfig->periodSizeInMilliseconds, pDevice->sampleRate);
+        }
+
+        if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
+            ma_uint32 intermediaryBufferSizeInBytes;
+
+            pDevice->capture.intermediaryBufferLen = 0;
+            pDevice->capture.intermediaryBufferCap = intermediaryBufferCap;
+            if (pDevice->capture.intermediaryBufferCap == 0) {
+                pDevice->capture.intermediaryBufferCap = pDevice->capture.internalPeriodSizeInFrames;
+            }
+
+            intermediaryBufferSizeInBytes = pDevice->capture.intermediaryBufferCap * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+
+            pDevice->capture.pIntermediaryBuffer = ma_malloc((size_t)intermediaryBufferSizeInBytes, &pContext->allocationCallbacks);
+            if (pDevice->capture.pIntermediaryBuffer == NULL) {
+                ma_device_uninit(pDevice);
+                return MA_OUT_OF_MEMORY;
+            }
+        }
+
+        if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
+            ma_uint64 intermediaryBufferSizeInBytes;
+            
+            pDevice->playback.intermediaryBufferLen = 0;
+            if (pConfig->deviceType == ma_device_type_duplex) {
+                pDevice->playback.intermediaryBufferCap = pDevice->capture.intermediaryBufferCap;   /* In duplex mode, make sure the intermediary buffer is always the same size as the capture side. */
+            } else {
+                pDevice->playback.intermediaryBufferCap = intermediaryBufferCap;
+                if (pDevice->playback.intermediaryBufferCap == 0) {
+                    pDevice->playback.intermediaryBufferCap = pDevice->playback.internalPeriodSizeInFrames;
+                }
+            }
+
+            intermediaryBufferSizeInBytes = pDevice->playback.intermediaryBufferCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+            
+            pDevice->playback.pIntermediaryBuffer = ma_malloc((size_t)intermediaryBufferSizeInBytes, &pContext->allocationCallbacks);
+            if (pDevice->playback.pIntermediaryBuffer == NULL) {
+                ma_device_uninit(pDevice);
+                return MA_OUT_OF_MEMORY;
+            }
+        }
+    } else {
+        /* Not using a fixed sized data callback so no need for an intermediary buffer. */
+    }
 
 
     /* Some backends don't require the worker thread. */
@@ -38904,6 +39072,13 @@ MA_API void ma_device_uninit(ma_device* pDevice)
 
     if (pDevice->playback.pInputCache != NULL) {
         ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
+    }
+
+    if (pDevice->capture.pIntermediaryBuffer != NULL) {
+        ma_free(pDevice->capture.pIntermediaryBuffer, &pDevice->pContext->allocationCallbacks);
+    }
+    if (pDevice->playback.pIntermediaryBuffer != NULL) {
+        ma_free(pDevice->playback.pIntermediaryBuffer, &pDevice->pContext->allocationCallbacks);
     }
 
     if (pDevice->isOwnerOfContext) {
@@ -89366,6 +89541,15 @@ v0.11.3 - TBD
     opportunity by skipping mixing of those nodes. Useful for special nodes that need to have
     their outputs wired up to the graph so they're processed, but don't want the output to
     contribute to the final mix.
+  - Add support for fixed sized callbacks. With this change, the data callback will be fired with
+    a consistent frame count based on the periodSizeInFrames or periodSizeInMilliseconds config
+    variable (depending on which one is used). If the period size is not specified, the backend's
+    internal period size will be used. Under the hood this uses an intermediary buffer which
+    introduces a small inefficiency. To avoid this you can use the `noFixedSizedCallback` config
+    variable and set it to true. This will make the callback equivalent to the way it was before
+    this change and will avoid the intermediary buffer, but the data callback could get fired with
+    an inconsistent frame count which might cause problems where certain operations need to operate
+    on fixed sized chunks.
 
 v0.11.2 - 2021-12-31
   - Add a new device notification system to replace the stop callback. The stop callback is still
