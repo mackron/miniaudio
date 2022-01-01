@@ -6,7 +6,7 @@
 
     <div style="border-bottom:solid 1px #333; text-align:center; padding:64px; background-color:#eee;">
         <div><img src="img/logo1_large.png" style="width:auto; height:auto; min-height:70px;"></div>
-        <div style="padding:16px; color:#333; font-size:14pt;">A single file audio playback and capture library.</div>
+        <div style="padding:16px; color:#333; font-size:14pt;">An audio playback and capture library for C and C++.</div>
 		<div style="margin-top:32px;">
             <a class="a-download" href="https://raw.githubusercontent.com/mackron/miniaudio/master/miniaudio.h">Download miniaudio.h</a>
         </div>
@@ -15,14 +15,14 @@
     <div style="margin:0 auto; text-align:center;">
 		<div style="background-color:#fff; padding-top:3em; padding-bottom:4em; font-size:14pt; color:#666;">
 			<div style="margin:0 auto; width:66%;">
-				miniaudio is a single file audio playback and capture library written in C. Written from scratch, it has no
-                external dependencies with the exception of the C standard library and necessary platform-specific backends.
+                miniaudio is an audio playback and capture library for C and C++. It's made up of a single source
+                file, has no external dependencies and is released into the public domain.
 			</div>
 			
 			<table style="margin:0 auto; text-align:center; width:75%; margin-top:5em; font-size:12pt;">
 				<tr>
 					<td style="width:33%; vertical-align:top; padding:2em;">
-						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Works Out of the Box</div>
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Simple Build System</div>
 						<div style="text-align:center;">
 						Just add to your source tree and go. There's no need to install any dependencies or development
                         packages, nor are there any build systems to waste time on.
@@ -36,116 +36,216 @@
 						</div>
 					</td>
 					<td style="width:33%; vertical-align:top; padding:2em;">
-						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Simple</div>
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Simple API</div>
 						<div style="text-align:center;">
-                        miniaudio has a simple, yet flexible low-level API that gets out of your way. Just initialize a
-                        device and start sending audio data via a callback.
+                        miniaudio has a simple, flexible and modular API that gets out of your way.
+						</div>
+					</td>
+				</tr>
+                
+                <tr>
+					<td style="width:33%; vertical-align:top; padding:2em;">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Open Source</div>
+						<div style="text-align:center;">
+                        miniaudio is open source with a permissive license of your choice of public domain or
+                        <a href="https://github.com/aws/mit-0">MIT No Attribution.</a>
+						</div>
+					</td>
+					<td style="width:34%; vertical-align:top; padding:2em;">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Detailed Documentation</div>
+						<div style="text-align:center;">
+						miniaudio has some of the best <a href="{{ relative-path "docs/manual/index.html" }}">documentation</a>
+                        of any open source audio library and includes a suite of examples.
+						</div>
+					</td>
+					<td style="width:33%; vertical-align:top; padding:2em;">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">And Much More</div>
+						<div style="text-align:center;">
+                        Built-in decoders, advanced mixing and effect processing, resource management, 3D spatialization,
+                        filters, data conversion and more.
 						</div>
 					</td>
 				</tr>
 			</table>
-			
-			<div style="text-align:center; font-size:24pt; font-weight:bold; margin-top:2em;">
-			And best of all, it's free and open-source!
-			</div>
-			<div style="font-size:12pt; margin-top:1em;">
-			You can find miniaudio on <a href="https://github.com/mackron/miniaudio">GitHub</a>
-			</div>
+		</div>
+        
+        <div style="background-color:#eeeeee; border-top:solid 1px #333; padding-top:1em; padding-bottom:2em; font-size:14pt; color:#666;">
+			<div class="feature-header" style="padding-top:1em;">Major Features</div>
+			<table style="margin:0 auto; text-align:center; width:75%; margin-top:1em; font-size:12pt;">
+				<tr>
+					<td style="vertical-align:top; padding:3em; text-align:left">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Flexible and Modular API</div>
+						<div style="padding-right:20em; text-align:justify; text-justify: inter-word;">
+						miniaudio gives you complete flexibility. With the low level API, just initialize a connection
+                        to the device and send or receive raw audio data. The modular design of miniaudio allows you to
+                        use the low level API without compromising your ability to make use of other features like the
+                        node graph and resource manager.
+						</div>
+					</td>
+				</tr>
+                
+                <tr>
+					<td style="vertical-align:top; padding:3em; text-align:right;">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em; text-alight:right;">Advanced Mixing and Effect Processing</div>
+						<div style="padding-left:20em; text-align:justify; text-justify: inter-word;">
+                        miniaudio's node graph system gives you an easy way to set up advanced mixing and effect
+                        graphs. Each node sends it's output to another node, and so on and so forth to produce all
+                        kinds of effects. You can even implement your own custom nodes and plug them in however you
+                        like. Plug multiple nodes into the same input node for mixing and use the splitter node for
+                        complex routing.
+						</div>
+					</td>
+				</tr>
+                
+                <tr>
+					<td style="vertical-align:top; padding:3em; text-align:left">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em;">Resource Management</div>
+						<div style="padding-right:20em; text-align:justify; text-justify: inter-word;">
+						The resource manager is used for simplifying the hassle of dealing with the loading and management
+                        of your audio resources. It will reference count files so they're only loaded once and handles
+                        streaming of large audio sources to save on memory. It can even load files asynchronously and
+                        exposes it's job system so you can handle resource management jobs from your existing job
+                        infrastructure.
+						</div>
+					</td>
+				</tr>
+                
+                <tr>
+					<td style="vertical-align:top; padding:3em; text-align:right;">
+						<div style="color:#464; font-size:18pt; font-weight:bold; margin-bottom:1em; text-alight:right;">High Level Audio Engine</div>
+						<div style="padding-left:20em; text-align:justify; text-justify: inter-word;">
+                        The high level audio engine in miniaudio encapsulates the resource manager and node graph to give
+                        you an easy to use API to manage sounds within a 3D scene with spatialization. The engine is a
+                        node graph, and each sound in the scene is a node within that graph which means you can take
+                        advantage of miniaudio's graph based effect processing and routing infrastructure.
+						</div>
+					</td>
+				</tr>
+			</table>
 		</div>
 	
-        <div style="background-color:#fff; padding-bottom:1em; border-top:solid 1px #333; background-color:#eee;">
-            <div class="feature-header" style="padding-top:1em;">Features</div>
-            <table style="margin:0 auto; text-align:center; width:75%; margin-top:0em; font-size:12pt;">
+        <div style="background-color:#ffffff; border-top:solid 1px #333; padding-top:1em; padding-bottom:2em; font-size:14pt; color:#666;">
+			<div class="feature-header" style="padding-top:1em;">Platforms</div>
+			<table style="margin:0 auto; text-align:center; width:75%; margin-top:2em; font-size:12pt;">
+				<tr>
+					<td style="width:20%; vertical-align:center; padding:1em;">
+						<img src="{{ relative-path "img/platforms/windows/windows-10.svg" }}" style="height:128px;">
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em;">
+						<img src="{{ relative-path "img/platforms/apple/apple-black.svg" }}" style="height:128px;">
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em;">
+						<img src="{{ relative-path "img/platforms/linux/linux.svg" }}" style="height:128px;">
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em;">
+						<img src="{{ relative-path "img/platforms/bsd/freebsd.svg" }}" style="height:128px;">
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em;">
+                        <img src="{{ relative-path "img/platforms/android/android.svg" }}" style="height:100px;">
+					</td>
+				</tr>
+                
+                <tr style="font-weight:bold;">
+					<td style="vertical-align:top; padding:0em; font-weight:bold;">
+						Windows
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+						macOS / iOS
+					</td>
+                    <td style=vertical-align:top; padding:0em;">
+						Linux
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+						FreeBSD / 
+                        OpenBSD /
+                        NetBSD
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+                        Android
+					</td>
+				</tr>
+                
                 <tr>
-                    <td style="width:50%; vertical-align:top; text-align:left; padding:2em;">
-                        <ul>
-							<li>Supports playback, capture, full-duplex and loopback (WASAPI only).</li>
-                            <li>Device enumeration for connecting to specific devices, not just defaults.</li>
-                            <li>Connect to multiple devices at once.</li>
-                            <li>Shared and exclusive mode on supported backends.</li>
-                            <li>Backend-specific configuration options.</li>
-                            <li>Device capability querying.</li>
-                            <li>Automatic data conversion between your application and the internal device.</li>
-                            <li>Sample format conversion with optional dithering.</li>
-							<li>Channel conversion and channel mapping.</li>
-							<li>Resampling with support for multiple algorithms.
-                                <ul>
-                                    <li>Simple linear resampling with anti-aliasing.</li>
-                                    <li>Optional Speex resampling (must opt-in).</li>
-                                </ul>
-                            </li>
-                            <li>Filters.
-                                <ul>
-                                    <li>Biquad</li>
-                                    <li>Low-pass (first, second and high order)</li>
-                                    <li>High-pass (first, second and high order)</li>
-                                    <li>Second order band-pass</li>
-                                    <li>Second order notch</li>
-                                    <li>Second order peaking</li>
-                                    <li>Second order low shelf</li>
-                                    <li>Second order high shelf</li>
-                                </ul>
-                            </li>
-                            <li>Waveform generation.
-                                <ul>
-                                    <li>Sine</li>
-                                    <li>Square</li>
-                                    <li>Triangle</li>
-                                    <li>Sawtooth</li>
-                                </ul>
-                            </li>
-                            <li>Noise generation.
-                                <ul>
-                                    <li>White</li>
-                                    <li>Pink</li>
-                                    <li>Brownian</li>
-                                </ul>
-                            </li>
-                            <li>Decoding (requires external single-file libraries).
-                                <ul>
-                                    <li>WAV</li>
-                                    <li>FLAC</li>
-                                    <li>MP3</li>
-                                    <li>Vorbis via stb_vorbis (not built in - must be included separately).</li>
-                                </ul>
-                            </li>
-                            <li>Encoding (requires external single-file libraries).
-                                <ul>
-                                    <li>WAV</li>
-                                </ul>
-                            </li>
-                            <li>Lock free ring buffer (single producer, single consumer).</li>
-                        </ul>
-                    </td>
-                    <td style="width:50%; vertical-align:top; text-align:left; padding:2em;">
-                        <ul>
-                            <li>Your choice of either public domain or <a href="https://github.com/aws/mit-0">MIT No Attribution</a>.</li>
-                            <li>Entirely contained within a single file for easy integration into your source tree.</li>
-                            <li>No external dependencies except for the C standard library and backend libraries.</li>
-                            <li>Written in C and compilable as C++, enabling miniaudio to work on almost all compilers.</li>
-                            <li>Supports all major desktop and mobile platforms, with multiple backends for maximum compatibility.
-                                <ul>
-                                    <li>WASAPI (Windows Vista+)</li>
-                                    <li>DirectSound (Windows XP+)</li>
-                                    <li>WinMM (Windows)</li>
-                                    <li>Core Audio (macOS, iOS)</li>
-                                    <li>ALSA (Linux)</li>
-                                    <li>PulseAudio (Cross platform, disabled on Windows, BSD and Android)</li>
-                                    <li>JACK (Cross platform, disabled on BSD and Android)</li>
-                                    <li>sndio (OpenBSD)</li>
-                                    <li>audio(4) (NetBSD, OpenBSD)</li>
-                                    <li>OSS (FreeBSD)</li>
-                                    <li>AAudio (Android 8+)</li>
-                                    <li>OpenSL|ES (Android API level 16+)</li>
-                                    <li>Web Audio (Web, via Emscripten)</li>
-                                    <li>Null (Cross platform, not used on Web)</li>
-                                </ul>
-                            </li>
-                            <li>Supports custom backends.</li>
-                        </ul>
-                    </td>
-                </tr>
-            </table>
-        </div>
+					<td style="vertical-align:top; padding-top:1em;">
+                        WASAPI<br/>
+                        DirectSound<br/>
+                        WinMM
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                        Core Audio
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                        ALSA<br/>
+                        PulseAudio<br/>
+                        JACK
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                        OSS<br/>
+                        sndio<br/>
+                        audio(4)
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                        AAudio<br/>
+                        OpenSL | ES
+					</td>
+				</tr>
+                
+                
+                <!-- PLATFORM ROW 2 -->
+                <tr>
+					<td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em; padding-top:4em;">
+						<img src="{{ relative-path "img/platforms/web/html5.svg" }}" style="height:128px;">
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+					</td>
+                    <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+					</td>
+				</tr>
+                
+                <tr style="font-weight:bold;">
+					<td style="vertical-align:top; padding:0em; font-weight:bold;">
+
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+
+					</td>
+                    <td style=vertical-align:top; padding:0em;">
+						Web
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+
+					</td>
+                    <td style="vertical-align:top; padding:0em;">
+
+					</td>
+				</tr>
+                
+                <tr>
+					<td style="vertical-align:top; padding-top:1em;">
+
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                    
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+                        Emscripten / WebAudio
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+
+					</td>
+                    <td style="vertical-align:top; padding-top:1em;">
+
+					</td>
+				</tr>
+			</table>
+		</div>
     </div>
 {{ miniaudio-footer }}
