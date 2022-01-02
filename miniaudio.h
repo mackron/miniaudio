@@ -30866,7 +30866,7 @@ static ma_result ma_context_get_device_info__coreaudio(ma_context* pContext, ma_
         UInt32 propSize;
 
         /* We want to ensure we use a consistent device name to device enumeration. */
-        if (pDeviceID != NULL) {
+        if (pDeviceID != NULL && pDeviceID->coreaudio[0] != '\0') {
             ma_bool32 found = MA_FALSE;
             if (deviceType == ma_device_type_playback) {
                 NSArray *pOutputs = [[[AVAudioSession sharedInstance] currentRoute] outputs];
@@ -32140,6 +32140,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     if (deviceType == ma_device_type_capture) {
     #if defined(MA_APPLE_DESKTOP)
         pDevice->coreaudio.deviceObjectIDCapture     = (ma_uint32)data.deviceObjectID;
+        ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDCapture, sizeof(pDevice->capture.id.coreaudio), pDevice->capture.id.coreaudio);
     #endif
         pDevice->coreaudio.audioUnitCapture          = (ma_ptr)data.audioUnit;
         pDevice->coreaudio.pAudioBufferList          = (ma_ptr)data.pAudioBufferList;
@@ -32154,6 +32155,7 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
     } else if (deviceType == ma_device_type_playback) {
     #if defined(MA_APPLE_DESKTOP)
         pDevice->coreaudio.deviceObjectIDPlayback    = (ma_uint32)data.deviceObjectID;
+        ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
     #endif
         pDevice->coreaudio.audioUnitPlayback         = (ma_ptr)data.audioUnit;
 
@@ -32231,6 +32233,8 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
         pDescriptorCapture->periodCount                     = data.periodsOut;
 
     #if defined(MA_APPLE_DESKTOP)
+        ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDCapture, sizeof(pDevice->capture.id.coreaudio), pDevice->capture.id.coreaudio);
+    
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
@@ -32293,6 +32297,8 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
         pDescriptorPlayback->periodCount                    = data.periodsOut;
 
     #if defined(MA_APPLE_DESKTOP)
+        ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
+    
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
