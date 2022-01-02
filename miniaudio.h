@@ -646,8 +646,7 @@ You cannot use `-std=c*` compiler flags, nor `-ansi`.
     |                                  | You may need to enable this if your target platform does not allow |
     |                                  | runtime linking via `dlopen()`.                                    |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_DEBUG_OUTPUT                  | Enable processing of `MA_LOG_LEVEL_DEBUG` messages and `printf()`  |
-    |                                  | output.                                                            |
+    | MA_DEBUG_OUTPUT                  | Enable `printf()` output of debug logs (`MA_LOG_LEVEL_DEBUG`).     |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_COINIT_VALUE                  | Windows only. The value to pass to internal calls to               |
     |                                  | `CoInitializeEx()`. Defaults to `COINIT_MULTITHREADED`.            |
@@ -3858,10 +3857,13 @@ MA_LOG_LEVEL_ERROR
     be fired from within the data callback, in which case the device will be stopped. You should
     always have this log level enabled.
 */
-#define MA_LOG_LEVEL_DEBUG      4
-#define MA_LOG_LEVEL_INFO       3
-#define MA_LOG_LEVEL_WARNING    2
-#define MA_LOG_LEVEL_ERROR      1
+typedef enum
+{
+    MA_LOG_LEVEL_DEBUG   = 4,
+    MA_LOG_LEVEL_INFO    = 3,
+    MA_LOG_LEVEL_WARNING = 2,
+    MA_LOG_LEVEL_ERROR   = 1
+} ma_log_level;
 
 /*
 Variables needing to be accessed atomically should be declared with this macro for two reasons:
@@ -12943,18 +12945,6 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         return MA_INVALID_ARGS;
     }
 
-    /*
-    If it's a debug log, ignore it unless MA_DEBUG_OUTPUT is enabled. Do this before generating the
-    formatted message string so that we don't waste time only to have ma_log_post() reject it.
-    */
-    #if !defined(MA_DEBUG_OUTPUT)
-    {
-        if (level == MA_LOG_LEVEL_DEBUG) {
-            return MA_INVALID_ARGS; /* Don't post debug messages if debug output is disabled. */
-        }
-    }
-    #endif
-
     #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || ((!defined(_MSC_VER) || _MSC_VER >= 1900) && !defined(__STRICT_ANSI__) && !defined(_NO_EXT_KEYS))
     {
         ma_result result;
@@ -13063,18 +13053,6 @@ MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat
     if (pLog == NULL || pFormat == NULL) {
         return MA_INVALID_ARGS;
     }
-
-    /*
-    If it's a debug log, ignore it unless MA_DEBUG_OUTPUT is enabled. Do this before generating the
-    formatted message string so that we don't waste time only to have ma_log_post() reject it.
-    */
-    #if !defined(MA_DEBUG_OUTPUT)
-    {
-        if (level == MA_LOG_LEVEL_DEBUG) {
-            return MA_INVALID_ARGS; /* Don't post debug messages if debug output is disabled. */
-        }
-    }
-    #endif
 
     va_start(args, pFormat);
     {
