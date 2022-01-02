@@ -3838,21 +3838,20 @@ typedef ma_uint16 wchar_t;
 Logging Levels
 ==============
 Log levels are only used to give logging callbacks some context as to the severity of a log message
-so they can do filtering. All log levels will be posted to registered logging callbacks, except for
-MA_LOG_LEVEL_DEBUG which will only get processed if MA_DEBUG_OUTPUT is enabled.
+so they can do filtering. All log levels will be posted to registered logging callbacks. If you
+don't want to output a certain log level you can discriminate against the log level in the callback.
 
 MA_LOG_LEVEL_DEBUG
-    Used for debugging. These log messages are only posted when `MA_DEBUG_OUTPUT` is enabled.
+    Used for debugging. Useful for debug and test builds, but should be disabled in release builds.
 
 MA_LOG_LEVEL_INFO
-    Informational logging. Useful for debugging. This will also enable warning and error logs. This
-    will never be called from within the data callback.
+    Informational logging. Useful for debugging. This will never be called from within the data
+    callback.
 
 MA_LOG_LEVEL_WARNING
-    Warnings. You should enable this in you development builds and action them when encounted. This
-    will also enable error logs. These logs usually indicate a potential problem or
-    misconfiguration, but still allow you to keep running. This will never be called from within
-    the data callback.
+    Warnings. You should enable this in you development builds and action them when encounted. These
+    logs usually indicate a potential problem or misconfiguration, but still allow you to keep
+    running. This will never be called from within the data callback.
 
 MA_LOG_LEVEL_ERROR
     Error logging. This will be fired when an operation fails and is subsequently aborted. This can
