@@ -12877,15 +12877,6 @@ MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage
         return MA_INVALID_ARGS;
     }
 
-    /* If it's a debug log, ignore it unless MA_DEBUG_OUTPUT is enabled. */
-    #if !defined(MA_DEBUG_OUTPUT)
-    {
-        if (level == MA_LOG_LEVEL_DEBUG) {
-            return MA_INVALID_ARGS; /* Don't post debug messages if debug output is disabled. */
-        }
-    }
-    #endif
-
     ma_log_lock(pLog);
     {
         ma_uint32 iLog;
