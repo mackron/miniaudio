@@ -6783,6 +6783,7 @@ struct ma_device
     } resampling;
     struct
     {
+        ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
@@ -6807,6 +6808,7 @@ struct ma_device
     } playback;
     struct
     {
+        ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
@@ -20464,7 +20466,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
-        /* We must always have a valid ID. */
+        /* We must always have a valid ID because rerouting will look at it. */
         ma_wcscpy_s(pDevice->playback.id.wasapi, sizeof(pDevice->playback.id.wasapi), data.id.wasapi);
     }
 
@@ -20638,7 +20640,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualPeriodSizeInFramesPlayback);
 
-        /* We must always have a valid ID. */
+        /* We must always have a valid ID because rerouting will look at it. */
         ma_wcscpy_s(pDevice->playback.id.wasapi, sizeof(pDevice->playback.id.wasapi), data.id.wasapi);
 
         /* The descriptor needs to be updated with actual values. */
@@ -38569,10 +38571,16 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     if (pConfig->playback.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->playback.id, pConfig->playback.pDeviceID, sizeof(pDevice->playback.id));
+        pDevice->playback.pID = &pDevice->playback.id;
+    } else {
+        pDevice->playback.pID = NULL;
     }
 
     if (pConfig->capture.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->capture.id, pConfig->capture.pDeviceID, sizeof(pDevice->capture.id));
+        pDevice->capture.pID = &pDevice->capture.id;
+    } else {
+        pDevice->capture.pID = NULL;
     }
 
     pDevice->noPreSilencedOutputBuffer   = pConfig->noPreSilencedOutputBuffer;
@@ -39043,9 +39051,9 @@ MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_
 
     /* Getting here means onDeviceGetInfo is not implemented so we need to fall back to an alternative. */
     if (type == ma_device_type_playback) {
-        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->playback.id, pDeviceInfo);
+        return ma_context_get_device_info(pDevice->pContext, type, pDevice->playback.pID, pDeviceInfo);
     } else {
-        return ma_context_get_device_info(pDevice->pContext, type, &pDevice->capture.id, pDeviceInfo);
+        return ma_context_get_device_info(pDevice->pContext, type, pDevice->capture.pID, pDeviceInfo);
     }
 }
 
