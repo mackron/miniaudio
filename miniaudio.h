@@ -89491,6 +89491,7 @@ v0.11.3 - TBD
     debug and test builds of applications to output debug information that can later be passed on
     for debugging in miniaudio. To filter out these messages, just filter against the log level
     which will be MA_LOG_LEVEL_DEBUG.
+  - Fix a bug where ma_device_get_info() and ma_device_get_name() return an error.
 
 v0.11.2 - 2021-12-31
   - Add a new device notification system to replace the stop callback. The stop callback is still
