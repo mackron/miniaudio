@@ -1,17 +1,30 @@
 /*
 Demonstrates integration of Steam Audio with miniaudio's engine API.
 
-In this example we'll apply a HRTF effect from Steam Audio. To do this a custom node will be
+In this example a HRTF effect from Steam Audio will be applied. To do this a custom node will be
 implemented which uses Steam Audio's IPLBinauralEffect and IPLHRTF objects.
 
 By implementing this as a node, it can be plugged into any position within the graph. The output
 channel count of this node is always stereo.
+
+Steam Audio requires fixed sized processing, the size of which must be specified at initialization
+time of the IPLBinauralEffect and IPLHRTF objects. This creates a problem because the node graph
+will at times need to break down processing into smaller chunks for it's internal processing. The
+node graph internally will read into a temporary buffer which is then mixed into the final output
+buffer. This temporary buffer is allocated on the stack and is a fixed size. However, variability
+comes into play because the channel count of the node is variable. It's not safe to just blindly
+process the effect with the frame count specified in miniaudio's node processing callback. Doing so
+results in glitching. To work around this, this example is just setting the update size to a known
+value that works (256). If it's set to something too big it'll exceed miniaudio's processing size
+used by the node graph. Alternatively you could use some kind of intermediary cache which
+accumulates input data until enough is available and then do the processing. Ideally, Steam Audio
+would support variable sized updates which would avoid this whole mess entirely.
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
 #include <phonon.h> /* Steam Audio */
-#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. */
+#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. That dependency needs to be removed from Steam Audio - use IPLuint32 or "unsigned int" instead! */
 
 #define FORMAT      ma_format_f32   /* Must be floating point. */
 #define CHANNELS    2               /* Must be stereo for this example. */
@@ -187,17 +200,15 @@ MA_API ma_result ma_steamaudio_binaural_node_init(ma_node_graph* pNodeGraph, con
         return result;
     }
 
+    heapSizeInBytes = 0;
+
     /*
     Unfortunately Steam Audio uses deinterleaved buffers for everything so we'll need to use some
     intermediary buffers. We'll allocate one big buffer on the heap and then use offsets. We'll
     use the frame size from the IPLAudioSettings structure as a basis for the size of the buffer.
     */
-    heapSizeInBytes = sizeof(float) * channelsOut * pBinauralNode->iplAudioSettings.frameSize;  /* Output buffer. */
-
-    /* Only need input buffers if we're not using mono input. */
-    if (channelsIn > 1) {
-        heapSizeInBytes += sizeof(float) * channelsIn * pBinauralNode->iplAudioSettings.frameSize;
-    }
+    heapSizeInBytes += sizeof(float) * channelsOut * pBinauralNode->iplAudioSettings.frameSize; /* Output buffer. */
+    heapSizeInBytes += sizeof(float) * channelsIn  * pBinauralNode->iplAudioSettings.frameSize; /* Input buffer. */
 
     pBinauralNode->_pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
     if (pBinauralNode->_pHeap == NULL) {
@@ -209,7 +220,7 @@ MA_API ma_result ma_steamaudio_binaural_node_init(ma_node_graph* pNodeGraph, con
     pBinauralNode->ppBuffersOut[0] = (float*)pBinauralNode->_pHeap;
     pBinauralNode->ppBuffersOut[1] = (float*)ma_offset_ptr(pBinauralNode->_pHeap, sizeof(float) * pBinauralNode->iplAudioSettings.frameSize);
 
-    if (channelsIn > 1) {
+    {
         ma_uint32 iChannelIn;
         for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
             pBinauralNode->ppBuffersIn[iChannelIn] = (float*)ma_offset_ptr(pBinauralNode->_pHeap, sizeof(float) * pBinauralNode->iplAudioSettings.frameSize * (channelsOut + iChannelIn));
@@ -275,7 +286,7 @@ int main(int argc, char** argv)
     engineConfig = ma_engine_config_init();
     engineConfig.channels           = CHANNELS;
     engineConfig.sampleRate         = SAMPLE_RATE;
-    engineConfig.periodSizeInFrames = 512;
+    engineConfig.periodSizeInFrames = 256;
 
     result = ma_engine_init(&engineConfig, &g_engine);
     if (result != MA_SUCCESS) {
