@@ -11647,9 +11647,19 @@ static MA_INLINE double ma_sqrtd(double x)
 }
 
 
+static MA_INLINE float ma_sinf(float x)
+{
+    return (float)ma_sind((float)x);
+}
+
 static MA_INLINE double ma_cosd(double x)
 {
     return ma_sind((MA_PI_D*0.5) - x);
+}
+
+static MA_INLINE float ma_cosf(float x)
+{
+    return (float)ma_cosd((float)x);
 }
 
 static MA_INLINE double ma_log10d(double x)
@@ -27943,7 +27953,7 @@ static ma_result ma_device_write_to_stream__pulse(ma_device* pDevice, ma_pa_stre
 
             framesProcessed += framesMapped;
         } else {
-            result = MA_ERROR;  /* No data available. Abort. */
+            result = MA_SUCCESS;  /* No data available for writing. */
             goto done;
         }
     } else {
@@ -28426,11 +28436,12 @@ static ma_result ma_device_start__pulse(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        /* We need to fill some data before uncorking. Not doing this will result in the write callback never getting fired. */
-        result = ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), NULL);
-        if (result != MA_SUCCESS) {
-            return result; /* Failed to write data. Not sure what to do here... Just aborting. */
-        }
+        /*
+        We need to fill some data before uncorking. Not doing this will result in the write callback
+        never getting fired. We're not going to abort if writing fails because I still want the device
+        to get uncorked.
+        */
+        ma_device_write_to_stream__pulse(pDevice, (ma_pa_stream*)(pDevice->pulse.pStreamPlayback), NULL);   /* No need to check the result here. Always want to fall through an uncork.*/
 
         result = ma_device__cork_stream__pulse(pDevice, ma_device_type_playback, 0);
         if (result != MA_SUCCESS) {
@@ -28444,7 +28455,6 @@ static ma_result ma_device_start__pulse(ma_device* pDevice)
 static ma_result ma_device_stop__pulse(ma_device* pDevice)
 {
     ma_result result;
-    ma_bool32 wasSuccessful;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -28456,9 +28466,16 @@ static ma_result ma_device_stop__pulse(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        /* The stream needs to be drained if it's a playback device. */
+        /*
+        Ideally we would drain the device here, but there's been cases where PulseAudio seems to be
+        broken on some systems to the point where no audio processing seems to happen. When this
+        happens, draining never completes and we get stuck here. For now I'm disabling draining of
+        the device so we don't just freeze the application.
+        */
+    #if 0
         ma_pa_operation* pOP = ((ma_pa_stream_drain_proc)pDevice->pContext->pulse.pa_stream_drain)((ma_pa_stream*)pDevice->pulse.pStreamPlayback, ma_pulse_operation_complete_callback, &wasSuccessful);
         ma_wait_for_operation_and_unref__pulse(pDevice->pContext, pDevice->pulse.pMainLoop, pOP);
+    #endif
 
         result = ma_device__cork_stream__pulse(pDevice, ma_device_type_playback, 1);
         if (result != MA_SUCCESS) {
@@ -64812,7 +64829,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
 
     if (pDataBuffer == NULL) {
         if (pConfig != NULL && pConfig->pNotifications != NULL) {
-            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(pConfig->pNotifications);
         }
 
         return MA_INVALID_ARGS;
@@ -65538,7 +65555,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
 
     if (pDataStream == NULL) {
         if (pConfig != NULL && pConfig->pNotifications != NULL) {
-            ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
+            ma_resource_manager_pipeline_notifications_signal_all_notifications(pConfig->pNotifications);
         }
 
         return MA_INVALID_ARGS;
@@ -89492,6 +89509,7 @@ v0.11.3 - TBD
     for debugging in miniaudio. To filter out these messages, just filter against the log level
     which will be MA_LOG_LEVEL_DEBUG.
   - Fix a bug where ma_device_get_info() and ma_device_get_name() return an error.
+  - PulseAudio: Fix some bugs where starting and stopping a device can result in a deadlock.
 
 v0.11.2 - 2021-12-31
   - Add a new device notification system to replace the stop callback. The stop callback is still
