@@ -53662,6 +53662,14 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         */
         if (result == MA_AT_END) {
             /*
+            The result needs to be reset back to MA_SUCCESS (from MA_AT_END) so that we don't
+            accidentally return MA_AT_END when data has been read in prior loop iterations. at the
+            end of this function, the result will be checked for MA_SUCCESS, and if the total
+            number of frames processed is 0, will be explicitly set to MA_AT_END.
+            */
+            result = MA_SUCCESS;
+
+            /*
             We reached the end. If we're looping, we just loop back to the start of the current
             data source. If we're not looping we need to check if we have another in the chain, and
             if so, switch to it.
@@ -53701,13 +53709,6 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
                 if (result != MA_SUCCESS) {
                     break;
                 }
-
-                /*
-                We need to make sure we clear the MA_AT_END result so we don't accidentally return
-                it in the event that we coincidentally ended reading at the exact transition point
-                of two data sources in a chain.
-                */
-                result = MA_SUCCESS;
             }
         }
 
@@ -53719,6 +53720,8 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
     if (pFramesRead != NULL) {
         *pFramesRead = totalFramesProcessed;
     }
+
+    MA_ASSERT(!(result == MA_AT_END && totalFramesProcessed > 0));  /* We should never be returning MA_AT_END if we read some data. */
 
     if (result == MA_SUCCESS && totalFramesProcessed == 0) {
         result  = MA_AT_END;
@@ -89509,6 +89512,8 @@ v0.11.3 - TBD
     for debugging in miniaudio. To filter out these messages, just filter against the log level
     which will be MA_LOG_LEVEL_DEBUG.
   - Fix a bug where ma_device_get_info() and ma_device_get_name() return an error.
+  - Fix a bug where ma_data_source_read_pcm_frames() can return MA_AT_END even when some data has
+    been read. MA_AT_END should only be returned when nothing has been read.
   - PulseAudio: Fix some bugs where starting and stopping a device can result in a deadlock.
 
 v0.11.2 - 2021-12-31
