@@ -57507,7 +57507,7 @@ static ma_result ma_wav_init_internal(const ma_decoding_backend_config* pConfig,
     }
 
     MA_ZERO_OBJECT(pWav);
-    pWav->format = ma_format_f32;    /* f32 by default. */
+    pWav->format = ma_format_unknown;   /* Use closest match to source file by default. */
 
     if (pConfig != NULL && (pConfig->preferredFormat == ma_format_f32 || pConfig->preferredFormat == ma_format_s16 || pConfig->preferredFormat == ma_format_s32)) {
         pWav->format = pConfig->preferredFormat;
@@ -57552,6 +57552,42 @@ MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
         wavResult = drwav_init(&pWav->dr, ma_wav_dr_callback__read, ma_wav_dr_callback__seek, pWav, &wavAllocationCallbacks);
         if (wavResult != MA_TRUE) {
             return MA_INVALID_FILE;
+        }
+
+        /*
+        If an explicit format was not specified, try picking the closest match based on the internal
+        format. The format needs to be supported by miniaudio.
+        */
+        if (pWav->format == ma_format_unknown) {
+            switch (pWav->dr.translatedFormatTag)
+            {
+                case DR_WAVE_FORMAT_PCM:
+                {
+                    if (pWav->dr.bitsPerSample == 8) {
+                        pWav->format = ma_format_u8;
+                    } else if (pWav->dr.bitsPerSample == 16) {
+                        pWav->format = ma_format_s16;
+                    } else if (pWav->dr.bitsPerSample == 24) {
+                        pWav->format = ma_format_s24;
+                    } else if (pWav->dr.bitsPerSample == 32) {
+                        pWav->format = ma_format_s32;
+                    }
+                } break;
+
+                case DR_WAVE_FORMAT_IEEE_FLOAT:
+                {
+                    if (pWav->dr.bitsPerSample == 32) {
+                        pWav->format = ma_format_f32;
+                    }
+                } break;
+
+                default: break;
+            }
+
+            /* Fall back to f32 if we couldn't find anything. */
+            if (pWav->format == ma_format_unknown) {
+                pWav->format =  ma_format_f32;
+            }
         }
 
         return MA_SUCCESS;
@@ -57722,7 +57758,7 @@ MA_API ma_result ma_wav_read_pcm_frames(ma_wav* pWav, void* pFramesOut, ma_uint6
             } break;
 
             /* Fallback to a raw read. */
-            case ma_format_unknown: return MA_INVALID_OPERATION; /* <-- this should never be hit because initialization would just fall back to supported format. */
+            case ma_format_unknown: return MA_INVALID_OPERATION; /* <-- this should never be hit because initialization would just fall back to a supported format. */
             default:
             {
                 totalFramesRead = drwav_read_pcm_frames(&pWav->dr, frameCount, pFramesOut);
@@ -89511,6 +89547,8 @@ v0.11.3 - TBD
     debug and test builds of applications to output debug information that can later be passed on
     for debugging in miniaudio. To filter out these messages, just filter against the log level
     which will be MA_LOG_LEVEL_DEBUG.
+  - Change the wav decoder to pick the closest format to the source file by default if no preferred
+    format is specified.
   - Fix a bug where ma_device_get_info() and ma_device_get_name() return an error.
   - Fix a bug where ma_data_source_read_pcm_frames() can return MA_AT_END even when some data has
     been read. MA_AT_END should only be returned when nothing has been read.
