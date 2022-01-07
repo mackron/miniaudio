@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.2 - 2021-12-31
+miniaudio - v0.11.3 - 2022-01-07
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 2
+#define MA_VERSION_REVISION 3
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -223,31 +223,33 @@ typedef ma_uint16 wchar_t;
 Logging Levels
 ==============
 Log levels are only used to give logging callbacks some context as to the severity of a log message
-so they can do filtering. All log levels will be posted to registered logging callbacks, except for
-MA_LOG_LEVEL_DEBUG which will only get processed if MA_DEBUG_OUTPUT is enabled.
+so they can do filtering. All log levels will be posted to registered logging callbacks. If you
+don't want to output a certain log level you can discriminate against the log level in the callback.
 
 MA_LOG_LEVEL_DEBUG
-    Used for debugging. These log messages are only posted when `MA_DEBUG_OUTPUT` is enabled.
+    Used for debugging. Useful for debug and test builds, but should be disabled in release builds.
 
 MA_LOG_LEVEL_INFO
-    Informational logging. Useful for debugging. This will also enable warning and error logs. This
-    will never be called from within the data callback.
+    Informational logging. Useful for debugging. This will never be called from within the data
+    callback.
 
 MA_LOG_LEVEL_WARNING
-    Warnings. You should enable this in you development builds and action them when encounted. This
-    will also enable error logs. These logs usually indicate a potential problem or
-    misconfiguration, but still allow you to keep running. This will never be called from within
-    the data callback.
+    Warnings. You should enable this in you development builds and action them when encounted. These
+    logs usually indicate a potential problem or misconfiguration, but still allow you to keep
+    running. This will never be called from within the data callback.
 
 MA_LOG_LEVEL_ERROR
     Error logging. This will be fired when an operation fails and is subsequently aborted. This can
     be fired from within the data callback, in which case the device will be stopped. You should
     always have this log level enabled.
 */
-#define MA_LOG_LEVEL_DEBUG      4
-#define MA_LOG_LEVEL_INFO       3
-#define MA_LOG_LEVEL_WARNING    2
-#define MA_LOG_LEVEL_ERROR      1
+typedef enum
+{
+    MA_LOG_LEVEL_DEBUG   = 4,
+    MA_LOG_LEVEL_INFO    = 3,
+    MA_LOG_LEVEL_WARNING = 2,
+    MA_LOG_LEVEL_ERROR   = 1
+} ma_log_level;
 
 /*
 Variables needing to be accessed atomically should be declared with this macro for two reasons:
@@ -2476,6 +2478,7 @@ struct ma_device_config
     ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will be clipped after returning. Only applies when the playback sample format is f32. */
     ma_bool8 noDisableDenormals;        /* Do not disable denormals when firing the data callback. */
+    ma_bool8 noFixedSizedCallback;      /* Disables strict fixed-sized data callbacks. Setting this to true will result in the period size being treated only as a hint to the backend. This is an optimization for those who don't need fixed sized callbacks. */
     ma_device_data_proc dataCallback;
     ma_device_notification_proc notificationCallback;
     ma_stop_proc stopCallback;
@@ -3151,6 +3154,7 @@ struct ma_device
     ma_bool8 noPreSilencedOutputBuffer;
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
+    ma_bool8 noFixedSizedCallback;
     MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
@@ -3165,6 +3169,7 @@ struct ma_device
     } resampling;
     struct
     {
+        ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
@@ -3179,6 +3184,9 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
+        void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
+        ma_uint32 intermediaryBufferCap;
+        ma_uint32 intermediaryBufferLen;    /* How many valid frames are sitting in the intermediary buffer. */
         void* pInputCache;                  /* In external format. Can be null. */
         ma_uint64 inputCacheCap;
         ma_uint64 inputCacheConsumed;
@@ -3186,6 +3194,7 @@ struct ma_device
     } playback;
     struct
     {
+        ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
         char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
@@ -3200,6 +3209,9 @@ struct ma_device
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
         ma_data_converter converter;
+        void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
+        ma_uint32 intermediaryBufferCap;
+        ma_uint32 intermediaryBufferLen;    /* How many valid frames are sitting in the intermediary buffer. */
     } capture;
 
     union
@@ -4027,6 +4039,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     noDisableDenormals
         By default, miniaudio will disable denormals when the data callback is called. Setting this to true will prevent the disabling of denormals.
+
+    noFixedSizedCallback
+        Allows miniaudio to fire the data callback with any frame count. When this is set to true, the data callback will be fired with a consistent frame
+        count as specified by `periodSizeInFrames` or `periodSizeInMilliseconds`. When set to false, miniaudio will fire the callback with whatever the
+        backend requests, which could be anything.
 
     dataCallback
         The callback to fire whenever data is ready to be delivered to or from the device.
@@ -6359,7 +6376,8 @@ typedef enum
     MA_NODE_FLAG_PASSTHROUGH                = 0x00000001,
     MA_NODE_FLAG_CONTINUOUS_PROCESSING      = 0x00000002,
     MA_NODE_FLAG_ALLOW_NULL_INPUT           = 0x00000004,
-    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008
+    MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES = 0x00000008,
+    MA_NODE_FLAG_SILENT_OUTPUT              = 0x00000010
 } ma_node_flags;
 
 
@@ -6498,7 +6516,7 @@ struct ma_node_base
     ma_bool32 _ownsHeap;    /* If set to true, the node owns the heap allocation and _pHeap will be freed in ma_node_uninit(). */
 };
 
-MA_API ma_result ma_node_get_heap_size(const ma_node_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_node_get_heap_size(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, size_t* pHeapSizeInBytes);
 MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, void* pHeap, ma_node* pNode);
 MA_API ma_result ma_node_init(ma_node_graph* pNodeGraph, const ma_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node* pNode);
 MA_API void ma_node_uninit(ma_node* pNode, const ma_allocation_callbacks* pAllocationCallbacks);
@@ -6525,6 +6543,7 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 typedef struct
 {
     ma_uint32 channels;
+    ma_uint16 nodeCacheCapInFrames;
 } ma_node_graph_config;
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
@@ -6534,6 +6553,7 @@ struct ma_node_graph
 {
     /* Immutable. */
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
+    ma_uint16 nodeCacheCapInFrames;
 
     /* Read and written by multiple threads. */
     MA_ATOMIC(4, ma_bool32) isReading;

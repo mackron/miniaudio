@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.3 - TBD
+miniaudio - v0.11.3 - 2022-01-07
 
 David Reid - mackron@gmail.com
 
@@ -89538,7 +89538,7 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
-v0.11.3 - TBD
+v0.11.3 - 2022-01-07
   - Add a new flag for nodes called MA_NODE_FLAG_SILENT_OUTPUT which tells miniaudio that the
     output of the node should always be treated as silence. This gives miniaudio an optimization
     opportunity by skipping mixing of those nodes. Useful for special nodes that need to have
