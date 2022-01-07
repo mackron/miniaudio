@@ -245,114 +245,142 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
-<h1>Engine Effects</h1><p>
-Demonstrates how to apply an effect to sounds using the high level engine API.
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Engine Sdl</h1><p>
+Shows how to use the high level engine API with SDL.
 </p>
 <p>
 
-This example will load a file from the command line and apply an echo/delay effect to it. It will
-show you how to manage <span style="font-family:monospace;">ma_sound</span> objects and how to insert an effect into the graph.
+By default, miniaudio&#39;s engine API will initialize a device internally for audio output. You can
+instead use the engine independently of a device. To show this off, this example will use SDL for
+audio output instead of miniaudio.
 </p>
 <p>
 
-The <span style="font-family:monospace;">ma_engine</span> object is a node graph and is compatible with the <span style="font-family:monospace;">ma_node_graph</span> API. The
-<span style="font-family:monospace;">ma_sound</span> object is a node within the node and is compatible with the <span style="font-family:monospace;">ma_node</span> API. This means
-that applying an effect is as simple as inserting an effect node into the graph and plugging in the
-sound&#39;s output into the effect&#39;s input. See the Node Graph example for how to use the node graph.
-</p>
-<p>
-
-This example is playing only a single sound at a time which means only a single <span style="font-family:monospace;">ma_sound</span> object
-it being used. If you want to play multiple sounds at the same time, even if they&#39;re for the same
-sound file, you need multiple <span style="font-family:monospace;">ma_sound</span> objects.</p>
+This example will load the sound specified on the command line and rotate it around the listener&#39;s
+head.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#define</span> MA_NO_DEVICE_IO <span style="color:#009900">/* &lt;-- Disables the <span style="font-family:monospace;">ma_device</span> API. We don&#39;t need that in this example since SDL will be doing that part for us. */</span>
 <span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-<span style="color:#666666">#define</span> DELAY_IN_SECONDS    0.2f
-<span style="color:#666666">#define</span> DECAY               0.25f   <span style="color:#009900">/* Volume falloff for each echo. */</span>
+<span style="color:#666666">#define</span> SDL_MAIN_HANDLED
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;SDL.h&gt;</span>    <span style="color:#009900">/* Change this to your include location. Might be &lt;SDL2/SDL.h&gt;. */</span>
+
+<span style="color:#666666">#define</span> CHANNELS    2               <span style="color:#009900">/* Must be stereo for this example. */</span>
+<span style="color:#666666">#define</span> SAMPLE_RATE 48000
 
 <span style="color:#0033ff">static</span> ma_engine g_engine;
 <span style="color:#0033ff">static</span> ma_sound g_sound;            <span style="color:#009900">/* This example will play only a single sound at once, so we only need one <span style="font-family:monospace;">ma_sound</span> object. */</span>
-<span style="color:#0033ff">static</span> ma_delay_node g_delayNode;   <span style="color:#009900">/* The echo effect is achieved using a delay node. */</span>
+
+<span style="color:#0033ff">void</span> data_callback(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_uint8</span>* pBuffer, <span style="color:#0033ff">int</span> bufferSizeInBytes)
+{
+    <span style="color:#009900">/* Reading is just a matter of reading straight from the engine. */</span>
+    <span style="color:#0099cc">ma_uint32</span> bufferSizeInFrames = (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(ma_format_f32, ma_engine_get_channels(&amp;g_engine));
+    ma_engine_read_pcm_frames(&amp;g_engine, pBuffer, bufferSizeInFrames, NULL);
+}
 
 <span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
     <span style="color:#0099cc">ma_result</span> result;
+    ma_engine_config engineConfig;
+    SDL_AudioSpec desiredSpec;
+    SDL_AudioSpec obtainedSpec;
+    SDL_AudioDeviceID deviceID;
 
     <span style="color:#0033ff">if</span> (argc &lt; 2) {
         printf(<span style="color:#cc3300">&quot;No input file.&quot;</span>);
         <span style="color:#0033ff">return</span> -1;
     }
 
-    <span style="color:#009900">/* The engine needs to be initialized first. */</span>
-    result = ma_engine_init(NULL, &amp;g_engine);
+    <span style="color:#009900">/*
+    We&#39;ll initialize the engine first for the purpose of the example, but since the engine and SDL
+    are independent of each other you can initialize them in any order. You need only make sure the
+    channel count and sample rates are consistent between the two.
+
+    When initializing the engine it&#39;s important to make sure we don&#39;t initialize a device
+    internally because we want SDL to be dealing with that for us instead.
+    */</span>
+    engineConfig = ma_engine_config_init();
+    engineConfig.noDevice   = MA_TRUE;      <span style="color:#009900">/* &lt;-- Make sure this is set so that no device is created (we&#39;ll deal with that ourselves). */</span>
+    engineConfig.channels   = CHANNELS;
+    engineConfig.sampleRate = SAMPLE_RATE;
+
+    result = ma_engine_init(&amp;engineConfig, &amp;g_engine);
     <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
         printf(<span style="color:#cc3300">&quot;Failed to initialize audio engine.&quot;</span>);
         <span style="color:#0033ff">return</span> -1;
     }
 
+    <span style="color:#009900">/* Now load our sound. */</span>
+    result = ma_sound_init_from_file(&amp;g_engine, argv[1], 0, NULL, NULL, &amp;g_sound);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize sound.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
+    }
+
+    <span style="color:#009900">/* Loop the sound so we can continuously hear it. */</span>
+    ma_sound_set_looping(&amp;g_sound, MA_TRUE);
 
     <span style="color:#009900">/*
-    We&#39;ll build our graph starting from the end so initialize the delay node now. The output of
-    this node will be connected straight to the output. You could also attach it to a sound group
-    or any other node that accepts an input.
-
-    Creating a node requires a pointer to the node graph that owns it. The engine itself is a node
-    graph. In the code below we can get a pointer to the node graph with <span style="font-family:monospace;">ma_engine_get_node_graph()</span>
-    or we could simple cast the engine to a ma_node_graph* like so:
-    
-        (ma_node_graph*)&amp;g_engine
-
-    The endpoint of the graph can be retrieved with <span style="font-family:monospace;">ma_engine_get_endpoint()</span>.
+    The sound will not be started by default, so start it now. We won&#39;t hear anything until the SDL
+    audio device has been opened and started.
     */</span>
-    {
-        ma_delay_node_config delayNodeConfig;
-        <span style="color:#0099cc">ma_uint32</span> channels;
-        <span style="color:#0099cc">ma_uint32</span> sampleRate;
+    ma_sound_start(&amp;g_sound);
 
-        channels   = ma_engine_get_channels(&amp;g_engine);
-        sampleRate = ma_engine_get_sample_rate(&amp;g_engine);
 
-        delayNodeConfig = ma_delay_node_config_init(channels, sampleRate, (<span style="color:#0099cc">ma_uint32</span>)(sampleRate * DELAY_IN_SECONDS), DECAY);
-
-        result = ma_delay_node_init(ma_engine_get_node_graph(&amp;g_engine), &amp;delayNodeConfig, NULL, &amp;g_delayNode);
-        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-            printf(<span style="color:#cc3300">&quot;Failed to initialize delay node.&quot;</span>);
-            <span style="color:#0033ff">return</span> -1;
-        }
-
-        <span style="color:#009900">/* Connect the output of the delay node to the input of the endpoint. */</span>
-        ma_node_attach_output_bus(&amp;g_delayNode, 0, ma_engine_get_endpoint(&amp;g_engine), 0);
+    <span style="color:#009900">/*
+    Now that we have the engine and sound we can initialize SDL. This could have also been done
+    first before the engine and sound.
+    */</span>
+    <span style="color:#0033ff">if</span> (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize SDL sub-system.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
     }
 
+    MA_ZERO_OBJECT(&amp;desiredSpec);
+    desiredSpec.freq     = ma_engine_get_sample_rate(&amp;g_engine);
+    desiredSpec.format   = AUDIO_F32;
+    desiredSpec.channels = ma_engine_get_channels(&amp;g_engine);
+    desiredSpec.samples  = 512;
+    desiredSpec.callback = data_callback;
+    desiredSpec.userdata = NULL;
 
-    <span style="color:#009900">/* Now we can load the sound and connect it to the delay node. */</span>
-    {
-        result = ma_sound_init_from_file(&amp;g_engine, argv[1], 0, NULL, NULL, &amp;g_sound);
-        <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-            printf(<span style="color:#cc3300">&quot;Failed to initialize sound \&quot;%s\&quot;.&quot;</span>, argv[1]);
-            <span style="color:#0033ff">return</span> -1;
-        }
-
-        <span style="color:#009900">/* Connect the output of the sound to the input of the effect. */</span>
-        ma_node_attach_output_bus(&amp;g_sound, 0, &amp;g_delayNode, 0);
-
-        <span style="color:#009900">/*
-        Start the sound after it&#39;s applied to the sound. Otherwise there could be a scenario where
-        the very first part of it is read before the attachment to the effect is made.
-        */</span>
-        ma_sound_start(&amp;g_sound);
+    deviceID = SDL_OpenAudioDevice(NULL, 0, &amp;desiredSpec, &amp;obtainedSpec, SDL_AUDIO_ALLOW_ANY_CHANGE);
+    <span style="color:#0033ff">if</span> (deviceID == 0) {
+        printf(<span style="color:#cc3300">&quot;Failed to open SDL audio device.&quot;</span>);
+        <span style="color:#0033ff">return</span> -1;
     }
 
+    <span style="color:#009900">/* Start playback. */</span>
+    SDL_PauseAudioDevice(deviceID, 0);
 
+<span style="color:#666666">#if</span> 1
+    {
+        <span style="color:#009900">/* We&#39;ll move the sound around the listener which we&#39;ll leave at the origin. */</span>
+        <span style="color:#0033ff">float</span> stepAngle = 0.002f;
+        <span style="color:#0033ff">float</span> angle = 0;
+        <span style="color:#0033ff">float</span> distance = 2;
+
+        <span style="color:#0033ff">for</span> (;;) {
+            <span style="color:#0033ff">double</span> x = ma_cosd(angle) - ma_sind(angle);
+            <span style="color:#0033ff">double</span> y = ma_sind(angle) + ma_cosd(angle);
+
+            ma_sound_set_position(&amp;g_sound, (<span style="color:#0033ff">float</span>)x * distance, 0, (<span style="color:#0033ff">float</span>)y * distance);
+
+            angle += stepAngle;
+            ma_sleep(1);
+        }
+    }
+<span style="color:#666666">#else</span>
     printf(<span style="color:#cc3300">&quot;Press Enter to quit...&quot;</span>);
     getchar();
+<span style="color:#666666">#endif</span>
 
     ma_sound_uninit(&amp;g_sound);
-    ma_delay_node_uninit(&amp;g_delayNode, NULL);
     ma_engine_uninit(&amp;g_engine);
+    SDL_CloseAudioDevice(deviceID);
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
 
     <span style="color:#0033ff">return</span> 0;
 }</pre></div></td>

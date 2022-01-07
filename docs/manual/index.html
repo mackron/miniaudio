@@ -1455,12 +1455,10 @@ runtime linking via <span style="font-family:monospace;">dlopen()</span>.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
-MA_DEBUG_OUTPUT
-</p>
+MA_DEBUG_OUTPUT</p>
 </td>
 <td class="doc" valign="top"><p>
-Enable processing of <span style="font-family:monospace;">MA_LOG_LEVEL_DEBUG</span> messages and <span style="font-family:monospace;">printf()</span>
-output.</p>
+Enable <span style="font-family:monospace;">printf()</span> output of debug logs (<span style="font-family:monospace;">MA_LOG_LEVEL_DEBUG</span>).</p>
 </td>
 </tr>
 <tr>
@@ -3597,6 +3595,34 @@ Used to tell miniaudio that input and output
 frames are processed at different rates. You
 should set this for any nodes that perform
 resampling.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_NODE_FLAG_SILENT_OUTPUT
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used to tell miniaudio that a node produces only
+silent output. This is useful for nodes where you
+don&#39;t want the output to contribute to the final
+mix. An example might be if you want split your
+stream and have one branch be output to a file.
+When using this flag, you should avoid writing to
+the output buffer of the node&#39;s processing
+callback because miniaudio will ignore it anyway.</p>
 </td>
 </tr>
 </table></div><p>
