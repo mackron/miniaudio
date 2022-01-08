@@ -9603,82 +9603,85 @@ typedef struct
 
     union
     {
-        /* Resource Managemer Jobs */
-        struct
-        {
-            /*ma_resource_manager**/ void* pResourceManager;
-            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-            char* pFilePath;
-            wchar_t* pFilePathW;
-            ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
-            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE when decoding. */
-            ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
-            ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
-        } loadDataBufferNode;
-        struct
-        {
-            /*ma_resource_manager**/ void* pResourceManager;
-            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataBufferNode;
-        struct
-        {
-            /*ma_resource_manager**/ void* pResourceManager;
-            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-            ma_decoder* pDecoder;
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-            ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
-        } pageDataBufferNode;
-
-        struct
-        {
-            /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
-            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-            ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
-        } loadDataBuffer;
-        struct
-        {
-            /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataBuffer;
-
-        struct
-        {
-            /*ma_resource_manager_data_stream**/ void* pDataStream;
-            char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
-            wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
-            ma_uint64 initialSeekPoint;
-            ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
-            ma_fence* pInitFence;
-        } loadDataStream;
-        struct
-        {
-            /*ma_resource_manager_data_stream**/ void* pDataStream;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataStream;
-        struct
-        {
-            /*ma_resource_manager_data_stream**/ void* pDataStream;
-            ma_uint32 pageIndex;                    /* The index of the page to decode into. */
-        } pageDataStream;
-        struct
-        {
-            /*ma_resource_manager_data_stream**/ void* pDataStream;
-            ma_uint64 frameIndex;
-        } seekDataStream;
-
-        /* Others. */
+        /* Miscellaneous. */
         struct
         {
             ma_uintptr data0;
             ma_uintptr data1;
         } custom;
+
+        /* Resource Manager */
+        union
+        {
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                char* pFilePath;
+                wchar_t* pFilePathW;
+                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE when decoding. */
+                ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
+                ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
+            } loadDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                ma_decoder* pDecoder;
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
+            } pageDataBufferNode;
+
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
+            } loadDataBuffer;
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBuffer;
+
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
+                wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
+                ma_uint64 initialSeekPoint;
+                ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
+                ma_fence* pInitFence;
+            } loadDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint32 pageIndex;                    /* The index of the page to decode into. */
+            } pageDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint64 frameIndex;
+            } seekDataStream;
+        } resourceManager;
     } data;
 } ma_resource_manager_job;
 
@@ -64565,15 +64568,15 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             /* We now have everything we need to post the job to the job thread. */
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
-            job.data.loadDataBufferNode.pResourceManager  = pResourceManager;
-            job.data.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
-            job.data.loadDataBufferNode.pFilePath         = pFilePathCopy;
-            job.data.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
-            job.data.loadDataBufferNode.decode            =  (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE   ) != 0;
-            job.data.loadDataBufferNode.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? pInitNotification : NULL;
-            job.data.loadDataBufferNode.pDoneNotification = NULL;
-            job.data.loadDataBufferNode.pInitFence        = pInitFence;
-            job.data.loadDataBufferNode.pDoneFence        = pDoneFence;
+            job.data.resourceManager.loadDataBufferNode.pResourceManager  = pResourceManager;
+            job.data.resourceManager.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
+            job.data.resourceManager.loadDataBufferNode.pFilePath         = pFilePathCopy;
+            job.data.resourceManager.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
+            job.data.resourceManager.loadDataBufferNode.decode            =  (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE   ) != 0;
+            job.data.resourceManager.loadDataBufferNode.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? pInitNotification : NULL;
+            job.data.resourceManager.loadDataBufferNode.pDoneNotification = NULL;
+            job.data.resourceManager.loadDataBufferNode.pInitFence        = pInitFence;
+            job.data.resourceManager.loadDataBufferNode.pDoneFence        = pDoneFence;
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
@@ -64832,8 +64835,8 @@ stage2:
 
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
-            job.data.freeDataBufferNode.pResourceManager = pResourceManager;
-            job.data.freeDataBufferNode.pDataBufferNode  = pDataBufferNode;
+            job.data.resourceManager.freeDataBufferNode.pResourceManager = pResourceManager;
+            job.data.resourceManager.freeDataBufferNode.pDataBufferNode  = pDataBufferNode;
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
@@ -65013,11 +65016,11 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
 
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-            job.data.loadDataBuffer.pDataBuffer       = pDataBuffer;
-            job.data.loadDataBuffer.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? &initNotification : notifications.init.pNotification;
-            job.data.loadDataBuffer.pDoneNotification = notifications.done.pNotification;
-            job.data.loadDataBuffer.pInitFence        = notifications.init.pFence;
-            job.data.loadDataBuffer.pDoneFence        = notifications.done.pFence;
+            job.data.resourceManager.loadDataBuffer.pDataBuffer       = pDataBuffer;
+            job.data.resourceManager.loadDataBuffer.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? &initNotification : notifications.init.pNotification;
+            job.data.resourceManager.loadDataBuffer.pDoneNotification = notifications.done.pNotification;
+            job.data.resourceManager.loadDataBuffer.pInitFence        = notifications.init.pFence;
+            job.data.resourceManager.loadDataBuffer.pDoneFence        = notifications.done.pFence;
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
@@ -65161,9 +65164,9 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
 
         job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER);
         job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
-        job.data.freeDataBuffer.pDataBuffer       = pDataBuffer;
-        job.data.freeDataBuffer.pDoneNotification = &notification;
-        job.data.freeDataBuffer.pDoneFence        = NULL;
+        job.data.resourceManager.freeDataBuffer.pDataBuffer       = pDataBuffer;
+        job.data.resourceManager.freeDataBuffer.pDoneNotification = &notification;
+        job.data.resourceManager.freeDataBuffer.pDoneFence        = NULL;
 
         result = ma_resource_manager_post_job(pDataBuffer->pResourceManager, &job);
         if (result != MA_SUCCESS) {
@@ -65719,12 +65722,12 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
     job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.data.loadDataStream.pDataStream       = pDataStream;
-    job.data.loadDataStream.pFilePath         = pFilePathCopy;
-    job.data.loadDataStream.pFilePathW        = pFilePathWCopy;
-    job.data.loadDataStream.initialSeekPoint  = pConfig->initialSeekPointInPCMFrames;
-    job.data.loadDataStream.pInitNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : notifications.init.pNotification;
-    job.data.loadDataStream.pInitFence        = notifications.init.pFence;
+    job.data.resourceManager.loadDataStream.pDataStream       = pDataStream;
+    job.data.resourceManager.loadDataStream.pFilePath         = pFilePathCopy;
+    job.data.resourceManager.loadDataStream.pFilePathW        = pFilePathWCopy;
+    job.data.resourceManager.loadDataStream.initialSeekPoint  = pConfig->initialSeekPointInPCMFrames;
+    job.data.resourceManager.loadDataStream.pInitNotification = (waitBeforeReturning == MA_TRUE) ? &waitNotification : notifications.init.pNotification;
+    job.data.resourceManager.loadDataStream.pInitFence        = notifications.init.pFence;
     result = ma_resource_manager_post_job(pResourceManager, &job);
     if (result != MA_SUCCESS) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -65797,9 +65800,9 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
 
     job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.data.freeDataStream.pDataStream       = pDataStream;
-    job.data.freeDataStream.pDoneNotification = &freeEvent;
-    job.data.freeDataStream.pDoneFence        = NULL;
+    job.data.resourceManager.freeDataStream.pDataStream       = pDataStream;
+    job.data.resourceManager.freeDataStream.pDoneNotification = &freeEvent;
+    job.data.resourceManager.freeDataStream.pDoneFence        = NULL;
     ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
 
     /* We need to wait for the job to finish processing before we return. */
@@ -65974,8 +65977,8 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
         /* Here is where we post the job start decoding. */
         job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM);
         job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-        job.data.pageDataStream.pDataStream = pDataStream;
-        job.data.pageDataStream.pageIndex   = pDataStream->currentPageIndex;
+        job.data.resourceManager.pageDataStream.pDataStream = pDataStream;
+        job.data.resourceManager.pageDataStream.pageIndex   = pDataStream->currentPageIndex;
 
         /* The page needs to be marked as invalid so that the public API doesn't try reading from it. */
         c89atomic_exchange_32(&pDataStream->isPageValid[pDataStream->currentPageIndex], MA_FALSE);
@@ -66105,8 +66108,8 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     */
     job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
-    job.data.seekDataStream.pDataStream = pDataStream;
-    job.data.seekDataStream.frameIndex  = frameIndex;
+    job.data.resourceManager.seekDataStream.pDataStream = pDataStream;
+    job.data.resourceManager.seekDataStream.frameIndex  = frameIndex;
     return ma_resource_manager_post_job(pDataStream->pResourceManager, &job);
 }
 
@@ -66565,10 +66568,10 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
 
     MA_ASSERT(pJob != NULL);
 
-    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
+    pResourceManager = (ma_resource_manager*)pJob->data.resourceManager.loadDataBufferNode.pResourceManager;
     MA_ASSERT(pResourceManager != NULL);
 
-    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.loadDataBufferNode.pDataBufferNode;
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.resourceManager.loadDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
     MA_ASSERT(pDataBufferNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
@@ -66592,7 +66595,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
     will determine that the node is available for data delivery and the data buffer connectors can be
     initialized. Therefore, it's important that it is set after the data supply has been initialized.
     */
-    if (pJob->data.loadDataBufferNode.decode) {
+    if (pJob->data.resourceManager.loadDataBufferNode.decode) {
         /*
         Decoding. This is the complex case because we're not going to be doing the entire decoding
         process here. Instead it's going to be split of multiple jobs and loaded in pages. The
@@ -66611,7 +66614,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         ma_resource_manager_job pageDataBufferNodeJob;
 
         /* Allocate the decoder by initializing a decoded data supply. */
-        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW, &pDecoder);
+        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.resourceManager.loadDataBufferNode.pFilePath, pJob->data.resourceManager.loadDataBufferNode.pFilePathW, &pDecoder);
 
         /*
         Don't ever propagate an MA_BUSY result code or else the resource manager will think the
@@ -66623,11 +66626,11 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         }
 
         if (result != MA_SUCCESS) {
-            if (pJob->data.loadDataBufferNode.pFilePath != NULL) {
-                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%s\". %s.\n", pJob->data.loadDataBufferNode.pFilePath, ma_result_description(result));
+            if (pJob->data.resourceManager.loadDataBufferNode.pFilePath != NULL) {
+                ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%s\". %s.\n", pJob->data.resourceManager.loadDataBufferNode.pFilePath, ma_result_description(result));
             } else {
                 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || defined(_MSC_VER)
-                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%ls\", %s.\n", pJob->data.loadDataBufferNode.pFilePathW, ma_result_description(result));
+                    ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_WARNING, "Failed to initialize data supply for \"%ls\", %s.\n", pJob->data.resourceManager.loadDataBufferNode.pFilePathW, ma_result_description(result));
                 #endif
             }
 
@@ -66644,11 +66647,11 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         */
         pageDataBufferNodeJob = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE);
         pageDataBufferNodeJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
-        pageDataBufferNodeJob.data.pageDataBufferNode.pResourceManager  = pResourceManager;
-        pageDataBufferNodeJob.data.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
-        pageDataBufferNodeJob.data.pageDataBufferNode.pDecoder          = pDecoder;
-        pageDataBufferNodeJob.data.pageDataBufferNode.pDoneNotification = pJob->data.loadDataBufferNode.pDoneNotification;
-        pageDataBufferNodeJob.data.pageDataBufferNode.pDoneFence        = pJob->data.loadDataBufferNode.pDoneFence;
+        pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pResourceManager  = pResourceManager;
+        pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
+        pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDecoder          = pDecoder;
+        pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDoneNotification = pJob->data.resourceManager.loadDataBufferNode.pDoneNotification;
+        pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDoneFence        = pJob->data.resourceManager.loadDataBufferNode.pDoneFence;
 
         /* The job has been set up so it can now be posted. */
         result = ma_resource_manager_post_job(pResourceManager, &pageDataBufferNodeJob);
@@ -66668,14 +66671,14 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         }
     } else {
         /* No decoding. This is the simple case. We need only read the file content into memory and we're done. */
-        result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pDataBufferNode, pJob->data.loadDataBufferNode.pFilePath, pJob->data.loadDataBufferNode.pFilePathW);
+        result = ma_resource_manager_data_buffer_node_init_supply_encoded(pResourceManager, pDataBufferNode, pJob->data.resourceManager.loadDataBufferNode.pFilePath, pJob->data.resourceManager.loadDataBufferNode.pFilePathW);
     }
 
 
 done:
     /* File paths are no longer needed. */
-    ma_free(pJob->data.loadDataBufferNode.pFilePath,  &pResourceManager->config.allocationCallbacks);
-    ma_free(pJob->data.loadDataBufferNode.pFilePathW, &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->data.resourceManager.loadDataBufferNode.pFilePath,  &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->data.resourceManager.loadDataBufferNode.pFilePathW, &pResourceManager->config.allocationCallbacks);
 
     /*
     We need to set the result to at the very end to ensure no other threads try reading the data before we've fully initialized the object. Other threads
@@ -66687,20 +66690,20 @@ done:
     c89atomic_compare_and_swap_i32(&pDataBufferNode->result, MA_BUSY, result);
 
     /* At this point initialization is complete and we can signal the notification if any. */
-    if (pJob->data.loadDataBufferNode.pInitNotification != NULL) {
-        ma_async_notification_signal(pJob->data.loadDataBufferNode.pInitNotification);
+    if (pJob->data.resourceManager.loadDataBufferNode.pInitNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.loadDataBufferNode.pInitNotification);
     }
-    if (pJob->data.loadDataBufferNode.pInitFence != NULL) {
-        ma_fence_release(pJob->data.loadDataBufferNode.pInitFence);
+    if (pJob->data.resourceManager.loadDataBufferNode.pInitFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.loadDataBufferNode.pInitFence);
     }
 
     /* If we have a success result it means we've fully loaded the buffer. This will happen in the non-decoding case. */
     if (result != MA_BUSY) {
-        if (pJob->data.loadDataBufferNode.pDoneNotification != NULL) {
-            ma_async_notification_signal(pJob->data.loadDataBufferNode.pDoneNotification);
+        if (pJob->data.resourceManager.loadDataBufferNode.pDoneNotification != NULL) {
+            ma_async_notification_signal(pJob->data.resourceManager.loadDataBufferNode.pDoneNotification);
         }
-        if (pJob->data.loadDataBufferNode.pDoneFence != NULL) {
-            ma_fence_release(pJob->data.loadDataBufferNode.pDoneFence);
+        if (pJob->data.resourceManager.loadDataBufferNode.pDoneFence != NULL) {
+            ma_fence_release(pJob->data.resourceManager.loadDataBufferNode.pDoneFence);
         }
     }
 
@@ -66716,10 +66719,10 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
 
     MA_ASSERT(pJob != NULL);
 
-    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
+    pResourceManager = (ma_resource_manager*)pJob->data.resourceManager.freeDataBufferNode.pResourceManager;
     MA_ASSERT(pResourceManager != NULL);
 
-    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.freeDataBufferNode.pDataBufferNode;
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.resourceManager.freeDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
@@ -66729,12 +66732,12 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
     ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
 
     /* The event needs to be signalled last. */
-    if (pJob->data.freeDataBufferNode.pDoneNotification != NULL) {
-        ma_async_notification_signal(pJob->data.freeDataBufferNode.pDoneNotification);
+    if (pJob->data.resourceManager.freeDataBufferNode.pDoneNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.freeDataBufferNode.pDoneNotification);
     }
 
-    if (pJob->data.freeDataBufferNode.pDoneFence != NULL) {
-        ma_fence_release(pJob->data.freeDataBufferNode.pDoneFence);
+    if (pJob->data.resourceManager.freeDataBufferNode.pDoneFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.freeDataBufferNode.pDoneFence);
     }
 
     c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
@@ -66749,10 +66752,10 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
 
     MA_ASSERT(pJob != NULL);
 
-    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
+    pResourceManager = (ma_resource_manager*)pJob->data.resourceManager.pageDataBufferNode.pResourceManager;
     MA_ASSERT(pResourceManager != NULL);
 
-    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.pageDataBufferNode.pDataBufferNode;
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.resourceManager.pageDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
@@ -66766,7 +66769,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
     }
 
     /* We're ready to decode the next page. */
-    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pJob->data.pageDataBufferNode.pDecoder);
+    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pJob->data.resourceManager.pageDataBufferNode.pDecoder);
 
     /*
     If we have a success code by this point, we want to post another job. We're going to set the
@@ -66788,8 +66791,8 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
 done:
     /* If there's still more to decode the result will be set to MA_BUSY. Otherwise we can free the decoder. */
     if (result != MA_BUSY) {
-        ma_decoder_uninit(pJob->data.pageDataBufferNode.pDecoder);
-        ma_free(pJob->data.pageDataBufferNode.pDecoder, &pResourceManager->config.allocationCallbacks);
+        ma_decoder_uninit(pJob->data.resourceManager.pageDataBufferNode.pDecoder);
+        ma_free(pJob->data.resourceManager.pageDataBufferNode.pDecoder, &pResourceManager->config.allocationCallbacks);
     }
 
     /* If we reached the end we need to treat it as successful. */
@@ -66802,12 +66805,12 @@ done:
 
     /* Signal the notification after setting the result in case the notification callback wants to inspect the result code. */
     if (result != MA_BUSY) {
-        if (pJob->data.pageDataBufferNode.pDoneNotification != NULL) {
-            ma_async_notification_signal(pJob->data.pageDataBufferNode.pDoneNotification);
+        if (pJob->data.resourceManager.pageDataBufferNode.pDoneNotification != NULL) {
+            ma_async_notification_signal(pJob->data.resourceManager.pageDataBufferNode.pDoneNotification);
         }
 
-        if (pJob->data.pageDataBufferNode.pDoneFence != NULL) {
-            ma_fence_release(pJob->data.pageDataBufferNode.pDoneFence);
+        if (pJob->data.resourceManager.pageDataBufferNode.pDoneFence != NULL) {
+            ma_fence_release(pJob->data.resourceManager.pageDataBufferNode.pDoneFence);
         }
     }
 
@@ -66830,7 +66833,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     */
     MA_ASSERT(pJob != NULL);
 
-    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.loadDataBuffer.pDataBuffer;
+    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.resourceManager.loadDataBuffer.pDataBuffer;
     MA_ASSERT(pDataBuffer != NULL);
 
     pResourceManager = pDataBuffer->pResourceManager;
@@ -66857,7 +66860,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 
         if (dataSupplyType != ma_resource_manager_data_supply_type_unknown) {
             /* We can now initialize the connector. If this fails, we need to abort. It's very rare for this to fail. */
-            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->data.loadDataBuffer.pInitNotification, pJob->data.loadDataBuffer.pInitFence);
+            result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, pJob->data.resourceManager.loadDataBuffer.pInitNotification, pJob->data.resourceManager.loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to initialize connector for data buffer. %s.\n", ma_result_description(result));
                 goto done;
@@ -66888,11 +66891,11 @@ done:
     c89atomic_compare_and_swap_i32(&pDataBuffer->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
-    if (pJob->data.loadDataBuffer.pDoneNotification != NULL) {
-        ma_async_notification_signal(pJob->data.loadDataBuffer.pDoneNotification);
+    if (pJob->data.resourceManager.loadDataBuffer.pDoneNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.loadDataBuffer.pDoneNotification);
     }
-    if (pJob->data.loadDataBuffer.pDoneFence != NULL) {
-        ma_fence_release(pJob->data.loadDataBuffer.pDoneFence);
+    if (pJob->data.resourceManager.loadDataBuffer.pDoneFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.loadDataBuffer.pDoneFence);
     }
 
     /*
@@ -66900,11 +66903,11 @@ done:
     notification event was never signalled which means we need to signal it here.
     */
     if (pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
-        if (pJob->data.loadDataBuffer.pInitNotification != NULL) {
-            ma_async_notification_signal(pJob->data.loadDataBuffer.pInitNotification);
+        if (pJob->data.resourceManager.loadDataBuffer.pInitNotification != NULL) {
+            ma_async_notification_signal(pJob->data.resourceManager.loadDataBuffer.pInitNotification);
         }
-        if (pJob->data.loadDataBuffer.pInitFence != NULL) {
-            ma_fence_release(pJob->data.loadDataBuffer.pInitFence);
+        if (pJob->data.resourceManager.loadDataBuffer.pInitFence != NULL) {
+            ma_fence_release(pJob->data.resourceManager.loadDataBuffer.pInitFence);
         }
     }
 
@@ -66919,7 +66922,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
 
     MA_ASSERT(pJob != NULL);
 
-    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.freeDataBuffer.pDataBuffer;
+    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.resourceManager.freeDataBuffer.pDataBuffer;
     MA_ASSERT(pDataBuffer != NULL);
 
     pResourceManager = pDataBuffer->pResourceManager;
@@ -66931,12 +66934,12 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     ma_resource_manager_data_buffer_uninit_internal(pDataBuffer);
 
     /* The event needs to be signalled last. */
-    if (pJob->data.freeDataBuffer.pDoneNotification != NULL) {
-        ma_async_notification_signal(pJob->data.freeDataBuffer.pDoneNotification);
+    if (pJob->data.resourceManager.freeDataBuffer.pDoneNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.freeDataBuffer.pDoneNotification);
     }
 
-    if (pJob->data.freeDataBuffer.pDoneFence != NULL) {
-        ma_fence_release(pJob->data.freeDataBuffer.pDoneFence);
+    if (pJob->data.resourceManager.freeDataBuffer.pDoneFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.freeDataBuffer.pDoneFence);
     }
 
     c89atomic_fetch_add_32(&pDataBuffer->executionPointer, 1);
@@ -66953,7 +66956,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
 
     MA_ASSERT(pJob != NULL);
 
-    pDataStream = (ma_resource_manager_data_stream*)pJob->data.loadDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.resourceManager.loadDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
     pResourceManager = pDataStream->pResourceManager;
@@ -66970,10 +66973,10 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     /* We need to initialize the decoder first so we can determine the size of the pages. */
     decoderConfig = ma_resource_manager__init_decoder_config(pResourceManager);
 
-    if (pJob->data.loadDataStream.pFilePath != NULL) {
-        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->data.loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
+    if (pJob->data.resourceManager.loadDataStream.pFilePath != NULL) {
+        result = ma_decoder_init_vfs(pResourceManager->config.pVFS, pJob->data.resourceManager.loadDataStream.pFilePath, &decoderConfig, &pDataStream->decoder);
     } else {
-        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pJob->data.loadDataStream.pFilePathW, &decoderConfig, &pDataStream->decoder);
+        result = ma_decoder_init_vfs_w(pResourceManager->config.pVFS, pJob->data.resourceManager.loadDataStream.pFilePathW, &decoderConfig, &pDataStream->decoder);
     }
     if (result != MA_SUCCESS) {
         goto done;
@@ -67002,7 +67005,7 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     }
 
     /* Seek to our initial seek point before filling the initial pages. */
-    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.loadDataStream.initialSeekPoint);
+    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
 
     /* We have our decoder and our page buffer, so now we need to fill our pages. */
     ma_resource_manager_data_stream_fill_pages(pDataStream);
@@ -67011,18 +67014,18 @@ static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_m
     result = MA_SUCCESS;
 
 done:
-    ma_free(pJob->data.loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks);
-    ma_free(pJob->data.loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->data.resourceManager.loadDataStream.pFilePath,  &pResourceManager->config.allocationCallbacks);
+    ma_free(pJob->data.resourceManager.loadDataStream.pFilePathW, &pResourceManager->config.allocationCallbacks);
 
     /* We can only change the status away from MA_BUSY. If it's set to anything else it means an error has occurred somewhere or the uninitialization process has started (most likely). */
     c89atomic_compare_and_swap_i32(&pDataStream->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
-    if (pJob->data.loadDataStream.pInitNotification != NULL) {
-        ma_async_notification_signal(pJob->data.loadDataStream.pInitNotification);
+    if (pJob->data.resourceManager.loadDataStream.pInitNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.loadDataStream.pInitNotification);
     }
-    if (pJob->data.loadDataStream.pInitFence != NULL) {
-        ma_fence_release(pJob->data.loadDataStream.pInitFence);
+    if (pJob->data.resourceManager.loadDataStream.pInitFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.loadDataStream.pInitFence);
     }
 
     c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -67036,7 +67039,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
 
     MA_ASSERT(pJob != NULL);
 
-    pDataStream = (ma_resource_manager_data_stream*)pJob->data.freeDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.resourceManager.freeDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
     pResourceManager = pDataStream->pResourceManager;
@@ -67060,11 +67063,11 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     ma_data_source_uninit(&pDataStream->ds);
 
     /* The event needs to be signalled last. */
-    if (pJob->data.freeDataStream.pDoneNotification != NULL) {
-        ma_async_notification_signal(pJob->data.freeDataStream.pDoneNotification);
+    if (pJob->data.resourceManager.freeDataStream.pDoneNotification != NULL) {
+        ma_async_notification_signal(pJob->data.resourceManager.freeDataStream.pDoneNotification);
     }
-    if (pJob->data.freeDataStream.pDoneFence != NULL) {
-        ma_fence_release(pJob->data.freeDataStream.pDoneFence);
+    if (pJob->data.resourceManager.freeDataStream.pDoneFence != NULL) {
+        ma_fence_release(pJob->data.resourceManager.freeDataStream.pDoneFence);
     }
 
     /*c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);*/
@@ -67079,7 +67082,7 @@ static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_m
 
     MA_ASSERT(pJob != NULL);
 
-    pDataStream = (ma_resource_manager_data_stream*)pJob->data.pageDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.resourceManager.pageDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
     pResourceManager = pDataStream->pResourceManager;
@@ -67094,7 +67097,7 @@ static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_m
         goto done;
     }
 
-    ma_resource_manager_data_stream_fill_page(pDataStream, pJob->data.pageDataStream.pageIndex);
+    ma_resource_manager_data_stream_fill_page(pDataStream, pJob->data.resourceManager.pageDataStream.pageIndex);
 
 done:
     c89atomic_fetch_add_32(&pDataStream->executionPointer, 1);
@@ -67109,7 +67112,7 @@ static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_m
 
     MA_ASSERT(pJob != NULL);
 
-    pDataStream = (ma_resource_manager_data_stream*)pJob->data.seekDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.resourceManager.seekDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
 
     pResourceManager = pDataStream->pResourceManager;
@@ -67128,7 +67131,7 @@ static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_m
     With seeking we just assume both pages are invalid and the relative frame cursor at position 0. This is basically exactly the same as loading, except
     instead of initializing the decoder, we seek to a frame.
     */
-    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.seekDataStream.frameIndex);
+    ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.seekDataStream.frameIndex);
 
     /* After seeking we'll need to reload the pages. */
     ma_resource_manager_data_stream_fill_pages(pDataStream);
