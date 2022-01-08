@@ -1531,7 +1531,7 @@ need to retrieve a job using `ma_resource_manager_next_job()` and then process i
     void my_custom_job_thread(...)
     {
         for (;;) {
-            ma_resource_manager_job job;
+            ma_job job;
             ma_result result = ma_resource_manager_next_job(pMyResourceManager, &job);
             if (result != MA_SUCCESS) {
                 if (result == MA_NOT_DATA_AVAILABLE) {
@@ -1817,7 +1817,7 @@ In addition, posting a job will release a semaphore, which on Win32 is implement
     ```
 
 Again, this is relevant for those with strict lock-free requirements in the audio thread. To avoid
-this, you can use non-blocking mode (via the `MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING`
+this, you can use non-blocking mode (via the `MA_JOB_QUEUE_FLAG_NON_BLOCKING`
 flag) and implement your own job processing routine (see the "Resource Manager" section above for
 details on how to do this).
 
@@ -9565,7 +9565,7 @@ typedef enum
     MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
     MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
     MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009
-} ma_resource_manager_job_type;
+} ma_job_type;
 
 
 /*
@@ -9683,29 +9683,29 @@ typedef struct
             } seekDataStream;
         } resourceManager;
     } data;
-} ma_resource_manager_job;
+} ma_job;
 
-MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code);
+MA_API ma_job ma_job_init(ma_uint16 code);
 
 
 /*
-When set, ma_resource_manager_job_queue_next() will not wait and no semaphore will be signaled in
-ma_resource_manager_job_queue_post(). ma_resource_manager_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
+When set, ma_job_queue_next() will not wait and no semaphore will be signaled in
+ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
 
 This flag should always be used for platforms that do not support multithreading.
 */
 typedef enum
 {
-    MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
-} ma_resource_manager_job_queue_flags;
+    MA_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
+} ma_job_queue_flags;
 
 typedef struct
 {
     ma_uint32 flags;
     ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. */
-} ma_resource_manager_job_queue_config;
+} ma_job_queue_config;
 
-MA_API ma_resource_manager_job_queue_config ma_resource_manager_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
 
 
 typedef struct
@@ -9715,10 +9715,10 @@ typedef struct
     MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
     MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
 #ifndef MA_NO_THREADING
-    ma_semaphore sem;               /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+    ma_semaphore sem;               /* Only used when MA_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
 #endif
     ma_slot_allocator allocator;
-    ma_resource_manager_job* pJobs;
+    ma_job* pJobs;
 #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock lock;
 #endif
@@ -9726,14 +9726,35 @@ typedef struct
     /* Memory management. */
     void* _pHeap;
     ma_bool32 _ownsHeap;
-} ma_resource_manager_job_queue;
+} ma_job_queue;
 
-MA_API ma_result ma_resource_manager_job_queue_get_heap_size(const ma_resource_manager_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resource_manager_job_queue_config* pConfig, void* pHeap, ma_resource_manager_job_queue* pQueue);
-MA_API ma_result ma_resource_manager_job_queue_init(const ma_resource_manager_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resource_manager_job_queue* pQueue);
-MA_API void ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queue* pQueue, const ma_resource_manager_job* pJob);
-MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queue* pQueue, ma_resource_manager_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue);
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue);
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob);
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
+
+
+/* BEGIN BACKWARDS COMPATIBILITY */
+/* TODO: Remove this block in version 0.12. */
+#if 1
+#define ma_resource_manager_job                         ma_job
+#define ma_resource_manager_job_init                    ma_job_init
+#define MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING MA_JOB_QUEUE_FLAG_NON_BLOCKING
+#define ma_resource_manager_job_queue_config            ma_job_queue_config
+#define ma_resource_manager_job_queue_config_init       ma_job_queue_config_init
+#define ma_resource_manager_job_queue                   ma_job_queue
+#define ma_resource_manager_job_queue_get_heap_size     ma_job_queue_get_heap_size
+#define ma_resource_manager_job_queue_init_preallocated ma_job_queue_init_preallocated
+#define ma_resource_manager_job_queue_init              ma_job_queue_init
+#define ma_resource_manager_job_queue_uninit            ma_job_queue_uninit
+#define ma_resource_manager_job_queue_post              ma_job_queue_post
+#define ma_resource_manager_job_queue_next              ma_job_queue_next
+#endif
+/* END BACKWARDS COMPATIBILITY */
+
+
 
 
 /* Maximum job thread count will be restricted to this, but this may be removed later and replaced with a heap allocation thereby removing any limitation. */
@@ -9905,7 +9926,7 @@ struct ma_resource_manager
     ma_mutex dataBufferBSTLock;                                     /* For synchronizing access to the data buffer binary tree. */
     ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The threads for executing jobs. */
 #endif
-    ma_resource_manager_job_queue jobQueue;                         /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
+    ma_job_queue jobQueue;                         /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
     ma_default_vfs defaultVFS;                                      /* Only used if a custom VFS is not specified. */
     ma_log log;                                                     /* Only used if no log was specified in the config. */
 };
@@ -9975,10 +9996,10 @@ MA_API ma_bool32 ma_resource_manager_data_source_is_looping(const ma_resource_ma
 MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
 
 /* Job management. */
-MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_resource_manager_job* pJob);
+MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
 MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager);  /* Helper for posting a quit job. */
-MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob);
-MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob);
+MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob);
+MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);
 MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager);   /* Returns MA_CANCELLED if a MA_RESOURCE_MANAGER_JOB_QUIT job is found. In non-blocking mode, returns MA_NO_DATA_AVAILABLE if no jobs are available. */
 #endif  /* MA_NO_RESOURCE_MANAGER */
 
@@ -62872,9 +62893,9 @@ static MA_INLINE ma_uint64 ma_resource_manager_job_set_refcount(ma_uint64 toc, m
 }
 
 
-MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code)
+MA_API ma_job ma_job_init(ma_uint16 code)
 {
-    ma_resource_manager_job job;
+    ma_job job;
 
     MA_ZERO_OBJECT(&job);
     job.toc.breakup.code = code;
@@ -62886,9 +62907,9 @@ MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code)
 
 
 
-MA_API ma_resource_manager_job_queue_config ma_resource_manager_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
 {
-    ma_resource_manager_job_queue_config config;
+    ma_job_queue_config config;
 
     config.flags    = flags;
     config.capacity = capacity;
@@ -62904,7 +62925,7 @@ typedef struct
     size_t jobsOffset;
 } ma_resource_manager_job_queue_heap_layout;
 
-static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_resource_manager_job_queue_config* pConfig, ma_resource_manager_job_queue_heap_layout* pHeapLayout)
+static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_resource_manager_job_queue_heap_layout* pHeapLayout)
 {
     ma_result result;
 
@@ -62939,12 +62960,12 @@ static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_resource
 
     /* Jobs. */
     pHeapLayout->jobsOffset   = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_resource_manager_job));
+    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_job));
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_get_heap_size(const ma_resource_manager_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
 {
     ma_result result;
     ma_resource_manager_job_queue_heap_layout layout;
@@ -62965,7 +62986,7 @@ MA_API ma_result ma_resource_manager_job_queue_get_heap_size(const ma_resource_m
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resource_manager_job_queue_config* pConfig, void* pHeap, ma_resource_manager_job_queue* pQueue)
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
 {
     ma_result result;
     ma_resource_manager_job_queue_heap_layout heapLayout;
@@ -62987,7 +63008,7 @@ MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resour
 
     pQueue->flags    = pConfig->flags;
     pQueue->capacity = pConfig->capacity;
-    pQueue->pJobs    = (ma_resource_manager_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
+    pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
 
     allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
     result = ma_slot_allocator_init_preallocated(&allocatorConfig, ma_offset_ptr(pHeap, heapLayout.allocatorOffset), &pQueue->allocator);
@@ -62996,7 +63017,7 @@ MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resour
     }
 
     /* We need a semaphore if we're running in non-blocking mode. If threading is disabled we need to return an error. */
-    if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
         #ifndef MA_NO_THREADING
         {
             ma_semaphore_init(0, &pQueue->sem);
@@ -63020,13 +63041,13 @@ MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resour
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_init(const ma_resource_manager_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resource_manager_job_queue* pQueue)
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue)
 {
     ma_result result;
     size_t heapSizeInBytes;
     void* pHeap;
 
-    result = ma_resource_manager_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
+    result = ma_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -63040,7 +63061,7 @@ MA_API ma_result ma_resource_manager_job_queue_init(const ma_resource_manager_jo
         pHeap = NULL;
     }
 
-    result = ma_resource_manager_job_queue_init_preallocated(pConfig, pHeap, pQueue);
+    result = ma_job_queue_init_preallocated(pConfig, pHeap, pQueue);
     if (result != MA_SUCCESS) {
         ma_free(pHeap, pAllocationCallbacks);
         return result;
@@ -63050,14 +63071,14 @@ MA_API ma_result ma_resource_manager_job_queue_init(const ma_resource_manager_jo
     return MA_SUCCESS;
 }
 
-MA_API void ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pQueue == NULL) {
         return;
     }
 
     /* All we need to do is uninitialize the semaphore. */
-    if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
         #ifndef MA_NO_THREADING
         {
             ma_semaphore_uninit(&pQueue->sem);
@@ -63082,7 +63103,7 @@ static ma_bool32 ma_resource_manager_job_queue_cas(volatile ma_uint64* dst, ma_u
     return c89atomic_compare_and_swap_64(dst, expected, ma_resource_manager_job_set_refcount(desired, ma_resource_manager_job_extract_refcount(expected) + 1)) == expected;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queue* pQueue, const ma_resource_manager_job* pJob)
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
 {
     /*
     Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
@@ -63138,7 +63159,7 @@ MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queu
 
 
     /* Signal the semaphore as the last step if we're using synchronous mode. */
-    if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
         #ifndef MA_NO_THREADING
         {
             ma_semaphore_release(&pQueue->sem);
@@ -63153,7 +63174,7 @@ MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queu
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queue* pQueue, ma_resource_manager_job* pJob)
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
 {
     ma_uint64 head;
     ma_uint64 tail;
@@ -63164,7 +63185,7 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
     }
 
     /* If we're running in synchronous mode we'll need to wait on a semaphore. */
-    if ((pQueue->flags & MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
         #ifndef MA_NO_THREADING
         {
             ma_semaphore_wait(&pQueue->sem);
@@ -63225,14 +63246,14 @@ MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queu
     possible.
     */
     if (pJob->toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
-        ma_resource_manager_job_queue_post(pQueue, pJob);
+        ma_job_queue_post(pQueue, pJob);
         return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
     }
 
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_resource_manager_job_queue_free(ma_resource_manager_job_queue* pQueue, ma_resource_manager_job* pJob)
+MA_API ma_result ma_resource_manager_job_queue_free(ma_job_queue* pQueue, ma_job* pJob)
 {
     if (pQueue == NULL || pJob == NULL) {
         return MA_INVALID_ARGS;
@@ -63826,7 +63847,7 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUser
 
     for (;;) {
         ma_result result;
-        ma_resource_manager_job job;
+        ma_job job;
 
         result = ma_resource_manager_next_job(pResourceManager, &job);
         if (result != MA_SUCCESS) {
@@ -63873,7 +63894,7 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
 MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pConfig, ma_resource_manager* pResourceManager)
 {
     ma_result result;
-    ma_resource_manager_job_queue_config jobQueueConfig;
+    ma_job_queue_config jobQueueConfig;
 
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
@@ -63940,10 +63961,10 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             return MA_INVALID_ARGS; /* Non-blocking mode is only valid for self-managed job threads. */
         }
 
-        jobQueueConfig.flags |= MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING;
+        jobQueueConfig.flags |= MA_JOB_QUEUE_FLAG_NON_BLOCKING;
     }
 
-    result = ma_resource_manager_job_queue_init(&jobQueueConfig, &pResourceManager->config.allocationCallbacks, &pResourceManager->jobQueue);
+    result = ma_job_queue_init(&jobQueueConfig, &pResourceManager->config.allocationCallbacks, &pResourceManager->jobQueue);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -63955,7 +63976,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
-            ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
+            ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
@@ -63976,7 +63997,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             /* Data buffer lock. */
             result = ma_mutex_init(&pResourceManager->dataBufferBSTLock);
             if (result != MA_SUCCESS) {
-                ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
+                ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
                 return result;
             }
 
@@ -63985,7 +64006,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
                 result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager, &pResourceManager->config.allocationCallbacks);
                 if (result != MA_SUCCESS) {
                     ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
-                    ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
+                    ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
                     return result;
                 }
             }
@@ -64049,7 +64070,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
     ma_resource_manager_delete_all_data_buffer_nodes(pResourceManager);
 
     /* The job queue is no longer needed. */
-    ma_resource_manager_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
+    ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
 
     /* We're no longer doing anything with data buffers so the lock can now be uninitialized. */
     if (ma_resource_manager_is_threading_enabled(pResourceManager)) {
@@ -64540,7 +64561,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
         */
         if (pDataBufferNode->isDataOwnedByResourceManager && (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0) {
             /* Loading asynchronously. Post the job. */
-            ma_resource_manager_job job;
+            ma_job job;
             char* pFilePathCopy = NULL;
             wchar_t* pFilePathWCopy = NULL;
 
@@ -64566,7 +64587,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             if (pDoneFence != NULL) { ma_fence_acquire(pDoneFence); }
 
             /* We now have everything we need to post the job to the job thread. */
-            job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
+            job = ma_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
             job.data.resourceManager.loadDataBufferNode.pResourceManager  = pResourceManager;
             job.data.resourceManager.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
@@ -64828,12 +64849,12 @@ stage2:
     if (refCount == 0) {
         if (ma_resource_manager_data_buffer_node_result(pDataBufferNode) == MA_BUSY) {
             /* The sound is still loading. We need to delay the freeing of the node to a safe time. */
-            ma_resource_manager_job job;
+            ma_job job;
 
             /* We need to mark the node as unavailable for the sake of the resource manager worker threads. */
             c89atomic_exchange_i32(&pDataBufferNode->result, MA_UNAVAILABLE);
 
-            job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
+            job = ma_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
             job.data.resourceManager.freeDataBufferNode.pResourceManager = pResourceManager;
             job.data.resourceManager.freeDataBufferNode.pDataBufferNode  = pDataBufferNode;
@@ -64997,7 +65018,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             goto done;
         } else {
             /* The node's data supply isn't initialized yet. The caller has requested that we load asynchronously so we need to post a job to do this. */
-            ma_resource_manager_job job;
+            ma_job job;
             ma_resource_manager_inline_notification initNotification;   /* Used when the WAIT_INIT flag is set. */
 
             if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
@@ -65014,7 +65035,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             /* Acquire fences a second time. These will be released by the async thread. */
             ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
 
-            job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER);
+            job = ma_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER);
             job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
             job.data.resourceManager.loadDataBuffer.pDataBuffer       = pDataBuffer;
             job.data.resourceManager.loadDataBuffer.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? &initNotification : notifications.init.pNotification;
@@ -65149,7 +65170,7 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
         to get processed before returning.
         */
         ma_resource_manager_inline_notification notification;
-        ma_resource_manager_job job;
+        ma_job job;
 
         /*
         We need to mark the node as unavailable so we don't try reading from it anymore, but also to
@@ -65162,7 +65183,7 @@ MA_API ma_result ma_resource_manager_data_buffer_uninit(ma_resource_manager_data
             return result;  /* Failed to create the notification. This should rarely, if ever, happen. */
         }
 
-        job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER);
+        job = ma_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER);
         job.order = ma_resource_manager_data_buffer_next_execution_order(pDataBuffer);
         job.data.resourceManager.freeDataBuffer.pDataBuffer       = pDataBuffer;
         job.data.resourceManager.freeDataBuffer.pDoneNotification = &notification;
@@ -65644,7 +65665,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     ma_data_source_config dataSourceConfig;
     char* pFilePathCopy = NULL;
     wchar_t* pFilePathWCopy = NULL;
-    ma_resource_manager_job job;
+    ma_job job;
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
     ma_resource_manager_pipeline_notifications notifications;
@@ -65720,7 +65741,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     ma_resource_manager_data_stream_set_absolute_cursor(pDataStream, pConfig->initialSeekPointInPCMFrames);
 
     /* We now have everything we need to post the job. This is the last thing we need to do from here. The rest will be done by the job thread. */
-    job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM);
+    job = ma_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.data.resourceManager.loadDataStream.pDataStream       = pDataStream;
     job.data.resourceManager.loadDataStream.pFilePath         = pFilePathCopy;
@@ -65783,7 +65804,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pRe
 MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data_stream* pDataStream)
 {
     ma_resource_manager_inline_notification freeEvent;
-    ma_resource_manager_job job;
+    ma_job job;
 
     if (pDataStream == NULL) {
         return MA_INVALID_ARGS;
@@ -65798,7 +65819,7 @@ MA_API ma_result ma_resource_manager_data_stream_uninit(ma_resource_manager_data
     */
     ma_resource_manager_inline_notification_init(pDataStream->pResourceManager, &freeEvent);
 
-    job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM);
+    job = ma_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.data.resourceManager.freeDataStream.pDataStream       = pDataStream;
     job.data.resourceManager.freeDataStream.pDoneNotification = &freeEvent;
@@ -65944,7 +65965,7 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
 {
     ma_uint32 newRelativeCursor;
     ma_uint32 pageSizeInFrames;
-    ma_resource_manager_job job;
+    ma_job job;
 
     /* We cannot be using the data source after it's been uninitialized. */
     MA_ASSERT(ma_resource_manager_data_stream_result(pDataStream) != MA_UNAVAILABLE);
@@ -65975,7 +65996,7 @@ static ma_result ma_resource_manager_data_stream_unmap(ma_resource_manager_data_
         newRelativeCursor -= pageSizeInFrames;
 
         /* Here is where we post the job start decoding. */
-        job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM);
+        job = ma_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM);
         job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
         job.data.resourceManager.pageDataStream.pDataStream = pDataStream;
         job.data.resourceManager.pageDataStream.pageIndex   = pDataStream->currentPageIndex;
@@ -66067,7 +66088,7 @@ MA_API ma_result ma_resource_manager_data_stream_read_pcm_frames(ma_resource_man
 
 MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_manager_data_stream* pDataStream, ma_uint64 frameIndex)
 {
-    ma_resource_manager_job job;
+    ma_job job;
     ma_result streamResult;
 
     streamResult = ma_resource_manager_data_stream_result(pDataStream);
@@ -66106,7 +66127,7 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
     The public API is not allowed to touch the internal decoder so we need to use a job to perform the seek. When seeking, the job thread will assume both pages
     are invalid and any content contained within them will be discarded and replaced with newly decoded data.
     */
-    job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM);
+    job = ma_job_init(MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM);
     job.order = ma_resource_manager_data_stream_next_execution_order(pDataStream);
     job.data.resourceManager.seekDataStream.pDataStream = pDataStream;
     job.data.resourceManager.seekDataStream.frameIndex  = frameIndex;
@@ -66535,32 +66556,32 @@ MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resourc
 }
 
 
-MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_resource_manager_job* pJob)
+MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob)
 {
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_resource_manager_job_queue_post(&pResourceManager->jobQueue, pJob);
+    return ma_job_queue_post(&pResourceManager->jobQueue, pJob);
 }
 
 MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager)
 {
-    ma_resource_manager_job job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_QUIT);
+    ma_job job = ma_job_init(MA_RESOURCE_MANAGER_JOB_QUIT);
     return ma_resource_manager_post_job(pResourceManager, &job);
 }
 
-MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob)
 {
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
     }
 
-    return ma_resource_manager_job_queue_next(&pResourceManager->jobQueue, pJob);
+    return ma_job_queue_next(&pResourceManager->jobQueue, pJob);
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66611,7 +66632,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         the node will be in a state where data buffer connectors can be initialized.
         */
         ma_decoder* pDecoder;   /* <-- Free'd on the last page decode. */
-        ma_resource_manager_job pageDataBufferNodeJob;
+        ma_job pageDataBufferNodeJob;
 
         /* Allocate the decoder by initializing a decoded data supply. */
         result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.resourceManager.loadDataBufferNode.pFilePath, pJob->data.resourceManager.loadDataBufferNode.pFilePathW, &pDecoder);
@@ -66645,7 +66666,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
 
         Note that if an error occurred at an earlier point, this section will have been skipped.
         */
-        pageDataBufferNodeJob = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE);
+        pageDataBufferNodeJob = ma_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE);
         pageDataBufferNodeJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pResourceManager  = pResourceManager;
         pageDataBufferNodeJob.data.resourceManager.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
@@ -66712,7 +66733,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
@@ -66744,7 +66765,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66776,7 +66797,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resou
     result back to MA_BUSY to make it clear that there's still more to load.
     */
     if (result == MA_SUCCESS) {
-        ma_resource_manager_job newJob;
+        ma_job newJob;
         newJob = *pJob; /* Everything is the same as the input job, except the execution order. */
         newJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);   /* We need a fresh execution order. */
 
@@ -66819,7 +66840,7 @@ done:
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_buffer(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66915,7 +66936,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_buffer(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer* pDataBuffer;
@@ -66946,7 +66967,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_decoder_config decoderConfig;
@@ -67032,7 +67053,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_stream(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
@@ -67074,7 +67095,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__page_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -67104,7 +67125,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__seek_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -67144,7 +67165,7 @@ done:
     return result;
 }
 
-MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob)
 {
     if (pResourceManager == NULL || pJob == NULL) {
         return MA_INVALID_ARGS;
@@ -67177,7 +67198,7 @@ MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceM
 MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager)
 {
     ma_result result;
-    ma_resource_manager_job job;
+    ma_job job;
 
     if (pResourceManager == NULL) {
         return MA_INVALID_ARGS;
