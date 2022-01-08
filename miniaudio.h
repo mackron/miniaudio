@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.3 - 2022-01-07
+miniaudio - v0.11.4 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3634,7 +3634,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 3
+#define MA_VERSION_REVISION 4
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -61605,12 +61605,9 @@ MA_API ma_result ma_encoder_init__internal(ma_encoder_write_proc onWrite, ma_enc
     /* Getting here means we should have our backend callbacks set up. */
     if (result == MA_SUCCESS) {
         result = pEncoder->onInit(pEncoder);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
     }
 
-    return MA_SUCCESS;
+    return result;
 }
 
 MA_API size_t ma_encoder__on_write_stdio(ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite)
@@ -61641,7 +61638,13 @@ MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_co
 
     pEncoder->pFile = pFile;
 
-    return ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+    result = ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+    if (result != MA_SUCCESS) {
+        fclose(pFile);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
@@ -61662,7 +61665,13 @@ MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encod
 
     pEncoder->pFile = pFile;
 
-    return ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+    result = ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
+    if (result != MA_SUCCESS) {
+        fclose(pFile);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
@@ -89538,6 +89547,10 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
+v0.11.4 - TBD
+  - Fix a bug when initializing an encoder from a file where the file handle does not get closed in
+    the event of an error.
+
 v0.11.3 - 2022-01-07
   - Add a new flag for nodes called MA_NODE_FLAG_SILENT_OUTPUT which tells miniaudio that the
     output of the node should always be treated as silence. This gives miniaudio an optimization
