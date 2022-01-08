@@ -9606,7 +9606,8 @@ typedef struct
         /* Resource Managemer Jobs */
         struct
         {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
+            /*ma_resource_manager**/ void* pResourceManager;
+            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
             char* pFilePath;
             wchar_t* pFilePathW;
             ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
@@ -9617,13 +9618,15 @@ typedef struct
         } loadDataBufferNode;
         struct
         {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
+            /*ma_resource_manager**/ void* pResourceManager;
+            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
             ma_async_notification* pDoneNotification;
             ma_fence* pDoneFence;
         } freeDataBufferNode;
         struct
         {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
+            /*ma_resource_manager**/ void* pResourceManager;
+            /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
             ma_decoder* pDecoder;
             ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
             ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
@@ -9631,7 +9634,7 @@ typedef struct
 
         struct
         {
-            ma_resource_manager_data_buffer* pDataBuffer;
+            /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
             ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
             ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
             ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
@@ -9639,14 +9642,14 @@ typedef struct
         } loadDataBuffer;
         struct
         {
-            ma_resource_manager_data_buffer* pDataBuffer;
+            /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
             ma_async_notification* pDoneNotification;
             ma_fence* pDoneFence;
         } freeDataBuffer;
 
         struct
         {
-            ma_resource_manager_data_stream* pDataStream;
+            /*ma_resource_manager_data_stream**/ void* pDataStream;
             char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
             wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
             ma_uint64 initialSeekPoint;
@@ -9655,18 +9658,18 @@ typedef struct
         } loadDataStream;
         struct
         {
-            ma_resource_manager_data_stream* pDataStream;
+            /*ma_resource_manager_data_stream**/ void* pDataStream;
             ma_async_notification* pDoneNotification;
             ma_fence* pDoneFence;
         } freeDataStream;
         struct
         {
-            ma_resource_manager_data_stream* pDataStream;
+            /*ma_resource_manager_data_stream**/ void* pDataStream;
             ma_uint32 pageIndex;                    /* The index of the page to decode into. */
         } pageDataStream;
         struct
         {
-            ma_resource_manager_data_stream* pDataStream;
+            /*ma_resource_manager_data_stream**/ void* pDataStream;
             ma_uint64 frameIndex;
         } seekDataStream;
 
@@ -64562,6 +64565,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             /* We now have everything we need to post the job to the job thread. */
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+            job.data.loadDataBufferNode.pResourceManager  = pResourceManager;
             job.data.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
             job.data.loadDataBufferNode.pFilePath         = pFilePathCopy;
             job.data.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
@@ -64828,7 +64832,8 @@ stage2:
 
             job = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE);
             job.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
-            job.data.freeDataBufferNode.pDataBufferNode = pDataBufferNode;
+            job.data.freeDataBufferNode.pResourceManager = pResourceManager;
+            job.data.freeDataBufferNode.pDataBufferNode  = pDataBufferNode;
 
             result = ma_resource_manager_post_job(pResourceManager, &job);
             if (result != MA_SUCCESS) {
@@ -66552,16 +66557,18 @@ MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceMana
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
 
-    MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pJob != NULL);
 
-    pDataBufferNode = pJob->data.loadDataBufferNode.pDataBufferNode;
+    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
+    MA_ASSERT(pResourceManager != NULL);
 
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.loadDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
     MA_ASSERT(pDataBufferNode->isDataOwnedByResourceManager == MA_TRUE);  /* The data should always be owned by the resource manager. */
 
@@ -66637,6 +66644,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_resou
         */
         pageDataBufferNodeJob = ma_resource_manager_job_init(MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE);
         pageDataBufferNodeJob.order = ma_resource_manager_data_buffer_node_next_execution_order(pDataBufferNode);
+        pageDataBufferNodeJob.data.pageDataBufferNode.pResourceManager  = pResourceManager;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDataBufferNode   = pDataBufferNode;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDecoder          = pDecoder;
         pageDataBufferNodeJob.data.pageDataBufferNode.pDoneNotification = pJob->data.loadDataBufferNode.pDoneNotification;
@@ -66701,15 +66709,17 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resource_manager_job* pJob)
 {
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
 
+    MA_ASSERT(pJob != NULL);
+
+    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
     MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
 
-    pDataBufferNode = pJob->data.freeDataBufferNode.pDataBufferNode;
-
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.freeDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
@@ -66731,15 +66741,18 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_resou
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataBufferNode = pJob->data.pageDataBufferNode.pDataBufferNode;
+    pResourceManager = (ma_resource_manager*)pJob->data.loadDataBufferNode.pResourceManager;
+    MA_ASSERT(pResourceManager != NULL);
+
+    pDataBufferNode = (ma_resource_manager_data_buffer_node*)pJob->data.pageDataBufferNode.pDataBufferNode;
     MA_ASSERT(pDataBufferNode != NULL);
 
     if (pJob->order != c89atomic_load_32(&pDataBufferNode->executionPointer)) {
@@ -66803,9 +66816,10 @@ done:
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer* pDataBuffer;
     ma_resource_manager_data_supply_type dataSupplyType = ma_resource_manager_data_supply_type_unknown;
     ma_bool32 isConnectorInitialized = MA_FALSE;
@@ -66814,11 +66828,12 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
     All we're doing here is checking if the node has finished loading. If not, we just re-post the job
     and keep waiting. Otherwise we increment the execution counter and set the buffer's result code.
     */
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataBuffer = pJob->data.loadDataBuffer.pDataBuffer;
+    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.loadDataBuffer.pDataBuffer;
     MA_ASSERT(pDataBuffer != NULL);
+
+    pResourceManager = pDataBuffer->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataBuffer->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Attempting to execute out of order. Probably interleaved with a MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER job. */
@@ -66870,7 +66885,7 @@ static ma_result ma_resource_manager_process_job__load_data_buffer(ma_resource_m
 
 done:
     /* Only move away from a busy code so that we don't trash any existing error codes. */
-    c89atomic_compare_and_swap_i32(&pJob->data.loadDataBuffer.pDataBuffer->result, MA_BUSY, result);
+    c89atomic_compare_and_swap_i32(&pDataBuffer->result, MA_BUSY, result);
 
     /* Only signal the other threads after the result has been set just for cleanliness sake. */
     if (pJob->data.loadDataBuffer.pDoneNotification != NULL) {
@@ -66897,15 +66912,17 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_manager_job* pJob)
 {
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer* pDataBuffer;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataBuffer = pJob->data.freeDataBuffer.pDataBuffer;
+    pDataBuffer = (ma_resource_manager_data_buffer*)pJob->data.freeDataBuffer.pDataBuffer;
     MA_ASSERT(pDataBuffer != NULL);
+
+    pResourceManager = pDataBuffer->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataBuffer->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -66926,18 +66943,20 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_resource_m
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__load_data_stream(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_decoder_config decoderConfig;
     ma_uint32 pageBufferSizeInBytes;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataStream = pJob->data.loadDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.loadDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
+
+    pResourceManager = pDataStream->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -67010,15 +67029,17 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_manager_job* pJob)
 {
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataStream = pJob->data.freeDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.freeDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
+
+    pResourceManager = pDataStream->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -67050,16 +67071,18 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_resource_m
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__page_data_stream(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataStream = pJob->data.pageDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.pageDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
+
+    pResourceManager = pDataStream->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -67078,16 +67101,18 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob)
+static ma_result ma_resource_manager_process_job__seek_data_stream(ma_resource_manager_job* pJob)
 {
     ma_result result = MA_SUCCESS;
+    ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
 
-    MA_ASSERT(pResourceManager != NULL);
-    MA_ASSERT(pJob             != NULL);
+    MA_ASSERT(pJob != NULL);
 
-    pDataStream = pJob->data.seekDataStream.pDataStream;
+    pDataStream = (ma_resource_manager_data_stream*)pJob->data.seekDataStream.pDataStream;
     MA_ASSERT(pDataStream != NULL);
+
+    pResourceManager = pDataStream->pResourceManager;
 
     if (pJob->order != c89atomic_load_32(&pDataStream->executionPointer)) {
         return ma_resource_manager_post_job(pResourceManager, pJob);    /* Out of order. */
@@ -67125,19 +67150,19 @@ MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceM
     switch (pJob->toc.breakup.code)
     {
         /* Data Buffer Node */
-        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE: return ma_resource_manager_process_job__load_data_buffer_node(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__free_data_buffer_node(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__page_data_buffer_node(pResourceManager, pJob);
+        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE: return ma_resource_manager_process_job__load_data_buffer_node(pJob);
+        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__free_data_buffer_node(pJob);
+        case MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__page_data_buffer_node(pJob);
 
         /* Data Buffer */
-        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER: return ma_resource_manager_process_job__load_data_buffer(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER: return ma_resource_manager_process_job__free_data_buffer(pResourceManager, pJob);
+        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER: return ma_resource_manager_process_job__load_data_buffer(pJob);
+        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER: return ma_resource_manager_process_job__free_data_buffer(pJob);
 
         /* Data Stream */
-        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM: return ma_resource_manager_process_job__load_data_stream(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM: return ma_resource_manager_process_job__free_data_stream(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM: return ma_resource_manager_process_job__page_data_stream(pResourceManager, pJob);
-        case MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM: return ma_resource_manager_process_job__seek_data_stream(pResourceManager, pJob);
+        case MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM: return ma_resource_manager_process_job__load_data_stream(pJob);
+        case MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM: return ma_resource_manager_process_job__free_data_stream(pJob);
+        case MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM: return ma_resource_manager_process_job__page_data_stream(pJob);
+        case MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM: return ma_resource_manager_process_job__seek_data_stream(pJob);
 
         default: break;
     }
