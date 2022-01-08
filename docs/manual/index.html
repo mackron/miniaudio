@@ -2827,10 +2827,10 @@ decoded, meaning the raw file data will be stored in memory, and then dynamicall
 memory, use the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE</span> flag. By default, the sound file will
 be loaded synchronously, meaning <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span> will only return after
 the entire file has been loaded. This is good for simplicity, but can be prohibitively slow. You
-can instead load the sound asynchronously using the <span style="font-family:monospace;">MA_DATA_SOURCE_ASYNC</span> flag. This will result
-in <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span> returning quickly, but no data will be returned by
-<span style="font-family:monospace;">ma_data_source_read_pcm_frames()</span> until some data is available. When no data is available because
-the asynchronous decoding hasn&#39;t caught up, <span style="font-family:monospace;">MA_BUSY</span> will be returned by
+can instead load the sound asynchronously using the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_ASYNC</span> flag.
+This will result in <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span> returning quickly, but no data will be
+returned by <span style="font-family:monospace;">ma_data_source_read_pcm_frames()</span> until some data is available. When no data is
+available because the asynchronous decoding hasn&#39;t caught up, <span style="font-family:monospace;">MA_BUSY</span> will be returned by
 <span style="font-family:monospace;">ma_data_source_read_pcm_frames()</span>.
 </p>
 <p>
@@ -2926,7 +2926,7 @@ ma_fence_wait(&amp;fence);
 </pre></div><p>
 
 In the example above we used a fence for waiting until the entire file has been fully decoded. If
-You only need to wait for the initialization of the internal decoder to complete, you can use the
+you only need to wait for the initialization of the internal decoder to complete, you can use the
 <span style="font-family:monospace;">init</span> member of the <span style="font-family:monospace;">ma_resource_manager_pipeline_notifications</span> object:
 </p>
 <p>
@@ -3192,7 +3192,7 @@ it will return immediately.
 When frames are read from a data stream using <span style="font-family:monospace;">ma_resource_manager_data_source_read_pcm_frames()</span>,
 <span style="font-family:monospace;">MA_BUSY</span> will be returned if there are no frames available. If there are some frames available,
 but less than the number requested, <span style="font-family:monospace;">MA_SUCCESS</span> will be returned, but the actual number of frames
-read will be less than the number requested. Due to the asymchronous nature of data streams,
+read will be less than the number requested. Due to the asynchronous nature of data streams,
 seeking is also asynchronous. If the data stream is in the middle of a seek, <span style="font-family:monospace;">MA_BUSY</span> will be
 returned when trying to read frames.
 </p>
