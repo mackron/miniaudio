@@ -9371,8 +9371,8 @@ Encoders do not perform any format conversion for you. If your target format doe
 #ifndef MA_NO_ENCODING
 typedef struct ma_encoder ma_encoder;
 
-typedef size_t    (* ma_encoder_write_proc)           (ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite);     /* Returns the number of bytes written. */
-typedef ma_bool32 (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_encoder_write_proc)           (ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite, size_t* pBytesWritten);
+typedef ma_result (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, ma_int64 offset, ma_seek_origin origin);
 typedef ma_result (* ma_encoder_init_proc)            (ma_encoder* pEncoder);
 typedef void      (* ma_encoder_uninit_proc)          (ma_encoder* pEncoder);
 typedef ma_result (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten);
@@ -9398,10 +9398,19 @@ struct ma_encoder
     ma_encoder_write_pcm_frames_proc onWritePCMFrames;
     void* pUserData;
     void* pInternalEncoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
-    void* pFile;    /* FILE*. Only used when initialized with ma_encoder_init_file(). */
+    union
+    {
+        struct
+        {
+            ma_vfs* pVFS;
+            ma_vfs_file file;
+        } vfs;
+    } data;
 };
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+MA_API ma_result ma_encoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+MA_API ma_result ma_encoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API void ma_encoder_uninit(ma_encoder* pEncoder);
@@ -61444,17 +61453,27 @@ MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder
 static size_t ma_encoder__internal_on_write_wav(void* pUserData, const void* pData, size_t bytesToWrite)
 {
     ma_encoder* pEncoder = (ma_encoder*)pUserData;
+    size_t bytesWritten = 0;
+
     MA_ASSERT(pEncoder != NULL);
 
-    return pEncoder->onWrite(pEncoder, pData, bytesToWrite);
+    pEncoder->onWrite(pEncoder, pData, bytesToWrite, &bytesWritten);
+    return bytesWritten;
 }
 
 static drwav_bool32 ma_encoder__internal_on_seek_wav(void* pUserData, int offset, drwav_seek_origin origin)
 {
     ma_encoder* pEncoder = (ma_encoder*)pUserData;
+    ma_result result;
+
     MA_ASSERT(pEncoder != NULL);
 
-    return pEncoder->onSeek(pEncoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    result = pEncoder->onSeek(pEncoder, offset, (origin == drwav_seek_origin_start) ? ma_seek_origin_start : ma_seek_origin_current);
+    if (result != MA_SUCCESS) {
+        return DRWAV_FALSE;
+    } else {
+        return DRWAV_TRUE;
+    }
 }
 
 static ma_result ma_encoder__on_init_wav(ma_encoder* pEncoder)
@@ -61610,68 +61629,80 @@ MA_API ma_result ma_encoder_init__internal(ma_encoder_write_proc onWrite, ma_enc
     return result;
 }
 
-MA_API size_t ma_encoder__on_write_stdio(ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite)
+static ma_result ma_encoder__on_write_vfs(ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite, size_t* pBytesWritten)
 {
-    return fwrite(pBufferIn, 1, bytesToWrite, (FILE*)pEncoder->pFile);
+    return ma_vfs_or_default_write(pEncoder->data.vfs.pVFS, pEncoder->data.vfs.file, pBufferIn, bytesToWrite, pBytesWritten);
 }
 
-MA_API ma_bool32 ma_encoder__on_seek_stdio(ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin)
+static ma_result ma_encoder__on_seek_vfs(ma_encoder* pEncoder, ma_int64 offset, ma_seek_origin origin)
 {
-    return fseek((FILE*)pEncoder->pFile, byteOffset, (origin == ma_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
+    return ma_vfs_or_default_seek(pEncoder->data.vfs.pVFS, pEncoder->data.vfs.file, offset, origin);
+}
+
+MA_API ma_result ma_encoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+    ma_vfs_file file;
+
+    result = ma_encoder_preinit(pConfig, pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
+    result = ma_vfs_or_default_open(pVFS, pFilePath, MA_OPEN_MODE_WRITE, &file);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pEncoder->data.vfs.pVFS = pVFS;
+    pEncoder->data.vfs.file = file;
+
+    result = ma_encoder_init__internal(ma_encoder__on_write_vfs, ma_encoder__on_seek_vfs, NULL, pEncoder);
+    if (result != MA_SUCCESS) {
+        ma_vfs_or_default_close(pVFS, file);
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_encoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
+{
+    ma_result result;
+    ma_vfs_file file;
+
+    result = ma_encoder_preinit(pConfig, pEncoder);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
+    result = ma_vfs_or_default_open_w(pVFS, pFilePath, MA_OPEN_MODE_WRITE, &file);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pEncoder->data.vfs.pVFS = pVFS;
+    pEncoder->data.vfs.file = file;
+
+    result = ma_encoder_init__internal(ma_encoder__on_write_vfs, ma_encoder__on_seek_vfs, NULL, pEncoder);
+    if (result != MA_SUCCESS) {
+        ma_vfs_or_default_close(pVFS, file);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
 {
-    ma_result result;
-    FILE* pFile;
-
-    result = ma_encoder_preinit(pConfig, pEncoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
-    result = ma_fopen(&pFile, pFilePath, "wb");
-    if (pFile == NULL) {
-        return result;
-    }
-
-    pEncoder->pFile = pFile;
-
-    result = ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
-    if (result != MA_SUCCESS) {
-        fclose(pFile);
-        return result;
-    }
-
-    return MA_SUCCESS;
+    return ma_encoder_init_vfs(NULL, pFilePath, pConfig, pEncoder);
 }
 
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
 {
-    ma_result result;
-    FILE* pFile;
-
-    result = ma_encoder_preinit(pConfig, pEncoder);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* Now open the file. If this fails we don't need to uninitialize the encoder. */
-    result = ma_wfopen(&pFile, pFilePath, L"wb", &pEncoder->config.allocationCallbacks);
-    if (pFile == NULL) {
-        return result;
-    }
-
-    pEncoder->pFile = pFile;
-
-    result = ma_encoder_init__internal(ma_encoder__on_write_stdio, ma_encoder__on_seek_stdio, NULL, pEncoder);
-    if (result != MA_SUCCESS) {
-        fclose(pFile);
-        return result;
-    }
-
-    return MA_SUCCESS;
+    return ma_encoder_init_vfs_w(NULL, pFilePath, pConfig, pEncoder);
 }
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder)
@@ -61698,8 +61729,9 @@ MA_API void ma_encoder_uninit(ma_encoder* pEncoder)
     }
 
     /* If we have a file handle, close it. */
-    if (pEncoder->onWrite == ma_encoder__on_write_stdio) {
-        fclose((FILE*)pEncoder->pFile);
+    if (pEncoder->onWrite == ma_encoder__on_write_vfs) {
+        ma_vfs_or_default_close(pEncoder->data.vfs.pVFS, pEncoder->data.vfs.file);
+        pEncoder->data.vfs.file = NULL;
     }
 }
 
@@ -89548,6 +89580,7 @@ There have also been some other smaller changes added to this release.
 REVISION HISTORY
 ================
 v0.11.4 - TBD
+  - Add support for initializing an encoder from a VFS.
   - Fix a bug when initializing an encoder from a file where the file handle does not get closed in
     the event of an error.
 
