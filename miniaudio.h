@@ -1618,10 +1618,10 @@ decoded, meaning the raw file data will be stored in memory, and then dynamicall
 memory, use the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE` flag. By default, the sound file will
 be loaded synchronously, meaning `ma_resource_manager_data_source_init()` will only return after
 the entire file has been loaded. This is good for simplicity, but can be prohibitively slow. You
-can instead load the sound asynchronously using the `MA_DATA_SOURCE_ASYNC` flag. This will result
-in `ma_resource_manager_data_source_init()` returning quickly, but no data will be returned by
-`ma_data_source_read_pcm_frames()` until some data is available. When no data is available because
-the asynchronous decoding hasn't caught up, `MA_BUSY` will be returned by
+can instead load the sound asynchronously using the `MA_RESOURCE_MANAGER_DATA_SOURCE_ASYNC` flag.
+This will result in `ma_resource_manager_data_source_init()` returning quickly, but no data will be
+returned by `ma_data_source_read_pcm_frames()` until some data is available. When no data is
+available because the asynchronous decoding hasn't caught up, `MA_BUSY` will be returned by
 `ma_data_source_read_pcm_frames()`.
 
 For large sounds, it's often prohibitive to store the entire file in memory. To mitigate this, you
