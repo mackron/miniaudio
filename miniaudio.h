@@ -5625,6 +5625,65 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel);
 
 
 /************************************************************************************************************************************************************
+
+Job Queue
+
+************************************************************************************************************************************************************/
+
+/*
+Slot Allocator
+--------------
+The idea of the slot allocator is for it to be used in conjunction with a fixed sized buffer. You use the slot allocator to allocator an index that can be used
+as the insertion point for an object.
+
+Slots are reference counted to help mitigate the ABA problem in the lock-free queue we use for tracking jobs.
+
+The slot index is stored in the low 32 bits. The reference counter is stored in the high 32 bits:
+
+    +-----------------+-----------------+
+    | 32 Bits         | 32 Bits         |
+    +-----------------+-----------------+
+    | Reference Count | Slot Index      |
+    +-----------------+-----------------+
+*/
+typedef struct
+{
+    ma_uint32 capacity;    /* The number of slots to make available. */
+} ma_slot_allocator_config;
+
+MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity);
+
+
+typedef struct
+{
+    MA_ATOMIC(4, ma_uint32) bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
+} ma_slot_allocator_group;
+
+typedef struct
+{
+    ma_slot_allocator_group* pGroups;   /* Slots are grouped in chunks of 32. */
+    ma_uint32* pSlots;                  /* 32 bits for reference counting for ABA mitigation. */
+    ma_uint32 count;                    /* Allocation count. */
+    ma_uint32 capacity;
+
+    /* Memory management. */
+    ma_bool32 _ownsHeap;
+    void* _pHeap;
+} ma_slot_allocator;
+
+MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator);
+MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator);
+MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot);
+MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
+
+
+
+
+
+
+/************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
 DEVICE I/O
@@ -8877,56 +8936,6 @@ MA_API float ma_volume_db_to_linear(float gain);
 
 
 
-/*
-Slot Allocator
---------------
-The idea of the slot allocator is for it to be used in conjunction with a fixed sized buffer. You use the slot allocator to allocator an index that can be used
-as the insertion point for an object.
-
-Slots are reference counted to help mitigate the ABA problem in the lock-free queue we use for tracking jobs.
-
-The slot index is stored in the low 32 bits. The reference counter is stored in the high 32 bits:
-
-    +-----------------+-----------------+
-    | 32 Bits         | 32 Bits         |
-    +-----------------+-----------------+
-    | Reference Count | Slot Index      |
-    +-----------------+-----------------+
-*/
-typedef struct
-{
-    ma_uint32 capacity;    /* The number of slots to make available. */
-} ma_slot_allocator_config;
-
-MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity);
-
-
-typedef struct
-{
-    MA_ATOMIC(4, ma_uint32) bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
-} ma_slot_allocator_group;
-
-typedef struct
-{
-    ma_slot_allocator_group* pGroups;   /* Slots are grouped in chunks of 32. */
-    ma_uint32* pSlots;                  /* 32 bits for reference counting for ABA mitigation. */
-    ma_uint32 count;                    /* Allocation count. */
-    ma_uint32 capacity;
-
-    /* Memory management. */
-    ma_bool32 _ownsHeap;
-    void* _pHeap;
-} ma_slot_allocator;
-
-MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator);
-MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator);
-MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot);
-MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
-
-
-
 
 /**************************************************************************************************
 
@@ -9583,8 +9592,8 @@ typedef struct
     {
         struct
         {
-            ma_uint16 code;
-            ma_uint16 slot;
+            ma_uint16 code;         /* Job type. */
+            ma_uint16 slot;         /* Index into a ma_slot_allocator. */
             ma_uint32 refcount;
         } breakup;
         ma_uint64 allocation;
