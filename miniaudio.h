@@ -1696,7 +1696,7 @@ The example below shows how you could use a fence when loading a number of sound
     ```
 
 In the example above we used a fence for waiting until the entire file has been fully decoded. If
-You only need to wait for the initialization of the internal decoder to complete, you can use the
+you only need to wait for the initialization of the internal decoder to complete, you can use the
 `init` member of the `ma_resource_manager_pipeline_notifications` object:
 
     ```c
@@ -1901,7 +1901,7 @@ it will return immediately.
 When frames are read from a data stream using `ma_resource_manager_data_source_read_pcm_frames()`,
 `MA_BUSY` will be returned if there are no frames available. If there are some frames available,
 but less than the number requested, `MA_SUCCESS` will be returned, but the actual number of frames
-read will be less than the number requested. Due to the asymchronous nature of data streams,
+read will be less than the number requested. Due to the asynchronous nature of data streams,
 seeking is also asynchronous. If the data stream is in the middle of a seek, `MA_BUSY` will be
 returned when trying to read frames.
 
