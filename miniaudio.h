@@ -6157,6 +6157,36 @@ typedef enum
 #define MA_BACKEND_COUNT (ma_backend_null+1)
 
 
+/*
+Device job thread. This is used by backends that require asynchronous processing of certain
+operations. It is not used by all backends.
+
+The device job thread is made up of a thread and a job queue. You can post a job to the thread with
+ma_device_job_thread_post(). The thread will do the processing of the job.
+*/
+typedef struct
+{
+    ma_bool32 noThread; /* Set this to true if you want to process jobs yourself. */
+    ma_uint32 jobQueueCapacity;
+    ma_uint32 jobQueueFlags;
+} ma_device_job_thread_config;
+
+MA_API ma_device_job_thread_config ma_device_job_thread_config_init(void);
+
+typedef struct
+{
+    ma_thread thread;
+    ma_job_queue jobQueue;
+    ma_bool32 _hasThread;
+} ma_device_job_thread;
+
+MA_API ma_result ma_device_job_thread_init(const ma_device_job_thread_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_job_thread* pJobThread);
+MA_API void ma_device_job_thread_uninit(ma_device_job_thread* pJobThread, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_device_job_thread_post(ma_device_job_thread* pJobThread, const ma_job* pJob);
+MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_job* pJob);
+
+
+
 /* Device notification types. */
 typedef enum
 {
@@ -9947,7 +9977,7 @@ struct ma_resource_manager
     ma_mutex dataBufferBSTLock;                                     /* For synchronizing access to the data buffer binary tree. */
     ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The threads for executing jobs. */
 #endif
-    ma_job_queue jobQueue;                         /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
+    ma_job_queue jobQueue;                                          /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
     ma_default_vfs defaultVFS;                                      /* Only used if a custom VFS is not specified. */
     ma_log log;                                                     /* Only used if no log was specified in the config. */
 };
@@ -38183,7 +38213,138 @@ static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
 }
 
 
-MA_API ma_context_config ma_context_config_init()
+/* The default capacity doesn't need to be too big. */
+#ifndef MA_DEFAULT_DEVICE_JOB_QUEUE_CAPACITY
+#define MA_DEFAULT_DEVICE_JOB_QUEUE_CAPACITY    32
+#endif
+
+MA_API ma_device_job_thread_config ma_device_job_thread_config_init(void)
+{
+    ma_device_job_thread_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.noThread         = MA_FALSE;
+    config.jobQueueCapacity = MA_DEFAULT_DEVICE_JOB_QUEUE_CAPACITY;
+    config.jobQueueFlags    = 0;
+
+    return config;
+}
+
+
+static ma_thread_result MA_THREADCALL ma_device_job_thread_entry(void* pUserData)
+{
+    ma_device_job_thread* pJobThread = (ma_device_job_thread*)pUserData;
+    MA_ASSERT(pJobThread != NULL);
+
+    for (;;) {
+        ma_result result;
+        ma_job job;
+
+        result = ma_device_job_thread_next(pJobThread, &job);
+        if (result != MA_SUCCESS) {
+            break;
+        }
+
+        if (job.toc.breakup.code == MA_JOB_TYPE_QUIT) {
+            break;
+        }
+
+        ma_job_process(&job);
+    }
+
+    return (ma_thread_result)0;
+}
+
+MA_API ma_result ma_device_job_thread_init(const ma_device_job_thread_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_job_thread* pJobThread)
+{
+    ma_result result;
+    ma_job_queue_config jobQueueConfig;
+
+    if (pJobThread == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pJobThread);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+
+    /* Initialize the job queue before the thread to ensure it's in a valid state. */
+    jobQueueConfig = ma_job_queue_config_init(pConfig->jobQueueFlags, pConfig->jobQueueCapacity);   
+
+    result = ma_job_queue_init(&jobQueueConfig, pAllocationCallbacks, &pJobThread->jobQueue);
+    if (result != NULL) {
+        return result;  /* Failed to initialize job queue. */
+    }
+
+
+    /* The thread needs to be initialized after the job queue to ensure the thread doesn't try to access it prematurely. */
+    if (pConfig->noThread == MA_FALSE) {
+        result = ma_thread_create(&pJobThread->thread, ma_thread_priority_normal, 0, ma_device_job_thread_entry, pJobThread, pAllocationCallbacks);
+        if (result != MA_SUCCESS) {
+            ma_job_queue_uninit(&pJobThread->jobQueue, pAllocationCallbacks);
+            return result;  /* Failed to create the job thread. */
+        }
+
+        pJobThread->_hasThread = MA_TRUE;
+    } else {
+        pJobThread->_hasThread = MA_FALSE;
+    }
+
+
+    return MA_SUCCESS;
+}
+
+MA_API void ma_device_job_thread_uninit(ma_device_job_thread* pJobThread, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pJobThread == NULL) {
+        return;
+    }
+
+    /* The first thing to do is post a quit message to the job queue. If we're using a thread we'll need to wait for it. */
+    {
+        ma_job job = ma_job_init(MA_JOB_TYPE_QUIT);
+        ma_device_job_thread_post(pJobThread, &job);
+    }
+
+    /* Wait for the thread to terminate naturally. */
+    if (pJobThread->_hasThread) {
+        ma_thread_wait(&pJobThread->thread);
+    }
+
+    /* At this point the thread should be terminated so we can safely uninitialize the job queue. */
+    ma_job_queue_uninit(&pJobThread->jobQueue, pAllocationCallbacks);
+}
+
+MA_API ma_result ma_device_job_thread_post(ma_device_job_thread* pJobThread, const ma_job* pJob)
+{
+    if (pJobThread == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_job_queue_post(&pJobThread->jobQueue, pJob);
+}
+
+MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_job* pJob)
+{
+    if (pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pJob);
+
+    if (pJobThread == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_job_queue_next(&pJobThread->jobQueue, pJob);
+}
+
+
+
+MA_API ma_context_config ma_context_config_init(void)
 {
     ma_context_config config;
     MA_ZERO_OBJECT(&config);
