@@ -40187,30 +40187,30 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 }
 
 
-#define MA_RESOURCE_MANAGER_JOB_ID_NONE      ~((ma_uint64)0)
-#define MA_RESOURCE_MANAGER_JOB_SLOT_NONE    (ma_uint16)(~0)
+#define MA_JOB_ID_NONE      ~((ma_uint64)0)
+#define MA_JOB_SLOT_NONE    (ma_uint16)(~0)
 
-static MA_INLINE ma_uint32 ma_resource_manager_job_extract_refcount(ma_uint64 toc)
+static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
 {
     return (ma_uint32)(toc >> 32);
 }
 
-static MA_INLINE ma_uint16 ma_resource_manager_job_extract_slot(ma_uint64 toc)
+static MA_INLINE ma_uint16 ma_job_extract_slot(ma_uint64 toc)
 {
     return (ma_uint16)(toc & 0x0000FFFF);
 }
 
-static MA_INLINE ma_uint16 ma_resource_manager_job_extract_code(ma_uint64 toc)
+static MA_INLINE ma_uint16 ma_job_extract_code(ma_uint64 toc)
 {
     return (ma_uint16)((toc & 0xFFFF0000) >> 16);
 }
 
-static MA_INLINE ma_uint64 ma_resource_manager_job_toc_to_allocation(ma_uint64 toc)
+static MA_INLINE ma_uint64 ma_job_toc_to_allocation(ma_uint64 toc)
 {
-    return ((ma_uint64)ma_resource_manager_job_extract_refcount(toc) << 32) | (ma_uint64)ma_resource_manager_job_extract_slot(toc);
+    return ((ma_uint64)ma_job_extract_refcount(toc) << 32) | (ma_uint64)ma_job_extract_slot(toc);
 }
 
-static MA_INLINE ma_uint64 ma_resource_manager_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
+static MA_INLINE ma_uint64 ma_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
 {
     /* Clear the reference count first. */
     toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
@@ -40226,8 +40226,8 @@ MA_API ma_job ma_job_init(ma_uint16 code)
 
     MA_ZERO_OBJECT(&job);
     job.toc.breakup.code = code;
-    job.toc.breakup.slot = MA_RESOURCE_MANAGER_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
-    job.next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;
+    job.toc.breakup.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
+    job.next             = MA_JOB_ID_NONE;
 
     return job;
 }
@@ -40250,9 +40250,9 @@ typedef struct
     size_t sizeInBytes;
     size_t allocatorOffset;
     size_t jobsOffset;
-} ma_resource_manager_job_queue_heap_layout;
+} ma_job_queue_heap_layout;
 
-static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_resource_manager_job_queue_heap_layout* pHeapLayout)
+static ma_result ma_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_job_queue_heap_layout* pHeapLayout)
 {
     ma_result result;
 
@@ -40295,7 +40295,7 @@ static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_job_queu
 MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
 {
     ma_result result;
-    ma_resource_manager_job_queue_heap_layout layout;
+    ma_job_queue_heap_layout layout;
 
     if (pHeapSizeInBytes == NULL) {
         return MA_INVALID_ARGS;
@@ -40303,7 +40303,7 @@ MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, 
 
     *pHeapSizeInBytes = 0;
 
-    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &layout);
+    result = ma_job_queue_get_heap_layout(pConfig, &layout);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -40316,7 +40316,7 @@ MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, 
 MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
 {
     ma_result result;
-    ma_resource_manager_job_queue_heap_layout heapLayout;
+    ma_job_queue_heap_layout heapLayout;
     ma_slot_allocator_config allocatorConfig;
 
     if (pQueue == NULL) {
@@ -40325,7 +40325,7 @@ MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConf
 
     MA_ZERO_OBJECT(pQueue);
 
-    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &heapLayout);
+    result = ma_job_queue_get_heap_layout(pConfig, &heapLayout);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -40362,7 +40362,7 @@ MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConf
     just a dummy item for giving us the first item in the list which is stored in the "next" member.
     */
     ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(pQueue->head)].next = MA_RESOURCE_MANAGER_JOB_ID_NONE;
+    pQueue->pJobs[ma_job_extract_slot(pQueue->head)].next = MA_JOB_ID_NONE;
     pQueue->tail = pQueue->head;
 
     return MA_SUCCESS;
@@ -40424,10 +40424,10 @@ MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callba
     }
 }
 
-static ma_bool32 ma_resource_manager_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+static ma_bool32 ma_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
 {
     /* The new counter is taken from the expected value. */
-    return c89atomic_compare_and_swap_64(dst, expected, ma_resource_manager_job_set_refcount(desired, ma_resource_manager_job_extract_refcount(expected) + 1)) == expected;
+    return c89atomic_compare_and_swap_64(dst, expected, ma_job_set_refcount(desired, ma_job_extract_refcount(expected) + 1)) == expected;
 }
 
 MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
@@ -40451,13 +40451,13 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
     }
 
     /* At this point we should have a slot to place the job. */
-    MA_ASSERT(ma_resource_manager_job_extract_slot(slot) < pQueue->capacity);
+    MA_ASSERT(ma_job_extract_slot(slot) < pQueue->capacity);
 
     /* We need to put the job into memory before we do anything. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)]                  = *pJob;
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;          /* Reset for safety. */
+    pQueue->pJobs[ma_job_extract_slot(slot)]                  = *pJob;
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
 
     #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock_lock(&pQueue->lock);
@@ -40466,19 +40466,19 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
         /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
         for (;;) {
             tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(tail)].next);
 
-            if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
-                if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
-                    if (ma_resource_manager_job_queue_cas(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot)) {
+            if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
+                if (ma_job_extract_slot(next) == 0xFFFF) {
+                    if (ma_job_queue_cas(&pQueue->pJobs[ma_job_extract_slot(tail)].next, next, slot)) {
                         break;
                     }
                 } else {
-                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
+                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
                 }
             }
         }
-        ma_resource_manager_job_queue_cas(&pQueue->tail, tail, slot);
+        ma_job_queue_cas(&pQueue->tail, tail, slot);
     }
     #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock_unlock(&pQueue->lock);
@@ -40541,20 +40541,20 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
         for (;;) {
             head = c89atomic_load_64(&pQueue->head);
             tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(head)].next);
 
-            if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
-                if (ma_resource_manager_job_extract_slot(head) == ma_resource_manager_job_extract_slot(tail)) {
-                    if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
+            if (ma_job_toc_to_allocation(head) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
+                if (ma_job_extract_slot(head) == ma_job_extract_slot(tail)) {
+                    if (ma_job_extract_slot(next) == 0xFFFF) {
                         #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
                         ma_spinlock_unlock(&pQueue->lock);
                         #endif
                         return MA_NO_DATA_AVAILABLE;
                     }
-                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
+                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
                 } else {
-                    *pJob = pQueue->pJobs[ma_resource_manager_job_extract_slot(next)];
-                    if (ma_resource_manager_job_queue_cas(&pQueue->head, head, ma_resource_manager_job_extract_slot(next))) {
+                    *pJob = pQueue->pJobs[ma_job_extract_slot(next)];
+                    if (ma_job_queue_cas(&pQueue->head, head, ma_job_extract_slot(next))) {
                         break;
                     }
                 }
@@ -40578,15 +40578,6 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
     }
 
     return MA_SUCCESS;
-}
-
-MA_API ma_result ma_resource_manager_job_queue_free(ma_job_queue* pQueue, ma_job* pJob)
-{
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_slot_allocator_free(&pQueue->allocator, ma_resource_manager_job_toc_to_allocation(pJob->toc.allocation));
 }
 
 
