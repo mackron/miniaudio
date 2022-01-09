@@ -36636,6 +36636,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfig.aaudio.contentType             = pDevice->aaudio.contentType;
         deviceConfig.aaudio.inputPreset             = pDevice->aaudio.inputPreset;
         deviceConfig.aaudio.noAutoStartAfterReroute = pDevice->aaudio.noAutoStartAfterReroute;
+        deviceConfig.periods                        = 1;
 
         /* Try to get an accurate period size. */
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -36651,6 +36652,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             descriptorCapture.channels            = deviceConfig.capture.channels;
             descriptorCapture.sampleRate          = deviceConfig.sampleRate;
             descriptorCapture.periodSizeInFrames  = deviceConfig.periodSizeInFrames;
+            descriptorCapture.periodCount         = deviceConfig.periods;
         }
 
         if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
@@ -36660,6 +36662,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             descriptorPlayback.channels           = deviceConfig.playback.channels;
             descriptorPlayback.sampleRate         = deviceConfig.sampleRate;
             descriptorPlayback.periodSizeInFrames = deviceConfig.periodSizeInFrames;
+            descriptorPlayback.periodCount        = deviceConfig.periods;
         }
 
         result = ma_device_init__aaudio(pDevice, &deviceConfig, &descriptorPlayback, &descriptorCapture);
