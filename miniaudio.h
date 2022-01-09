@@ -5624,6 +5624,154 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel);
 
 
 
+
+/************************************************************************************************************************************************************
+
+Synchronization
+
+************************************************************************************************************************************************************/
+/*
+Locks a spinlock.
+*/
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
+
+/*
+Locks a spinlock, but does not yield() when looping.
+*/
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
+
+/*
+Unlocks a spinlock.
+*/
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
+
+
+#ifndef MA_NO_THREADING
+
+/*
+Creates a mutex.
+
+A mutex must be created from a valid context. A mutex is initially unlocked.
+*/
+MA_API ma_result ma_mutex_init(ma_mutex* pMutex);
+
+/*
+Deletes a mutex.
+*/
+MA_API void ma_mutex_uninit(ma_mutex* pMutex);
+
+/*
+Locks a mutex with an infinite timeout.
+*/
+MA_API void ma_mutex_lock(ma_mutex* pMutex);
+
+/*
+Unlocks a mutex.
+*/
+MA_API void ma_mutex_unlock(ma_mutex* pMutex);
+
+
+/*
+Initializes an auto-reset event.
+*/
+MA_API ma_result ma_event_init(ma_event* pEvent);
+
+/*
+Uninitializes an auto-reset event.
+*/
+MA_API void ma_event_uninit(ma_event* pEvent);
+
+/*
+Waits for the specified auto-reset event to become signalled.
+*/
+MA_API ma_result ma_event_wait(ma_event* pEvent);
+
+/*
+Signals the specified auto-reset event.
+*/
+MA_API ma_result ma_event_signal(ma_event* pEvent);
+#endif  /* MA_NO_THREADING */
+
+
+/*
+Fence
+=====
+This locks while the counter is larger than 0. Counter can be incremented and decremented by any
+thread, but care needs to be taken when waiting. It is possible for one thread to acquire the
+fence just as another thread returns from ma_fence_wait().
+
+The idea behind a fence is to allow you to wait for a group of operations to complete. When an
+operation starts, the counter is incremented which locks the fence. When the operation completes,
+the fence will be released which decrements the counter. ma_fence_wait() will block until the
+counter hits zero.
+
+If threading is disabled, ma_fence_wait() will spin on the counter.
+*/
+typedef struct
+{
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+    ma_uint32 counter;
+} ma_fence;
+
+MA_API ma_result ma_fence_init(ma_fence* pFence);
+MA_API void ma_fence_uninit(ma_fence* pFence);
+MA_API ma_result ma_fence_acquire(ma_fence* pFence);    /* Increment counter. */
+MA_API ma_result ma_fence_release(ma_fence* pFence);    /* Decrement counter. */
+MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to reach 0. */
+
+
+
+/*
+Notification callback for asynchronous operations.
+*/
+typedef void ma_async_notification;
+
+typedef struct
+{
+    void (* onSignal)(ma_async_notification* pNotification);
+} ma_async_notification_callbacks;
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
+
+
+/*
+Simple polling notification.
+
+This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_bool32 signalled;
+} ma_async_notification_poll;
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
+
+
+/*
+Event Notification
+
+This uses an ma_event. If threading is disabled (MA_NO_THREADING), initialization will fail.
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+} ma_async_notification_event;
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
+
+
+
+
 /************************************************************************************************************************************************************
 
 Job Queue
@@ -5679,7 +5827,168 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
 
+typedef enum
+{
+    MA_RESOURCE_MANAGER_JOB_QUIT                   = 0x00000000,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE  = 0x00000001,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE  = 0x00000002,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE  = 0x00000003,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER       = 0x00000004,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER       = 0x00000005,
+    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM       = 0x00000006,
+    MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
+    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
+    MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009
+} ma_job_type;
 
+typedef struct
+{
+    union
+    {
+        struct
+        {
+            ma_uint16 code;         /* Job type. */
+            ma_uint16 slot;         /* Index into a ma_slot_allocator. */
+            ma_uint32 refcount;
+        } breakup;
+        ma_uint64 allocation;
+    } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
+    MA_ATOMIC(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
+    ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
+
+    union
+    {
+        /* Miscellaneous. */
+        struct
+        {
+            ma_uintptr data0;
+            ma_uintptr data1;
+        } custom;
+
+        /* Resource Manager */
+        union
+        {
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                char* pFilePath;
+                wchar_t* pFilePathW;
+                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE when decoding. */
+                ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
+                ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
+            } loadDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                /*ma_decoder**/ void* pDecoder;
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
+            } pageDataBufferNode;
+
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
+            } loadDataBuffer;
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBuffer;
+
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
+                wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
+                ma_uint64 initialSeekPoint;
+                ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
+                ma_fence* pInitFence;
+            } loadDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint32 pageIndex;                    /* The index of the page to decode into. */
+            } pageDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint64 frameIndex;
+            } seekDataStream;
+        } resourceManager;
+    } data;
+} ma_job;
+
+MA_API ma_job ma_job_init(ma_uint16 code);
+
+
+/*
+When set, ma_job_queue_next() will not wait and no semaphore will be signaled in
+ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
+
+This flag should always be used for platforms that do not support multithreading.
+*/
+typedef enum
+{
+    MA_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
+} ma_job_queue_flags;
+
+typedef struct
+{
+    ma_uint32 flags;
+    ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. */
+} ma_job_queue_config;
+
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
+
+
+typedef struct
+{
+    ma_uint32 flags;                /* Flags passed in at initialization time. */
+    ma_uint32 capacity;             /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
+    MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
+    MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
+#ifndef MA_NO_THREADING
+    ma_semaphore sem;               /* Only used when MA_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+#endif
+    ma_slot_allocator allocator;
+    ma_job* pJobs;
+#ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock lock;
+#endif
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
+} ma_job_queue;
+
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue);
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue);
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob);
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
 
 
 
@@ -8689,148 +8998,6 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 
 
-/*
-Locks a spinlock.
-*/
-MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
-
-/*
-Locks a spinlock, but does not yield() when looping.
-*/
-MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
-
-/*
-Unlocks a spinlock.
-*/
-MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
-
-
-#ifndef MA_NO_THREADING
-
-/*
-Creates a mutex.
-
-A mutex must be created from a valid context. A mutex is initially unlocked.
-*/
-MA_API ma_result ma_mutex_init(ma_mutex* pMutex);
-
-/*
-Deletes a mutex.
-*/
-MA_API void ma_mutex_uninit(ma_mutex* pMutex);
-
-/*
-Locks a mutex with an infinite timeout.
-*/
-MA_API void ma_mutex_lock(ma_mutex* pMutex);
-
-/*
-Unlocks a mutex.
-*/
-MA_API void ma_mutex_unlock(ma_mutex* pMutex);
-
-
-/*
-Initializes an auto-reset event.
-*/
-MA_API ma_result ma_event_init(ma_event* pEvent);
-
-/*
-Uninitializes an auto-reset event.
-*/
-MA_API void ma_event_uninit(ma_event* pEvent);
-
-/*
-Waits for the specified auto-reset event to become signalled.
-*/
-MA_API ma_result ma_event_wait(ma_event* pEvent);
-
-/*
-Signals the specified auto-reset event.
-*/
-MA_API ma_result ma_event_signal(ma_event* pEvent);
-#endif  /* MA_NO_THREADING */
-
-
-/*
-Fence
-=====
-This locks while the counter is larger than 0. Counter can be incremented and decremented by any
-thread, but care needs to be taken when waiting. It is possible for one thread to acquire the
-fence just as another thread returns from ma_fence_wait().
-
-The idea behind a fence is to allow you to wait for a group of operations to complete. When an
-operation starts, the counter is incremented which locks the fence. When the operation completes,
-the fence will be released which decrements the counter. ma_fence_wait() will block until the
-counter hits zero.
-
-If threading is disabled, ma_fence_wait() will spin on the counter.
-*/
-typedef struct
-{
-#ifndef MA_NO_THREADING
-    ma_event e;
-#endif
-    ma_uint32 counter;
-} ma_fence;
-
-MA_API ma_result ma_fence_init(ma_fence* pFence);
-MA_API void ma_fence_uninit(ma_fence* pFence);
-MA_API ma_result ma_fence_acquire(ma_fence* pFence);    /* Increment counter. */
-MA_API ma_result ma_fence_release(ma_fence* pFence);    /* Decrement counter. */
-MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to reach 0. */
-
-
-
-/*
-Notification callback for asynchronous operations.
-*/
-typedef void ma_async_notification;
-
-typedef struct
-{
-    void (* onSignal)(ma_async_notification* pNotification);
-} ma_async_notification_callbacks;
-
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
-
-
-/*
-Simple polling notification.
-
-This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
-*/
-typedef struct
-{
-    ma_async_notification_callbacks cb;
-    ma_bool32 signalled;
-} ma_async_notification_poll;
-
-MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
-MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
-
-
-/*
-Event Notification
-
-This uses an ma_event. If threading is disabled (MA_NO_THREADING), initialization will fail.
-*/
-typedef struct
-{
-    ma_async_notification_callbacks cb;
-#ifndef MA_NO_THREADING
-    ma_event e;
-#endif
-} ma_async_notification_event;
-
-MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
-
-
-
-
 /************************************************************************************************************************************************************
 
 Utiltities
@@ -9553,20 +9720,6 @@ typedef enum
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
 } ma_resource_manager_data_source_flags;
 
-typedef enum
-{
-    MA_RESOURCE_MANAGER_JOB_QUIT                   = 0x00000000,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE  = 0x00000001,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE  = 0x00000002,
-    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE  = 0x00000003,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER       = 0x00000004,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER       = 0x00000005,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM       = 0x00000006,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
-    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
-    MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009
-} ma_job_type;
-
 
 /*
 Pipeline notifications used by the resource manager. Made up of both an async notification and a fence, both of which are optional.
@@ -9585,155 +9738,6 @@ typedef struct
 
 MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_notifications_init(void);
 
-
-typedef struct
-{
-    union
-    {
-        struct
-        {
-            ma_uint16 code;         /* Job type. */
-            ma_uint16 slot;         /* Index into a ma_slot_allocator. */
-            ma_uint32 refcount;
-        } breakup;
-        ma_uint64 allocation;
-    } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
-    MA_ATOMIC(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
-    ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
-
-    union
-    {
-        /* Miscellaneous. */
-        struct
-        {
-            ma_uintptr data0;
-            ma_uintptr data1;
-        } custom;
-
-        /* Resource Manager */
-        union
-        {
-            struct
-            {
-                /*ma_resource_manager**/ void* pResourceManager;
-                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-                char* pFilePath;
-                wchar_t* pFilePathW;
-                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
-                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE when decoding. */
-                ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
-                ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
-            } loadDataBufferNode;
-            struct
-            {
-                /*ma_resource_manager**/ void* pResourceManager;
-                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-                ma_async_notification* pDoneNotification;
-                ma_fence* pDoneFence;
-            } freeDataBufferNode;
-            struct
-            {
-                /*ma_resource_manager**/ void* pResourceManager;
-                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
-                ma_decoder* pDecoder;
-                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-                ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
-            } pageDataBufferNode;
-
-            struct
-            {
-                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
-                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-                ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-                ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
-            } loadDataBuffer;
-            struct
-            {
-                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
-                ma_async_notification* pDoneNotification;
-                ma_fence* pDoneFence;
-            } freeDataBuffer;
-
-            struct
-            {
-                /*ma_resource_manager_data_stream**/ void* pDataStream;
-                char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
-                wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
-                ma_uint64 initialSeekPoint;
-                ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
-                ma_fence* pInitFence;
-            } loadDataStream;
-            struct
-            {
-                /*ma_resource_manager_data_stream**/ void* pDataStream;
-                ma_async_notification* pDoneNotification;
-                ma_fence* pDoneFence;
-            } freeDataStream;
-            struct
-            {
-                /*ma_resource_manager_data_stream**/ void* pDataStream;
-                ma_uint32 pageIndex;                    /* The index of the page to decode into. */
-            } pageDataStream;
-            struct
-            {
-                /*ma_resource_manager_data_stream**/ void* pDataStream;
-                ma_uint64 frameIndex;
-            } seekDataStream;
-        } resourceManager;
-    } data;
-} ma_job;
-
-MA_API ma_job ma_job_init(ma_uint16 code);
-
-
-/*
-When set, ma_job_queue_next() will not wait and no semaphore will be signaled in
-ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
-
-This flag should always be used for platforms that do not support multithreading.
-*/
-typedef enum
-{
-    MA_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
-} ma_job_queue_flags;
-
-typedef struct
-{
-    ma_uint32 flags;
-    ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. */
-} ma_job_queue_config;
-
-MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
-
-
-typedef struct
-{
-    ma_uint32 flags;                /* Flags passed in at initialization time. */
-    ma_uint32 capacity;             /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
-    MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
-    MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
-#ifndef MA_NO_THREADING
-    ma_semaphore sem;               /* Only used when MA_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
-#endif
-    ma_slot_allocator allocator;
-    ma_job* pJobs;
-#ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock lock;
-#endif
-
-    /* Memory management. */
-    void* _pHeap;
-    ma_bool32 _ownsHeap;
-} ma_job_queue;
-
-MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue);
-MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue);
-MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob);
-MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
 
 
 /* BEGIN BACKWARDS COMPATIBILITY */
@@ -40183,6 +40187,409 @@ MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64
 }
 
 
+#define MA_RESOURCE_MANAGER_JOB_ID_NONE      ~((ma_uint64)0)
+#define MA_RESOURCE_MANAGER_JOB_SLOT_NONE    (ma_uint16)(~0)
+
+static MA_INLINE ma_uint32 ma_resource_manager_job_extract_refcount(ma_uint64 toc)
+{
+    return (ma_uint32)(toc >> 32);
+}
+
+static MA_INLINE ma_uint16 ma_resource_manager_job_extract_slot(ma_uint64 toc)
+{
+    return (ma_uint16)(toc & 0x0000FFFF);
+}
+
+static MA_INLINE ma_uint16 ma_resource_manager_job_extract_code(ma_uint64 toc)
+{
+    return (ma_uint16)((toc & 0xFFFF0000) >> 16);
+}
+
+static MA_INLINE ma_uint64 ma_resource_manager_job_toc_to_allocation(ma_uint64 toc)
+{
+    return ((ma_uint64)ma_resource_manager_job_extract_refcount(toc) << 32) | (ma_uint64)ma_resource_manager_job_extract_slot(toc);
+}
+
+static MA_INLINE ma_uint64 ma_resource_manager_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
+{
+    /* Clear the reference count first. */
+    toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
+    toc = toc |  ((ma_uint64)refcount   << 32);
+
+    return toc;
+}
+
+
+MA_API ma_job ma_job_init(ma_uint16 code)
+{
+    ma_job job;
+
+    MA_ZERO_OBJECT(&job);
+    job.toc.breakup.code = code;
+    job.toc.breakup.slot = MA_RESOURCE_MANAGER_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
+    job.next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;
+
+    return job;
+}
+
+
+
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
+{
+    ma_job_queue_config config;
+
+    config.flags    = flags;
+    config.capacity = capacity;
+
+    return config;
+}
+
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t allocatorOffset;
+    size_t jobsOffset;
+} ma_resource_manager_job_queue_heap_layout;
+
+static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_resource_manager_job_queue_heap_layout* pHeapLayout)
+{
+    ma_result result;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->capacity == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Allocator. */
+    {
+        ma_slot_allocator_config allocatorConfig;
+        size_t allocatorHeapSizeInBytes;
+
+        allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
+        result = ma_slot_allocator_get_heap_size(&allocatorConfig, &allocatorHeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->allocatorOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes    += allocatorHeapSizeInBytes;
+    }
+
+    /* Jobs. */
+    pHeapLayout->jobsOffset   = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_job));
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_resource_manager_job_queue_heap_layout layout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &layout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = layout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
+{
+    ma_result result;
+    ma_resource_manager_job_queue_heap_layout heapLayout;
+    ma_slot_allocator_config allocatorConfig;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pQueue);
+
+    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pQueue->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pQueue->flags    = pConfig->flags;
+    pQueue->capacity = pConfig->capacity;
+    pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
+
+    allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
+    result = ma_slot_allocator_init_preallocated(&allocatorConfig, ma_offset_ptr(pHeap, heapLayout.allocatorOffset), &pQueue->allocator);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* We need a semaphore if we're running in non-blocking mode. If threading is disabled we need to return an error. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_init(0, &pQueue->sem);
+        }
+        #else
+        {
+            /* Threading is disabled and we've requested non-blocking mode. */
+            return MA_INVALID_OPERATION;
+        }
+        #endif
+    }
+
+    /*
+    Our queue needs to be initialized with a free standing node. This should always be slot 0. Required for the lock free algorithm. The first job in the queue is
+    just a dummy item for giving us the first item in the list which is stored in the "next" member.
+    */
+    ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
+    pQueue->pJobs[ma_resource_manager_job_extract_slot(pQueue->head)].next = MA_RESOURCE_MANAGER_JOB_ID_NONE;
+    pQueue->tail = pQueue->head;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_job_queue_init_preallocated(pConfig, pHeap, pQueue);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pQueue->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pQueue == NULL) {
+        return;
+    }
+
+    /* All we need to do is uninitialize the semaphore. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_uninit(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    ma_slot_allocator_uninit(&pQueue->allocator, pAllocationCallbacks);
+
+    if (pQueue->_ownsHeap) {
+        ma_free(pQueue->_pHeap, pAllocationCallbacks);
+    }
+}
+
+static ma_bool32 ma_resource_manager_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+{
+    /* The new counter is taken from the expected value. */
+    return c89atomic_compare_and_swap_64(dst, expected, ma_resource_manager_job_set_refcount(desired, ma_resource_manager_job_extract_refcount(expected) + 1)) == expected;
+}
+
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
+{
+    /*
+    Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
+    */
+    ma_result result;
+    ma_uint64 slot;
+    ma_uint64 tail;
+    ma_uint64 next;
+
+    if (pQueue == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We need a new slot. */
+    result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
+    if (result != MA_SUCCESS) {
+        return result;  /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
+    }
+
+    /* At this point we should have a slot to place the job. */
+    MA_ASSERT(ma_resource_manager_job_extract_slot(slot) < pQueue->capacity);
+
+    /* We need to put the job into memory before we do anything. */
+    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)]                  = *pJob;
+    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
+    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
+    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;          /* Reset for safety. */
+
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_lock(&pQueue->lock);
+    #endif
+    {
+        /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
+        for (;;) {
+            tail = c89atomic_load_64(&pQueue->tail);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next);
+
+            if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
+                if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
+                    if (ma_resource_manager_job_queue_cas(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot)) {
+                        break;
+                    }
+                } else {
+                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
+                }
+            }
+        }
+        ma_resource_manager_job_queue_cas(&pQueue->tail, tail, slot);
+    }
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_unlock(&pQueue->lock);
+    #endif
+
+
+    /* Signal the semaphore as the last step if we're using synchronous mode. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_release(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
+{
+    ma_uint64 head;
+    ma_uint64 tail;
+    ma_uint64 next;
+
+    if (pQueue == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If we're running in synchronous mode we'll need to wait on a semaphore. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_wait(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_lock(&pQueue->lock);
+    #endif
+    {
+        /*
+        BUG: In lock-free mode, multiple threads can be in this section of code. The "head" variable in the loop below
+        is stored. One thread can fall through to the freeing of this item while another is still using "head" for the
+        retrieval of the "next" variable.
+
+        The slot allocator might need to make use of some reference counting to ensure it's only truely freed when
+        there are no more references to the item. This must be fixed before removing these locks.
+        */
+
+        /* Now we need to remove the root item from the list. */
+        for (;;) {
+            head = c89atomic_load_64(&pQueue->head);
+            tail = c89atomic_load_64(&pQueue->tail);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next);
+
+            if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
+                if (ma_resource_manager_job_extract_slot(head) == ma_resource_manager_job_extract_slot(tail)) {
+                    if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
+                        #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+                        ma_spinlock_unlock(&pQueue->lock);
+                        #endif
+                        return MA_NO_DATA_AVAILABLE;
+                    }
+                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
+                } else {
+                    *pJob = pQueue->pJobs[ma_resource_manager_job_extract_slot(next)];
+                    if (ma_resource_manager_job_queue_cas(&pQueue->head, head, ma_resource_manager_job_extract_slot(next))) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_unlock(&pQueue->lock);
+    #endif
+
+    ma_slot_allocator_free(&pQueue->allocator, head);
+
+    /*
+    If it's a quit job make sure it's put back on the queue to ensure other threads have an opportunity to detect it and terminate naturally. We
+    could instead just leave it on the queue, but that would involve fiddling with the lock-free code above and I want to keep that as simple as
+    possible.
+    */
+    if (pJob->toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
+        ma_job_queue_post(pQueue, pJob);
+        return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_resource_manager_job_queue_free(ma_job_queue* pQueue, ma_job* pJob)
+{
+    if (pQueue == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_slot_allocator_free(&pQueue->allocator, ma_resource_manager_job_toc_to_allocation(pJob->toc.allocation));
+}
+
+
 
 /**************************************************************************************************************************************************************
 
@@ -62860,412 +63267,6 @@ static void ma_resource_manager_pipeline_notifications_release_all_fences(const 
 
 
 
-#define MA_RESOURCE_MANAGER_JOB_ID_NONE      ~((ma_uint64)0)
-#define MA_RESOURCE_MANAGER_JOB_SLOT_NONE    (ma_uint16)(~0)
-
-static MA_INLINE ma_uint32 ma_resource_manager_job_extract_refcount(ma_uint64 toc)
-{
-    return (ma_uint32)(toc >> 32);
-}
-
-static MA_INLINE ma_uint16 ma_resource_manager_job_extract_slot(ma_uint64 toc)
-{
-    return (ma_uint16)(toc & 0x0000FFFF);
-}
-
-static MA_INLINE ma_uint16 ma_resource_manager_job_extract_code(ma_uint64 toc)
-{
-    return (ma_uint16)((toc & 0xFFFF0000) >> 16);
-}
-
-static MA_INLINE ma_uint64 ma_resource_manager_job_toc_to_allocation(ma_uint64 toc)
-{
-    return ((ma_uint64)ma_resource_manager_job_extract_refcount(toc) << 32) | (ma_uint64)ma_resource_manager_job_extract_slot(toc);
-}
-
-static MA_INLINE ma_uint64 ma_resource_manager_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
-{
-    /* Clear the reference count first. */
-    toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
-    toc = toc |  ((ma_uint64)refcount   << 32);
-
-    return toc;
-}
-
-
-MA_API ma_job ma_job_init(ma_uint16 code)
-{
-    ma_job job;
-
-    MA_ZERO_OBJECT(&job);
-    job.toc.breakup.code = code;
-    job.toc.breakup.slot = MA_RESOURCE_MANAGER_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
-    job.next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;
-
-    return job;
-}
-
-
-
-MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
-{
-    ma_job_queue_config config;
-
-    config.flags    = flags;
-    config.capacity = capacity;
-
-    return config;
-}
-
-
-typedef struct
-{
-    size_t sizeInBytes;
-    size_t allocatorOffset;
-    size_t jobsOffset;
-} ma_resource_manager_job_queue_heap_layout;
-
-static ma_result ma_resource_manager_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_resource_manager_job_queue_heap_layout* pHeapLayout)
-{
-    ma_result result;
-
-    MA_ASSERT(pHeapLayout != NULL);
-
-    MA_ZERO_OBJECT(pHeapLayout);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pConfig->capacity == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    pHeapLayout->sizeInBytes = 0;
-
-    /* Allocator. */
-    {
-        ma_slot_allocator_config allocatorConfig;
-        size_t allocatorHeapSizeInBytes;
-
-        allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
-        result = ma_slot_allocator_get_heap_size(&allocatorConfig, &allocatorHeapSizeInBytes);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        pHeapLayout->allocatorOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes    += allocatorHeapSizeInBytes;
-    }
-
-    /* Jobs. */
-    pHeapLayout->jobsOffset   = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_job));
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
-{
-    ma_result result;
-    ma_resource_manager_job_queue_heap_layout layout;
-
-    if (pHeapSizeInBytes == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pHeapSizeInBytes = 0;
-
-    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &layout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pHeapSizeInBytes = layout.sizeInBytes;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
-{
-    ma_result result;
-    ma_resource_manager_job_queue_heap_layout heapLayout;
-    ma_slot_allocator_config allocatorConfig;
-
-    if (pQueue == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pQueue);
-
-    result = ma_resource_manager_job_queue_get_heap_layout(pConfig, &heapLayout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pQueue->_pHeap = pHeap;
-    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
-
-    pQueue->flags    = pConfig->flags;
-    pQueue->capacity = pConfig->capacity;
-    pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
-
-    allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
-    result = ma_slot_allocator_init_preallocated(&allocatorConfig, ma_offset_ptr(pHeap, heapLayout.allocatorOffset), &pQueue->allocator);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need a semaphore if we're running in non-blocking mode. If threading is disabled we need to return an error. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_init(0, &pQueue->sem);
-        }
-        #else
-        {
-            /* Threading is disabled and we've requested non-blocking mode. */
-            return MA_INVALID_OPERATION;
-        }
-        #endif
-    }
-
-    /*
-    Our queue needs to be initialized with a free standing node. This should always be slot 0. Required for the lock free algorithm. The first job in the queue is
-    just a dummy item for giving us the first item in the list which is stored in the "next" member.
-    */
-    ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(pQueue->head)].next = MA_RESOURCE_MANAGER_JOB_ID_NONE;
-    pQueue->tail = pQueue->head;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue)
-{
-    ma_result result;
-    size_t heapSizeInBytes;
-    void* pHeap;
-
-    result = ma_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    if (heapSizeInBytes > 0) {
-        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-    } else {
-        pHeap = NULL;
-    }
-
-    result = ma_job_queue_init_preallocated(pConfig, pHeap, pQueue);
-    if (result != MA_SUCCESS) {
-        ma_free(pHeap, pAllocationCallbacks);
-        return result;
-    }
-
-    pQueue->_ownsHeap = MA_TRUE;
-    return MA_SUCCESS;
-}
-
-MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pQueue == NULL) {
-        return;
-    }
-
-    /* All we need to do is uninitialize the semaphore. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_uninit(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    ma_slot_allocator_uninit(&pQueue->allocator, pAllocationCallbacks);
-
-    if (pQueue->_ownsHeap) {
-        ma_free(pQueue->_pHeap, pAllocationCallbacks);
-    }
-}
-
-static ma_bool32 ma_resource_manager_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
-{
-    /* The new counter is taken from the expected value. */
-    return c89atomic_compare_and_swap_64(dst, expected, ma_resource_manager_job_set_refcount(desired, ma_resource_manager_job_extract_refcount(expected) + 1)) == expected;
-}
-
-MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
-{
-    /*
-    Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
-    */
-    ma_result result;
-    ma_uint64 slot;
-    ma_uint64 tail;
-    ma_uint64 next;
-
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* We need a new slot. */
-    result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
-    if (result != MA_SUCCESS) {
-        return result;  /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
-    }
-
-    /* At this point we should have a slot to place the job. */
-    MA_ASSERT(ma_resource_manager_job_extract_slot(slot) < pQueue->capacity);
-
-    /* We need to put the job into memory before we do anything. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)]                  = *pJob;
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
-    pQueue->pJobs[ma_resource_manager_job_extract_slot(slot)].next             = MA_RESOURCE_MANAGER_JOB_ID_NONE;          /* Reset for safety. */
-
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_lock(&pQueue->lock);
-    #endif
-    {
-        /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
-        for (;;) {
-            tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next);
-
-            if (ma_resource_manager_job_toc_to_allocation(tail) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
-                if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
-                    if (ma_resource_manager_job_queue_cas(&pQueue->pJobs[ma_resource_manager_job_extract_slot(tail)].next, next, slot)) {
-                        break;
-                    }
-                } else {
-                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
-                }
-            }
-        }
-        ma_resource_manager_job_queue_cas(&pQueue->tail, tail, slot);
-    }
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_unlock(&pQueue->lock);
-    #endif
-
-
-    /* Signal the semaphore as the last step if we're using synchronous mode. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_release(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
-{
-    ma_uint64 head;
-    ma_uint64 tail;
-    ma_uint64 next;
-
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* If we're running in synchronous mode we'll need to wait on a semaphore. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_wait(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_lock(&pQueue->lock);
-    #endif
-    {
-        /*
-        BUG: In lock-free mode, multiple threads can be in this section of code. The "head" variable in the loop below
-        is stored. One thread can fall through to the freeing of this item while another is still using "head" for the
-        retrieval of the "next" variable.
-
-        The slot allocator might need to make use of some reference counting to ensure it's only truely freed when
-        there are no more references to the item. This must be fixed before removing these locks.
-        */
-
-        /* Now we need to remove the root item from the list. */
-        for (;;) {
-            head = c89atomic_load_64(&pQueue->head);
-            tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_resource_manager_job_extract_slot(head)].next);
-
-            if (ma_resource_manager_job_toc_to_allocation(head) == ma_resource_manager_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
-                if (ma_resource_manager_job_extract_slot(head) == ma_resource_manager_job_extract_slot(tail)) {
-                    if (ma_resource_manager_job_extract_slot(next) == 0xFFFF) {
-                        #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-                        ma_spinlock_unlock(&pQueue->lock);
-                        #endif
-                        return MA_NO_DATA_AVAILABLE;
-                    }
-                    ma_resource_manager_job_queue_cas(&pQueue->tail, tail, ma_resource_manager_job_extract_slot(next));
-                } else {
-                    *pJob = pQueue->pJobs[ma_resource_manager_job_extract_slot(next)];
-                    if (ma_resource_manager_job_queue_cas(&pQueue->head, head, ma_resource_manager_job_extract_slot(next))) {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_unlock(&pQueue->lock);
-    #endif
-
-    ma_slot_allocator_free(&pQueue->allocator, head);
-
-    /*
-    If it's a quit job make sure it's put back on the queue to ensure other threads have an opportunity to detect it and terminate naturally. We
-    could instead just leave it on the queue, but that would involve fiddling with the lock-free code above and I want to keep that as simple as
-    possible.
-    */
-    if (pJob->toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
-        ma_job_queue_post(pQueue, pJob);
-        return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_resource_manager_job_queue_free(ma_job_queue* pQueue, ma_job* pJob)
-{
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    return ma_slot_allocator_free(&pQueue->allocator, ma_resource_manager_job_toc_to_allocation(pJob->toc.allocation));
-}
-
-
-
-
-
 #ifndef MA_DEFAULT_HASH_SEED
 #define MA_DEFAULT_HASH_SEED    42
 #endif
@@ -66790,7 +66791,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_job* 
     }
 
     /* We're ready to decode the next page. */
-    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, pJob->data.resourceManager.pageDataBufferNode.pDecoder);
+    result = ma_resource_manager_data_buffer_node_decode_next_page(pResourceManager, pDataBufferNode, (ma_decoder*)pJob->data.resourceManager.pageDataBufferNode.pDecoder);
 
     /*
     If we have a success code by this point, we want to post another job. We're going to set the
@@ -66812,7 +66813,7 @@ static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_job* 
 done:
     /* If there's still more to decode the result will be set to MA_BUSY. Otherwise we can free the decoder. */
     if (result != MA_BUSY) {
-        ma_decoder_uninit(pJob->data.resourceManager.pageDataBufferNode.pDecoder);
+        ma_decoder_uninit((ma_decoder*)pJob->data.resourceManager.pageDataBufferNode.pDecoder);
         ma_free(pJob->data.resourceManager.pageDataBufferNode.pDecoder, &pResourceManager->config.allocationCallbacks);
     }
 
