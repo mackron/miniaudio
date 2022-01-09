@@ -1519,7 +1519,7 @@ manage your job threads if, for example, you want to integrate the job processin
 existing job infrastructure, or if you simply don't like the way the resource manager does it. To
 do this, just set the job thread count to 0 and process jobs manually. To process jobs, you first
 need to retrieve a job using `ma_resource_manager_next_job()` and then process it using
-`ma_resource_manager_process_job()`:
+`ma_job_process()`:
 
     ```c
     config = ma_resource_manager_config_init();
@@ -1547,7 +1547,7 @@ need to retrieve a job using `ma_resource_manager_next_job()` and then process i
                 }
             }
 
-            ma_resource_manager_process_job(pMyResourceManager, &job);
+            ma_job_process(&job);
         }
     }
     ```
@@ -5827,9 +5827,21 @@ MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint6
 MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
 
+typedef struct ma_job ma_job;
+
+/*
+Callback for processing a job. Each job type will have their own processing callback which will be
+called by ma_job_process().
+*/
+typedef ma_result (* ma_job_proc)(ma_job* pJob);
+
 typedef enum
 {
+    /* Miscellaneous. */
     MA_JOB_TYPE_QUIT = 0,
+    MA_JOB_TYPE_CUSTOM,
+
+    /* Resource Manager. */
     MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE,
     MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE,
     MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE,
@@ -5838,10 +5850,13 @@ typedef enum
     MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM,
     MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM,
     MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM,
-    MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM
+    MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM,
+
+    /* Count. Must always be last. */
+    MA_JOB_TYPE_COUNT
 } ma_job_type;
 
-typedef struct
+struct ma_job
 {
     union
     {
@@ -5861,6 +5876,7 @@ typedef struct
         /* Miscellaneous. */
         struct
         {
+            ma_job_proc proc;
             ma_uintptr data0;
             ma_uintptr data1;
         } custom;
@@ -5938,9 +5954,10 @@ typedef struct
             } seekDataStream;
         } resourceManager;
     } data;
-} ma_job;
+};
 
 MA_API ma_job ma_job_init(ma_uint16 code);
+MA_API ma_result ma_job_process(ma_job* pJob);
 
 
 /*
@@ -10003,7 +10020,7 @@ MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resourc
 MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
 MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager);  /* Helper for posting a quit job. */
 MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob);
-MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);
+MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);  /* DEPRECATED. Use ma_job_process(). Will be removed in version 0.12. */
 MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager);   /* Returns MA_CANCELLED if a MA_JOB_TYPE_QUIT job is found. In non-blocking mode, returns MA_NO_DATA_AVAILABLE if no jobs are available. */
 #endif  /* MA_NO_RESOURCE_MANAGER */
 
@@ -40233,6 +40250,72 @@ MA_API ma_job ma_job_init(ma_uint16 code)
 }
 
 
+static ma_result ma_job_process__quit(ma_job* pJob);
+static ma_result ma_job_process__custom(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob);
+
+static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
+{
+    /* Miscellaneous. */
+    ma_job_process__quit,                                       /* MA_JOB_TYPE_QUIT */
+    ma_job_process__custom,                                     /* MA_JOB_TYPE_CUSTOM */
+
+    /* Resource Manager. */
+    ma_job_process__resource_manager__load_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__free_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__page_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__load_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER */
+    ma_job_process__resource_manager__free_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER */
+    ma_job_process__resource_manager__load_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM */
+    ma_job_process__resource_manager__free_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM */
+    ma_job_process__resource_manager__page_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM */
+    ma_job_process__resource_manager__seek_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM */
+};
+
+MA_API ma_result ma_job_process(ma_job* pJob)
+{
+    if (pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pJob->toc.breakup.code > MA_JOB_TYPE_COUNT) {
+        return MA_INVALID_OPERATION;
+    }
+
+    return g_jobVTable[pJob->toc.breakup.code](pJob);
+}
+
+static ma_result ma_job_process__quit(ma_job* pJob)
+{
+    MA_ASSERT(pJob != NULL);
+
+    /* No-op. */
+    (void)pJob;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_job_process__custom(ma_job* pJob)
+{
+    MA_ASSERT(pJob != NULL);
+
+    /* No-op if there's no callback. */
+    if (pJob->data.custom.proc == NULL) {
+        return MA_SUCCESS;
+    }
+
+    return pJob->data.custom.proc(pJob);
+}
+
+
 
 MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
 {
@@ -63851,7 +63934,7 @@ static ma_thread_result MA_THREADCALL ma_resource_manager_job_thread(void* pUser
             break;
         }
 
-        ma_resource_manager_process_job(pResourceManager, &job);
+        ma_job_process(&job);
     }
 
     return (ma_thread_result)0;
@@ -66573,7 +66656,7 @@ MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceMana
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer_node(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66725,7 +66808,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer_node* pDataBufferNode;
@@ -66757,7 +66840,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer_node(ma_job* 
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_buffer_node(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66832,7 +66915,7 @@ done:
 }
 
 
-static ma_result ma_resource_manager_process_job__load_data_buffer(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -66928,7 +67011,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_buffer(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_buffer* pDataBuffer;
@@ -66959,7 +67042,7 @@ static ma_result ma_resource_manager_process_job__free_data_buffer(ma_job* pJob)
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__load_data_stream(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_decoder_config decoderConfig;
@@ -67045,7 +67128,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__free_data_stream(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob)
 {
     ma_resource_manager* pResourceManager;
     ma_resource_manager_data_stream* pDataStream;
@@ -67087,7 +67170,7 @@ static ma_result ma_resource_manager_process_job__free_data_stream(ma_job* pJob)
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_process_job__page_data_stream(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -67117,7 +67200,7 @@ done:
     return result;
 }
 
-static ma_result ma_resource_manager_process_job__seek_data_stream(ma_job* pJob)
+static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob)
 {
     ma_result result = MA_SUCCESS;
     ma_resource_manager* pResourceManager;
@@ -67163,28 +67246,7 @@ MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceM
         return MA_INVALID_ARGS;
     }
 
-    switch (pJob->toc.breakup.code)
-    {
-        /* Data Buffer Node */
-        case MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE: return ma_resource_manager_process_job__load_data_buffer_node(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__free_data_buffer_node(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE: return ma_resource_manager_process_job__page_data_buffer_node(pJob);
-
-        /* Data Buffer */
-        case MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER: return ma_resource_manager_process_job__load_data_buffer(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER: return ma_resource_manager_process_job__free_data_buffer(pJob);
-
-        /* Data Stream */
-        case MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM: return ma_resource_manager_process_job__load_data_stream(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM: return ma_resource_manager_process_job__free_data_stream(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM: return ma_resource_manager_process_job__page_data_stream(pJob);
-        case MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM: return ma_resource_manager_process_job__seek_data_stream(pJob);
-
-        default: break;
-    }
-
-    /* Getting here means we don't know what the job code is and cannot do anything with it. */
-    return MA_INVALID_OPERATION;
+    return ma_job_process(pJob);
 }
 
 MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager)
@@ -67202,8 +67264,29 @@ MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pReso
         return result;
     }
 
-    return ma_resource_manager_process_job(pResourceManager, &job);
+    return ma_job_process(&job);
 }
+#else
+/* We'll get here if the resource manager is being excluded from the build. We need to define the job processing callbacks as no-ops. */
+static ma_result ma_job_process__resource_manager__noop(ma_job* pJob)
+{
+    MA_ASSERT(pJob != NULL);
+
+    /* No-op. */
+    (void)pJob;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
 #endif  /* MA_NO_RESOURCE_MANAGER */
 
 
