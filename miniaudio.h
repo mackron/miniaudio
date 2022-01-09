@@ -5966,6 +5966,7 @@ struct ma_job
                 struct
                 {
                     /*ma_device**/ void* pDevice;
+                    /*ma_device_type*/ ma_uint32 deviceType;
                 } reroute;
             } aaudio;
         } device;
@@ -6581,6 +6582,7 @@ struct ma_device_config
         ma_aaudio_usage usage;
         ma_aaudio_content_type contentType;
         ma_aaudio_input_preset inputPreset;
+        ma_bool32 noAutoStartAfterReroute;
     } aaudio;
 };
 
@@ -7404,6 +7406,10 @@ struct ma_device
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
+            ma_aaudio_usage usage;
+            ma_aaudio_content_type contentType;
+            ma_aaudio_input_preset inputPreset;
+            ma_bool32 noAutoStartAfterReroute;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -8684,6 +8690,55 @@ value returned by this function could potentially be out of sync. If this is sig
 synchronization.
 */
 MA_API ma_device_state ma_device_get_state(const ma_device* pDevice);
+
+
+/*
+Performs post backend initialization routines for setting up internal data conversion.
+
+This should be called whenever the backend is initialized. The only time this should be called from
+outside of miniaudio is if you're implementing a custom backend, and you would only do it if you
+are reinitializing the backend due to rerouting or reinitializing for some reason.
+
+
+Parameters
+----------
+pDevice [in]
+    A pointer to the device.
+
+deviceType [in]
+    The type of the device that was just reinitialized.
+
+pPlaybackDescriptor [in]
+    The descriptor of the playback device containing the internal data format and buffer sizes.
+
+pPlaybackDescriptor [in]
+    The descriptor of the capture device containing the internal data format and buffer sizes.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This will be reinitializing internal data converters which may be in use by another thread.
+
+
+Callback Safety
+---------------
+Unsafe. This will be reinitializing internal data converters which may be in use by the callback.
+
+
+Remarks
+-------
+For a duplex device, you can call this for only one side of the system. This is why the deviceType
+is specified as a parameter rather than deriving it from the device.
+
+You do not need to call this manually unless you are doing a custom backend, in which case you need
+only do it if you're manually performing rerouting or reinitialization.
+*/
+MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceType, const ma_device_descriptor* pPlaybackDescriptor, const ma_device_descriptor* pCaptureDescriptor);
 
 
 /*
@@ -18091,7 +18146,6 @@ MA_API ma_uint32 ma_get_format_priority_index(ma_format format) /* Lower = bette
 }
 
 static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType);
-
 
 static ma_bool32 ma_device_descriptor_is_valid(const ma_device_descriptor* pDeviceDescriptor)
 {
@@ -36029,6 +36083,12 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
         ma_job job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
         job.data.device.aaudio.reroute.pDevice = pDevice;
 
+        if (pStream == pDevice->aaudio.pStreamCapture) {
+            job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+        } else {
+            job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
+        }
+
         result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
         if (result != MA_SUCCESS) {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
@@ -36396,6 +36456,11 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
+    pDevice->aaudio.usage                   = pConfig->aaudio.usage;
+    pDevice->aaudio.contentType             = pConfig->aaudio.contentType;
+    pDevice->aaudio.inputPreset             = pConfig->aaudio.inputPreset;
+    pDevice->aaudio.noAutoStartAfterReroute = pConfig->aaudio.noAutoStartAfterReroute;
+
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         result = ma_device_init_by_type__aaudio(pDevice, pConfig, ma_device_type_capture, pDescriptorCapture, (ma_AAudioStream**)&pDevice->aaudio.pStreamCapture);
         if (result != MA_SUCCESS) {
@@ -36528,6 +36593,100 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
     ma_device__on_notification_stopped(pDevice);
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type deviceType)
+{
+    ma_result result;
+
+    MA_ASSERT(pDevice != NULL);
+
+    /* The first thing to do is close the streams. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_stop_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        ma_result result = ma_device_stop_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    }
+
+    /* Now we need to reinitialize each streams. The hardest part with this is just filling output the config and descriptors. */
+    {
+        ma_device_config deviceConfig;
+        ma_device_descriptor descriptorPlayback;
+        ma_device_descriptor descriptorCapture;
+
+        deviceConfig = ma_device_config_init(deviceType);
+        deviceConfig.playback.pDeviceID             = NULL; /* Only doing rerouting with default devices. */
+        deviceConfig.playback.shareMode             = pDevice->playback.shareMode;
+        deviceConfig.playback.format                = pDevice->playback.format;
+        deviceConfig.playback.channels              = pDevice->playback.channels;
+        deviceConfig.capture.pDeviceID              = NULL; /* Only doing rerouting with default devices. */
+        deviceConfig.capture.shareMode              = pDevice->capture.shareMode;
+        deviceConfig.capture.format                 = pDevice->capture.format;
+        deviceConfig.capture.channels               = pDevice->capture.channels;
+        deviceConfig.sampleRate                     = pDevice->sampleRate;
+        deviceConfig.aaudio.usage                   = pDevice->aaudio.usage;
+        deviceConfig.aaudio.contentType             = pDevice->aaudio.contentType;
+        deviceConfig.aaudio.inputPreset             = pDevice->aaudio.inputPreset;
+        deviceConfig.aaudio.noAutoStartAfterReroute = pDevice->aaudio.noAutoStartAfterReroute;
+
+        /* Try to get an accurate period size. */
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            deviceConfig.periodSizeInFrames = pDevice->playback.internalPeriodSizeInFrames;
+        } else {
+            deviceConfig.periodSizeInFrames = pDevice->capture.internalPeriodSizeInFrames;
+        }
+
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
+            descriptorCapture.pDeviceID           = deviceConfig.capture.pDeviceID;
+            descriptorCapture.shareMode           = deviceConfig.capture.shareMode;
+            descriptorCapture.format              = deviceConfig.capture.format;
+            descriptorCapture.channels            = deviceConfig.capture.channels;
+            descriptorCapture.sampleRate          = deviceConfig.sampleRate;
+            descriptorCapture.periodSizeInFrames  = deviceConfig.periodSizeInFrames;
+        }
+
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            descriptorPlayback.pDeviceID          = deviceConfig.playback.pDeviceID;
+            descriptorPlayback.shareMode          = deviceConfig.playback.shareMode;
+            descriptorPlayback.format             = deviceConfig.playback.format;
+            descriptorPlayback.channels           = deviceConfig.playback.channels;
+            descriptorPlayback.sampleRate         = deviceConfig.sampleRate;
+            descriptorPlayback.periodSizeInFrames = deviceConfig.periodSizeInFrames;
+        }
+
+        result = ma_device_init__aaudio(pDevice, &deviceConfig, &descriptorPlayback, &descriptorCapture);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        result = ma_device_post_init(pDevice, deviceType, &descriptorPlayback, &descriptorCapture);
+        if (result != MA_SUCCESS) {
+            ma_device_uninit__aaudio(pDevice);
+            return result;
+        }
+
+        /* We'll only ever do this in response to a reroute. */
+        ma_device__on_notification_rerouted(pDevice);
+
+        /* If the device is started, start the streams. Maybe make this configurable? */
+        if (ma_device_get_state(pDevice) == ma_device_state_started) {
+            if (pDevice->aaudio.noAutoStartAfterReroute == MA_FALSE) {
+                ma_device_start__aaudio(pDevice);
+            } else {
+                ma_device_stop(pDevice);    /* Do a full device stop so we set internal state correctly. */
+            }
+        }
+
+        return MA_SUCCESS;
+    }
 }
 
 static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
@@ -36666,9 +36825,7 @@ static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
     MA_ASSERT(pDevice != NULL);
 
     /* Here is where we need to reroute the device. To do this we need to uninitialize the stream and reinitialize it. */
-    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "TESTING - AAUDIO REROUTE");
-
-    return MA_SUCCESS;
+    return ma_device_reinit__aaudio(pDevice, (ma_device_type)pJob->data.device.aaudio.reroute.deviceType);
 }
 #else
 /* Getting here means there is no AAudio backend so we need a no-op job implementation. */
@@ -38743,6 +38900,90 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture)
+{
+    ma_result result;
+
+    if (pDevice == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Capture. */
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
+        if (ma_device_descriptor_is_valid(pDescriptorCapture) == MA_FALSE) {
+            return MA_INVALID_ARGS;
+        }
+
+        pDevice->capture.internalFormat             = pDescriptorCapture->format;
+        pDevice->capture.internalChannels           = pDescriptorCapture->channels;
+        pDevice->capture.internalSampleRate         = pDescriptorCapture->sampleRate;
+        MA_COPY_MEMORY(pDevice->capture.internalChannelMap, pDescriptorCapture->channelMap, sizeof(pDescriptorCapture->channelMap));
+        pDevice->capture.internalPeriodSizeInFrames = pDescriptorCapture->periodSizeInFrames;
+        pDevice->capture.internalPeriods            = pDescriptorCapture->periodCount;
+
+        if (pDevice->capture.internalPeriodSizeInFrames == 0) {
+            pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorCapture->periodSizeInMilliseconds, pDescriptorCapture->sampleRate);
+        }
+    }
+
+    /* Playback. */
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+        if (ma_device_descriptor_is_valid(pDescriptorPlayback) == MA_FALSE) {
+            return MA_INVALID_ARGS;
+        }
+
+        pDevice->playback.internalFormat             = pDescriptorPlayback->format;
+        pDevice->playback.internalChannels           = pDescriptorPlayback->channels;
+        pDevice->playback.internalSampleRate         = pDescriptorPlayback->sampleRate;
+        MA_COPY_MEMORY(pDevice->playback.internalChannelMap, pDescriptorPlayback->channelMap, sizeof(pDescriptorPlayback->channelMap));
+        pDevice->playback.internalPeriodSizeInFrames = pDescriptorPlayback->periodSizeInFrames;
+        pDevice->playback.internalPeriods            = pDescriptorPlayback->periodCount;
+
+        if (pDevice->playback.internalPeriodSizeInFrames == 0) {
+            pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
+        }
+    }
+
+    /*
+    The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead.
+    For loopback devices, we need to retrieve the name of the playback device.
+    */
+    {
+        ma_device_info deviceInfo;
+
+        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
+            result = ma_device_get_info(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, &deviceInfo);
+            if (result == MA_SUCCESS) {
+                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
+            } else {
+                /* We failed to retrieve the device info. Fall back to a default name. */
+                if (pDescriptorCapture->pDeviceID == NULL) {
+                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
+                } else {
+                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
+                }
+            }
+        }
+
+        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
+            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
+            if (result == MA_SUCCESS) {
+                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
+            } else {
+                /* We failed to retrieve the device info. Fall back to a default name. */
+                if (pDescriptorPlayback->pDeviceID == NULL) {
+                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
+                } else {
+                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
+                }
+            }
+        }
+    }
+
+    /* Update data conversion. */
+    return ma_device__post_init_setup(pDevice, deviceType); /* TODO: Should probably rename ma_device__post_init_setup() to something better. */
+}
+
 
 static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
@@ -39739,7 +39980,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         return result;
     }
 
-
+#if 0
     /*
     On output the descriptors will contain the *actual* data format of the device. We need this to know how to convert the data between
     the requested format and the internal format.
@@ -39819,6 +40060,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
 
     ma_device__post_init_setup(pDevice, pConfig->deviceType);
+#endif
+
+    result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
+    if (result != MA_SUCCESS) {
+        ma_device_uninit(pDevice);
+        return result;
+    }
+
 
 
     /*
@@ -89944,6 +90193,7 @@ There have also been some other smaller changes added to this release.
 REVISION HISTORY
 ================
 v0.11.4 - TBD
+  - AAudio: Add initial support for automatic stream routing.
   - Add support for initializing an encoder from a VFS.
   - Fix a bug when initializing an encoder from a file where the file handle does not get closed in
     the event of an error.
