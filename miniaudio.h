@@ -4945,7 +4945,23 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 typedef struct
 {
-    ma_spatializer_config config;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_channel* pChannelMapIn;
+    ma_attenuation_model attenuationModel;
+    ma_positioning positioning;
+    ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    float minGain;
+    float maxGain;
+    float minDistance;
+    float maxDistance;
+    float rolloff;
+    float coneInnerAngleInRadians;
+    float coneOuterAngleInRadians;
+    float coneOuterGain;
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. */
+    float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
+    ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
     ma_vec3f position;
     ma_vec3f direction;
     ma_vec3f velocity;  /* For doppler effect. */
@@ -48171,21 +48187,36 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
     pSpatializer->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    pSpatializer->config       = *pConfig;
-    pSpatializer->position     = ma_vec3f_init_3f(0, 0,  0);
-    pSpatializer->direction    = ma_vec3f_init_3f(0, 0, -1);
-    pSpatializer->velocity     = ma_vec3f_init_3f(0, 0,  0);
-    pSpatializer->dopplerPitch = 1;
+    pSpatializer->channelsIn                   = pConfig->channelsIn;
+    pSpatializer->channelsOut                  = pConfig->channelsOut;
+    pSpatializer->attenuationModel             = pConfig->attenuationModel;
+    pSpatializer->positioning                  = pConfig->positioning;
+    pSpatializer->handedness                   = pConfig->handedness;
+    pSpatializer->minGain                      = pConfig->minGain;
+    pSpatializer->maxGain                      = pConfig->maxGain;
+    pSpatializer->minDistance                  = pConfig->minDistance;
+    pSpatializer->maxDistance                  = pConfig->maxDistance;
+    pSpatializer->rolloff                      = pConfig->rolloff;
+    pSpatializer->coneInnerAngleInRadians      = pConfig->coneInnerAngleInRadians;
+    pSpatializer->coneOuterAngleInRadians      = pConfig->coneOuterAngleInRadians;
+    pSpatializer->coneOuterGain                = pConfig->coneOuterGain;
+    pSpatializer->dopplerFactor                = pConfig->dopplerFactor;
+    pSpatializer->directionalAttenuationFactor = pConfig->directionalAttenuationFactor;
+    pSpatializer->gainSmoothTimeInFrames       = pConfig->gainSmoothTimeInFrames;
+    pSpatializer->position                     = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->direction                    = ma_vec3f_init_3f(0, 0, -1);
+    pSpatializer->velocity                     = ma_vec3f_init_3f(0, 0,  0);
+    pSpatializer->dopplerPitch                 = 1;
 
     /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
-    if (pSpatializer->config.handedness == ma_handedness_left) {
+    if (pSpatializer->handedness == ma_handedness_left) {
         pSpatializer->direction = ma_vec3f_neg(pSpatializer->direction);
     }
 
     /* Channel map. This will be on the heap. */
     if (pConfig->pChannelMapIn != NULL) {
-        pSpatializer->config.pChannelMapIn = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapInOffset);
-        ma_channel_map_copy_or_default(pSpatializer->config.pChannelMapIn, pSpatializer->config.channelsIn, pConfig->pChannelMapIn, pSpatializer->config.channelsIn);
+        pSpatializer->pChannelMapIn = (ma_channel*)ma_offset_ptr(pHeap, heapLayout.channelMapInOffset);
+        ma_channel_map_copy_or_default(pSpatializer->pChannelMapIn, pSpatializer->channelsIn, pConfig->pChannelMapIn, pSpatializer->channelsIn);
     }
 
     /* New channel gains for output channels. */
@@ -48292,7 +48323,7 @@ static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneI
 
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
 {
-    ma_channel* pChannelMapIn  = pSpatializer->config.pChannelMapIn;
+    ma_channel* pChannelMapIn  = pSpatializer->pChannelMapIn;
     ma_channel* pChannelMapOut = pListener->config.pChannelMapOut;
 
     if (pSpatializer == NULL) {
@@ -48300,17 +48331,17 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
     }
 
     /* If we're not spatializing we need to run an optimized path. */
-    if (pSpatializer->config.attenuationModel == ma_attenuation_model_none) {
+    if (c89atomic_load_i32(&pSpatializer->attenuationModel) == ma_attenuation_model_none) {
         if (ma_spatializer_listener_is_enabled(pListener)) {
             /* No attenuation is required, but we'll need to do some channel conversion. */
-            if (pSpatializer->config.channelsIn == pSpatializer->config.channelsOut) {
-                ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->config.channelsIn);
+            if (pSpatializer->channelsIn == pSpatializer->channelsOut) {
+                ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, ma_format_f32, pSpatializer->channelsIn);
             } else {
-                ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->config.channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->config.channelsIn, frameCount, ma_channel_mix_mode_rectangular, ma_mono_expansion_mode_default);   /* Safe casts to float* because f32 is the only supported format. */
+                ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, pSpatializer->channelsOut, (const float*)pFramesIn, pChannelMapIn, pSpatializer->channelsIn, frameCount, ma_channel_mix_mode_rectangular, ma_mono_expansion_mode_default);   /* Safe casts to float* because f32 is the only supported format. */
             }
         } else {
             /* The listener is disabled. Output silence. */
-            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->config.channelsOut);
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->channelsOut);
         }
 
         /*
@@ -48332,8 +48363,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         float distance = 0;
         float gain = 1;
         ma_uint32 iChannel;
-        const ma_uint32 channelsOut = pSpatializer->config.channelsOut;
-        const ma_uint32 channelsIn  = pSpatializer->config.channelsIn;
+        const ma_uint32 channelsOut = pSpatializer->channelsOut;
+        const ma_uint32 channelsIn  = pSpatializer->channelsIn;
+        float minDistance = ma_spatializer_get_min_distance(pSpatializer);
+        float maxDistance = ma_spatializer_get_max_distance(pSpatializer);
+        float rolloff = ma_spatializer_get_rolloff(pSpatializer);
+        float dopplerFactor = ma_spatializer_get_doppler_factor(pSpatializer);
 
         /*
         We'll need the listener velocity for doppler pitch calculations. The speed of sound is
@@ -48347,7 +48382,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
             speedOfSound = MA_DEFAULT_SPEED_OF_SOUND;
         }
 
-        if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
+        if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
             /* There's no listener or we're using relative positioning. */
             relativePos = pSpatializer->position;
             relativeDir = pSpatializer->direction;
@@ -48363,18 +48398,18 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         distance = ma_vec3f_len(relativePos);
 
         /* We've gathered the data, so now we can apply some spatialization. */
-        switch (pSpatializer->config.attenuationModel) {
+        switch (ma_spatializer_get_attenuation_model(pSpatializer)) {
             case ma_attenuation_model_inverse:
             {
-                gain = ma_attenuation_inverse(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+                gain = ma_attenuation_inverse(distance, minDistance, maxDistance, rolloff);
             } break;
             case ma_attenuation_model_linear:
             {
-                gain = ma_attenuation_linear(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+                gain = ma_attenuation_linear(distance, minDistance, maxDistance, rolloff);
             } break;
             case ma_attenuation_model_exponential:
             {
-                gain = ma_attenuation_exponential(distance, pSpatializer->config.minDistance, pSpatializer->config.maxDistance, pSpatializer->config.rolloff);
+                gain = ma_attenuation_exponential(distance, minDistance, maxDistance, rolloff);
             } break;
             case ma_attenuation_model_none:
             default:
@@ -48409,7 +48444,12 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         */
         if (distance > 0) {
             /* Source anglular gain. */
-            gain *= ma_calculate_angular_gain(relativeDir, ma_vec3f_neg(relativePosNormalized), pSpatializer->config.coneInnerAngleInRadians, pSpatializer->config.coneOuterAngleInRadians, pSpatializer->config.coneOuterGain);
+            float spatializerConeInnerAngle;
+            float spatializerConeOuterAngle;
+            float spatializerConeOuterGain;
+            ma_spatializer_get_cone(pSpatializer, &spatializerConeInnerAngle, &spatializerConeOuterAngle, &spatializerConeOuterGain);
+
+            gain *= ma_calculate_angular_gain(relativeDir, ma_vec3f_neg(relativePosNormalized), spatializerConeInnerAngle, spatializerConeOuterAngle, spatializerConeOuterGain);
 
             /*
             We're supporting angular gain on the listener as well for those who want to reduce the volume of sounds that
@@ -48439,7 +48479,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
 
         /* Clamp the gain. */
-        gain = ma_clamp(gain, pSpatializer->config.minGain, pSpatializer->config.maxGain);
+        gain = ma_clamp(gain, ma_spatializer_get_min_gain(pSpatializer), ma_spatializer_get_max_gain(pSpatializer));
 
         /*
         Panning. This is where we'll apply the gain and convert to the output channel count. We have an optimized path for
@@ -48473,7 +48513,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         if (ma_spatializer_listener_is_enabled(pListener)) {
             ma_channel_map_apply_f32((float*)pFramesOut, pChannelMapOut, channelsOut, (const float*)pFramesIn, pChannelMapIn, channelsIn, frameCount, ma_channel_mix_mode_rectangular, ma_mono_expansion_mode_default);
         } else {
-            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->config.channelsOut);
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, pSpatializer->channelsOut);
         }
 
         /*
@@ -48494,7 +48534,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
                 channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannel);
                 if (ma_is_spatial_channel_position(channelOut)) {
-                    d = ma_mix_f32_fast(1, ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut)), pSpatializer->config.directionalAttenuationFactor);
+                    d = ma_mix_f32_fast(1, ma_vec3f_dot(unitPos, ma_get_channel_direction(channelOut)), ma_spatializer_get_directional_attenuation_factor(pSpatializer));
                 } else {
                     d = 1;  /* It's not a spatial channel so there's no real notion of direction. */
                 }
@@ -48573,8 +48613,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         because the doppler calculation needs to be source-to-listener, but ours is listener-to-
         source.
         */
-        if (pSpatializer->config.dopplerFactor > 0) {
-            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(pListener->position, pSpatializer->position), pSpatializer->velocity, listenerVel, speedOfSound, pSpatializer->config.dopplerFactor);
+        if (dopplerFactor > 0) {
+            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(pListener->position, pSpatializer->position), pSpatializer->velocity, listenerVel, speedOfSound, dopplerFactor);
         } else {
             pSpatializer->dopplerPitch = 1;
         }
@@ -48589,7 +48629,7 @@ MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatia
         return 0;
     }
 
-    return pSpatializer->config.channelsIn;
+    return pSpatializer->channelsIn;
 }
 
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer)
@@ -48598,7 +48638,7 @@ MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpati
         return 0;
     }
 
-    return pSpatializer->config.channelsOut;
+    return pSpatializer->channelsOut;
 }
 
 MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel)
@@ -48607,7 +48647,7 @@ MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, m
         return;
     }
 
-    pSpatializer->config.attenuationModel = attenuationModel;
+    c89atomic_exchange_i32(&pSpatializer->attenuationModel, attenuationModel);
 }
 
 MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatializer* pSpatializer)
@@ -48616,7 +48656,7 @@ MA_API ma_attenuation_model ma_spatializer_get_attenuation_model(const ma_spatia
         return ma_attenuation_model_none;
     }
 
-    return pSpatializer->config.attenuationModel;
+    return (ma_attenuation_model)c89atomic_load_i32(&pSpatializer->attenuationModel);
 }
 
 MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_positioning positioning)
@@ -48625,7 +48665,7 @@ MA_API void ma_spatializer_set_positioning(ma_spatializer* pSpatializer, ma_posi
         return;
     }
 
-    pSpatializer->config.positioning = positioning;
+    c89atomic_exchange_i32(&pSpatializer->positioning, positioning);
 }
 
 MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpatializer)
@@ -48634,7 +48674,7 @@ MA_API ma_positioning ma_spatializer_get_positioning(const ma_spatializer* pSpat
         return ma_positioning_absolute;
     }
 
-    return pSpatializer->config.positioning;
+    return (ma_positioning)c89atomic_load_i32(&pSpatializer->positioning);
 }
 
 MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rolloff)
@@ -48643,7 +48683,7 @@ MA_API void ma_spatializer_set_rolloff(ma_spatializer* pSpatializer, float rollo
         return;
     }
 
-    pSpatializer->config.rolloff = rolloff;
+    c89atomic_exchange_f32(&pSpatializer->rolloff, rolloff);
 }
 
 MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer)
@@ -48652,7 +48692,7 @@ MA_API float ma_spatializer_get_rolloff(const ma_spatializer* pSpatializer)
         return 0;
     }
 
-    return pSpatializer->config.rolloff;
+    return c89atomic_load_f32(&pSpatializer->rolloff);
 }
 
 MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minGain)
@@ -48661,7 +48701,7 @@ MA_API void ma_spatializer_set_min_gain(ma_spatializer* pSpatializer, float minG
         return;
     }
 
-    pSpatializer->config.minGain = minGain;
+    c89atomic_exchange_f32(&pSpatializer->minGain, minGain);
 }
 
 MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer)
@@ -48670,7 +48710,7 @@ MA_API float ma_spatializer_get_min_gain(const ma_spatializer* pSpatializer)
         return 0;
     }
 
-    return pSpatializer->config.minGain;
+    return c89atomic_load_f32(&pSpatializer->minGain);
 }
 
 MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxGain)
@@ -48679,7 +48719,7 @@ MA_API void ma_spatializer_set_max_gain(ma_spatializer* pSpatializer, float maxG
         return;
     }
 
-    pSpatializer->config.maxGain = maxGain;
+    c89atomic_exchange_f32(&pSpatializer->maxGain, maxGain);
 }
 
 MA_API float ma_spatializer_get_max_gain(const ma_spatializer* pSpatializer)
@@ -48688,7 +48728,7 @@ MA_API float ma_spatializer_get_max_gain(const ma_spatializer* pSpatializer)
         return 0;
     }
 
-    return pSpatializer->config.maxGain;
+    return c89atomic_load_f32(&pSpatializer->maxGain);
 }
 
 MA_API void ma_spatializer_set_min_distance(ma_spatializer* pSpatializer, float minDistance)
@@ -48697,7 +48737,7 @@ MA_API void ma_spatializer_set_min_distance(ma_spatializer* pSpatializer, float 
         return;
     }
 
-    pSpatializer->config.minDistance = minDistance;
+    c89atomic_exchange_f32(&pSpatializer->minDistance, minDistance);
 }
 
 MA_API float ma_spatializer_get_min_distance(const ma_spatializer* pSpatializer)
@@ -48706,7 +48746,7 @@ MA_API float ma_spatializer_get_min_distance(const ma_spatializer* pSpatializer)
         return 0;
     }
 
-    return pSpatializer->config.minDistance;
+    return c89atomic_load_f32(&pSpatializer->minDistance);
 }
 
 MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float maxDistance)
@@ -48715,7 +48755,7 @@ MA_API void ma_spatializer_set_max_distance(ma_spatializer* pSpatializer, float 
         return;
     }
 
-    pSpatializer->config.maxDistance = maxDistance;
+    c89atomic_exchange_f32(&pSpatializer->maxDistance, maxDistance);
 }
 
 MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer)
@@ -48724,7 +48764,7 @@ MA_API float ma_spatializer_get_max_distance(const ma_spatializer* pSpatializer)
         return 0;
     }
 
-    return pSpatializer->config.maxDistance;
+    return c89atomic_load_f32(&pSpatializer->maxDistance);
 }
 
 MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAngleInRadians, float outerAngleInRadians, float outerGain)
@@ -48733,9 +48773,9 @@ MA_API void ma_spatializer_set_cone(ma_spatializer* pSpatializer, float innerAng
         return;
     }
 
-    pSpatializer->config.coneInnerAngleInRadians = innerAngleInRadians;
-    pSpatializer->config.coneOuterAngleInRadians = outerAngleInRadians;
-    pSpatializer->config.coneOuterGain           = outerGain;
+    c89atomic_exchange_f32(&pSpatializer->coneInnerAngleInRadians, innerAngleInRadians);
+    c89atomic_exchange_f32(&pSpatializer->coneOuterAngleInRadians, outerAngleInRadians);
+    c89atomic_exchange_f32(&pSpatializer->coneOuterGain,           outerGain);
 }
 
 MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* pInnerAngleInRadians, float* pOuterAngleInRadians, float* pOuterGain)
@@ -48745,15 +48785,15 @@ MA_API void ma_spatializer_get_cone(const ma_spatializer* pSpatializer, float* p
     }
 
     if (pInnerAngleInRadians != NULL) {
-        *pInnerAngleInRadians = pSpatializer->config.coneInnerAngleInRadians;
+        *pInnerAngleInRadians = c89atomic_load_f32(&pSpatializer->coneInnerAngleInRadians);
     }
 
     if (pOuterAngleInRadians != NULL) {
-        *pOuterAngleInRadians = pSpatializer->config.coneOuterAngleInRadians;
+        *pOuterAngleInRadians = c89atomic_load_f32(&pSpatializer->coneOuterAngleInRadians);
     }
 
     if (pOuterGain != NULL) {
-        *pOuterGain = pSpatializer->config.coneOuterGain;
+        *pOuterGain = c89atomic_load_f32(&pSpatializer->coneOuterGain);
     }
 }
 
@@ -48763,7 +48803,7 @@ MA_API void ma_spatializer_set_doppler_factor(ma_spatializer* pSpatializer, floa
         return;
     }
 
-    pSpatializer->config.dopplerFactor = dopplerFactor;
+    c89atomic_exchange_f32(&pSpatializer->dopplerFactor, dopplerFactor);
 }
 
 MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatializer)
@@ -48772,7 +48812,7 @@ MA_API float ma_spatializer_get_doppler_factor(const ma_spatializer* pSpatialize
         return 1;
     }
 
-    return pSpatializer->config.dopplerFactor;
+    return c89atomic_load_f32(&pSpatializer->dopplerFactor);
 }
 
 MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pSpatializer, float directionalAttenuationFactor)
@@ -48781,7 +48821,7 @@ MA_API void ma_spatializer_set_directional_attenuation_factor(ma_spatializer* pS
         return;
     }
 
-    pSpatializer->config.directionalAttenuationFactor = directionalAttenuationFactor;
+    c89atomic_exchange_f32(&pSpatializer->directionalAttenuationFactor, directionalAttenuationFactor);
 }
 
 MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatializer* pSpatializer)
@@ -48790,7 +48830,7 @@ MA_API float ma_spatializer_get_directional_attenuation_factor(const ma_spatiali
         return 1;
     }
 
-    return pSpatializer->config.directionalAttenuationFactor;
+    return c89atomic_load_f32(&pSpatializer->directionalAttenuationFactor);
 }
 
 MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, float y, float z)
@@ -48865,7 +48905,7 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
         return;
     }
 
-    if (pListener == NULL || pSpatializer->config.positioning == ma_positioning_relative) {
+    if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
         /* There's no listener or we're using relative positioning. */
         if (pRelativePos != NULL) {
             *pRelativePos = pSpatializer->position;
