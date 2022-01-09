@@ -5957,6 +5957,18 @@ struct ma_job
                 ma_uint64 frameIndex;
             } seekDataStream;
         } resourceManager;
+
+        /* Device. */
+        union
+        {
+            union
+            {
+                struct
+                {
+                    /*ma_device**/ void* pDevice;
+                } reroute;
+            } aaudio;
+        } device;
     } data;
 };
 
@@ -7089,6 +7101,7 @@ struct ma_context
             ma_proc AAudioStream_getFramesPerBurst;
             ma_proc AAudioStream_requestStart;
             ma_proc AAudioStream_requestStop;
+            ma_device_job_thread jobThread; /* For processing operations outside of the error callback, specifically device disconnections and rerouting. */
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -36011,7 +36024,16 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     to do it from another thread. Therefore we are going to use an event thread for the AAudio backend to do this cleanly and safely.
     */
     if (((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream) == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected.\n");
+        /* We need to post a job to the job thread for processing. This will reroute the device by reinitializing the stream. */
+        ma_result result;
+        ma_job job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
+        job.data.device.aaudio.reroute.pDevice = pDevice;
+
+        result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
+        if (result != MA_SUCCESS) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+            return;
+        }
     }
 }
 
@@ -36544,6 +36566,8 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_aaudio);
 
+    ma_device_job_thread_uninit(&pContext->aaudio.jobThread, &pContext->allocationCallbacks);
+
     ma_dlclose(pContext, pContext->aaudio.hAAudio);
     pContext->aaudio.hAAudio = NULL;
 
@@ -36611,13 +36635,40 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pCallbacks->onDeviceDataLoop          = NULL;   /* Not used because AAudio is asynchronous. */
     pCallbacks->onDeviceGetInfo           = ma_device_get_info__aaudio;
 
+
+    /* We need a job thread so we can deal with rerouting. */
+    {
+        ma_result result;
+        ma_device_job_thread_config jobThreadConfig;
+
+        jobThreadConfig = ma_device_job_thread_config_init();
+
+        result = ma_device_job_thread_init(&jobThreadConfig, &pContext->allocationCallbacks, &pContext->aaudio.jobThread);
+        if (result != MA_SUCCESS) {
+            ma_dlclose(pContext, pContext->aaudio.hAAudio);
+            pContext->aaudio.hAAudio = NULL;
+            return result;
+        }
+    }
+    
+
     (void)pConfig;
     return MA_SUCCESS;
 }
 
 static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
 {
+    ma_device* pDevice;
+
+    MA_ASSERT(pJob != NULL);
+
+    pDevice = (ma_device*)pJob->data.device.aaudio.reroute.pDevice;
+    MA_ASSERT(pDevice != NULL);
+
     /* Here is where we need to reroute the device. To do this we need to uninitialize the stream and reinitialize it. */
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "TESTING - AAUDIO REROUTE");
+
+    return MA_SUCCESS;
 }
 #else
 /* Getting here means there is no AAudio backend so we need a no-op job implementation. */
