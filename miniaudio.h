@@ -494,6 +494,8 @@ entitlements.xcent file:
     <true/>
     ```
 
+See this discussion for more info: https://github.com/mackron/miniaudio/issues/203.
+
 
 2.3. Linux
 ----------
