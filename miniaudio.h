@@ -5835,6 +5835,7 @@ called by ma_job_process().
 */
 typedef ma_result (* ma_job_proc)(ma_job* pJob);
 
+/* When a job type is added here an callback needs to be added go "g_jobVTable" in the implementation section. */
 typedef enum
 {
     /* Miscellaneous. */
@@ -5851,6 +5852,9 @@ typedef enum
     MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM,
     MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM,
     MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM,
+
+    /* Device. */
+    MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE,
 
     /* Count. Must always be last. */
     MA_JOB_TYPE_COUNT
@@ -16148,6 +16152,747 @@ MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event*
         return MA_NOT_IMPLEMENTED;  /* Threading is disabled. */
     }
     #endif
+}
+
+
+
+/************************************************************************************************************************************************************
+
+Job Queue
+
+************************************************************************************************************************************************************/
+MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity)
+{
+    ma_slot_allocator_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.capacity = capacity;
+
+    return config;
+}
+
+
+static MA_INLINE ma_uint32 ma_slot_allocator_calculate_group_capacity(ma_uint32 slotCapacity)
+{
+    ma_uint32 cap = slotCapacity / 32;
+    if ((slotCapacity % 32) != 0) {
+        cap += 1;
+    }
+
+    return cap;
+}
+
+static MA_INLINE ma_uint32 ma_slot_allocator_group_capacity(const ma_slot_allocator* pAllocator)
+{
+    return ma_slot_allocator_calculate_group_capacity(pAllocator->capacity);
+}
+
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t groupsOffset;
+    size_t slotsOffset;
+} ma_slot_allocator_heap_layout;
+
+static ma_result ma_slot_allocator_get_heap_layout(const ma_slot_allocator_config* pConfig, ma_slot_allocator_heap_layout* pHeapLayout)
+{
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->capacity == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Groups. */
+    pHeapLayout->groupsOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_align_64(ma_slot_allocator_calculate_group_capacity(pConfig->capacity) * sizeof(ma_slot_allocator_group));
+
+    /* Slots. */
+    pHeapLayout->slotsOffset  = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_uint32));
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_slot_allocator_heap_layout layout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_slot_allocator_get_heap_layout(pConfig, &layout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = layout.sizeInBytes;
+
+    return result;
+}
+
+MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator)
+{
+    ma_result result;
+    ma_slot_allocator_heap_layout heapLayout;
+
+    if (pAllocator == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pAllocator);
+
+    if (pHeap == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    result = ma_slot_allocator_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pAllocator->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pAllocator->pGroups  = (ma_slot_allocator_group*)ma_offset_ptr(pHeap, heapLayout.groupsOffset);
+    pAllocator->pSlots   = (ma_uint32*)ma_offset_ptr(pHeap, heapLayout.slotsOffset);
+    pAllocator->capacity = pConfig->capacity;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_slot_allocator_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the size of the heap allocation. */
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_slot_allocator_init_preallocated(pConfig, pHeap, pAllocator);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pAllocator->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pAllocator == NULL) {
+        return;
+    }
+
+    if (pAllocator->_ownsHeap) {
+        ma_free(pAllocator->_pHeap, pAllocationCallbacks);
+    }
+}
+
+MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot)
+{
+    ma_uint32 iAttempt;
+    const ma_uint32 maxAttempts = 2;    /* The number of iterations to perform until returning MA_OUT_OF_MEMORY if no slots can be found. */
+
+    if (pAllocator == NULL || pSlot == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iAttempt = 0; iAttempt < maxAttempts; iAttempt += 1) {
+        /* We need to acquire a suitable bitfield first. This is a bitfield that's got an available slot within it. */
+        ma_uint32 iGroup;
+        for (iGroup = 0; iGroup < ma_slot_allocator_group_capacity(pAllocator); iGroup += 1) {
+            /* CAS */
+            for (;;) {
+                ma_uint32 oldBitfield;
+                ma_uint32 newBitfield;
+                ma_uint32 bitOffset;
+
+                oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
+
+                /* Fast check to see if anything is available. */
+                if (oldBitfield == 0xFFFFFFFF) {
+                    break;  /* No available bits in this bitfield. */
+                }
+
+                bitOffset = ma_ffs_32(~oldBitfield);
+                MA_ASSERT(bitOffset < 32);
+
+                newBitfield = oldBitfield | (1 << bitOffset);
+
+                if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
+                    ma_uint32 slotIndex;
+
+                    /* Increment the counter as soon as possible to have other threads report out-of-memory sooner than later. */
+                    c89atomic_fetch_add_32(&pAllocator->count, 1);
+
+                    /* The slot index is required for constructing the output value. */
+                    slotIndex = (iGroup << 5) + bitOffset;  /* iGroup << 5 = iGroup * 32 */
+                    if (slotIndex >= pAllocator->capacity) {
+                        return MA_OUT_OF_MEMORY;
+                    }
+
+                    /* Increment the reference count before constructing the output value. */
+                    pAllocator->pSlots[slotIndex] += 1;
+
+                    /* Construct the output value. */
+                    *pSlot = (((ma_uint64)pAllocator->pSlots[slotIndex] << 32) | slotIndex);
+
+                    return MA_SUCCESS;
+                }
+            }
+        }
+
+        /* We weren't able to find a slot. If it's because we've reached our capacity we need to return MA_OUT_OF_MEMORY. Otherwise we need to do another iteration and try again. */
+        if (pAllocator->count < pAllocator->capacity) {
+            ma_yield();
+        } else {
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+    /* We couldn't find a slot within the maximum number of attempts. */
+    return MA_OUT_OF_MEMORY;
+}
+
+MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot)
+{
+    ma_uint32 iGroup;
+    ma_uint32 iBit;
+
+    if (pAllocator == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    iGroup = (ma_uint32)((slot & 0xFFFFFFFF) >> 5);   /* slot / 32 */
+    iBit   = (ma_uint32)((slot & 0xFFFFFFFF) & 31);   /* slot % 32 */
+
+    if (iGroup >= ma_slot_allocator_group_capacity(pAllocator)) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ASSERT(iBit < 32);   /* This must be true due to the logic we used to actually calculate it. */
+
+    while (c89atomic_load_32(&pAllocator->count) > 0) {
+        /* CAS */
+        ma_uint32 oldBitfield;
+        ma_uint32 newBitfield;
+
+        oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
+        newBitfield = oldBitfield & ~(1 << iBit);
+
+        /* Debugging for checking for double-frees. */
+        #if defined(MA_DEBUG_OUTPUT)
+        {
+            if ((oldBitfield & (1 << iBit)) == 0) {
+                MA_ASSERT(MA_FALSE);    /* Double free detected.*/
+            }
+        }
+        #endif
+
+        if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
+            c89atomic_fetch_sub_32(&pAllocator->count, 1);
+            return MA_SUCCESS;
+        }
+    }
+
+    /* Getting here means there are no allocations available for freeing. */
+    return MA_INVALID_OPERATION;
+}
+
+
+#define MA_JOB_ID_NONE      ~((ma_uint64)0)
+#define MA_JOB_SLOT_NONE    (ma_uint16)(~0)
+
+static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
+{
+    return (ma_uint32)(toc >> 32);
+}
+
+static MA_INLINE ma_uint16 ma_job_extract_slot(ma_uint64 toc)
+{
+    return (ma_uint16)(toc & 0x0000FFFF);
+}
+
+static MA_INLINE ma_uint16 ma_job_extract_code(ma_uint64 toc)
+{
+    return (ma_uint16)((toc & 0xFFFF0000) >> 16);
+}
+
+static MA_INLINE ma_uint64 ma_job_toc_to_allocation(ma_uint64 toc)
+{
+    return ((ma_uint64)ma_job_extract_refcount(toc) << 32) | (ma_uint64)ma_job_extract_slot(toc);
+}
+
+static MA_INLINE ma_uint64 ma_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
+{
+    /* Clear the reference count first. */
+    toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
+    toc = toc |  ((ma_uint64)refcount   << 32);
+
+    return toc;
+}
+
+
+MA_API ma_job ma_job_init(ma_uint16 code)
+{
+    ma_job job;
+
+    MA_ZERO_OBJECT(&job);
+    job.toc.breakup.code = code;
+    job.toc.breakup.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
+    job.next             = MA_JOB_ID_NONE;
+
+    return job;
+}
+
+
+static ma_result ma_job_process__noop(ma_job* pJob);
+static ma_result ma_job_process__quit(ma_job* pJob);
+static ma_result ma_job_process__custom(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob);
+static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob);
+static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob);
+
+static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
+{
+    /* Miscellaneous. */
+    ma_job_process__quit,                                       /* MA_JOB_TYPE_QUIT */
+    ma_job_process__custom,                                     /* MA_JOB_TYPE_CUSTOM */
+
+    /* Resource Manager. */
+    ma_job_process__resource_manager__load_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__free_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__page_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE */
+    ma_job_process__resource_manager__load_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER */
+    ma_job_process__resource_manager__free_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER */
+    ma_job_process__resource_manager__load_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM */
+    ma_job_process__resource_manager__free_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM */
+    ma_job_process__resource_manager__page_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM */
+    ma_job_process__resource_manager__seek_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM */
+
+    /* Device. */
+    ma_job_process__device__aaudio_reroute                      /*MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE*/
+};
+
+MA_API ma_result ma_job_process(ma_job* pJob)
+{
+    if (pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pJob->toc.breakup.code > MA_JOB_TYPE_COUNT) {
+        return MA_INVALID_OPERATION;
+    }
+
+    return g_jobVTable[pJob->toc.breakup.code](pJob);
+}
+
+static ma_result ma_job_process__noop(ma_job* pJob)
+{
+    MA_ASSERT(pJob != NULL);
+
+    /* No-op. */
+    (void)pJob;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_job_process__quit(ma_job* pJob)
+{
+    return ma_job_process__noop(pJob);
+}
+
+static ma_result ma_job_process__custom(ma_job* pJob)
+{
+    MA_ASSERT(pJob != NULL);
+
+    /* No-op if there's no callback. */
+    if (pJob->data.custom.proc == NULL) {
+        return MA_SUCCESS;
+    }
+
+    return pJob->data.custom.proc(pJob);
+}
+
+
+
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
+{
+    ma_job_queue_config config;
+
+    config.flags    = flags;
+    config.capacity = capacity;
+
+    return config;
+}
+
+
+typedef struct
+{
+    size_t sizeInBytes;
+    size_t allocatorOffset;
+    size_t jobsOffset;
+} ma_job_queue_heap_layout;
+
+static ma_result ma_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_job_queue_heap_layout* pHeapLayout)
+{
+    ma_result result;
+
+    MA_ASSERT(pHeapLayout != NULL);
+
+    MA_ZERO_OBJECT(pHeapLayout);
+
+    if (pConfig == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pConfig->capacity == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    pHeapLayout->sizeInBytes = 0;
+
+    /* Allocator. */
+    {
+        ma_slot_allocator_config allocatorConfig;
+        size_t allocatorHeapSizeInBytes;
+
+        allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
+        result = ma_slot_allocator_get_heap_size(&allocatorConfig, &allocatorHeapSizeInBytes);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->allocatorOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes    += allocatorHeapSizeInBytes;
+    }
+
+    /* Jobs. */
+    pHeapLayout->jobsOffset   = pHeapLayout->sizeInBytes;
+    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_job));
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
+{
+    ma_result result;
+    ma_job_queue_heap_layout layout;
+
+    if (pHeapSizeInBytes == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pHeapSizeInBytes = 0;
+
+    result = ma_job_queue_get_heap_layout(pConfig, &layout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pHeapSizeInBytes = layout.sizeInBytes;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
+{
+    ma_result result;
+    ma_job_queue_heap_layout heapLayout;
+    ma_slot_allocator_config allocatorConfig;
+
+    if (pQueue == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pQueue);
+
+    result = ma_job_queue_get_heap_layout(pConfig, &heapLayout);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    pQueue->_pHeap = pHeap;
+    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
+
+    pQueue->flags    = pConfig->flags;
+    pQueue->capacity = pConfig->capacity;
+    pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
+
+    allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
+    result = ma_slot_allocator_init_preallocated(&allocatorConfig, ma_offset_ptr(pHeap, heapLayout.allocatorOffset), &pQueue->allocator);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* We need a semaphore if we're running in non-blocking mode. If threading is disabled we need to return an error. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_init(0, &pQueue->sem);
+        }
+        #else
+        {
+            /* Threading is disabled and we've requested non-blocking mode. */
+            return MA_INVALID_OPERATION;
+        }
+        #endif
+    }
+
+    /*
+    Our queue needs to be initialized with a free standing node. This should always be slot 0. Required for the lock free algorithm. The first job in the queue is
+    just a dummy item for giving us the first item in the list which is stored in the "next" member.
+    */
+    ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
+    pQueue->pJobs[ma_job_extract_slot(pQueue->head)].next = MA_JOB_ID_NONE;
+    pQueue->tail = pQueue->head;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue)
+{
+    ma_result result;
+    size_t heapSizeInBytes;
+    void* pHeap;
+
+    result = ma_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (heapSizeInBytes > 0) {
+        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
+        if (pHeap == NULL) {
+            return MA_OUT_OF_MEMORY;
+        }
+    } else {
+        pHeap = NULL;
+    }
+
+    result = ma_job_queue_init_preallocated(pConfig, pHeap, pQueue);
+    if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
+        return result;
+    }
+
+    pQueue->_ownsHeap = MA_TRUE;
+    return MA_SUCCESS;
+}
+
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pQueue == NULL) {
+        return;
+    }
+
+    /* All we need to do is uninitialize the semaphore. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_uninit(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    ma_slot_allocator_uninit(&pQueue->allocator, pAllocationCallbacks);
+
+    if (pQueue->_ownsHeap) {
+        ma_free(pQueue->_pHeap, pAllocationCallbacks);
+    }
+}
+
+static ma_bool32 ma_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+{
+    /* The new counter is taken from the expected value. */
+    return c89atomic_compare_and_swap_64(dst, expected, ma_job_set_refcount(desired, ma_job_extract_refcount(expected) + 1)) == expected;
+}
+
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
+{
+    /*
+    Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
+    */
+    ma_result result;
+    ma_uint64 slot;
+    ma_uint64 tail;
+    ma_uint64 next;
+
+    if (pQueue == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We need a new slot. */
+    result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
+    if (result != MA_SUCCESS) {
+        return result;  /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
+    }
+
+    /* At this point we should have a slot to place the job. */
+    MA_ASSERT(ma_job_extract_slot(slot) < pQueue->capacity);
+
+    /* We need to put the job into memory before we do anything. */
+    pQueue->pJobs[ma_job_extract_slot(slot)]                  = *pJob;
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
+
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_lock(&pQueue->lock);
+    #endif
+    {
+        /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
+        for (;;) {
+            tail = c89atomic_load_64(&pQueue->tail);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(tail)].next);
+
+            if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
+                if (ma_job_extract_slot(next) == 0xFFFF) {
+                    if (ma_job_queue_cas(&pQueue->pJobs[ma_job_extract_slot(tail)].next, next, slot)) {
+                        break;
+                    }
+                } else {
+                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
+                }
+            }
+        }
+        ma_job_queue_cas(&pQueue->tail, tail, slot);
+    }
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_unlock(&pQueue->lock);
+    #endif
+
+
+    /* Signal the semaphore as the last step if we're using synchronous mode. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_release(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
+{
+    ma_uint64 head;
+    ma_uint64 tail;
+    ma_uint64 next;
+
+    if (pQueue == NULL || pJob == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* If we're running in synchronous mode we'll need to wait on a semaphore. */
+    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
+        #ifndef MA_NO_THREADING
+        {
+            ma_semaphore_wait(&pQueue->sem);
+        }
+        #else
+        {
+            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
+        }
+        #endif
+    }
+
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_lock(&pQueue->lock);
+    #endif
+    {
+        /*
+        BUG: In lock-free mode, multiple threads can be in this section of code. The "head" variable in the loop below
+        is stored. One thread can fall through to the freeing of this item while another is still using "head" for the
+        retrieval of the "next" variable.
+
+        The slot allocator might need to make use of some reference counting to ensure it's only truely freed when
+        there are no more references to the item. This must be fixed before removing these locks.
+        */
+
+        /* Now we need to remove the root item from the list. */
+        for (;;) {
+            head = c89atomic_load_64(&pQueue->head);
+            tail = c89atomic_load_64(&pQueue->tail);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(head)].next);
+
+            if (ma_job_toc_to_allocation(head) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
+                if (ma_job_extract_slot(head) == ma_job_extract_slot(tail)) {
+                    if (ma_job_extract_slot(next) == 0xFFFF) {
+                        #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+                        ma_spinlock_unlock(&pQueue->lock);
+                        #endif
+                        return MA_NO_DATA_AVAILABLE;
+                    }
+                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
+                } else {
+                    *pJob = pQueue->pJobs[ma_job_extract_slot(next)];
+                    if (ma_job_queue_cas(&pQueue->head, head, ma_job_extract_slot(next))) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock_unlock(&pQueue->lock);
+    #endif
+
+    ma_slot_allocator_free(&pQueue->allocator, head);
+
+    /*
+    If it's a quit job make sure it's put back on the queue to ensure other threads have an opportunity to detect it and terminate naturally. We
+    could instead just leave it on the queue, but that would involve fiddling with the lock-free code above and I want to keep that as simple as
+    possible.
+    */
+    if (pJob->toc.breakup.code == MA_JOB_TYPE_QUIT) {
+        ma_job_queue_post(pQueue, pJob);
+        return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
+    }
+
+    return MA_SUCCESS;
 }
 
 
@@ -35869,6 +36614,17 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     (void)pConfig;
     return MA_SUCCESS;
 }
+
+static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
+{
+    /* Here is where we need to reroute the device. To do this we need to uninitialize the stream and reinitialize it. */
+}
+#else
+/* Getting here means there is no AAudio backend so we need a no-op job implementation. */
+static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
+{
+    return ma_job_process__noop(pJob);
+}
 #endif  /* AAudio */
 
 
@@ -38275,7 +39031,7 @@ MA_API ma_result ma_device_job_thread_init(const ma_device_job_thread_config* pC
     jobQueueConfig = ma_job_queue_config_init(pConfig->jobQueueFlags, pConfig->jobQueueCapacity);   
 
     result = ma_job_queue_init(&jobQueueConfig, pAllocationCallbacks, &pJobThread->jobQueue);
-    if (result != NULL) {
+    if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize job queue. */
     }
 
@@ -40096,732 +40852,6 @@ MA_API float ma_volume_linear_to_db(float factor)
 MA_API float ma_volume_db_to_linear(float gain)
 {
     return ma_powf(10, gain/20.0f);
-}
-
-
-
-MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity)
-{
-    ma_slot_allocator_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.capacity = capacity;
-
-    return config;
-}
-
-
-static MA_INLINE ma_uint32 ma_slot_allocator_calculate_group_capacity(ma_uint32 slotCapacity)
-{
-    ma_uint32 cap = slotCapacity / 32;
-    if ((slotCapacity % 32) != 0) {
-        cap += 1;
-    }
-
-    return cap;
-}
-
-static MA_INLINE ma_uint32 ma_slot_allocator_group_capacity(const ma_slot_allocator* pAllocator)
-{
-    return ma_slot_allocator_calculate_group_capacity(pAllocator->capacity);
-}
-
-
-typedef struct
-{
-    size_t sizeInBytes;
-    size_t groupsOffset;
-    size_t slotsOffset;
-} ma_slot_allocator_heap_layout;
-
-static ma_result ma_slot_allocator_get_heap_layout(const ma_slot_allocator_config* pConfig, ma_slot_allocator_heap_layout* pHeapLayout)
-{
-    MA_ASSERT(pHeapLayout != NULL);
-
-    MA_ZERO_OBJECT(pHeapLayout);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pConfig->capacity == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    pHeapLayout->sizeInBytes = 0;
-
-    /* Groups. */
-    pHeapLayout->groupsOffset = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += ma_align_64(ma_slot_allocator_calculate_group_capacity(pConfig->capacity) * sizeof(ma_slot_allocator_group));
-
-    /* Slots. */
-    pHeapLayout->slotsOffset  = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_uint32));
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes)
-{
-    ma_result result;
-    ma_slot_allocator_heap_layout layout;
-
-    if (pHeapSizeInBytes == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pHeapSizeInBytes = 0;
-
-    result = ma_slot_allocator_get_heap_layout(pConfig, &layout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pHeapSizeInBytes = layout.sizeInBytes;
-
-    return result;
-}
-
-MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator)
-{
-    ma_result result;
-    ma_slot_allocator_heap_layout heapLayout;
-
-    if (pAllocator == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pAllocator);
-
-    if (pHeap == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    result = ma_slot_allocator_get_heap_layout(pConfig, &heapLayout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pAllocator->_pHeap = pHeap;
-    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
-
-    pAllocator->pGroups  = (ma_slot_allocator_group*)ma_offset_ptr(pHeap, heapLayout.groupsOffset);
-    pAllocator->pSlots   = (ma_uint32*)ma_offset_ptr(pHeap, heapLayout.slotsOffset);
-    pAllocator->capacity = pConfig->capacity;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator)
-{
-    ma_result result;
-    size_t heapSizeInBytes;
-    void* pHeap;
-
-    result = ma_slot_allocator_get_heap_size(pConfig, &heapSizeInBytes);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to retrieve the size of the heap allocation. */
-    }
-
-    if (heapSizeInBytes > 0) {
-        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-    } else {
-        pHeap = NULL;
-    }
-
-    result = ma_slot_allocator_init_preallocated(pConfig, pHeap, pAllocator);
-    if (result != MA_SUCCESS) {
-        ma_free(pHeap, pAllocationCallbacks);
-        return result;
-    }
-
-    pAllocator->_ownsHeap = MA_TRUE;
-    return MA_SUCCESS;
-}
-
-MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pAllocator == NULL) {
-        return;
-    }
-
-    if (pAllocator->_ownsHeap) {
-        ma_free(pAllocator->_pHeap, pAllocationCallbacks);
-    }
-}
-
-MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot)
-{
-    ma_uint32 iAttempt;
-    const ma_uint32 maxAttempts = 2;    /* The number of iterations to perform until returning MA_OUT_OF_MEMORY if no slots can be found. */
-
-    if (pAllocator == NULL || pSlot == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    for (iAttempt = 0; iAttempt < maxAttempts; iAttempt += 1) {
-        /* We need to acquire a suitable bitfield first. This is a bitfield that's got an available slot within it. */
-        ma_uint32 iGroup;
-        for (iGroup = 0; iGroup < ma_slot_allocator_group_capacity(pAllocator); iGroup += 1) {
-            /* CAS */
-            for (;;) {
-                ma_uint32 oldBitfield;
-                ma_uint32 newBitfield;
-                ma_uint32 bitOffset;
-
-                oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
-
-                /* Fast check to see if anything is available. */
-                if (oldBitfield == 0xFFFFFFFF) {
-                    break;  /* No available bits in this bitfield. */
-                }
-
-                bitOffset = ma_ffs_32(~oldBitfield);
-                MA_ASSERT(bitOffset < 32);
-
-                newBitfield = oldBitfield | (1 << bitOffset);
-
-                if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
-                    ma_uint32 slotIndex;
-
-                    /* Increment the counter as soon as possible to have other threads report out-of-memory sooner than later. */
-                    c89atomic_fetch_add_32(&pAllocator->count, 1);
-
-                    /* The slot index is required for constructing the output value. */
-                    slotIndex = (iGroup << 5) + bitOffset;  /* iGroup << 5 = iGroup * 32 */
-                    if (slotIndex >= pAllocator->capacity) {
-                        return MA_OUT_OF_MEMORY;
-                    }
-
-                    /* Increment the reference count before constructing the output value. */
-                    pAllocator->pSlots[slotIndex] += 1;
-
-                    /* Construct the output value. */
-                    *pSlot = (((ma_uint64)pAllocator->pSlots[slotIndex] << 32) | slotIndex);
-
-                    return MA_SUCCESS;
-                }
-            }
-        }
-
-        /* We weren't able to find a slot. If it's because we've reached our capacity we need to return MA_OUT_OF_MEMORY. Otherwise we need to do another iteration and try again. */
-        if (pAllocator->count < pAllocator->capacity) {
-            ma_yield();
-        } else {
-            return MA_OUT_OF_MEMORY;
-        }
-    }
-
-    /* We couldn't find a slot within the maximum number of attempts. */
-    return MA_OUT_OF_MEMORY;
-}
-
-MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot)
-{
-    ma_uint32 iGroup;
-    ma_uint32 iBit;
-
-    if (pAllocator == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    iGroup = (ma_uint32)((slot & 0xFFFFFFFF) >> 5);   /* slot / 32 */
-    iBit   = (ma_uint32)((slot & 0xFFFFFFFF) & 31);   /* slot % 32 */
-
-    if (iGroup >= ma_slot_allocator_group_capacity(pAllocator)) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ASSERT(iBit < 32);   /* This must be true due to the logic we used to actually calculate it. */
-
-    while (c89atomic_load_32(&pAllocator->count) > 0) {
-        /* CAS */
-        ma_uint32 oldBitfield;
-        ma_uint32 newBitfield;
-
-        oldBitfield = c89atomic_load_32(&pAllocator->pGroups[iGroup].bitfield);  /* <-- This copy must happen. The compiler must not optimize this away. */
-        newBitfield = oldBitfield & ~(1 << iBit);
-
-        /* Debugging for checking for double-frees. */
-        #if defined(MA_DEBUG_OUTPUT)
-        {
-            if ((oldBitfield & (1 << iBit)) == 0) {
-                MA_ASSERT(MA_FALSE);    /* Double free detected.*/
-            }
-        }
-        #endif
-
-        if (c89atomic_compare_and_swap_32(&pAllocator->pGroups[iGroup].bitfield, oldBitfield, newBitfield) == oldBitfield) {
-            c89atomic_fetch_sub_32(&pAllocator->count, 1);
-            return MA_SUCCESS;
-        }
-    }
-
-    /* Getting here means there are no allocations available for freeing. */
-    return MA_INVALID_OPERATION;
-}
-
-
-#define MA_JOB_ID_NONE      ~((ma_uint64)0)
-#define MA_JOB_SLOT_NONE    (ma_uint16)(~0)
-
-static MA_INLINE ma_uint32 ma_job_extract_refcount(ma_uint64 toc)
-{
-    return (ma_uint32)(toc >> 32);
-}
-
-static MA_INLINE ma_uint16 ma_job_extract_slot(ma_uint64 toc)
-{
-    return (ma_uint16)(toc & 0x0000FFFF);
-}
-
-static MA_INLINE ma_uint16 ma_job_extract_code(ma_uint64 toc)
-{
-    return (ma_uint16)((toc & 0xFFFF0000) >> 16);
-}
-
-static MA_INLINE ma_uint64 ma_job_toc_to_allocation(ma_uint64 toc)
-{
-    return ((ma_uint64)ma_job_extract_refcount(toc) << 32) | (ma_uint64)ma_job_extract_slot(toc);
-}
-
-static MA_INLINE ma_uint64 ma_job_set_refcount(ma_uint64 toc, ma_uint32 refcount)
-{
-    /* Clear the reference count first. */
-    toc = toc & ~((ma_uint64)0xFFFFFFFF << 32);
-    toc = toc |  ((ma_uint64)refcount   << 32);
-
-    return toc;
-}
-
-
-MA_API ma_job ma_job_init(ma_uint16 code)
-{
-    ma_job job;
-
-    MA_ZERO_OBJECT(&job);
-    job.toc.breakup.code = code;
-    job.toc.breakup.slot = MA_JOB_SLOT_NONE;    /* Temp value. Will be allocated when posted to a queue. */
-    job.next             = MA_JOB_ID_NONE;
-
-    return job;
-}
-
-
-static ma_result ma_job_process__quit(ma_job* pJob);
-static ma_result ma_job_process__custom(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob);
-static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob);
-
-static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
-{
-    /* Miscellaneous. */
-    ma_job_process__quit,                                       /* MA_JOB_TYPE_QUIT */
-    ma_job_process__custom,                                     /* MA_JOB_TYPE_CUSTOM */
-
-    /* Resource Manager. */
-    ma_job_process__resource_manager__load_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE */
-    ma_job_process__resource_manager__free_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE */
-    ma_job_process__resource_manager__page_data_buffer_node,    /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE */
-    ma_job_process__resource_manager__load_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER */
-    ma_job_process__resource_manager__free_data_buffer,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER */
-    ma_job_process__resource_manager__load_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM */
-    ma_job_process__resource_manager__free_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM */
-    ma_job_process__resource_manager__page_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM */
-    ma_job_process__resource_manager__seek_data_stream,         /* MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM */
-};
-
-MA_API ma_result ma_job_process(ma_job* pJob)
-{
-    if (pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pJob->toc.breakup.code > MA_JOB_TYPE_COUNT) {
-        return MA_INVALID_OPERATION;
-    }
-
-    return g_jobVTable[pJob->toc.breakup.code](pJob);
-}
-
-static ma_result ma_job_process__quit(ma_job* pJob)
-{
-    MA_ASSERT(pJob != NULL);
-
-    /* No-op. */
-    (void)pJob;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_job_process__custom(ma_job* pJob)
-{
-    MA_ASSERT(pJob != NULL);
-
-    /* No-op if there's no callback. */
-    if (pJob->data.custom.proc == NULL) {
-        return MA_SUCCESS;
-    }
-
-    return pJob->data.custom.proc(pJob);
-}
-
-
-
-MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity)
-{
-    ma_job_queue_config config;
-
-    config.flags    = flags;
-    config.capacity = capacity;
-
-    return config;
-}
-
-
-typedef struct
-{
-    size_t sizeInBytes;
-    size_t allocatorOffset;
-    size_t jobsOffset;
-} ma_job_queue_heap_layout;
-
-static ma_result ma_job_queue_get_heap_layout(const ma_job_queue_config* pConfig, ma_job_queue_heap_layout* pHeapLayout)
-{
-    ma_result result;
-
-    MA_ASSERT(pHeapLayout != NULL);
-
-    MA_ZERO_OBJECT(pHeapLayout);
-
-    if (pConfig == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pConfig->capacity == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    pHeapLayout->sizeInBytes = 0;
-
-    /* Allocator. */
-    {
-        ma_slot_allocator_config allocatorConfig;
-        size_t allocatorHeapSizeInBytes;
-
-        allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
-        result = ma_slot_allocator_get_heap_size(&allocatorConfig, &allocatorHeapSizeInBytes);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        pHeapLayout->allocatorOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes    += allocatorHeapSizeInBytes;
-    }
-
-    /* Jobs. */
-    pHeapLayout->jobsOffset   = pHeapLayout->sizeInBytes;
-    pHeapLayout->sizeInBytes += ma_align_64(pConfig->capacity * sizeof(ma_job));
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes)
-{
-    ma_result result;
-    ma_job_queue_heap_layout layout;
-
-    if (pHeapSizeInBytes == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    *pHeapSizeInBytes = 0;
-
-    result = ma_job_queue_get_heap_layout(pConfig, &layout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    *pHeapSizeInBytes = layout.sizeInBytes;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue)
-{
-    ma_result result;
-    ma_job_queue_heap_layout heapLayout;
-    ma_slot_allocator_config allocatorConfig;
-
-    if (pQueue == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pQueue);
-
-    result = ma_job_queue_get_heap_layout(pConfig, &heapLayout);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    pQueue->_pHeap = pHeap;
-    MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
-
-    pQueue->flags    = pConfig->flags;
-    pQueue->capacity = pConfig->capacity;
-    pQueue->pJobs    = (ma_job*)ma_offset_ptr(pHeap, heapLayout.jobsOffset);
-
-    allocatorConfig = ma_slot_allocator_config_init(pConfig->capacity);
-    result = ma_slot_allocator_init_preallocated(&allocatorConfig, ma_offset_ptr(pHeap, heapLayout.allocatorOffset), &pQueue->allocator);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /* We need a semaphore if we're running in non-blocking mode. If threading is disabled we need to return an error. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_init(0, &pQueue->sem);
-        }
-        #else
-        {
-            /* Threading is disabled and we've requested non-blocking mode. */
-            return MA_INVALID_OPERATION;
-        }
-        #endif
-    }
-
-    /*
-    Our queue needs to be initialized with a free standing node. This should always be slot 0. Required for the lock free algorithm. The first job in the queue is
-    just a dummy item for giving us the first item in the list which is stored in the "next" member.
-    */
-    ma_slot_allocator_alloc(&pQueue->allocator, &pQueue->head);  /* Will never fail. */
-    pQueue->pJobs[ma_job_extract_slot(pQueue->head)].next = MA_JOB_ID_NONE;
-    pQueue->tail = pQueue->head;
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue)
-{
-    ma_result result;
-    size_t heapSizeInBytes;
-    void* pHeap;
-
-    result = ma_job_queue_get_heap_size(pConfig, &heapSizeInBytes);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    if (heapSizeInBytes > 0) {
-        pHeap = ma_malloc(heapSizeInBytes, pAllocationCallbacks);
-        if (pHeap == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-    } else {
-        pHeap = NULL;
-    }
-
-    result = ma_job_queue_init_preallocated(pConfig, pHeap, pQueue);
-    if (result != MA_SUCCESS) {
-        ma_free(pHeap, pAllocationCallbacks);
-        return result;
-    }
-
-    pQueue->_ownsHeap = MA_TRUE;
-    return MA_SUCCESS;
-}
-
-MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    if (pQueue == NULL) {
-        return;
-    }
-
-    /* All we need to do is uninitialize the semaphore. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_uninit(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    ma_slot_allocator_uninit(&pQueue->allocator, pAllocationCallbacks);
-
-    if (pQueue->_ownsHeap) {
-        ma_free(pQueue->_pHeap, pAllocationCallbacks);
-    }
-}
-
-static ma_bool32 ma_job_queue_cas(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
-{
-    /* The new counter is taken from the expected value. */
-    return c89atomic_compare_and_swap_64(dst, expected, ma_job_set_refcount(desired, ma_job_extract_refcount(expected) + 1)) == expected;
-}
-
-MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
-{
-    /*
-    Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
-    */
-    ma_result result;
-    ma_uint64 slot;
-    ma_uint64 tail;
-    ma_uint64 next;
-
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* We need a new slot. */
-    result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
-    if (result != MA_SUCCESS) {
-        return result;  /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
-    }
-
-    /* At this point we should have a slot to place the job. */
-    MA_ASSERT(ma_job_extract_slot(slot) < pQueue->capacity);
-
-    /* We need to put the job into memory before we do anything. */
-    pQueue->pJobs[ma_job_extract_slot(slot)]                  = *pJob;
-    pQueue->pJobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
-    pQueue->pJobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
-    pQueue->pJobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
-
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_lock(&pQueue->lock);
-    #endif
-    {
-        /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
-        for (;;) {
-            tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(tail)].next);
-
-            if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
-                if (ma_job_extract_slot(next) == 0xFFFF) {
-                    if (ma_job_queue_cas(&pQueue->pJobs[ma_job_extract_slot(tail)].next, next, slot)) {
-                        break;
-                    }
-                } else {
-                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
-                }
-            }
-        }
-        ma_job_queue_cas(&pQueue->tail, tail, slot);
-    }
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_unlock(&pQueue->lock);
-    #endif
-
-
-    /* Signal the semaphore as the last step if we're using synchronous mode. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_release(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
-{
-    ma_uint64 head;
-    ma_uint64 tail;
-    ma_uint64 next;
-
-    if (pQueue == NULL || pJob == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* If we're running in synchronous mode we'll need to wait on a semaphore. */
-    if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
-        #ifndef MA_NO_THREADING
-        {
-            ma_semaphore_wait(&pQueue->sem);
-        }
-        #else
-        {
-            MA_ASSERT(MA_FALSE);    /* Should never get here. Should have been checked at initialization time. */
-        }
-        #endif
-    }
-
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_lock(&pQueue->lock);
-    #endif
-    {
-        /*
-        BUG: In lock-free mode, multiple threads can be in this section of code. The "head" variable in the loop below
-        is stored. One thread can fall through to the freeing of this item while another is still using "head" for the
-        retrieval of the "next" variable.
-
-        The slot allocator might need to make use of some reference counting to ensure it's only truely freed when
-        there are no more references to the item. This must be fixed before removing these locks.
-        */
-
-        /* Now we need to remove the root item from the list. */
-        for (;;) {
-            head = c89atomic_load_64(&pQueue->head);
-            tail = c89atomic_load_64(&pQueue->tail);
-            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(head)].next);
-
-            if (ma_job_toc_to_allocation(head) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->head))) {
-                if (ma_job_extract_slot(head) == ma_job_extract_slot(tail)) {
-                    if (ma_job_extract_slot(next) == 0xFFFF) {
-                        #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-                        ma_spinlock_unlock(&pQueue->lock);
-                        #endif
-                        return MA_NO_DATA_AVAILABLE;
-                    }
-                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
-                } else {
-                    *pJob = pQueue->pJobs[ma_job_extract_slot(next)];
-                    if (ma_job_queue_cas(&pQueue->head, head, ma_job_extract_slot(next))) {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock_unlock(&pQueue->lock);
-    #endif
-
-    ma_slot_allocator_free(&pQueue->allocator, head);
-
-    /*
-    If it's a quit job make sure it's put back on the queue to ensure other threads have an opportunity to detect it and terminate naturally. We
-    could instead just leave it on the queue, but that would involve fiddling with the lock-free code above and I want to keep that as simple as
-    possible.
-    */
-    if (pJob->toc.breakup.code == MA_JOB_TYPE_QUIT) {
-        ma_job_queue_post(pQueue, pJob);
-        return MA_CANCELLED;    /* Return a cancelled status just in case the thread is checking return codes and not properly checking for a quit job. */
-    }
-
-    return MA_SUCCESS;
 }
 
 
@@ -67429,25 +67459,15 @@ MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pReso
 }
 #else
 /* We'll get here if the resource manager is being excluded from the build. We need to define the job processing callbacks as no-ops. */
-static ma_result ma_job_process__resource_manager__noop(ma_job* pJob)
-{
-    MA_ASSERT(pJob != NULL);
-
-    /* No-op. */
-    (void)pJob;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob) { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
-static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob)      { return ma_job_process__resource_manager__noop(pJob); }
+static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job* pJob) { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_buffer_node(ma_job* pJob) { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__page_data_buffer_node(ma_job* pJob) { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob)      { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_buffer(ma_job* pJob)      { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob)      { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__free_data_stream(ma_job* pJob)      { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__page_data_stream(ma_job* pJob)      { return ma_job_process__noop(pJob); }
+static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob)      { return ma_job_process__noop(pJob); }
 #endif  /* MA_NO_RESOURCE_MANAGER */
 
 
