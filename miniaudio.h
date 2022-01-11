@@ -36546,6 +36546,10 @@ static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStre
 
     This maps with miniaudio's requirement that device's be drained which means we don't need to implement any draining logic.
     */
+    currentState = ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream);
+    if (currentState == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
+        return MA_SUCCESS;  /* The device is disconnected. Don't try stopping it. */
+    }
 
     resultAA = ((MA_PFN_AAudioStream_requestStop)pDevice->pContext->aaudio.AAudioStream_requestStop)(pStream);
     if (resultAA != MA_AAUDIO_OK) {
