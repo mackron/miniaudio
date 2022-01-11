@@ -8240,6 +8240,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         AAudio only. Explicitly sets the type of recording your program will be doing. When left
         unset, the input preset will be left unchanged.
 
+    aaudio.noAutoStartAfterReroute
+        AAudio only. Controls whether or not the device should be automatically restarted after a
+        stream reroute. When set to false (default) the device will be restarted automatically;
+        otherwise the device will be stopped.
+
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
 
