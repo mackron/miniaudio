@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.4 - 2022-01-12
+miniaudio - v0.11.5 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -36625,17 +36625,13 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
 
     /* The first thing to do is close the streams. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        pDevice->aaudio.pStreamCapture = NULL;
     }
 
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_result result = ma_device_stop_stream__aaudio(pDevice, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
+        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        pDevice->aaudio.pStreamPlayback = NULL;
     }
 
     /* Now we need to reinitialize each streams. The hardest part with this is just filling output the config and descriptors. */
