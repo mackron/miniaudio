@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.3 - 2022-01-07
+miniaudio - v0.11.4 - 2022-01-12
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 3
+#define MA_VERSION_REVISION 4
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -119,6 +119,8 @@ typedef ma_uint16 wchar_t;
     #define MA_WIN32
     #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
         #define MA_WIN32_UWP
+    #elif defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
+        #define MA_WIN32_GDK
     #else
         #define MA_WIN32_DESKTOP
     #endif
@@ -1329,7 +1331,23 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
 
 typedef struct
 {
-    ma_spatializer_config config;
+    ma_uint32 channelsIn;
+    ma_uint32 channelsOut;
+    ma_channel* pChannelMapIn;
+    ma_attenuation_model attenuationModel;
+    ma_positioning positioning;
+    ma_handedness handedness;           /* Defaults to right. Forward is -1 on the Z axis. In a left handed system, forward is +1 on the Z axis. */
+    float minGain;
+    float maxGain;
+    float minDistance;
+    float maxDistance;
+    float rolloff;
+    float coneInnerAngleInRadians;
+    float coneOuterAngleInRadians;
+    float coneOuterGain;
+    float dopplerFactor;                /* Set to 0 to disable doppler effect. */
+    float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
+    ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
     ma_vec3f position;
     ma_vec3f direction;
     ma_vec3f velocity;  /* For doppler effect. */
@@ -2010,6 +2028,408 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel);
 
 
 
+
+/************************************************************************************************************************************************************
+
+Synchronization
+
+************************************************************************************************************************************************************/
+/*
+Locks a spinlock.
+*/
+MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
+
+/*
+Locks a spinlock, but does not yield() when looping.
+*/
+MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
+
+/*
+Unlocks a spinlock.
+*/
+MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
+
+
+#ifndef MA_NO_THREADING
+
+/*
+Creates a mutex.
+
+A mutex must be created from a valid context. A mutex is initially unlocked.
+*/
+MA_API ma_result ma_mutex_init(ma_mutex* pMutex);
+
+/*
+Deletes a mutex.
+*/
+MA_API void ma_mutex_uninit(ma_mutex* pMutex);
+
+/*
+Locks a mutex with an infinite timeout.
+*/
+MA_API void ma_mutex_lock(ma_mutex* pMutex);
+
+/*
+Unlocks a mutex.
+*/
+MA_API void ma_mutex_unlock(ma_mutex* pMutex);
+
+
+/*
+Initializes an auto-reset event.
+*/
+MA_API ma_result ma_event_init(ma_event* pEvent);
+
+/*
+Uninitializes an auto-reset event.
+*/
+MA_API void ma_event_uninit(ma_event* pEvent);
+
+/*
+Waits for the specified auto-reset event to become signalled.
+*/
+MA_API ma_result ma_event_wait(ma_event* pEvent);
+
+/*
+Signals the specified auto-reset event.
+*/
+MA_API ma_result ma_event_signal(ma_event* pEvent);
+#endif  /* MA_NO_THREADING */
+
+
+/*
+Fence
+=====
+This locks while the counter is larger than 0. Counter can be incremented and decremented by any
+thread, but care needs to be taken when waiting. It is possible for one thread to acquire the
+fence just as another thread returns from ma_fence_wait().
+
+The idea behind a fence is to allow you to wait for a group of operations to complete. When an
+operation starts, the counter is incremented which locks the fence. When the operation completes,
+the fence will be released which decrements the counter. ma_fence_wait() will block until the
+counter hits zero.
+
+If threading is disabled, ma_fence_wait() will spin on the counter.
+*/
+typedef struct
+{
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+    ma_uint32 counter;
+} ma_fence;
+
+MA_API ma_result ma_fence_init(ma_fence* pFence);
+MA_API void ma_fence_uninit(ma_fence* pFence);
+MA_API ma_result ma_fence_acquire(ma_fence* pFence);    /* Increment counter. */
+MA_API ma_result ma_fence_release(ma_fence* pFence);    /* Decrement counter. */
+MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to reach 0. */
+
+
+
+/*
+Notification callback for asynchronous operations.
+*/
+typedef void ma_async_notification;
+
+typedef struct
+{
+    void (* onSignal)(ma_async_notification* pNotification);
+} ma_async_notification_callbacks;
+
+MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
+
+
+/*
+Simple polling notification.
+
+This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+    ma_bool32 signalled;
+} ma_async_notification_poll;
+
+MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
+MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
+
+
+/*
+Event Notification
+
+This uses an ma_event. If threading is disabled (MA_NO_THREADING), initialization will fail.
+*/
+typedef struct
+{
+    ma_async_notification_callbacks cb;
+#ifndef MA_NO_THREADING
+    ma_event e;
+#endif
+} ma_async_notification_event;
+
+MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
+MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
+
+
+
+
+/************************************************************************************************************************************************************
+
+Job Queue
+
+************************************************************************************************************************************************************/
+
+/*
+Slot Allocator
+--------------
+The idea of the slot allocator is for it to be used in conjunction with a fixed sized buffer. You use the slot allocator to allocator an index that can be used
+as the insertion point for an object.
+
+Slots are reference counted to help mitigate the ABA problem in the lock-free queue we use for tracking jobs.
+
+The slot index is stored in the low 32 bits. The reference counter is stored in the high 32 bits:
+
+    +-----------------+-----------------+
+    | 32 Bits         | 32 Bits         |
+    +-----------------+-----------------+
+    | Reference Count | Slot Index      |
+    +-----------------+-----------------+
+*/
+typedef struct
+{
+    ma_uint32 capacity;    /* The number of slots to make available. */
+} ma_slot_allocator_config;
+
+MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity);
+
+
+typedef struct
+{
+    MA_ATOMIC(4, ma_uint32) bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
+} ma_slot_allocator_group;
+
+typedef struct
+{
+    ma_slot_allocator_group* pGroups;   /* Slots are grouped in chunks of 32. */
+    ma_uint32* pSlots;                  /* 32 bits for reference counting for ABA mitigation. */
+    ma_uint32 count;                    /* Allocation count. */
+    ma_uint32 capacity;
+
+    /* Memory management. */
+    ma_bool32 _ownsHeap;
+    void* _pHeap;
+} ma_slot_allocator;
+
+MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator);
+MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator);
+MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot);
+MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
+
+
+typedef struct ma_job ma_job;
+
+/*
+Callback for processing a job. Each job type will have their own processing callback which will be
+called by ma_job_process().
+*/
+typedef ma_result (* ma_job_proc)(ma_job* pJob);
+
+/* When a job type is added here an callback needs to be added go "g_jobVTable" in the implementation section. */
+typedef enum
+{
+    /* Miscellaneous. */
+    MA_JOB_TYPE_QUIT = 0,
+    MA_JOB_TYPE_CUSTOM,
+
+    /* Resource Manager. */
+    MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE,
+    MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER_NODE,
+    MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE,
+    MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER,
+    MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_BUFFER,
+    MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM,
+    MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM,
+    MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_STREAM,
+    MA_JOB_TYPE_RESOURCE_MANAGER_SEEK_DATA_STREAM,
+
+    /* Device. */
+    MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE,
+
+    /* Count. Must always be last. */
+    MA_JOB_TYPE_COUNT
+} ma_job_type;
+
+struct ma_job
+{
+    union
+    {
+        struct
+        {
+            ma_uint16 code;         /* Job type. */
+            ma_uint16 slot;         /* Index into a ma_slot_allocator. */
+            ma_uint32 refcount;
+        } breakup;
+        ma_uint64 allocation;
+    } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
+    MA_ATOMIC(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
+    ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
+
+    union
+    {
+        /* Miscellaneous. */
+        struct
+        {
+            ma_job_proc proc;
+            ma_uintptr data0;
+            ma_uintptr data1;
+        } custom;
+
+        /* Resource Manager */
+        union
+        {
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                char* pFilePath;
+                wchar_t* pFilePathW;
+                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE when decoding. */
+                ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
+                ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
+            } loadDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBufferNode;
+            struct
+            {
+                /*ma_resource_manager**/ void* pResourceManager;
+                /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
+                /*ma_decoder**/ void* pDecoder;
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
+            } pageDataBufferNode;
+
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
+                ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
+                ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
+            } loadDataBuffer;
+            struct
+            {
+                /*ma_resource_manager_data_buffer**/ void* pDataBuffer;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataBuffer;
+
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
+                wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
+                ma_uint64 initialSeekPoint;
+                ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
+                ma_fence* pInitFence;
+            } loadDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_async_notification* pDoneNotification;
+                ma_fence* pDoneFence;
+            } freeDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint32 pageIndex;                    /* The index of the page to decode into. */
+            } pageDataStream;
+            struct
+            {
+                /*ma_resource_manager_data_stream**/ void* pDataStream;
+                ma_uint64 frameIndex;
+            } seekDataStream;
+        } resourceManager;
+
+        /* Device. */
+        union
+        {
+            union
+            {
+                struct
+                {
+                    /*ma_device**/ void* pDevice;
+                    /*ma_device_type*/ ma_uint32 deviceType;
+                } reroute;
+            } aaudio;
+        } device;
+    } data;
+};
+
+MA_API ma_job ma_job_init(ma_uint16 code);
+MA_API ma_result ma_job_process(ma_job* pJob);
+
+
+/*
+When set, ma_job_queue_next() will not wait and no semaphore will be signaled in
+ma_job_queue_post(). ma_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
+
+This flag should always be used for platforms that do not support multithreading.
+*/
+typedef enum
+{
+    MA_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
+} ma_job_queue_flags;
+
+typedef struct
+{
+    ma_uint32 flags;
+    ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. */
+} ma_job_queue_config;
+
+MA_API ma_job_queue_config ma_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
+
+
+typedef struct
+{
+    ma_uint32 flags;                /* Flags passed in at initialization time. */
+    ma_uint32 capacity;             /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
+    MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
+    MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
+#ifndef MA_NO_THREADING
+    ma_semaphore sem;               /* Only used when MA_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+#endif
+    ma_slot_allocator allocator;
+    ma_job* pJobs;
+#ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
+    ma_spinlock lock;
+#endif
+
+    /* Memory management. */
+    void* _pHeap;
+    ma_bool32 _ownsHeap;
+} ma_job_queue;
+
+MA_API ma_result ma_job_queue_get_heap_size(const ma_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
+MA_API ma_result ma_job_queue_init_preallocated(const ma_job_queue_config* pConfig, void* pHeap, ma_job_queue* pQueue);
+MA_API ma_result ma_job_queue_init(const ma_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_job_queue* pQueue);
+MA_API void ma_job_queue_uninit(ma_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob);
+MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
+
+
+
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
 
@@ -2156,6 +2576,36 @@ typedef enum
 } ma_backend;
 
 #define MA_BACKEND_COUNT (ma_backend_null+1)
+
+
+/*
+Device job thread. This is used by backends that require asynchronous processing of certain
+operations. It is not used by all backends.
+
+The device job thread is made up of a thread and a job queue. You can post a job to the thread with
+ma_device_job_thread_post(). The thread will do the processing of the job.
+*/
+typedef struct
+{
+    ma_bool32 noThread; /* Set this to true if you want to process jobs yourself. */
+    ma_uint32 jobQueueCapacity;
+    ma_uint32 jobQueueFlags;
+} ma_device_job_thread_config;
+
+MA_API ma_device_job_thread_config ma_device_job_thread_config_init(void);
+
+typedef struct
+{
+    ma_thread thread;
+    ma_job_queue jobQueue;
+    ma_bool32 _hasThread;
+} ma_device_job_thread;
+
+MA_API ma_result ma_device_job_thread_init(const ma_device_job_thread_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_job_thread* pJobThread);
+MA_API void ma_device_job_thread_uninit(ma_device_job_thread* pJobThread, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_device_job_thread_post(ma_device_job_thread* pJobThread, const ma_job* pJob);
+MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_job* pJob);
+
 
 
 /* Device notification types. */
@@ -2536,6 +2986,7 @@ struct ma_device_config
         ma_aaudio_usage usage;
         ma_aaudio_content_type contentType;
         ma_aaudio_input_preset inputPreset;
+        ma_bool32 noAutoStartAfterReroute;
     } aaudio;
 };
 
@@ -3056,6 +3507,7 @@ struct ma_context
             ma_proc AAudioStream_getFramesPerBurst;
             ma_proc AAudioStream_requestStart;
             ma_proc AAudioStream_requestStop;
+            ma_device_job_thread jobThread; /* For processing operations outside of the error callback, specifically device disconnections and rerouting. */
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -3358,6 +3810,10 @@ struct ma_device
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
+            ma_aaudio_usage usage;
+            ma_aaudio_content_type contentType;
+            ma_aaudio_input_preset inputPreset;
+            ma_bool32 noAutoStartAfterReroute;
         } aaudio;
 #endif
 #ifdef MA_SUPPORT_OPENSL
@@ -4641,6 +5097,55 @@ MA_API ma_device_state ma_device_get_state(const ma_device* pDevice);
 
 
 /*
+Performs post backend initialization routines for setting up internal data conversion.
+
+This should be called whenever the backend is initialized. The only time this should be called from
+outside of miniaudio is if you're implementing a custom backend, and you would only do it if you
+are reinitializing the backend due to rerouting or reinitializing for some reason.
+
+
+Parameters
+----------
+pDevice [in]
+    A pointer to the device.
+
+deviceType [in]
+    The type of the device that was just reinitialized.
+
+pPlaybackDescriptor [in]
+    The descriptor of the playback device containing the internal data format and buffer sizes.
+
+pPlaybackDescriptor [in]
+    The descriptor of the capture device containing the internal data format and buffer sizes.
+
+
+Return Value
+------------
+MA_SUCCESS if successful; any other error otherwise.
+
+
+Thread Safety
+-------------
+Unsafe. This will be reinitializing internal data converters which may be in use by another thread.
+
+
+Callback Safety
+---------------
+Unsafe. This will be reinitializing internal data converters which may be in use by the callback.
+
+
+Remarks
+-------
+For a duplex device, you can call this for only one side of the system. This is why the deviceType
+is specified as a parameter rather than deriving it from the device.
+
+You do not need to call this manually unless you are doing a custom backend, in which case you need
+only do it if you're manually performing rerouting or reinitialization.
+*/
+MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceType, const ma_device_descriptor* pPlaybackDescriptor, const ma_device_descriptor* pCaptureDescriptor);
+
+
+/*
 Sets the master volume factor for the device.
 
 The volume factor must be between 0 (silence) and 1 (full volume). Use `ma_device_set_master_volume_db()` to use decibel notation, where 0 is full volume and
@@ -5016,148 +5521,6 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 
 
-/*
-Locks a spinlock.
-*/
-MA_API ma_result ma_spinlock_lock(volatile ma_spinlock* pSpinlock);
-
-/*
-Locks a spinlock, but does not yield() when looping.
-*/
-MA_API ma_result ma_spinlock_lock_noyield(volatile ma_spinlock* pSpinlock);
-
-/*
-Unlocks a spinlock.
-*/
-MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock);
-
-
-#ifndef MA_NO_THREADING
-
-/*
-Creates a mutex.
-
-A mutex must be created from a valid context. A mutex is initially unlocked.
-*/
-MA_API ma_result ma_mutex_init(ma_mutex* pMutex);
-
-/*
-Deletes a mutex.
-*/
-MA_API void ma_mutex_uninit(ma_mutex* pMutex);
-
-/*
-Locks a mutex with an infinite timeout.
-*/
-MA_API void ma_mutex_lock(ma_mutex* pMutex);
-
-/*
-Unlocks a mutex.
-*/
-MA_API void ma_mutex_unlock(ma_mutex* pMutex);
-
-
-/*
-Initializes an auto-reset event.
-*/
-MA_API ma_result ma_event_init(ma_event* pEvent);
-
-/*
-Uninitializes an auto-reset event.
-*/
-MA_API void ma_event_uninit(ma_event* pEvent);
-
-/*
-Waits for the specified auto-reset event to become signalled.
-*/
-MA_API ma_result ma_event_wait(ma_event* pEvent);
-
-/*
-Signals the specified auto-reset event.
-*/
-MA_API ma_result ma_event_signal(ma_event* pEvent);
-#endif  /* MA_NO_THREADING */
-
-
-/*
-Fence
-=====
-This locks while the counter is larger than 0. Counter can be incremented and decremented by any
-thread, but care needs to be taken when waiting. It is possible for one thread to acquire the
-fence just as another thread returns from ma_fence_wait().
-
-The idea behind a fence is to allow you to wait for a group of operations to complete. When an
-operation starts, the counter is incremented which locks the fence. When the operation completes,
-the fence will be released which decrements the counter. ma_fence_wait() will block until the
-counter hits zero.
-
-If threading is disabled, ma_fence_wait() will spin on the counter.
-*/
-typedef struct
-{
-#ifndef MA_NO_THREADING
-    ma_event e;
-#endif
-    ma_uint32 counter;
-} ma_fence;
-
-MA_API ma_result ma_fence_init(ma_fence* pFence);
-MA_API void ma_fence_uninit(ma_fence* pFence);
-MA_API ma_result ma_fence_acquire(ma_fence* pFence);    /* Increment counter. */
-MA_API ma_result ma_fence_release(ma_fence* pFence);    /* Decrement counter. */
-MA_API ma_result ma_fence_wait(ma_fence* pFence);       /* Wait for counter to reach 0. */
-
-
-
-/*
-Notification callback for asynchronous operations.
-*/
-typedef void ma_async_notification;
-
-typedef struct
-{
-    void (* onSignal)(ma_async_notification* pNotification);
-} ma_async_notification_callbacks;
-
-MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
-
-
-/*
-Simple polling notification.
-
-This just sets a variable when the notification has been signalled which is then polled with ma_async_notification_poll_is_signalled()
-*/
-typedef struct
-{
-    ma_async_notification_callbacks cb;
-    ma_bool32 signalled;
-} ma_async_notification_poll;
-
-MA_API ma_result ma_async_notification_poll_init(ma_async_notification_poll* pNotificationPoll);
-MA_API ma_bool32 ma_async_notification_poll_is_signalled(const ma_async_notification_poll* pNotificationPoll);
-
-
-/*
-Event Notification
-
-This uses an ma_event. If threading is disabled (MA_NO_THREADING), initialization will fail.
-*/
-typedef struct
-{
-    ma_async_notification_callbacks cb;
-#ifndef MA_NO_THREADING
-    ma_event e;
-#endif
-} ma_async_notification_event;
-
-MA_API ma_result ma_async_notification_event_init(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_uninit(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_wait(ma_async_notification_event* pNotificationEvent);
-MA_API ma_result ma_async_notification_event_signal(ma_async_notification_event* pNotificationEvent);
-
-
-
-
 /************************************************************************************************************************************************************
 
 Utiltities
@@ -5260,56 +5623,6 @@ MA_API float ma_volume_linear_to_db(float factor);
 Helper for converting gain in decibels to a linear factor.
 */
 MA_API float ma_volume_db_to_linear(float gain);
-
-
-
-/*
-Slot Allocator
---------------
-The idea of the slot allocator is for it to be used in conjunction with a fixed sized buffer. You use the slot allocator to allocator an index that can be used
-as the insertion point for an object.
-
-Slots are reference counted to help mitigate the ABA problem in the lock-free queue we use for tracking jobs.
-
-The slot index is stored in the low 32 bits. The reference counter is stored in the high 32 bits:
-
-    +-----------------+-----------------+
-    | 32 Bits         | 32 Bits         |
-    +-----------------+-----------------+
-    | Reference Count | Slot Index      |
-    +-----------------+-----------------+
-*/
-typedef struct
-{
-    ma_uint32 capacity;    /* The number of slots to make available. */
-} ma_slot_allocator_config;
-
-MA_API ma_slot_allocator_config ma_slot_allocator_config_init(ma_uint32 capacity);
-
-
-typedef struct
-{
-    MA_ATOMIC(4, ma_uint32) bitfield;   /* Must be used atomically because the allocation and freeing routines need to make copies of this which must never be optimized away by the compiler. */
-} ma_slot_allocator_group;
-
-typedef struct
-{
-    ma_slot_allocator_group* pGroups;   /* Slots are grouped in chunks of 32. */
-    ma_uint32* pSlots;                  /* 32 bits for reference counting for ABA mitigation. */
-    ma_uint32 count;                    /* Allocation count. */
-    ma_uint32 capacity;
-
-    /* Memory management. */
-    ma_bool32 _ownsHeap;
-    void* _pHeap;
-} ma_slot_allocator;
-
-MA_API ma_result ma_slot_allocator_get_heap_size(const ma_slot_allocator_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_slot_allocator_init_preallocated(const ma_slot_allocator_config* pConfig, void* pHeap, ma_slot_allocator* pAllocator);
-MA_API ma_result ma_slot_allocator_init(const ma_slot_allocator_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_slot_allocator* pAllocator);
-MA_API void ma_slot_allocator_uninit(ma_slot_allocator* pAllocator, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_slot_allocator_alloc(ma_slot_allocator* pAllocator, ma_uint64* pSlot);
-MA_API ma_result ma_slot_allocator_free(ma_slot_allocator* pAllocator, ma_uint64 slot);
 
 
 
@@ -5757,8 +6070,8 @@ Encoders do not perform any format conversion for you. If your target format doe
 #ifndef MA_NO_ENCODING
 typedef struct ma_encoder ma_encoder;
 
-typedef size_t    (* ma_encoder_write_proc)           (ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite);     /* Returns the number of bytes written. */
-typedef ma_bool32 (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, int byteOffset, ma_seek_origin origin);
+typedef ma_result (* ma_encoder_write_proc)           (ma_encoder* pEncoder, const void* pBufferIn, size_t bytesToWrite, size_t* pBytesWritten);
+typedef ma_result (* ma_encoder_seek_proc)            (ma_encoder* pEncoder, ma_int64 offset, ma_seek_origin origin);
 typedef ma_result (* ma_encoder_init_proc)            (ma_encoder* pEncoder);
 typedef void      (* ma_encoder_uninit_proc)          (ma_encoder* pEncoder);
 typedef ma_result (* ma_encoder_write_pcm_frames_proc)(ma_encoder* pEncoder, const void* pFramesIn, ma_uint64 frameCount, ma_uint64* pFramesWritten);
@@ -5784,10 +6097,19 @@ struct ma_encoder
     ma_encoder_write_pcm_frames_proc onWritePCMFrames;
     void* pUserData;
     void* pInternalEncoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
-    void* pFile;    /* FILE*. Only used when initialized with ma_encoder_init_file(). */
+    union
+    {
+        struct
+        {
+            ma_vfs* pVFS;
+            ma_vfs_file file;
+        } vfs;
+    } data;
 };
 
 MA_API ma_result ma_encoder_init(ma_encoder_write_proc onWrite, ma_encoder_seek_proc onSeek, void* pUserData, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+MA_API ma_result ma_encoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
+MA_API ma_result ma_encoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file(const char* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API ma_result ma_encoder_init_file_w(const wchar_t* pFilePath, const ma_encoder_config* pConfig, ma_encoder* pEncoder);
 MA_API void ma_encoder_uninit(ma_encoder* pEncoder);
@@ -5921,21 +6243,6 @@ typedef enum
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
 } ma_resource_manager_data_source_flags;
 
-typedef enum
-{
-    MA_RESOURCE_MANAGER_JOB_QUIT                   = 0x00000000,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE  = 0x00000001,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER_NODE  = 0x00000002,
-    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE  = 0x00000003,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER       = 0x00000004,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_BUFFER       = 0x00000005,
-    MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM       = 0x00000006,
-    MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM       = 0x00000007,
-    MA_RESOURCE_MANAGER_JOB_PAGE_DATA_STREAM       = 0x00000008,
-    MA_RESOURCE_MANAGER_JOB_SEEK_DATA_STREAM       = 0x00000009,
-    MA_RESOURCE_MANAGER_JOB_CUSTOM                 = 0x00000100  /* Number your custom job codes as (MA_RESOURCE_MANAGER_JOB_CUSTOM + 0), (MA_RESOURCE_MANAGER_JOB_CUSTOM + 1), etc. */
-} ma_resource_manager_job_type;
-
 
 /*
 Pipeline notifications used by the resource manager. Made up of both an async notification and a fence, both of which are optional.
@@ -5955,148 +6262,26 @@ typedef struct
 MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_notifications_init(void);
 
 
-typedef struct
-{
-    union
-    {
-        struct
-        {
-            ma_uint16 code;
-            ma_uint16 slot;
-            ma_uint32 refcount;
-        } breakup;
-        ma_uint64 allocation;
-    } toc;  /* 8 bytes. We encode the job code into the slot allocation data to save space. */
-    MA_ATOMIC(8, ma_uint64) next; /* refcount + slot for the next item. Does not include the job code. */
-    ma_uint32 order;    /* Execution order. Used to create a data dependency and ensure a job is executed in order. Usage is contextual depending on the job type. */
 
-    union
-    {
-        /* Resource Managemer Jobs */
-        struct
-        {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
-            char* pFilePath;
-            wchar_t* pFilePathW;
-            ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
-            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE when decoding. */
-            ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
-            ma_fence* pDoneFence;                           /* Released if initialization of the decoder fails. Passed through to PAGE_DATA_BUFFER_NODE untouched if init is successful. */
-        } loadDataBufferNode;
-        struct
-        {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataBufferNode;
-        struct
-        {
-            ma_resource_manager_data_buffer_node* pDataBufferNode;
-            ma_decoder* pDecoder;
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-            ma_fence* pDoneFence;                           /* Passed through from LOAD_DATA_BUFFER_NODE and released when the data buffer completes decoding or an error occurs. */
-        } pageDataBufferNode;
-
-        struct
-        {
-            ma_resource_manager_data_buffer* pDataBuffer;
-            ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
-            ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
-            ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
-        } loadDataBuffer;
-        struct
-        {
-            ma_resource_manager_data_buffer* pDataBuffer;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataBuffer;
-
-        struct
-        {
-            ma_resource_manager_data_stream* pDataStream;
-            char* pFilePath;                            /* Allocated when the job is posted, freed by the job thread after loading. */
-            wchar_t* pFilePathW;                        /* ^ As above ^. Only used if pFilePath is NULL. */
-            ma_uint64 initialSeekPoint;
-            ma_async_notification* pInitNotification;   /* Signalled after the first two pages have been decoded and frames can be read from the stream. */
-            ma_fence* pInitFence;
-        } loadDataStream;
-        struct
-        {
-            ma_resource_manager_data_stream* pDataStream;
-            ma_async_notification* pDoneNotification;
-            ma_fence* pDoneFence;
-        } freeDataStream;
-        struct
-        {
-            ma_resource_manager_data_stream* pDataStream;
-            ma_uint32 pageIndex;                    /* The index of the page to decode into. */
-        } pageDataStream;
-        struct
-        {
-            ma_resource_manager_data_stream* pDataStream;
-            ma_uint64 frameIndex;
-        } seekDataStream;
-
-        /* Others. */
-        struct
-        {
-            ma_uintptr data0;
-            ma_uintptr data1;
-        } custom;
-    } data;
-} ma_resource_manager_job;
-
-MA_API ma_resource_manager_job ma_resource_manager_job_init(ma_uint16 code);
-
-
-/*
-When set, ma_resource_manager_job_queue_next() will not wait and no semaphore will be signaled in
-ma_resource_manager_job_queue_post(). ma_resource_manager_job_queue_next() will return MA_NO_DATA_AVAILABLE if nothing is available.
-
-This flag should always be used for platforms that do not support multithreading.
-*/
-typedef enum
-{
-    MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING = 0x00000001
-} ma_resource_manager_job_queue_flags;
-
-typedef struct
-{
-    ma_uint32 flags;
-    ma_uint32 capacity; /* The maximum number of jobs that can fit in the queue at a time. */
-} ma_resource_manager_job_queue_config;
-
-MA_API ma_resource_manager_job_queue_config ma_resource_manager_job_queue_config_init(ma_uint32 flags, ma_uint32 capacity);
-
-
-typedef struct
-{
-    ma_uint32 flags;                /* Flags passed in at initialization time. */
-    ma_uint32 capacity;             /* The maximum number of jobs that can fit in the queue at a time. Set by the config. */
-    MA_ATOMIC(8, ma_uint64) head;   /* The first item in the list. Required for removing from the top of the list. */
-    MA_ATOMIC(8, ma_uint64) tail;   /* The last item in the list. Required for appending to the end of the list. */
-#ifndef MA_NO_THREADING
-    ma_semaphore sem;               /* Only used when MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING is unset. */
+/* BEGIN BACKWARDS COMPATIBILITY */
+/* TODO: Remove this block in version 0.12. */
+#if 1
+#define ma_resource_manager_job                         ma_job
+#define ma_resource_manager_job_init                    ma_job_init
+#define MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_FLAG_NON_BLOCKING MA_JOB_QUEUE_FLAG_NON_BLOCKING
+#define ma_resource_manager_job_queue_config            ma_job_queue_config
+#define ma_resource_manager_job_queue_config_init       ma_job_queue_config_init
+#define ma_resource_manager_job_queue                   ma_job_queue
+#define ma_resource_manager_job_queue_get_heap_size     ma_job_queue_get_heap_size
+#define ma_resource_manager_job_queue_init_preallocated ma_job_queue_init_preallocated
+#define ma_resource_manager_job_queue_init              ma_job_queue_init
+#define ma_resource_manager_job_queue_uninit            ma_job_queue_uninit
+#define ma_resource_manager_job_queue_post              ma_job_queue_post
+#define ma_resource_manager_job_queue_next              ma_job_queue_next
 #endif
-    ma_slot_allocator allocator;
-    ma_resource_manager_job* pJobs;
-#ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
-    ma_spinlock lock;
-#endif
+/* END BACKWARDS COMPATIBILITY */
 
-    /* Memory management. */
-    void* _pHeap;
-    ma_bool32 _ownsHeap;
-} ma_resource_manager_job_queue;
 
-MA_API ma_result ma_resource_manager_job_queue_get_heap_size(const ma_resource_manager_job_queue_config* pConfig, size_t* pHeapSizeInBytes);
-MA_API ma_result ma_resource_manager_job_queue_init_preallocated(const ma_resource_manager_job_queue_config* pConfig, void* pHeap, ma_resource_manager_job_queue* pQueue);
-MA_API ma_result ma_resource_manager_job_queue_init(const ma_resource_manager_job_queue_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_resource_manager_job_queue* pQueue);
-MA_API void ma_resource_manager_job_queue_uninit(ma_resource_manager_job_queue* pQueue, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_resource_manager_job_queue_post(ma_resource_manager_job_queue* pQueue, const ma_resource_manager_job* pJob);
-MA_API ma_result ma_resource_manager_job_queue_next(ma_resource_manager_job_queue* pQueue, ma_resource_manager_job* pJob); /* Returns MA_CANCELLED if the next job is a quit job. */
 
 
 /* Maximum job thread count will be restricted to this, but this may be removed later and replaced with a heap allocation thereby removing any limitation. */
@@ -6207,8 +6392,8 @@ struct ma_resource_manager_data_stream
     ma_resource_manager* pResourceManager;      /* A pointer to the resource manager that owns this data stream. */
     ma_uint32 flags;                            /* The flags that were passed used to initialize the stream. */
     ma_decoder decoder;                         /* Used for filling pages with data. This is only ever accessed by the job thread. The public API should never touch this. */
-    ma_bool32 isDecoderInitialized;             /* Required for determining whether or not the decoder should be uninitialized in MA_RESOURCE_MANAGER_JOB_FREE_DATA_STREAM. */
-    ma_uint64 totalLengthInPCMFrames;           /* This is calculated when first loaded by the MA_RESOURCE_MANAGER_JOB_LOAD_DATA_STREAM. */
+    ma_bool32 isDecoderInitialized;             /* Required for determining whether or not the decoder should be uninitialized in MA_JOB_TYPE_RESOURCE_MANAGER_FREE_DATA_STREAM. */
+    ma_uint64 totalLengthInPCMFrames;           /* This is calculated when first loaded by the MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_STREAM. */
     ma_uint32 relativeCursor;                   /* The playback cursor, relative to the current page. Only ever accessed by the public API. Never accessed by the job thread. */
     MA_ATOMIC(8, ma_uint64) absoluteCursor;     /* The playback cursor, in absolute position starting from the start of the file. */
     ma_uint32 currentPageIndex;                 /* Toggles between 0 and 1. Index 0 is the first half of pPageData. Index 1 is the second half. Only ever accessed by the public API. Never accessed by the job thread. */
@@ -6250,7 +6435,7 @@ typedef struct
     ma_uint32 decodedChannels;      /* The decoded channel count to use. Set to 0 (default) to use the file's native channel count. */
     ma_uint32 decodedSampleRate;    /* the decoded sample rate to use. Set to 0 (default) to use the file's native sample rate. */
     ma_uint32 jobThreadCount;       /* Set to 0 if you want to self-manage your job threads. Defaults to 1. */
-    ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_RESOURCE_MANAGER_JOB_QUEUE_CAPACITY. Cannot be zero. */
+    ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
     ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
@@ -6268,7 +6453,7 @@ struct ma_resource_manager
     ma_mutex dataBufferBSTLock;                                     /* For synchronizing access to the data buffer binary tree. */
     ma_thread jobThreads[MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT]; /* The threads for executing jobs. */
 #endif
-    ma_resource_manager_job_queue jobQueue;                         /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
+    ma_job_queue jobQueue;                                          /* Multi-consumer, multi-producer job queue for managing jobs for asynchronous decoding and streaming. */
     ma_default_vfs defaultVFS;                                      /* Only used if a custom VFS is not specified. */
     ma_log log;                                                     /* Only used if no log was specified in the config. */
 };
@@ -6338,11 +6523,11 @@ MA_API ma_bool32 ma_resource_manager_data_source_is_looping(const ma_resource_ma
 MA_API ma_result ma_resource_manager_data_source_get_available_frames(ma_resource_manager_data_source* pDataSource, ma_uint64* pAvailableFrames);
 
 /* Job management. */
-MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_resource_manager_job* pJob);
+MA_API ma_result ma_resource_manager_post_job(ma_resource_manager* pResourceManager, const ma_job* pJob);
 MA_API ma_result ma_resource_manager_post_job_quit(ma_resource_manager* pResourceManager);  /* Helper for posting a quit job. */
-MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob);
-MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_resource_manager_job* pJob);
-MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager);   /* Returns MA_CANCELLED if a MA_RESOURCE_MANAGER_JOB_QUIT job is found. In non-blocking mode, returns MA_NO_DATA_AVAILABLE if no jobs are available. */
+MA_API ma_result ma_resource_manager_next_job(ma_resource_manager* pResourceManager, ma_job* pJob);
+MA_API ma_result ma_resource_manager_process_job(ma_resource_manager* pResourceManager, ma_job* pJob);  /* DEPRECATED. Use ma_job_process(). Will be removed in version 0.12. */
+MA_API ma_result ma_resource_manager_process_next_job(ma_resource_manager* pResourceManager);   /* Returns MA_CANCELLED if a MA_JOB_TYPE_QUIT job is found. In non-blocking mode, returns MA_NO_DATA_AVAILABLE if no jobs are available. */
 #endif  /* MA_NO_RESOURCE_MANAGER */
 
 
@@ -7015,7 +7200,7 @@ MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
-MA_API ma_uint64 ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);
+MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine);
 MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 

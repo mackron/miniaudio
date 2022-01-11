@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.4 - TBD
+miniaudio - v0.11.4 - 2022-01-12
 
 David Reid - mackron@gmail.com
 
@@ -90241,7 +90241,7 @@ There have also been some other smaller changes added to this release.
 /*
 REVISION HISTORY
 ================
-v0.11.4 - TBD
+v0.11.4 - 2022-01-12
   - AAudio: Add initial support for automatic stream routing.
   - Add support for initializing an encoder from a VFS.
   - Fix a bug when initializing an encoder from a file where the file handle does not get closed in
