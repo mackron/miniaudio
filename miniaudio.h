@@ -3733,6 +3733,8 @@ typedef ma_uint16 wchar_t;
     #define MA_WIN32
     #if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_PC_APP || WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)
         #define MA_WIN32_UWP
+    #elif defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
+        #define MA_WIN32_GDK
     #else
         #define MA_WIN32_DESKTOP
     #endif
@@ -18253,7 +18255,7 @@ static const PROPERTYKEY MA_PKEY_Device_FriendlyName             = {{0xA45C254E,
 static const PROPERTYKEY MA_PKEY_AudioEngine_DeviceFormat        = {{0xF19F064D, 0x82C,  0x4E27, {0xBC, 0x73, 0x68, 0x82, 0xA1, 0xBB, 0x8E, 0x4C}},  0};
 
 static const IID MA_IID_IUnknown                                 = {0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}; /* 00000000-0000-0000-C000-000000000046 */
-#ifndef MA_WIN32_DESKTOP
+#if !defined(MA_WIN32_DESKTOP) && !defined(MA_WIN32_GDK)
 static const IID MA_IID_IAgileObject                             = {0x94EA2B94, 0xE9CC, 0x49E0, {0xC0, 0xFF, 0xEE, 0x64, 0xCA, 0x8F, 0x5B, 0x90}}; /* 94EA2B94-E9CC-49E0-C0FF-EE64CA8F5B90 */
 #endif
 
@@ -18263,7 +18265,7 @@ static const IID MA_IID_IAudioClient3                            = {0x7ED4EE07, 
 static const IID MA_IID_IAudioRenderClient                       = {0xF294ACFC, 0x3146, 0x4483, {0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2}}; /* F294ACFC-3146-4483-A7BF-ADDCA7C260E2 = __uuidof(IAudioRenderClient) */
 static const IID MA_IID_IAudioCaptureClient                      = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}}; /* C8ADBD64-E71E-48A0-A4DE-185C395CD317 = __uuidof(IAudioCaptureClient) */
 static const IID MA_IID_IMMNotificationClient                    = {0x7991EEC9, 0x7E89, 0x4D85, {0x83, 0x90, 0x6C, 0x70, 0x3C, 0xEC, 0x60, 0xC0}}; /* 7991EEC9-7E89-4D85-8390-6C703CEC60C0 = __uuidof(IMMNotificationClient) */
-#ifndef MA_WIN32_DESKTOP
+#if !defined(MA_WIN32_DESKTOP) && !defined(MA_WIN32_GDK)
 static const IID MA_IID_DEVINTERFACE_AUDIO_RENDER                = {0xE6327CAD, 0xDCEC, 0x4949, {0xAE, 0x8A, 0x99, 0x1E, 0x97, 0x6A, 0x79, 0xD2}}; /* E6327CAD-DCEC-4949-AE8A-991E976A79D2 */
 static const IID MA_IID_DEVINTERFACE_AUDIO_CAPTURE               = {0x2EEF81BE, 0x33FA, 0x4800, {0x96, 0x70, 0x1C, 0xD4, 0x74, 0x97, 0x2C, 0x3F}}; /* 2EEF81BE-33FA-4800-9670-1CD474972C3F */
 static const IID MA_IID_IActivateAudioInterfaceCompletionHandler = {0x41D949AB, 0x9862, 0x444A, {0x80, 0xF6, 0xC2, 0x61, 0x33, 0x4D, 0xA5, 0xEB}}; /* 41D949AB-9862-444A-80F6-C261334DA5EB */
@@ -18280,7 +18282,7 @@ static const IID MA_IID_IMMDeviceEnumerator_Instance             = {0xA95664D2, 
 #endif
 
 typedef struct ma_IUnknown                                 ma_IUnknown;
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 #define MA_MM_DEVICE_STATE_ACTIVE                          1
 #define MA_MM_DEVICE_STATE_DISABLED                        2
 #define MA_MM_DEVICE_STATE_NOTPRESENT                      4
@@ -18366,7 +18368,7 @@ static MA_INLINE HRESULT ma_IUnknown_QueryInterface(ma_IUnknown* pThis, const II
 static MA_INLINE ULONG   ma_IUnknown_AddRef(ma_IUnknown* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
 static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
 
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     /* IMMNotificationClient */
     typedef struct
     {
@@ -18710,7 +18712,7 @@ static MA_INLINE HRESULT ma_IAudioCaptureClient_GetBuffer(ma_IAudioCaptureClient
 static MA_INLINE HRESULT ma_IAudioCaptureClient_ReleaseBuffer(ma_IAudioCaptureClient* pThis, ma_uint32 numFramesRead)                 { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
 static MA_INLINE HRESULT ma_IAudioCaptureClient_GetNextPacketSize(ma_IAudioCaptureClient* pThis, ma_uint32* pNumFramesInNextPacket)   { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
 
-#ifndef MA_WIN32_DESKTOP
+#if !defined(MA_WIN32_DESKTOP) && !defined(MA_WIN32_GDK)
 #include <mmdeviceapi.h>
 typedef struct ma_completion_handler_uwp ma_completion_handler_uwp;
 
@@ -18807,7 +18809,7 @@ static void ma_completion_handler_uwp_wait(ma_completion_handler_uwp* pHandler)
 #endif  /* !MA_WIN32_DESKTOP */
 
 /* We need a virtual table for our notification client object that's used for detecting changes to the default device. */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_QueryInterface(ma_IMMNotificationClient* pThis, const IID* const riid, void** ppObject)
 {
     /*
@@ -19062,7 +19064,7 @@ static ma_IMMNotificationClientVtbl g_maNotificationCientVtbl = {
 };
 #endif  /* MA_WIN32_DESKTOP */
 
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 typedef ma_IMMDevice ma_WASAPIDeviceInterface;
 #else
 typedef ma_IUnknown ma_WASAPIDeviceInterface;
@@ -19291,7 +19293,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     UWP. Failure to retrieve the exclusive mode format is not considered an error, so from here on
     out, MA_SUCCESS is guaranteed to be returned.
     */
-    #ifdef MA_WIN32_DESKTOP
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
         ma_IPropertyStore *pProperties;
 
@@ -19391,7 +19393,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     return MA_SUCCESS;
 }
 
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 static ma_EDataFlow ma_device_type_to_EDataFlow(ma_device_type deviceType)
 {
     if (deviceType == ma_device_type_playback) {
@@ -19759,7 +19761,7 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
 
 static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_IAudioClient** ppAudioClient, ma_WASAPIDeviceInterface** ppDeviceInterface)
 {
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     return ma_context_get_IAudioClient_Desktop__wasapi(pContext, deviceType, pDeviceID, ppAudioClient, ppDeviceInterface);
 #else
     return ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, ppAudioClient, ppDeviceInterface);
@@ -19770,7 +19772,7 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
 static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     /* Different enumeration for desktop and UWP. */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     /* Desktop */
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
@@ -19822,7 +19824,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
 
 static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     ma_result result;
     ma_IMMDevice* pMMDevice = NULL;
     LPWSTR pDefaultDeviceID = NULL;
@@ -19874,7 +19876,7 @@ static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     if (pDevice->wasapi.pDeviceEnumerator) {
         ((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator)->lpVtbl->UnregisterEndpointNotificationCallback((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator, &pDevice->wasapi.notificationClient);
         ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator);
@@ -20003,7 +20005,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     /* Here is where we try to determine the best format to use with the device. If the client if wanting exclusive mode, first try finding the best format for that. If this fails, fall back to shared mode. */
     result = MA_FORMAT_NOT_SUPPORTED;
     if (pData->shareMode == ma_share_mode_exclusive) {
-    #ifdef MA_WIN32_DESKTOP
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
         /* In exclusive mode on desktop we always use the backend's native format. */
         ma_IPropertyStore* pStore = NULL;
         hr = ma_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pStore);
@@ -20149,7 +20151,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                 /* Unfortunately we need to release and re-acquire the audio client according to MSDN. Seems silly - why not just call IAudioClient_Initialize() again?! */
                 ma_IAudioClient_Release((ma_IAudioClient*)pData->pAudioClient);
 
-            #ifdef MA_WIN32_DESKTOP
+            #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
                 hr = ma_IMMDevice_Activate(pDeviceInterface, &MA_IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pData->pAudioClient);
             #else
                 hr = ma_IUnknown_QueryInterface(pDeviceInterface, &MA_IID_IAudioClient, (void**)&pData->pAudioClient);
@@ -20293,7 +20295,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
 
     /* Grab the name of the device. */
-    #ifdef MA_WIN32_DESKTOP
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
         ma_IPropertyStore *pProperties;
         hr = ma_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pProperties);
@@ -20316,7 +20318,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     stream routing so that IDs can be compared and we can determine which device has been detached
     and whether or not it matches with our ma_device.
     */
-    #ifdef MA_WIN32_DESKTOP
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     {
         /* Desktop */
         ma_context_get_device_id_from_MMDevice__wasapi(pContext, pDeviceInterface, &pData->id);
@@ -20330,7 +20332,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
 done:
     /* Clean up. */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     if (pDeviceInterface != NULL) {
         ma_IMMDevice_Release(pDeviceInterface);
     }
@@ -20487,7 +20489,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
 {
     ma_result result = MA_SUCCESS;
 
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
 #endif
@@ -20667,7 +20669,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     we are connecting to the default device we want to do automatic stream routing when the device is disabled or unplugged. Otherwise we want to just
     stop the device outright and let the application handle it.
     */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
         if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
