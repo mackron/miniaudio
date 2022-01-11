@@ -1,3 +1,10 @@
+v0.11.5 - TBD
+=============
+* Support has been added for automatic stream routing with the AAudio backend. 
+
+
+---------------------------------------------------------------------------------------------------
+
 v0.11.4 - 2022-01-12
   - AAudio: Add initial support for automatic stream routing.
   - Add support for initializing an encoder from a VFS.
