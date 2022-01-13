@@ -1,6 +1,7 @@
 v0.11.5 - TBD
 =============
-* Support has been added for automatic stream routing with the AAudio backend. 
+* Support has been added for automatic stream routing with the AAudio backend.
+* A bug has been fixed that results in a deadlock when starting a device.
 
 
 ---------------------------------------------------------------------------------------------------

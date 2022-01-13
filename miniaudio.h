@@ -39062,13 +39062,18 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             startResult = MA_SUCCESS;
         }
 
+        /*
+        If starting was not successful we'll need to loop back to the start and wait for something
+        to happen (pDevice->wakeupEvent).
+        */
         if (startResult != MA_SUCCESS) {
             pDevice->workResult = startResult;
-            continue;   /* Failed to start. Loop back to the start and wait for something to happen (pDevice->wakeupEvent). */
+            ma_event_signal(&pDevice->startEvent);  /* <-- Always signal the start event so ma_device_start() can return as it'll be waiting on it. */
+            continue;
         }
 
         /* Make sure the state is set appropriately. */
-        ma_device__set_state(pDevice, ma_device_state_started);
+        ma_device__set_state(pDevice, ma_device_state_started); /* <-- Set this before signaling the event so that the state is always guaranteed to be good after ma_device_start() has returned. */
         ma_event_signal(&pDevice->startEvent);
 
         ma_device__on_notification_started(pDevice);
