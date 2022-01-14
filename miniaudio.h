@@ -72687,6 +72687,10 @@ MA_API void ma_sound_set_pitch(ma_sound* pSound, float pitch)
         return;
     }
 
+    if (pitch <= 0) {
+        return;
+    }
+
     c89atomic_exchange_explicit_f32(&pSound->engineNode.pitch, pitch, c89atomic_memory_order_release);
 }
 
