@@ -32520,6 +32520,17 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
         case AVAudioSessionInterruptionTypeBegan:
         {
             ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_INFO, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeBegan\n");
+
+            /*
+            Core Audio will have stopped the internal device automatically, but we need explicitly
+            stop it at a higher level to ensure miniaudio-specific state is updated for consistency.
+            */
+            ma_device_stop(m_pDevice);
+
+            /*
+            Fire the notification after the device has been stopped to ensure it's in the correct
+            state when the notification handler is invoked.
+            */
             ma_device__on_notification_interruption_began(m_pDevice);
         } break;
         
