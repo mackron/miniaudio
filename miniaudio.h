@@ -32214,13 +32214,12 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     */
     if (ma_device_get_state(pDevice) == ma_device_state_uninitialized || ma_device_get_state(pDevice) == ma_device_state_stopping || ma_device_get_state(pDevice) == ma_device_state_stopped) {
         ma_device__on_notification_stopped(pDevice);
-        ma_event_signal(&pDevice->coreaudio.stopEvent);
     } else {
         UInt32 isRunning;
         UInt32 isRunningSize = sizeof(isRunning);
         OSStatus status = ((ma_AudioUnitGetProperty_proc)pDevice->pContext->coreaudio.AudioUnitGetProperty)(audioUnit, kAudioOutputUnitProperty_IsRunning, scope, element, &isRunning, &isRunningSize);
         if (status != noErr) {
-            return; /* Don't really know what to do in this case... just ignore it, I suppose... */
+            goto done; /* Don't really know what to do in this case... just ignore it, I suppose... */
         }
 
         if (!isRunning) {
@@ -32242,7 +32241,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
                 */
                 if (((audioUnit == pDevice->coreaudio.audioUnitPlayback) && pDevice->coreaudio.isSwitchingPlaybackDevice) ||
                     ((audioUnit == pDevice->coreaudio.audioUnitCapture)  && pDevice->coreaudio.isSwitchingCaptureDevice)) {
-                    return;
+                    goto done;
                 }
 
                 /*
@@ -32252,7 +32251,7 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
 
                 TODO: Try to predict if Core Audio will switch devices. If not, the stopped callback needs to be posted.
                 */
-                return;
+                goto done;
             }
 
             /* Getting here means we need to stop the device. */
@@ -32261,6 +32260,10 @@ static void on_start_stop__coreaudio(void* pUserData, AudioUnit audioUnit, Audio
     }
 
     (void)propertyID; /* Unused. */
+
+done:
+    /* Always signal the stop event. It's possible for the "else" case to get hit which can happen during an interruption. */
+    ma_event_signal(&pDevice->coreaudio.stopEvent);
 }
 
 #if defined(MA_APPLE_DESKTOP)
