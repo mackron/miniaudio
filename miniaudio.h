@@ -49681,6 +49681,14 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
     ma_uint32 n;
     ma_uint32 d;
 
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (ratioInOut <= 0) {
+        return MA_INVALID_ARGS;
+    }
+
     d = 1000;
     n = (ma_uint32)(ratioInOut * d);
 
@@ -50107,6 +50115,10 @@ MA_API ma_result ma_resampler_set_rate_ratio(ma_resampler* pResampler, float rat
     ma_uint32 d;
 
     if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (ratio <= 0) {
         return MA_INVALID_ARGS;
     }
 
