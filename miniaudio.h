@@ -10988,6 +10988,12 @@ MA_API ma_uint64 ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGr
 #endif  /* miniaudio_h */
 
 
+/*
+This is for preventing greying out of the implementation section.
+*/
+#if defined(Q_CREATOR_RUN) || defined(__INTELLISENSE__) || defined(__CDT_PARSER__)
+#define MINIAUDIO_IMPLEMENTATION
+#endif
 
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
