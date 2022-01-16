@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.4 - 2022-01-12
+miniaudio - v0.11.5 - 2022-01-16
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 4
+#define MA_VERSION_REVISION 5
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -3679,14 +3679,20 @@ struct ma_device
             ma_IMMNotificationClient notificationClient;
             /*HANDLE*/ ma_handle hEventPlayback;                    /* Auto reset. Initialized to signaled. */
             /*HANDLE*/ ma_handle hEventCapture;                     /* Auto reset. Initialized to unsignaled. */
-            ma_uint32 actualPeriodSizeInFramesPlayback;             /* Value from GetBufferSize(). internalPeriodSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
-            ma_uint32 actualPeriodSizeInFramesCapture;
+            ma_uint32 actualBufferSizeInFramesPlayback;             /* Value from GetBufferSize(). internalPeriodSizeInFrames is not set to the _actual_ buffer size when low-latency shared mode is being used due to the way the IAudioClient3 API works. */
+            ma_uint32 actualBufferSizeInFramesCapture;
             ma_uint32 originalPeriodSizeInFrames;
             ma_uint32 originalPeriodSizeInMilliseconds;
             ma_uint32 originalPeriods;
             ma_performance_profile originalPerformanceProfile;
             ma_uint32 periodSizeInFramesPlayback;
             ma_uint32 periodSizeInFramesCapture;
+            void* pMappedBufferCapture;
+            ma_uint32 mappedBufferCaptureCap;
+            ma_uint32 mappedBufferCaptureLen;
+            void* pMappedBufferPlayback;
+            ma_uint32 mappedBufferPlaybackCap;
+            ma_uint32 mappedBufferPlaybackLen;
             MA_ATOMIC(4, ma_bool32) isStartedCapture;               /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             MA_ATOMIC(4, ma_bool32) isStartedPlayback;              /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
@@ -4623,6 +4629,11 @@ then be set directly on the structure. Below are the members of the `ma_device_c
     aaudio.inputPreset
         AAudio only. Explicitly sets the type of recording your program will be doing. When left
         unset, the input preset will be left unchanged.
+
+    aaudio.noAutoStartAfterReroute
+        AAudio only. Controls whether or not the device should be automatically restarted after a
+        stream reroute. When set to false (default) the device will be restarted automatically;
+        otherwise the device will be stopped.
 
 
 Once initialized, the device's config is immutable. If you need to change the config you will need to initialize a new device.
@@ -7225,6 +7236,7 @@ MA_API void ma_engine_listener_set_enabled(ma_engine* pEngine, ma_uint32 listene
 MA_API ma_bool32 ma_engine_listener_is_enabled(const ma_engine* pEngine, ma_uint32 listenerIndex);
 
 #ifndef MA_NO_RESOURCE_MANAGER
+MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePath, ma_node* pNode, ma_uint32 nodeInputBusIndex);
 MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath, ma_sound_group* pGroup);   /* Fire and forget. */
 #endif
 

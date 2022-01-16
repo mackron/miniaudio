@@ -1,5 +1,5 @@
-v0.11.5 - TBD
-=============
+v0.11.5 - 2022-01-16
+====================
 * WASAPI: Fix a bug in duplex mode when the capture and playback devices have different native sample rates.
 * AAudio: Add support for automatic stream routing.
 * iOS: The interruption_began notification now automatically calls `ma_device_stop()`. This allows `ma_device_start()` to work as expected when called from interruption_ended.
