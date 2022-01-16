@@ -981,6 +981,10 @@ entitlements.xcent file:
 &lt;true/&gt;
 </pre></div><p>
 
+See this discussion for more info: <a href="https://github.com/mackron/miniaudio/issues/203">https://github.com/mackron/miniaudio/issues/203</a>.
+</p>
+<p>
+
 </p>
 <p>
 
@@ -2712,7 +2716,7 @@ manage your job threads if, for example, you want to integrate the job processin
 existing job infrastructure, or if you simply don&#39;t like the way the resource manager does it. To
 do this, just set the job thread count to 0 and process jobs manually. To process jobs, you first
 need to retrieve a job using <span style="font-family:monospace;">ma_resource_manager_next_job()</span> and then process it using
-<span style="font-family:monospace;">ma_resource_manager_process_job()</span>:
+<span style="font-family:monospace;">ma_job_process()</span>:
 </p>
 <p>
 
@@ -2727,7 +2731,7 @@ config.flags = MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING; <span style="color:#009900
 <span style="color:#0033ff">void</span> my_custom_job_thread(...)
 {
     <span style="color:#0033ff">for</span> (;;) {
-        ma_resource_manager_job job;
+        ma_job job;
         <span style="color:#0099cc">ma_result</span> result = ma_resource_manager_next_job(pMyResourceManager, &amp;job);
         <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
             <span style="color:#0033ff">if</span> (result == MA_NOT_DATA_AVAILABLE) {
@@ -2735,7 +2739,7 @@ config.flags = MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING; <span style="color:#009900
                 <span style="color:#009900">// with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING.</span>
                 <span style="color:#0033ff">continue</span>;
             } <span style="color:#0033ff">else</span> <span style="color:#0033ff">if</span> (result == MA_CANCELLED) {
-                <span style="color:#009900">// MA_RESOURCE_MANAGER_JOB_QUIT was posted. Exit.</span>
+                <span style="color:#009900">// MA_JOB_TYPE_QUIT was posted. Exit.</span>
                 <span style="color:#0033ff">break</span>;
             } <span style="color:#0033ff">else</span> {
                 <span style="color:#009900">// Some other error occurred.</span>
@@ -2743,16 +2747,16 @@ config.flags = MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING; <span style="color:#009900
             }
         }
 
-        ma_resource_manager_process_job(pMyResourceManager, &amp;job);
+        ma_job_process(&amp;job);
     }
 }
 </pre></div><p>
 
-In the example above, the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_QUIT</span> event is the used as the termination
+In the example above, the <span style="font-family:monospace;">MA_JOB_TYPE_QUIT</span> event is the used as the termination
 indicator, but you can use whatever you would like to terminate the thread. The call to
 <span style="font-family:monospace;">ma_resource_manager_next_job()</span> is blocking by default, but can be configured to be non-blocking
 by initializing the resource manager with the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING</span> configuration
-flag. Note that the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_QUIT</span> will never be removed from the job queue. This
+flag. Note that the <span style="font-family:monospace;">MA_JOB_TYPE_QUIT</span> will never be removed from the job queue. This
 is to give every thread the opportunity to catch the event and terminate naturally.
 </p>
 <p>
@@ -3083,7 +3087,7 @@ pthread_mutex_unlock(&amp;pSemaphore-&gt;lock);
 </pre></div><p>
 
 Again, this is relevant for those with strict lock-free requirements in the audio thread. To avoid
-this, you can use non-blocking mode (via the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_QUEUE_FLAG_NON_BLOCKING</span>
+this, you can use non-blocking mode (via the <span style="font-family:monospace;">MA_JOB_QUEUE_FLAG_NON_BLOCKING</span>
 flag) and implement your own job processing routine (see the &quot;Resource Manager&quot; section above for
 details on how to do this).
 </p>
@@ -3147,7 +3151,7 @@ completed <span style="font-family:monospace;">MA_SUCCESS</span> will be returne
 <p>
 
 When loading asynchronously, a single job is posted to the queue of the type
-<span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_LOAD_DATA_BUFFER_NODE</span>. This involves making a copy of the file path and
+<span style="font-family:monospace;">MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE</span>. This involves making a copy of the file path and
 associating it with job. When the job is processed by the job thread, it will first load the file
 using the VFS associated with the resource manager. When using a custom VFS, it&#39;s important that it
 be completely thread-safe because it will be used from one or more job threads at the same time.
@@ -3160,9 +3164,9 @@ block of memory to store the decoded output and initialize it to silence. If the
 it will allocate room for one page. After memory has been allocated, the first page will be
 decoded. If the sound is shorter than a page, the result code will be set to <span style="font-family:monospace;">MA_SUCCESS</span> and the
 completion event will be signalled and loading is now complete. If, however, there is more to
-decode, a job with the code <span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE</span> is posted. This job
+decode, a job with the code <span style="font-family:monospace;">MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE</span> is posted. This job
 will decode the next page and perform the same process if it reaches the end. If there is more to
-decode, the job will post another <span style="font-family:monospace;">MA_RESOURCE_MANAGER_JOB_PAGE_DATA_BUFFER_NODE</span> job which will
+decode, the job will post another <span style="font-family:monospace;">MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE</span> job which will
 keep on happening until the sound has been fully decoded. For sounds of an unknown length, each
 page will be linked together as a linked list. Internally this is implemented via the
 <span style="font-family:monospace;">ma_paged_audio_buffer</span> object.
