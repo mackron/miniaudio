@@ -1,7 +1,14 @@
 v0.11.5 - TBD
 =============
-* Support has been added for automatic stream routing with the AAudio backend.
-* A bug has been fixed that results in a deadlock when starting a device.
+* WASAPI: Fix a bug in duplex mode when the capture and playback devices have different native sample rates.
+* AAudio: Add support for automatic stream routing.
+* iOS: The interruption_began notification now automatically calls `ma_device_stop()`. This allows `ma_device_start()` to work as expected when called from interruption_ended.
+* iOS: Fix a bug that results in a deadlock when stopping the device in response to the interruption_begain or interruption_ended notifications.
+* Fix a bug with fixed sized callbacks that results in glitches in duplex mode.
+* Fix a bug that results in a deadlock when starting a device.
+* ma_engine_play_sound_ex() is now publicly visible.
+* Add validation to ma_sound_set_pitch() to prevent negative pitches.
+* Add validation to resamplers to prevent negative ratios.
 
 
 ---------------------------------------------------------------------------------------------------
