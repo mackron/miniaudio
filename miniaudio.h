@@ -44997,7 +44997,7 @@ static ma_result ma_hpf_get_heap_layout(const ma_hpf_config* pConfig, ma_hpf_hea
 
     pHeapLayout->sizeInBytes = 0;
 
-    /* LPF 1 */
+    /* HPF 1 */
     pHeapLayout->hpf1Offset = pHeapLayout->sizeInBytes;
     for (ihpf1 = 0; ihpf1 < hpf1Count; ihpf1 += 1) {
         size_t hpf1HeapSizeInBytes;
@@ -45011,7 +45011,7 @@ static ma_result ma_hpf_get_heap_layout(const ma_hpf_config* pConfig, ma_hpf_hea
         pHeapLayout->sizeInBytes += sizeof(ma_hpf1) + hpf1HeapSizeInBytes;
     }
 
-    /* LPF 2*/
+    /* HPF 2*/
     pHeapLayout->hpf2Offset = pHeapLayout->sizeInBytes;
     for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
         size_t hpf2HeapSizeInBytes;
