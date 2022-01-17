@@ -70679,8 +70679,8 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             framesJustProcessedIn  = (ma_uint32)resampleFrameCountIn;
             framesJustProcessedOut = (ma_uint32)resampleFrameCountOut;
         } else {
-            framesJustProcessedIn  = framesAvailableIn;
-            framesJustProcessedOut = framesAvailableOut;
+            framesJustProcessedIn  = ma_min(framesAvailableIn, framesAvailableOut);
+            framesJustProcessedOut = framesJustProcessedIn; /* When no resampling is being performed, the number of output frames is the same as input frames. */
         }
 
         /* Fading. */
