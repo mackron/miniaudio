@@ -1,3 +1,8 @@
+v0.11.6 - TBD
+====================
+* Fix a crash with high-pass and band-pass filters.
+
+
 v0.11.5 - 2022-01-16
 ====================
 * WASAPI: Fix a bug in duplex mode when the capture and playback devices have different native sample rates.

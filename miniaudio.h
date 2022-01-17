@@ -45095,7 +45095,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf1_get_heap_size(&hpf1Config, &hpf1HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (ihpf1 * (sizeof(ma_hpf1) + hpf1HeapSizeInBytes)) + sizeof(ma_hpf1)), &pHPF->pHPF1[ihpf1]);
+                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (sizeof(ma_hpf1) * hpf1Count) + (ihpf1 * hpf1HeapSizeInBytes)), &pHPF->pHPF1[ihpf1]);
             }
         } else {
             result = ma_hpf1_reinit(&hpf1Config, &pHPF->pHPF1[ihpf1]);
@@ -45132,7 +45132,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf2_get_heap_size(&hpf2Config, &hpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (ihpf2 * (sizeof(ma_hpf2) + hpf2HeapSizeInBytes)) + sizeof(ma_hpf2)), &pHPF->pHPF2[ihpf2]);
+                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (sizeof(ma_hpf2) * hpf2Count) + (ihpf2 * hpf2HeapSizeInBytes)), &pHPF->pHPF2[ihpf2]);
             }
         } else {
             result = ma_hpf2_reinit(&hpf2Config, &pHPF->pHPF2[ihpf2]);
@@ -45647,7 +45647,7 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, void* pHe
 
             result = ma_bpf2_get_heap_size(&bpf2Config, &bpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_bpf2_init_preallocated(&bpf2Config, ma_offset_ptr(pHeap, heapLayout.bpf2Offset + (ibpf2 * (sizeof(ma_bpf2) + bpf2HeapSizeInBytes)) + sizeof(ma_bpf2)), &pBPF->pBPF2[ibpf2]);
+                result = ma_bpf2_init_preallocated(&bpf2Config, ma_offset_ptr(pHeap, heapLayout.bpf2Offset + (sizeof(ma_bpf2) * bpf2Count) + (ibpf2 * bpf2HeapSizeInBytes)), &pBPF->pBPF2[ibpf2]);
             }
         } else {
             result = ma_bpf2_reinit(&bpf2Config, &pBPF->pBPF2[ibpf2]);
