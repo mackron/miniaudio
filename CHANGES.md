@@ -1,6 +1,7 @@
 v0.11.6 - TBD
 ====================
 * Fix a crash with high-pass and band-pass filters.
+* Fix an audio glitch when mixing engine nodes (ma_sound and ma_sound_group).
 
 
 v0.11.5 - 2022-01-16
