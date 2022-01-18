@@ -67751,7 +67751,7 @@ static ma_node_vtable g_node_graph_node_vtable =
 {
     ma_node_graph_node_process_pcm_frames,
     NULL,   /* onGetRequiredInputFrameCount */
-    0,      /* 1 input buses. */
+    0,      /* 0 input buses. */
     1,      /* 1 output bus. */
     0       /* Flags. */
 };
@@ -67794,7 +67794,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     ma_result result;
     ma_node_config baseConfig;
     ma_node_config endpointConfig;
-    ma_uint32 baseInputChannels = 0;
 
     if (pNodeGraph == NULL) {
         return MA_INVALID_ARGS;
@@ -67810,7 +67809,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     /* Base node so we can use the node graph as a node into another graph. */
     baseConfig = ma_node_config_init();
     baseConfig.vtable = &g_node_graph_node_vtable;
-    baseConfig.pInputChannels  = &baseInputChannels;    /* <-- Always zero. */
     baseConfig.pOutputChannels = &pConfig->channels;
 
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pNodeGraph->base);
