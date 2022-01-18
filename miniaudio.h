@@ -21964,7 +21964,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
                 continue;
             } else {
-                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY) {
+                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /*
                     No data is available. We need to wait for more. There's two situations to consider
                     here. The first is normal capture mode. If this times out it probably means the
@@ -22078,7 +22078,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 pDevice->wasapi.mappedBufferPlaybackCap = bufferSizeInFrames;
                 pDevice->wasapi.mappedBufferPlaybackLen = 0;
             } else {
-                if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE) {
+                if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. We need to wait for more. */
                     if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                         break;   /* Wait failed. Probably timed out. */
