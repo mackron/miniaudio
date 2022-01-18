@@ -22085,7 +22085,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                     }
                 } else {
                     /* Some error occurred. We'll need to abort. */
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.");
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d", (int)hr);
                     break;
                 }
             }
