@@ -2681,7 +2681,7 @@ initializing a simple channel converter which converts from mono to stereo.
         NULL,                           // Output channel map
         ma_channel_mix_mode_default);   // The mixing algorithm to use when combining channels.
 
-    result = ma_channel_converter_init(&config, &converter);
+    result = ma_channel_converter_init(&config, NULL, &converter);
     if (result != MA_SUCCESS) {
         // Error.
     }
@@ -2978,7 +2978,7 @@ object like this:
     );
 
     ma_data_converter converter;
-    ma_result result = ma_data_converter_init(&config, &converter);
+    ma_result result = ma_data_converter_init(&config, NULL, &converter);
     if (result != MA_SUCCESS) {
         // An error occurred...
     }
