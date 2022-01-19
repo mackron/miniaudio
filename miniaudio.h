@@ -21978,6 +21978,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                         if (pDevice->type == ma_device_type_loopback) {
                             continue;   /* Keep waiting in loopback mode. */
                         } else {
+                            result = MA_ERROR;
                             break;      /* Wait failed. */
                         }
                     }
@@ -21985,6 +21986,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     /* At this point we should be able to loop back to the start of the loop and try retrieving a data buffer again. */
                 } else {
                     /* An error occured and we need to abort. */
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.\n", (int)hr);
                     result = ma_result_from_HRESULT(hr);
                     break;
                 }
@@ -22013,6 +22015,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
 static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
+    ma_result result = MA_SUCCESS;
     ma_uint32 totalFramesProcessed = 0;
 
     /* Keep writing to the device until it's stopped or we've consumed all of our input. */
@@ -22057,6 +22060,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 */
                 if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                     if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                        result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
                 }
@@ -22082,11 +22086,13 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. We need to wait for more. */
                     if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                        result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
                 } else {
                     /* Some error occurred. We'll need to abort. */
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d", (int)hr);
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.\n", (int)hr);
+                    result = ma_result_from_HRESULT(hr);
                     break;
                 }
             }
@@ -22097,7 +22103,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
         *pFramesWritten = totalFramesProcessed;
     }
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_device_data_loop_wakeup__wasapi(ma_device* pDevice)
