@@ -3003,7 +3003,7 @@ Something like the following may be more suitable depending on your requirements
 Do the following to uninitialize the data converter:
 
     ```c
-    ma_data_converter_uninit(&converter);
+    ma_data_converter_uninit(&converter, NULL);
     ```
 
 The following example shows how data can be processed
