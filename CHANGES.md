@@ -1,5 +1,6 @@
 v0.11.6 - TBD
 ====================
+* WASAPI: Fix a bug where the device is not stopped when an error occurrs when writing to a playback device.
 * The node graph can now be used as a node. This allows node graphs to be connected to other node graphs.
 * Fix a crash with high-pass and band-pass filters.
 * Fix an audio glitch when mixing engine nodes (ma_sound and ma_sound_group).
