@@ -184,7 +184,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         return;
     }
 
-    ma_data_source_read_pcm_frames(pDataSource, pOutput, frameCount, NULL, MA_TRUE);
+    ma_data_source_read_pcm_frames(pDataSource, pOutput, frameCount, NULL);
 
     (void)pInput;
 }
@@ -228,6 +228,8 @@ int main(int argc, char** argv)
         printf("Failed to initialize decoder.");
         return -1;
     }
+
+    ma_data_source_set_looping(&decoder, MA_TRUE);
 
 
     /* Initialize the device. */
