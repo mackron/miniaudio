@@ -2681,7 +2681,7 @@ initializing a simple channel converter which converts from mono to stereo.
         NULL,                           // Output channel map
         ma_channel_mix_mode_default);   // The mixing algorithm to use when combining channels.
 
-    result = ma_channel_converter_init(&config, &converter);
+    result = ma_channel_converter_init(&config, NULL, &converter);
     if (result != MA_SUCCESS) {
         // Error.
     }
@@ -2978,7 +2978,7 @@ object like this:
     );
 
     ma_data_converter converter;
-    ma_result result = ma_data_converter_init(&config, &converter);
+    ma_result result = ma_data_converter_init(&config, NULL, &converter);
     if (result != MA_SUCCESS) {
         // An error occurred...
     }
@@ -3003,7 +3003,7 @@ Something like the following may be more suitable depending on your requirements
 Do the following to uninitialize the data converter:
 
     ```c
-    ma_data_converter_uninit(&converter);
+    ma_data_converter_uninit(&converter, NULL);
     ```
 
 The following example shows how data can be processed
@@ -3611,8 +3611,9 @@ Some backends have some nuance details you may want to be aware of.
   WASAPI and Core Audio, however other backends such as PulseAudio may naturally support it, though
   not all have been tested.
 - The contents of the output buffer passed into the data callback will always be pre-initialized to
-  silence unless the `noPreZeroedOutputBuffer` config variable in `ma_device_config` is set to true,
-  in which case it'll be undefined which will require you to write something to the entire buffer.
+  silence unless the `noPreSilencedOutputBuffer` config variable in `ma_device_config` is set to
+  true, in which case it'll be undefined which will require you to write something to the entire
+  buffer.
 - By default miniaudio will automatically clip samples. This only applies when the playback sample
   format is configured as `ma_format_f32`. If you are doing clipping yourself, you can disable this
   overhead by setting `noClip` to true in the device config.
