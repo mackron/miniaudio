@@ -15534,7 +15534,6 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
     pthread_join((pthread_t)*pThread, NULL);
-    pthread_detach((pthread_t)*pThread);
 }
 
 
