@@ -444,7 +444,7 @@ The <span style="font-family:monospace;">onInitFile</span>, <span style="font-fa
         <span style="color:#0033ff">return</span>;
     }
 
-    ma_data_source_read_pcm_frames(pDataSource, pOutput, frameCount, NULL, MA_TRUE);
+    ma_data_source_read_pcm_frames(pDataSource, pOutput, frameCount, NULL);
 
     (<span style="color:#0033ff">void</span>)pInput;
 }
@@ -488,6 +488,8 @@ The <span style="font-family:monospace;">onInitFile</span>, <span style="font-fa
         printf(<span style="color:#cc3300">&quot;Failed to initialize decoder.&quot;</span>);
         <span style="color:#0033ff">return</span> -1;
     }
+
+    ma_data_source_set_looping(&amp;decoder, MA_TRUE);
 
 
     <span style="color:#009900">/* Initialize the device. */</span>
