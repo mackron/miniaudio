@@ -1,9 +1,15 @@
-v0.11.6 - TBD
+v0.11.6 - 2022-01-22
 ====================
 * WASAPI: Fix a bug where the device is not stopped when an error occurrs when writing to a playback device.
+* PulseAudio: Fix a rare crash due to a division by zero.
 * The node graph can now be used as a node. This allows node graphs to be connected to other node graphs.
 * Fix a crash with high-pass and band-pass filters.
 * Fix an audio glitch when mixing engine nodes (ma_sound and ma_sound_group).
+* Add some new helper APIs for cursor and length retrieval:
+  - ma_data_source_get_cursor_in_seconds()
+  - ma_data_source_get_length_in_seconds()
+  - ma_sound_get_cursor_in_seconds()
+  - ma_sound_get_length_in_seconds()
 
 
 v0.11.5 - 2022-01-16
