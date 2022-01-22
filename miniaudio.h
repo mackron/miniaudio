@@ -24564,7 +24564,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
-        pDevice->winmm.hEventPlayback = (ma_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
+        pDevice->winmm.hEventPlayback = (ma_handle)CreateEventW(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventPlayback == NULL) {
             errorMsg = "[WinMM] Failed to create event for fragment enqueing for the playback device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
