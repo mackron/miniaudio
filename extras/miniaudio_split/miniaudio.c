@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.5 - 2022-01-16
+miniaudio - v0.11.6 - 2022-01-22
 
 David Reid - mackron@gmail.com
 
@@ -4535,7 +4535,6 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
 static void ma_thread_wait__posix(ma_thread* pThread)
 {
     pthread_join((pthread_t)*pThread, NULL);
-    pthread_detach((pthread_t)*pThread);
 }
 
 
@@ -9848,9 +9847,23 @@ static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
 #endif
 
     if (pDevice->wasapi.pRenderClient) {
+        if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
+            ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.mappedBufferPlaybackCap, 0);
+            pDevice->wasapi.pMappedBufferPlayback   = NULL;
+            pDevice->wasapi.mappedBufferPlaybackCap = 0;
+            pDevice->wasapi.mappedBufferPlaybackLen = 0;
+        }
+
         ma_IAudioRenderClient_Release((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient);
     }
     if (pDevice->wasapi.pCaptureClient) {
+        if (pDevice->wasapi.pMappedBufferCapture != NULL) {
+            ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
+            pDevice->wasapi.pMappedBufferCapture   = NULL;
+            pDevice->wasapi.mappedBufferCaptureCap = 0;
+            pDevice->wasapi.mappedBufferCaptureLen = 0;
+        }
+
         ma_IAudioCaptureClient_Release((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient);
     }
 
@@ -10971,7 +10984,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
                 continue;
             } else {
-                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY) {
+                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /*
                     No data is available. We need to wait for more. There's two situations to consider
                     here. The first is normal capture mode. If this times out it probably means the
@@ -10984,6 +10997,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                         if (pDevice->type == ma_device_type_loopback) {
                             continue;   /* Keep waiting in loopback mode. */
                         } else {
+                            result = MA_ERROR;
                             break;      /* Wait failed. */
                         }
                     }
@@ -10991,6 +11005,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     /* At this point we should be able to loop back to the start of the loop and try retrieving a data buffer again. */
                 } else {
                     /* An error occured and we need to abort. */
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.\n", (int)hr);
                     result = ma_result_from_HRESULT(hr);
                     break;
                 }
@@ -11019,6 +11034,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
 static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
+    ma_result result = MA_SUCCESS;
     ma_uint32 totalFramesProcessed = 0;
 
     /* Keep writing to the device until it's stopped or we've consumed all of our input. */
@@ -11063,6 +11079,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 */
                 if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                     if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                        result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
                 }
@@ -11085,14 +11102,16 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 pDevice->wasapi.mappedBufferPlaybackCap = bufferSizeInFrames;
                 pDevice->wasapi.mappedBufferPlaybackLen = 0;
             } else {
-                if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE) {
+                if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. We need to wait for more. */
                     if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                        result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
                 } else {
                     /* Some error occurred. We'll need to abort. */
-                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device.");
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.\n", (int)hr);
+                    result = ma_result_from_HRESULT(hr);
                     break;
                 }
             }
@@ -11103,7 +11122,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
         *pFramesWritten = totalFramesProcessed;
     }
 
-    return MA_SUCCESS;
+    return result;
 }
 
 static ma_result ma_device_data_loop_wakeup__wasapi(ma_device* pDevice)
@@ -13546,7 +13565,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
-        pDevice->winmm.hEventPlayback = (ma_handle)CreateEvent(NULL, TRUE, TRUE, NULL);
+        pDevice->winmm.hEventPlayback = (ma_handle)CreateEventW(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventPlayback == NULL) {
             errorMsg = "[WinMM] Failed to create event for fragment enqueing for the playback device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
@@ -17905,15 +17924,25 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             goto on_error2;
         }
 
+
         /* Internal format. */
         pActualSS = ((ma_pa_stream_get_sample_spec_proc)pDevice->pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
         if (pActualSS != NULL) {
             ss = *pActualSS;
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Capture sample spec: format=%s, channels=%d, rate=%d\n", ma_get_format_name(ma_format_from_pulse(ss.format)), ss.channels, ss.rate);
+        } else {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Failed to retrieve capture sample spec.\n");
         }
 
         pDescriptorCapture->format     = ma_format_from_pulse(ss.format);
         pDescriptorCapture->channels   = ss.channels;
         pDescriptorCapture->sampleRate = ss.rate;
+
+        if (pDescriptorCapture->format == ma_format_unknown || pDescriptorCapture->channels == 0 || pDescriptorCapture->sampleRate == 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Capture sample spec is invalid. Device unusable by miniaudio. format=%s, channels=%d, sampleRate=%d.\n", ma_get_format_name(pDescriptorCapture->format), pDescriptorCapture->channels, pDescriptorCapture->sampleRate);
+            result = MA_ERROR;
+            goto on_error4;
+        }
 
         /* Internal channel map. */
         pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
@@ -17932,9 +17961,13 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             attr = *pActualAttr;
         }
 
-        pDescriptorCapture->periodCount        = attr.maxlength / attr.fragsize;
-        pDescriptorCapture->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / pDescriptorCapture->periodCount;
+        if (attr.fragsize > 0) {
+            pDescriptorPlayback->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
+        } else {
+            pDescriptorPlayback->periodCount = 1;
+        }
 
+        pDescriptorCapture->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / pDescriptorCapture->periodCount;
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Capture actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorCapture->periodSizeInFrames);
     }
 
@@ -18016,11 +18049,20 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         pActualSS = ((ma_pa_stream_get_sample_spec_proc)pDevice->pContext->pulse.pa_stream_get_sample_spec)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
         if (pActualSS != NULL) {
             ss = *pActualSS;
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Playback sample spec: format=%s, channels=%d, rate=%d\n", ma_get_format_name(ma_format_from_pulse(ss.format)), ss.channels, ss.rate);
+        } else {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Failed to retrieve playback sample spec.\n");
         }
 
         pDescriptorPlayback->format     = ma_format_from_pulse(ss.format);
         pDescriptorPlayback->channels   = ss.channels;
         pDescriptorPlayback->sampleRate = ss.rate;
+
+        if (pDescriptorPlayback->format == ma_format_unknown || pDescriptorPlayback->channels == 0 || pDescriptorPlayback->sampleRate == 0) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[PulseAudio] Playback sample spec is invalid. Device unusable by miniaudio. format=%s, channels=%d, sampleRate=%d.\n", ma_get_format_name(pDescriptorPlayback->format), pDescriptorPlayback->channels, pDescriptorPlayback->sampleRate);
+            result = MA_ERROR;
+            goto on_error4;
+        }
 
         /* Internal channel map. */
         pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
@@ -18039,7 +18081,12 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             attr = *pActualAttr;
         }
 
-        pDescriptorPlayback->periodCount        = ma_max(attr.maxlength / attr.tlength, 1);
+        if (attr.tlength > 0) {
+            pDescriptorPlayback->periodCount = ma_max(attr.maxlength / attr.tlength, 1);
+        } else {
+            pDescriptorPlayback->periodCount = 1;
+        }
+
         pDescriptorPlayback->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) / pDescriptorPlayback->periodCount;
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Playback actual attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; internalPeriodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorPlayback->periodSizeInFrames);
     }
@@ -34004,7 +34051,7 @@ static ma_result ma_hpf_get_heap_layout(const ma_hpf_config* pConfig, ma_hpf_hea
 
     pHeapLayout->sizeInBytes = 0;
 
-    /* LPF 1 */
+    /* HPF 1 */
     pHeapLayout->hpf1Offset = pHeapLayout->sizeInBytes;
     for (ihpf1 = 0; ihpf1 < hpf1Count; ihpf1 += 1) {
         size_t hpf1HeapSizeInBytes;
@@ -34018,7 +34065,7 @@ static ma_result ma_hpf_get_heap_layout(const ma_hpf_config* pConfig, ma_hpf_hea
         pHeapLayout->sizeInBytes += sizeof(ma_hpf1) + hpf1HeapSizeInBytes;
     }
 
-    /* LPF 2*/
+    /* HPF 2*/
     pHeapLayout->hpf2Offset = pHeapLayout->sizeInBytes;
     for (ihpf2 = 0; ihpf2 < hpf2Count; ihpf2 += 1) {
         size_t hpf2HeapSizeInBytes;
@@ -34102,7 +34149,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf1_get_heap_size(&hpf1Config, &hpf1HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (ihpf1 * (sizeof(ma_hpf1) + hpf1HeapSizeInBytes)) + sizeof(ma_hpf1)), &pHPF->pHPF1[ihpf1]);
+                result = ma_hpf1_init_preallocated(&hpf1Config, ma_offset_ptr(pHeap, heapLayout.hpf1Offset + (sizeof(ma_hpf1) * hpf1Count) + (ihpf1 * hpf1HeapSizeInBytes)), &pHPF->pHPF1[ihpf1]);
             }
         } else {
             result = ma_hpf1_reinit(&hpf1Config, &pHPF->pHPF1[ihpf1]);
@@ -34139,7 +34186,7 @@ static ma_result ma_hpf_reinit__internal(const ma_hpf_config* pConfig, void* pHe
 
             result = ma_hpf2_get_heap_size(&hpf2Config, &hpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (ihpf2 * (sizeof(ma_hpf2) + hpf2HeapSizeInBytes)) + sizeof(ma_hpf2)), &pHPF->pHPF2[ihpf2]);
+                result = ma_hpf2_init_preallocated(&hpf2Config, ma_offset_ptr(pHeap, heapLayout.hpf2Offset + (sizeof(ma_hpf2) * hpf2Count) + (ihpf2 * hpf2HeapSizeInBytes)), &pHPF->pHPF2[ihpf2]);
             }
         } else {
             result = ma_hpf2_reinit(&hpf2Config, &pHPF->pHPF2[ihpf2]);
@@ -34654,7 +34701,7 @@ static ma_result ma_bpf_reinit__internal(const ma_bpf_config* pConfig, void* pHe
 
             result = ma_bpf2_get_heap_size(&bpf2Config, &bpf2HeapSizeInBytes);
             if (result == MA_SUCCESS) {
-                result = ma_bpf2_init_preallocated(&bpf2Config, ma_offset_ptr(pHeap, heapLayout.bpf2Offset + (ibpf2 * (sizeof(ma_bpf2) + bpf2HeapSizeInBytes)) + sizeof(ma_bpf2)), &pBPF->pBPF2[ibpf2]);
+                result = ma_bpf2_init_preallocated(&bpf2Config, ma_offset_ptr(pHeap, heapLayout.bpf2Offset + (sizeof(ma_bpf2) * bpf2Count) + (ibpf2 * bpf2HeapSizeInBytes)), &pBPF->pBPF2[ibpf2]);
             }
         } else {
             result = ma_bpf2_reinit(&bpf2Config, &pBPF->pBPF2[ibpf2]);
@@ -43761,6 +43808,60 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
     }
 
     return pDataSourceBase->vtable->onGetLength(pDataSource, pLength);
+}
+
+MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSource, float* pCursor)
+{
+    ma_result result;
+    ma_uint64 cursorInPCMFrames;
+    ma_uint32 sampleRate;
+
+    if (pCursor == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pCursor = 0;
+
+    result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &cursorInPCMFrames);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_get_data_format(pDataSource, NULL, NULL, &sampleRate, NULL, 0);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pCursor = cursorInPCMFrames / (float)sampleRate;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSource, float* pLength)
+{
+    ma_result result;
+    ma_uint64 lengthInPCMFrames;
+    ma_uint32 sampleRate;
+
+    if (pLength == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pLength = 0;
+
+    result = ma_data_source_get_length_in_pcm_frames(pDataSource, &lengthInPCMFrames);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_data_source_get_data_format(pDataSource, NULL, NULL, &sampleRate, NULL, 0);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    *pLength = lengthInPCMFrames / (float)sampleRate;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping)
@@ -56740,6 +56841,28 @@ static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 #endif
 
 
+static void ma_node_graph_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+{
+    ma_node_graph* pNodeGraph = (ma_node_graph*)pNode;
+    ma_uint64 framesRead;
+
+    ma_node_graph_read_pcm_frames(pNodeGraph, ppFramesOut[0], *pFrameCountOut, &framesRead);
+
+    *pFrameCountOut = (ma_uint32)framesRead;    /* Safe cast. */
+
+    (void)ppFramesIn;
+    (void)pFrameCountIn;
+}
+
+static ma_node_vtable g_node_graph_node_vtable =
+{
+    ma_node_graph_node_process_pcm_frames,
+    NULL,   /* onGetRequiredInputFrameCount */
+    0,      /* 0 input buses. */
+    1,      /* 1 output bus. */
+    0       /* Flags. */
+};
+
 static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     MA_ASSERT(pNode != NULL);
@@ -56776,6 +56899,7 @@ static ma_node_vtable g_node_graph_endpoint_vtable =
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph)
 {
     ma_result result;
+    ma_node_config baseConfig;
     ma_node_config endpointConfig;
 
     if (pNodeGraph == NULL) {
@@ -56788,6 +56912,19 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
         pNodeGraph->nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
     }
 
+
+    /* Base node so we can use the node graph as a node into another graph. */
+    baseConfig = ma_node_config_init();
+    baseConfig.vtable = &g_node_graph_node_vtable;
+    baseConfig.pOutputChannels = &pConfig->channels;
+
+    result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pNodeGraph->base);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+
+    /* Endpoint. */
     endpointConfig = ma_node_config_init();
     endpointConfig.vtable          = &g_node_graph_endpoint_vtable;
     endpointConfig.pInputChannels  = &pConfig->channels;
@@ -56795,6 +56932,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
     if (result != MA_SUCCESS) {
+        ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
         return result;
     }
 
@@ -59686,8 +59824,8 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             framesJustProcessedIn  = (ma_uint32)resampleFrameCountIn;
             framesJustProcessedOut = (ma_uint32)resampleFrameCountOut;
         } else {
-            framesJustProcessedIn  = framesAvailableIn;
-            framesJustProcessedOut = framesAvailableOut;
+            framesJustProcessedIn  = ma_min(framesAvailableIn, framesAvailableOut);
+            framesJustProcessedOut = framesJustProcessedIn; /* When no resampling is being performed, the number of output frames is the same as input frames. */
         }
 
         /* Fading. */
@@ -62022,6 +62160,34 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
     }
 
     return ma_data_source_get_length_in_pcm_frames(pSound->pDataSource, pLength);
+}
+
+MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The notion of a cursor is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    return ma_data_source_get_cursor_in_seconds(pSound->pDataSource, pCursor);
+}
+
+MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The notion of a sound length is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    return ma_data_source_get_length_in_seconds(pSound->pDataSource, pLength);
 }
 
 
