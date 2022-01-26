@@ -1,3 +1,8 @@
+v0.11.7 - TBD
+====================
+* Fix an error when seeking to the end of a WAV file.
+
+
 v0.11.6 - 2022-01-22
 ====================
 * WASAPI: Fix a bug where the device is not stopped when an error occurrs when writing to a playback device.
