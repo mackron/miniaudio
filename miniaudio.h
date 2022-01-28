@@ -44456,6 +44456,10 @@ MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocati
     for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
         ma_lpf2_uninit(&pLPF->pLPF2[ilpf2], pAllocationCallbacks);
     }
+
+    if (pLPF->_ownsHeap) {
+        ma_free(pLPF->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
@@ -45294,6 +45298,10 @@ MA_API void ma_hpf_uninit(ma_hpf* pHPF, const ma_allocation_callbacks* pAllocati
     for (ihpf2 = 0; ihpf2 < pHPF->hpf2Count; ihpf2 += 1) {
         ma_hpf2_uninit(&pHPF->pHPF2[ihpf2], pAllocationCallbacks);
     }
+
+    if (pHPF->_ownsHeap) {
+        ma_free(pHPF->_pHeap, pAllocationCallbacks);
+    }
 }
 
 MA_API ma_result ma_hpf_reinit(const ma_hpf_config* pConfig, ma_hpf* pHPF)
@@ -45791,6 +45799,10 @@ MA_API void ma_bpf_uninit(ma_bpf* pBPF, const ma_allocation_callbacks* pAllocati
 
     for (ibpf2 = 0; ibpf2 < pBPF->bpf2Count; ibpf2 += 1) {
         ma_bpf2_uninit(&pBPF->pBPF2[ibpf2], pAllocationCallbacks);
+    }
+
+    if (pBPF->_ownsHeap) {
+        ma_free(pBPF->_pHeap, pAllocationCallbacks);
     }
 }
 
