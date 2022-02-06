@@ -1,7 +1,9 @@
 v0.11.7 - TBD
 ====================
 * Fix an error when seeking to the end of a WAV file.
-* Fix a memory lean with low-pass, high-pass and band-pass filters.
+* Fix a memory leak with low-pass, high-pass and band-pass filters.
+* Fix some bugs in the FLAC decoder.
+* Fix a -Wundef warning
 
 
 v0.11.6 - 2022-01-22
