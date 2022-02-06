@@ -1,4 +1,4 @@
-v0.11.7 - TBD
+v0.11.7 - 2022-02-06
 ====================
 * Fix an error when seeking to the end of a WAV file.
 * Fix a memory leak with low-pass, high-pass and band-pass filters.
