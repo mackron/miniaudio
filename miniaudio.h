@@ -52297,7 +52297,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
     MA_ASSERT(pConverter != NULL);
     MA_ASSERT(pConverter->resampler.format   == pConverter->channelConverter.format);
     MA_ASSERT(pConverter->resampler.channels == pConverter->channelConverter.channelsOut);
-    MA_ASSERT(pConverter->resampler.channels <  pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.channels <= pConverter->channelConverter.channelsIn);
 
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
