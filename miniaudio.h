@@ -16866,7 +16866,7 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
     /*
     Lock free queue implementation based on the paper by Michael and Scott: Nonblocking Algorithms and Preemption-Safe Locking on Multiprogrammed Shared Memory Multiprocessors
     */
-    ma_result result = MA_SUCCESS;
+    ma_result result;
     ma_uint64 slot;
     ma_uint64 tail;
     ma_uint64 next;
@@ -16875,49 +16875,46 @@ MA_API ma_result ma_job_queue_post(ma_job_queue* pQueue, const ma_job* pJob)
         return MA_INVALID_ARGS;
     }
 
+    /* We need a new slot. */
+    result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
+    if (result != MA_SUCCESS) {
+        return result;  /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
+    }
+
+    /* At this point we should have a slot to place the job. */
+    MA_ASSERT(ma_job_extract_slot(slot) < pQueue->capacity);
+
+    /* We need to put the job into memory before we do anything. */
+    pQueue->pJobs[ma_job_extract_slot(slot)]                  = *pJob;
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
+    pQueue->pJobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
+
     #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock_lock(&pQueue->lock);
     #endif
     {
-         /* We need a new slot. */
-        result = ma_slot_allocator_alloc(&pQueue->allocator, &slot);
-        if (result == MA_SUCCESS) {
-            /* At this point we should have a slot to place the job. */
-            MA_ASSERT(ma_job_extract_slot(slot) < pQueue->capacity);
+        /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
+        for (;;) {
+            tail = c89atomic_load_64(&pQueue->tail);
+            next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(tail)].next);
 
-            /* We need to put the job into memory before we do anything. */
-            pQueue->pJobs[ma_job_extract_slot(slot)]                  = *pJob;
-            pQueue->pJobs[ma_job_extract_slot(slot)].toc.allocation   = slot;                    /* This will overwrite the job code. */
-            pQueue->pJobs[ma_job_extract_slot(slot)].toc.breakup.code = pJob->toc.breakup.code;  /* The job code needs to be applied again because the line above overwrote it. */
-            pQueue->pJobs[ma_job_extract_slot(slot)].next             = MA_JOB_ID_NONE;          /* Reset for safety. */
-
-            /* The job is stored in memory so now we need to add it to our linked list. We only ever add items to the end of the list. */
-            for (;;) {
-                tail = c89atomic_load_64(&pQueue->tail);
-                next = c89atomic_load_64(&pQueue->pJobs[ma_job_extract_slot(tail)].next);
-
-                if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
-                    if (ma_job_extract_slot(next) == 0xFFFF) {
-                        if (ma_job_queue_cas(&pQueue->pJobs[ma_job_extract_slot(tail)].next, next, slot)) {
-                            break;
-                        }
-                    } else {
-                        ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
+            if (ma_job_toc_to_allocation(tail) == ma_job_toc_to_allocation(c89atomic_load_64(&pQueue->tail))) {
+                if (ma_job_extract_slot(next) == 0xFFFF) {
+                    if (ma_job_queue_cas(&pQueue->pJobs[ma_job_extract_slot(tail)].next, next, slot)) {
+                        break;
                     }
+                } else {
+                    ma_job_queue_cas(&pQueue->tail, tail, ma_job_extract_slot(next));
                 }
             }
-            ma_job_queue_cas(&pQueue->tail, tail, slot);
-        } else {
-            /* Probably ran out of slots. If so, MA_OUT_OF_MEMORY will be returned. */
         }
+        ma_job_queue_cas(&pQueue->tail, tail, slot);
     }
     #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock_unlock(&pQueue->lock);
     #endif
 
-    if (result != MA_SUCCESS) {
-        return result;
-    }
 
     /* Signal the semaphore as the last step if we're using synchronous mode. */
     if ((pQueue->flags & MA_JOB_QUEUE_FLAG_NON_BLOCKING) == 0) {
@@ -16994,12 +16991,12 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
                 }
             }
         }
-
-        ma_slot_allocator_free(&pQueue->allocator, head);
     }
     #ifndef MA_USE_EXPERIMENTAL_LOCK_FREE_JOB_QUEUE
     ma_spinlock_unlock(&pQueue->lock);
     #endif
+
+    ma_slot_allocator_free(&pQueue->allocator, head);
 
     /*
     If it's a quit job make sure it's put back on the queue to ensure other threads have an opportunity to detect it and terminate naturally. We
