@@ -28947,13 +28947,33 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
 
-        for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
-            pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+        /*
+        Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
+        the channel map. To somewhat workaround this, I'm hacking in a hard coded channel map for mono
+        and stereo. In this case it should be safe to assume mono = MONO and stereo = LEFT/RIGHT. For
+        all other channel counts we need to just put up with whatever PipeWire reports and hope it gets
+        fixed sooner than later. I might remove this hack later.
+        */
+        if (pDescriptorCapture->channels > 2) {
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+
+            for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
+                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
+        } else {
+            /* Hack for mono and stereo. */
+            if (pDescriptorCapture->channels == 1) {
+                pDescriptorCapture->channelMap[0] = MA_CHANNEL_MONO;
+            } else if (pDescriptorCapture->channels == 2) {
+                pDescriptorCapture->channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+                pDescriptorCapture->channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+            } else {
+                MA_ASSERT(MA_FALSE);    /* Should never hit this. */
+            }
         }
 
 
@@ -28964,9 +28984,9 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         if (attr.fragsize > 0) {
-            pDescriptorPlayback->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
+            pDescriptorCapture->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
         } else {
-            pDescriptorPlayback->periodCount = 1;
+            pDescriptorCapture->periodCount = 1;
         }
 
         pDescriptorCapture->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / pDescriptorCapture->periodCount;
@@ -29067,13 +29087,33 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
 
-        for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
-            pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+        /*
+        Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
+        the channel map. To somewhat workaround this, I'm hacking in a hard coded channel map for mono
+        and stereo. In this case it should be safe to assume mono = MONO and stereo = LEFT/RIGHT. For
+        all other channel counts we need to just put up with whatever PipeWire reports and hope it gets
+        fixed sooner than later. I might remove this hack later.
+        */
+        if (pDescriptorPlayback->channels > 2) {
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+
+            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
+                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
+        } else {
+            /* Hack for mono and stereo. */
+            if (pDescriptorPlayback->channels == 1) {
+                pDescriptorPlayback->channelMap[0] = MA_CHANNEL_MONO;
+            } else if (pDescriptorPlayback->channels == 2) {
+                pDescriptorPlayback->channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+                pDescriptorPlayback->channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+            } else {
+                MA_ASSERT(MA_FALSE);    /* Should never hit this. */
+            }
         }
 
 
