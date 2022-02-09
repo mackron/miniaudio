@@ -40337,7 +40337,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
     }
 
     if (ma_device_get_state(pDevice) == ma_device_state_started) {
-        return MA_INVALID_OPERATION;    /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
+        return MA_SUCCESS;  /* Already started. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
@@ -40397,7 +40397,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
     }
 
     if (ma_device_get_state(pDevice) == ma_device_state_stopped) {
-        return MA_INVALID_OPERATION;    /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
+        return MA_SUCCESS;  /* Already stopped. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
