@@ -1,3 +1,14 @@
+v0.11.8 - TBD
+====================
+* PulseAudio: Work around bugs in PipeWire:
+  - PipeWire is returning AUX channels for stereo streams instead of FL/FR. This workaround forces FL/FR for stereo streams.
+  - PipeWire will glitch when the buffer size is too small, but still well within reasonable limits. To work around this bug, the default buffer size on PulseAudio backends is now 25ms. You can override this in the device config. This bug does not exist with regular PulseAudio, but the new default buffer size will still apply because I'm not aware of a good way to detect if PipeWire is being used. If anybody has advice on how to detect this, I'm happy to listen!
+* DirectSound: Increase the minimum period size from 20ms to 30ms.
+* Return `MA_SUCCESS` from `ma_device_start()` and `ma_device_stopped()` if the device is already started or stopped respectively.
+* Fix an incorrect assertion in the data converter.
+* Fix a compilation error with ARM builds.
+
+
 v0.11.7 - 2022-02-06
 ====================
 * Fix an error when seeking to the end of a WAV file.
