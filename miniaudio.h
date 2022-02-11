@@ -655,12 +655,6 @@ You cannot use `-std=c*` compiler flags, nor `-ansi`.
     +----------------------------------+--------------------------------------------------------------------+
     | MA_API                           | Controls how public APIs should be decorated. Default is `extern`. |
     +----------------------------------+--------------------------------------------------------------------+
-    | MA_DLL                           | If set, configures `MA_API` to either import or export APIs        |
-    |                                  | depending on whether or not the implementation is being defined.   |
-    |                                  | If defining the implementation, `MA_API` will be configured to     |
-    |                                  | export. Otherwise it will be configured to import. This has no     |
-    |                                  | effect if `MA_API` is defined externally.                          |
-    +----------------------------------+--------------------------------------------------------------------+
 
 
 3. Definitions
