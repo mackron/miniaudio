@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.7 - 2022-02-06
+miniaudio - v0.11.8 - 2022-02-12
 
 David Reid - mackron@gmail.com
 
@@ -130,16 +130,6 @@ GitHub:        https://github.com/mackron/miniaudio
 #if defined(MA_ARM)
     #if !defined(MA_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
         #define MA_SUPPORT_NEON
-    #endif
-
-    /* Fall back to looking for the #include file. */
-    #if !defined(__GNUC__) && !defined(__clang__) && defined(__has_include)
-        #if !defined(MA_SUPPORT_NEON) && !defined(MA_NO_NEON) && __has_include(<arm_neon.h>)
-            #define MA_SUPPORT_NEON
-        #endif
-    #endif
-
-    #if defined(MA_SUPPORT_NEON)
         #include <arm_neon.h>
     #endif
 #endif
@@ -12174,8 +12164,11 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
 
 static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__dsound(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
 {
-    /* DirectSound has a minimum period size of 20ms. */
-    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(20, nativeSampleRate);
+    /*
+    DirectSound has a minimum period size of 20ms. In practice, this doesn't seem to be enough for
+    reliable glitch-free processing so going to use 30ms instead.
+    */
+    ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(30, nativeSampleRate);
     ma_uint32 periodSizeInFrames;
 
     periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate, performanceProfile);
@@ -17778,6 +17771,32 @@ static void ma_device_on_rerouted__pulse(ma_pa_stream* pStream, void* pUserData)
     ma_device__on_notification_rerouted(pDevice);
 }
 
+static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__pulse(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
+{
+    /*
+    There have been reports from users where buffers of < ~20ms result glitches when running through
+    PipeWire. To work around this we're going to have to use a different default buffer size.
+    */
+    const ma_uint32 defaultPeriodSizeInMilliseconds_LowLatency   = 25;
+    const ma_uint32 defaultPeriodSizeInMilliseconds_Conservative = MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+
+    MA_ASSERT(nativeSampleRate != 0);
+
+    if (pDescriptor->periodSizeInFrames == 0) {
+        if (pDescriptor->periodSizeInMilliseconds == 0) {
+            if (performanceProfile == ma_performance_profile_low_latency) {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_LowLatency, nativeSampleRate);
+            } else {
+                return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_Conservative, nativeSampleRate);
+            }
+        } else {
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
+        }
+    } else {
+        return pDescriptor->periodSizeInFrames;
+    }
+}
+
 static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     /*
@@ -17883,7 +17902,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* We now have enough information to calculate our actual period size in frames. */
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, ss.rate, pConfig->performanceProfile);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulse(pDescriptorCapture, ss.rate, pConfig->performanceProfile);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodCount, &ss);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Capture attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorCapture->periodSizeInFrames);
@@ -17945,13 +17964,33 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
 
-        for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
-            pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+        /*
+        Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
+        the channel map. To somewhat workaround this, I'm hacking in a hard coded channel map for mono
+        and stereo. In this case it should be safe to assume mono = MONO and stereo = LEFT/RIGHT. For
+        all other channel counts we need to just put up with whatever PipeWire reports and hope it gets
+        fixed sooner than later. I might remove this hack later.
+        */
+        if (pDescriptorCapture->channels > 2) {
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+
+            for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
+                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
+        } else {
+            /* Hack for mono and stereo. */
+            if (pDescriptorCapture->channels == 1) {
+                pDescriptorCapture->channelMap[0] = MA_CHANNEL_MONO;
+            } else if (pDescriptorCapture->channels == 2) {
+                pDescriptorCapture->channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+                pDescriptorCapture->channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+            } else {
+                MA_ASSERT(MA_FALSE);    /* Should never hit this. */
+            }
         }
 
 
@@ -17962,9 +18001,9 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         if (attr.fragsize > 0) {
-            pDescriptorPlayback->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
+            pDescriptorCapture->periodCount = ma_max(attr.maxlength / attr.fragsize, 1);
         } else {
-            pDescriptorPlayback->periodCount = 1;
+            pDescriptorCapture->periodCount = 1;
         }
 
         pDescriptorCapture->periodSizeInFrames = attr.maxlength / ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) / pDescriptorCapture->periodCount;
@@ -17999,7 +18038,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* We now have enough information to calculate the actual buffer size in frames. */
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, ss.rate, pConfig->performanceProfile);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulse(pDescriptorPlayback, ss.rate, pConfig->performanceProfile);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodCount, &ss);
 
@@ -18065,13 +18104,33 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         }
 
         /* Internal channel map. */
-        pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
-        if (pActualCMap != NULL) {
-            cmap = *pActualCMap;
-        }
 
-        for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
-            pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+        /*
+        Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
+        the channel map. To somewhat workaround this, I'm hacking in a hard coded channel map for mono
+        and stereo. In this case it should be safe to assume mono = MONO and stereo = LEFT/RIGHT. For
+        all other channel counts we need to just put up with whatever PipeWire reports and hope it gets
+        fixed sooner than later. I might remove this hack later.
+        */
+        if (pDescriptorPlayback->channels > 2) {
+            pActualCMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+            if (pActualCMap != NULL) {
+                cmap = *pActualCMap;
+            }
+
+            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
+                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            }
+        } else {
+            /* Hack for mono and stereo. */
+            if (pDescriptorPlayback->channels == 1) {
+                pDescriptorPlayback->channelMap[0] = MA_CHANNEL_MONO;
+            } else if (pDescriptorPlayback->channels == 2) {
+                pDescriptorPlayback->channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+                pDescriptorPlayback->channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+            } else {
+                MA_ASSERT(MA_FALSE);    /* Should never hit this. */
+            }
         }
 
 
@@ -29298,7 +29357,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
     }
 
     if (ma_device_get_state(pDevice) == ma_device_state_started) {
-        return MA_INVALID_OPERATION;    /* Already started. Returning an error to let the application know because it probably means they're doing something wrong. */
+        return MA_SUCCESS;  /* Already started. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
@@ -29358,7 +29417,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
     }
 
     if (ma_device_get_state(pDevice) == ma_device_state_stopped) {
-        return MA_INVALID_OPERATION;    /* Already stopped. Returning an error to let the application know because it probably means they're doing something wrong. */
+        return MA_SUCCESS;  /* Already stopped. */
     }
 
     ma_mutex_lock(&pDevice->startStopLock);
@@ -41298,7 +41357,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
     MA_ASSERT(pConverter != NULL);
     MA_ASSERT(pConverter->resampler.format   == pConverter->channelConverter.format);
     MA_ASSERT(pConverter->resampler.channels == pConverter->channelConverter.channelsOut);
-    MA_ASSERT(pConverter->resampler.channels <  pConverter->channelConverter.channelsIn);
+    MA_ASSERT(pConverter->resampler.channels <= pConverter->channelConverter.channelsIn);
 
     frameCountIn = 0;
     if (pFrameCountIn != NULL) {
@@ -46506,7 +46565,7 @@ extern "C" {
 #define DRFLAC_XSTRINGIFY(x)     DRFLAC_STRINGIFY(x)
 #define DRFLAC_VERSION_MAJOR     0
 #define DRFLAC_VERSION_MINOR     12
-#define DRFLAC_VERSION_REVISION  35
+#define DRFLAC_VERSION_REVISION  37
 #define DRFLAC_VERSION_STRING    DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MAJOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_MINOR) "." DRFLAC_XSTRINGIFY(DRFLAC_VERSION_REVISION)
 #include <stddef.h>
 typedef   signed char           drflac_int8;
@@ -67647,7 +67706,7 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
     #define DRFLAC_X64
 #elif defined(__i386) || defined(_M_IX86)
     #define DRFLAC_X86
-#elif defined(__arm__) || defined(_M_ARM) || defined(_M_ARM64)
+#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
     #define DRFLAC_ARM
 #endif
 #if !defined(DR_FLAC_NO_SIMD)
@@ -67684,13 +67743,6 @@ DRWAV_API drwav_bool32 drwav_fourcc_equal(const drwav_uint8* a, const char* b)
     #if defined(DRFLAC_ARM)
         #if !defined(DRFLAC_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
             #define DRFLAC_SUPPORT_NEON
-        #endif
-        #if !defined(__GNUC__) && !defined(__clang__) && defined(__has_include)
-            #if !defined(DRFLAC_SUPPORT_NEON) && !defined(DRFLAC_NO_NEON) && __has_include(<arm_neon.h>)
-                #define DRFLAC_SUPPORT_NEON
-            #endif
-        #endif
-        #if defined(DRFLAC_SUPPORT_NEON)
             #include <arm_neon.h>
         #endif
     #endif
@@ -70255,7 +70307,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon(drflac_bs*
 {
     DRFLAC_ASSERT(bs != NULL);
     DRFLAC_ASSERT(pSamplesOut != NULL);
-    if (order > 0 && order <= 12) {
+    if (lpcOrder > 0 && lpcOrder <= 12) {
         if (drflac__use_64_bit_prediction(bitsPerSample, lpcOrder, lpcPrecision)) {
             return drflac__decode_samples_with_residual__rice__neon_64(bs, count, riceParam, lpcOrder, lpcShift, coefficients, pSamplesOut);
         } else {

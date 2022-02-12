@@ -1,4 +1,4 @@
-v0.11.8 - TBD
+v0.11.8 - 2022-02-12
 ====================
 * PulseAudio: Work around bugs in PipeWire:
   - PipeWire is returning AUX channels for stereo streams instead of FL/FR. This workaround forces FL/FR for stereo streams.
