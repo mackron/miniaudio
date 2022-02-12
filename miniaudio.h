@@ -11123,16 +11123,6 @@ IMPLEMENTATION
 #if defined(MA_ARM)
     #if !defined(MA_NO_NEON) && (defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64))
         #define MA_SUPPORT_NEON
-    #endif
-
-    /* Fall back to looking for the #include file. */
-    #if !defined(__GNUC__) && !defined(__clang__) && defined(__has_include)
-        #if !defined(MA_SUPPORT_NEON) && !defined(MA_NO_NEON) && __has_include(<arm_neon.h>)
-            #define MA_SUPPORT_NEON
-        #endif
-    #endif
-
-    #if defined(MA_SUPPORT_NEON)
         #include <arm_neon.h>
     #endif
 #endif
