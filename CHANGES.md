@@ -1,3 +1,8 @@
+v0.11.9 - TBD
+====================
+* Fix some bugs where looping doesn't work with the resource manager.
+
+
 v0.11.8 - 2022-02-12
 ====================
 * PulseAudio: Work around bugs in PipeWire:
