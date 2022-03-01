@@ -5918,7 +5918,7 @@ struct ma_job
                 /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
                 char* pFilePath;
                 wchar_t* pFilePathW;
-                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
+                ma_uint32 flags;                                /* Resource manager data source flags that were used when initializing the data buffer. */
                 ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
                 ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE when decoding. */
                 ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
@@ -9875,10 +9875,11 @@ typedef struct ma_resource_manager_data_source      ma_resource_manager_data_sou
 
 typedef enum
 {
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM    = 0x00000001,    /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE    = 0x00000002,    /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC     = 0x00000004,    /* When set, the resource manager will load the data source asynchronously. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM         = 0x00000001,   /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE         = 0x00000002,   /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC          = 0x00000004,   /* When set, the resource manager will load the data source asynchronously. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT      = 0x00000008,   /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010    /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
 } ma_resource_manager_data_source_flags;
 
 
@@ -64940,7 +64941,7 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_encoded(ma_res
     return MA_SUCCESS;
 }
 
-static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pFilePath, const wchar_t* pFilePathW, ma_decoder** ppDecoder)
+static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode, const char* pFilePath, const wchar_t* pFilePathW, ma_uint32 flags, ma_decoder** ppDecoder)
 {
     ma_result result = MA_SUCCESS;
     ma_decoder* pDecoder;
@@ -64970,9 +64971,13 @@ static ma_result ma_resource_manager_data_buffer_node_init_supply_decoded(ma_res
     allocated buffer, whereas a paged buffer is a linked list of paged-sized buffers. The latter
     is used when the length of a sound is unknown until a full decode has been performed.
     */
-    result = ma_decoder_get_length_in_pcm_frames(pDecoder, &totalFrameCount);
-    if (result != MA_SUCCESS) {
-        return result;
+    if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH) == 0) {
+        result = ma_decoder_get_length_in_pcm_frames(pDecoder, &totalFrameCount);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+    } else {
+        totalFrameCount = 0;
     }
 
     if (totalFrameCount > 0) {
@@ -65214,7 +65219,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             job.data.resourceManager.loadDataBufferNode.pDataBufferNode   = pDataBufferNode;
             job.data.resourceManager.loadDataBufferNode.pFilePath         = pFilePathCopy;
             job.data.resourceManager.loadDataBufferNode.pFilePathW        = pFilePathWCopy;
-            job.data.resourceManager.loadDataBufferNode.decode            =  (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE   ) != 0;
+            job.data.resourceManager.loadDataBufferNode.flags             = flags;
             job.data.resourceManager.loadDataBufferNode.pInitNotification = ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) ? pInitNotification : NULL;
             job.data.resourceManager.loadDataBufferNode.pDoneNotification = NULL;
             job.data.resourceManager.loadDataBufferNode.pInitFence        = pInitFence;
@@ -65340,7 +65345,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire(ma_resource_manage
                 } else {
                     /* Decoding. We do this the same way as we do when loading asynchronously. */
                     ma_decoder* pDecoder;
-                    result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW, &pDecoder);
+                    result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pFilePath, pFilePathW, flags, &pDecoder);
                     if (result != MA_SUCCESS) {
                         goto done;
                     }
@@ -67236,7 +67241,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job*
     will determine that the node is available for data delivery and the data buffer connectors can be
     initialized. Therefore, it's important that it is set after the data supply has been initialized.
     */
-    if (pJob->data.resourceManager.loadDataBufferNode.decode) {
+    if ((pJob->data.resourceManager.loadDataBufferNode.flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE) != 0) {
         /*
         Decoding. This is the complex case because we're not going to be doing the entire decoding
         process here. Instead it's going to be split of multiple jobs and loaded in pages. The
@@ -67255,7 +67260,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer_node(ma_job*
         ma_job pageDataBufferNodeJob;
 
         /* Allocate the decoder by initializing a decoded data supply. */
-        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.resourceManager.loadDataBufferNode.pFilePath, pJob->data.resourceManager.loadDataBufferNode.pFilePathW, &pDecoder);
+        result = ma_resource_manager_data_buffer_node_init_supply_decoded(pResourceManager, pDataBufferNode, pJob->data.resourceManager.loadDataBufferNode.pFilePath, pJob->data.resourceManager.loadDataBufferNode.pFilePathW, pJob->data.resourceManager.loadDataBufferNode.flags, &pDecoder);
 
         /*
         Don't ever propagate an MA_BUSY result code or else the resource manager will think the
@@ -67632,9 +67637,13 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     }
 
     /* Retrieve the total length of the file before marking the decoder are loaded. */
-    result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
-    if (result != MA_SUCCESS) {
-        goto done;  /* Failed to retrieve the length. */
+    if ((pDataStream->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH) == 0) {
+        result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
+        if (result != MA_SUCCESS) {
+            goto done;  /* Failed to retrieve the length. */
+        }
+    } else {
+        pDataStream->totalLengthInPCMFrames = 0;
     }
 
     /*
