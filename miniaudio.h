@@ -400,7 +400,13 @@ the be started and/or stopped at a specific time. This can be done with the foll
 The start/stop time needs to be specified based on the absolute timer which is controlled by the
 engine. The current global time time in PCM frames can be retrieved with `ma_engine_get_time()`.
 The engine's global time can be changed with `ma_engine_set_time()` for synchronization purposes if
-required.
+required. Note that scheduling a start time still requires an explicit call to `ma_sound_start()`
+before anything will play:
+
+    ```c
+    ma_sound_set_start_time_in_pcm_frames(&sound, ma_engine_get_time(&engine) + (ma_engine_get_sample_rate(&engine) * 2);
+    ma_sound_start(&sound);
+    ```
 
 The third parameter of `ma_sound_init_from_file()` is a set of flags that control how the sound be
 loaded and a few options on which features should be enabled for that sound. By default, the sound
@@ -1392,6 +1398,9 @@ can be useful to schedule a sound to start or stop:
     // Stop the sound in 2 seconds from now.
     ma_sound_set_stop_time_in_pcm_frames(&sound, ma_engine_get_time(&engine) + (ma_engine_get_sample_rate(&engine) * 2));
     ```
+
+Note that scheduling a start time still requires an explicit call to `ma_sound_start()` before
+anything will play.
 
 The time is specified in global time which is controlled by the engine. You can get the engine's
 current time with `ma_engine_get_time()`. The engine's global time is incremented automatically as
