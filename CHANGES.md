@@ -1,6 +1,8 @@
 v0.11.9 - TBD
 ====================
 * Fix some bugs where looping doesn't work with the resource manager.
+* Add a new flag called MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH for use with resource managed data sources. This flag is used as a hint to the resource manager that the length of the data source is unknown and calling ma_data_source_get_length_in_pcm_frames() should be avoided.
+
 
 
 v0.11.8 - 2022-02-12
