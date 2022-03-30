@@ -10749,7 +10749,7 @@ struct ma_sound
 {
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
-    ma_uint64 seekTarget;               /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
+    MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
     ma_bool8 ownsDataSource;
 
@@ -71002,6 +71002,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     ma_uint32 dataSourceChannels;
     ma_uint8 temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 tempCapInFrames;
+    ma_uint64 seekTarget;
 
     /* This is a data source node which means no input buses. */
     (void)ppFramesIn;
@@ -71015,13 +71016,14 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
     }
 
     /* If we're seeking, do so now before reading. */
-    if (pSound->seekTarget != MA_SEEK_TARGET_NONE) {
-        ma_data_source_seek_to_pcm_frame(pSound->pDataSource, pSound->seekTarget);
+    seekTarget = c89atomic_load_64(&pSound->seekTarget);
+    if (seekTarget != MA_SEEK_TARGET_NONE) {
+        ma_data_source_seek_to_pcm_frame(pSound->pDataSource, seekTarget);
 
         /* Any time-dependant effects need to have their times updated. */
-        ma_node_set_time(pSound, pSound->seekTarget);
+        ma_node_set_time(pSound, seekTarget);
 
-        pSound->seekTarget  = MA_SEEK_TARGET_NONE;
+        c89atomic_exchange_64(&pSound->seekTarget, MA_SEEK_TARGET_NONE);
     }
 
     /*
@@ -73176,24 +73178,8 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
         return MA_INVALID_OPERATION;
     }
 
-    /*
-    Resource manager data sources are thread safe which means we can just seek immediately. However, we cannot guarantee that other data sources are
-    thread safe as well so in that case we'll need to get the mixing thread to seek for us to ensure we don't try seeking at the same time as reading.
-    */
-#ifndef MA_NO_RESOURCE_MANAGER
-    if (pSound->pDataSource == pSound->pResourceManagerDataSource) {
-        ma_result result = ma_resource_manager_data_source_seek_to_pcm_frame(pSound->pResourceManagerDataSource, frameIndex);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        /* Time dependant effects need to have their timers updated. */
-        return ma_node_set_time(&pSound->engineNode, frameIndex);
-    }
-#endif
-
-    /* Getting here means the data source is not a resource manager data source so we'll need to get the mixing thread to do the seeking for us. */
-    pSound->seekTarget = frameIndex;
+    /* We can't be seeking while reading at the same time. We just set the seek target and get the mixing thread to do the actual seek. */
+    c89atomic_exchange_64(&pSound->seekTarget, frameIndex);
 
     return MA_SUCCESS;
 }
