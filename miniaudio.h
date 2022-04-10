@@ -32417,6 +32417,12 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
 -(void)dealloc
 {
     [self remove_handler];
+
+    #if defined(__has_feature)
+        #if !__has_feature(objc_arc)
+            [super dealloc];
+        #endif
+    #endif
 }
 
 -(void)remove_handler
