@@ -66892,6 +66892,14 @@ MA_API ma_result ma_resource_manager_data_stream_seek_to_pcm_frame(ma_resource_m
         return MA_INVALID_OPERATION;
     }
 
+    /* If we're not already seeking and we're sitting on the same frame, just make this a no-op. */
+    if (c89atomic_load_32(&pDataStream->seekCounter) == 0) {
+        if (c89atomic_load_64(&pDataStream->absoluteCursor) == frameIndex) {
+            return MA_SUCCESS;
+        }
+    }
+
+
     /* Increment the seek counter first to indicate to read_paged_pcm_frames() and map_paged_pcm_frames() that we are in the middle of a seek and MA_BUSY should be returned. */
     c89atomic_fetch_add_32(&pDataStream->seekCounter, 1);
 
