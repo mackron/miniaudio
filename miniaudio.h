@@ -3797,9 +3797,15 @@ typedef ma_uint16 wchar_t;
     I am using "__inline__" only when we're compiling in strict ANSI mode.
     */
     #if defined(__STRICT_ANSI__)
-        #define MA_INLINE __inline__ __attribute__((always_inline))
+        #define MA_GNUC_INLINE_HINT __inline__
     #else
-        #define MA_INLINE inline __attribute__((always_inline))
+        #define MA_GNUC_INLINE_HINT inline
+    #endif
+
+    #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)) || defined(__clang__)
+        #define MA_INLINE MA_GNUC_INLINE_HINT __attribute__((always_inline))
+    #else
+        #define MA_INLINE MA_GNUC_INLINE_HINT
     #endif
 #elif defined(__WATCOMC__)
     #define MA_INLINE __inline
