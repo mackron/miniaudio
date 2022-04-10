@@ -3,6 +3,7 @@ v0.11.9 - TBD
 * Fix some bugs where looping doesn't work with the resource manager.
 * Fix a crash when seeking a sound.
 * Fix a subtle bug the results in a glitch when looping a decoder when resampling is being applied.
+* Fix an issue where chaining streams would not result in a seamless transition.
 * Add a new flag called MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH for use with resource managed data sources. This flag is used as a hint to the resource manager that the length of the data source is unknown and calling ma_data_source_get_length_in_pcm_frames() should be avoided.
 * Add support for resetting a resampler. This is useful for resetting the internal timer and clearing the internal cache for when you want to seek the input sound source back to the start.
 * Add support for clearing the cache from biquads and low-pass filters.
