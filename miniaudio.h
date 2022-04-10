@@ -4355,6 +4355,7 @@ MA_API ma_result ma_biquad_init_preallocated(const ma_biquad_config* pConfig, vo
 MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad* pBQ);
 MA_API void ma_biquad_uninit(ma_biquad* pBQ, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+MA_API ma_result ma_biquad_clear_cache(ma_biquad* pBQ);
 MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_biquad_get_latency(const ma_biquad* pBQ);
 
@@ -4393,6 +4394,7 @@ MA_API ma_result ma_lpf1_init_preallocated(const ma_lpf1_config* pConfig, void* 
 MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF);
 MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
+MA_API ma_result ma_lpf1_clear_cache(ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf1_get_latency(const ma_lpf1* pLPF);
 
@@ -4406,6 +4408,7 @@ MA_API ma_result ma_lpf2_init_preallocated(const ma_lpf2_config* pConfig, void* 
 MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF);
 MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
+MA_API ma_result ma_lpf2_clear_cache(ma_lpf2* pLPF);
 MA_API ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf2_get_latency(const ma_lpf2* pLPF);
 
@@ -4441,6 +4444,7 @@ MA_API ma_result ma_lpf_init_preallocated(const ma_lpf_config* pConfig, void* pH
 MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF);
 MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+MA_API ma_result ma_lpf_clear_cache(ma_lpf* pLPF);
 MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf_get_latency(const ma_lpf* pLPF);
 
@@ -5080,6 +5084,7 @@ MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler
 MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler);
 MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
 MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
+MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler);
 
 
 typedef struct ma_resampler_config ma_resampler_config;
@@ -5096,6 +5101,7 @@ typedef struct
     ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                                            /* Optional. Latency will be reported as 0. */
     ma_result (* onGetRequiredInputFrameCount )(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);   /* Optional. Latency mitigation will be disabled. */
     ma_result (* onGetExpectedOutputFrameCount)(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);   /* Optional. Latency mitigation will be disabled. */
+    ma_result (* onReset                      )(void* pUserData, ma_resampling_backend* pBackend);
 } ma_resampling_backend_vtable;
 
 typedef enum
@@ -5214,6 +5220,11 @@ Calculates the number of whole output frames that would be output after fully re
 input frames.
 */
 MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
+
+/*
+Resets the resampler's timer and clears it's internal cache.
+*/
+MA_API ma_result ma_resampler_reset(ma_resampler* pResampler);
 
 
 /**************************************************************************************************************************************************************
@@ -5354,6 +5365,7 @@ MA_API ma_result ma_data_converter_get_required_input_frame_count(const ma_data_
 MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 MA_API ma_result ma_data_converter_get_input_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_data_converter_reset(ma_data_converter* pConverter);
 
 
 /************************************************************************************************************************************************************
@@ -43688,6 +43700,23 @@ MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pB
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_biquad_clear_cache(ma_biquad* pBQ)
+{
+    if (pBQ == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pBQ->format == ma_format_f32) {
+        pBQ->pR1->f32 = 0;
+        pBQ->pR2->f32 = 0;
+    } else {
+        pBQ->pR1->s32 = 0;
+        pBQ->pR2->s32 = 0;
+    }
+
+    return MA_SUCCESS;
+}
+
 static MA_INLINE void ma_biquad_process_pcm_frame_f32__direct_form_2_transposed(ma_biquad* pBQ, float* pY, const float* pX)
 {
     ma_uint32 c;
@@ -43989,6 +44018,21 @@ MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF)
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_lpf1_clear_cache(ma_lpf1* pLPF)
+{
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pLPF->format == ma_format_f32) {
+        pLPF->a.f32 = 0;
+    } else {
+        pLPF->a.s32 = 0;
+    }
+
+    return MA_SUCCESS;
+}
+
 static MA_INLINE void ma_lpf1_process_pcm_frame_f32(ma_lpf1* pLPF, float* pY, const float* pX)
 {
     ma_uint32 c;
@@ -44190,6 +44234,17 @@ MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF)
     if (result != MA_SUCCESS) {
         return result;
     }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_lpf2_clear_cache(ma_lpf2* pLPF)
+{
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_biquad_clear_cache(&pLPF->bq);
 
     return MA_SUCCESS;
 }
@@ -44535,6 +44590,26 @@ MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocati
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF)
 {
     return ma_lpf_reinit__internal(pConfig, NULL, pLPF, /*isNew*/MA_FALSE);
+}
+
+MA_API ma_result ma_lpf_clear_cache(ma_lpf* pLPF)
+{
+    ma_uint32 ilpf1;
+    ma_uint32 ilpf2;
+
+    if (pLPF == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
+        ma_lpf1_clear_cache(&pLPF->pLPF1[ilpf1]);
+    }
+
+    for (ilpf2 = 0; ilpf2 < pLPF->lpf2Count; ilpf2 += 1) {
+        ma_lpf2_clear_cache(&pLPF->pLPF2[ilpf2]);
+    }
+
+    return MA_SUCCESS;
 }
 
 static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, const void* pX)
@@ -49711,6 +49786,38 @@ MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_li
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler)
+{
+    ma_uint32 iChannel;
+
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Timers need to be cleared back to zero. */
+    pResampler->inTimeInt  = 1;  /* Set this to one to force an input sample to always be loaded for the first output frame. */
+    pResampler->inTimeFrac = 0;
+
+    /* Cached samples need to be cleared. */
+    if (pResampler->config.format == ma_format_f32) {
+        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+            pResampler->x0.f32[iChannel] = 0;
+            pResampler->x1.f32[iChannel] = 0;
+        }
+    } else {
+        for (iChannel = 0; iChannel < pResampler->config.channels; iChannel += 1) {
+            pResampler->x0.s16[iChannel] = 0;
+            pResampler->x1.s16[iChannel] = 0;
+        }
+    }
+
+    /* The low pass filter needs to have it's cache reset. */
+    ma_lpf_clear_cache(&pResampler->lpf);
+
+    return MA_SUCCESS;
+}
+
+
 
 /* Linear resampler backend vtable. */
 static ma_linear_resampler_config ma_resampling_backend_get_config__linear(const ma_resampler_config* pConfig)
@@ -49803,6 +49910,13 @@ static ma_result ma_resampling_backend_get_expected_output_frame_count__linear(v
     return ma_linear_resampler_get_expected_output_frame_count((const ma_linear_resampler*)pBackend, inputFrameCount, pOutputFrameCount);
 }
 
+static ma_result ma_resampling_backend_reset__linear(void* pUserData, ma_resampling_backend* pBackend)
+{
+    (void)pUserData;
+
+    return ma_linear_resampler_reset((ma_linear_resampler*)pBackend);
+}
+
 static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
 {
     ma_resampling_backend_get_heap_size__linear,
@@ -49813,7 +49927,8 @@ static ma_resampling_backend_vtable g_ma_linear_resampler_vtable =
     ma_resampling_backend_get_input_latency__linear,
     ma_resampling_backend_get_output_latency__linear,
     ma_resampling_backend_get_required_input_frame_count__linear,
-    ma_resampling_backend_get_expected_output_frame_count__linear
+    ma_resampling_backend_get_expected_output_frame_count__linear,
+    ma_resampling_backend_reset__linear
 };
 
 
@@ -50112,6 +50227,19 @@ MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler
     }
 
     return pResampler->pBackendVTable->onGetExpectedOutputFrameCount(pResampler->pBackendUserData, pResampler->pBackend, inputFrameCount, pOutputFrameCount);
+}
+
+MA_API ma_result ma_resampler_reset(ma_resampler* pResampler)
+{
+    if (pResampler == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pResampler->pBackendVTable == NULL || pResampler->pBackendVTable->onReset == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pResampler->pBackendVTable->onReset(pResampler->pBackendUserData, pResampler->pBackend);
 }
 
 /**************************************************************************************************************************************************************
@@ -52652,6 +52780,20 @@ MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converte
     }
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_data_converter_reset(ma_data_converter* pConverter)
+{
+    if (pConverter == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* There's nothing to do if we're not resampling. */
+    if (pConverter->hasResampler == MA_FALSE) {
+        return MA_SUCCESS;
+    }
+
+    return ma_resampler_reset(&pConverter->resampler);
 }
 
 
@@ -62241,6 +62383,7 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
         ma_result result;
         ma_uint64 internalFrameIndex;
         ma_uint32 internalSampleRate;
+        ma_uint64 currentFrameIndex;
 
         result = ma_data_source_get_data_format(pDecoder->pBackend, NULL, NULL, &internalSampleRate, NULL, 0);
         if (result != MA_SUCCESS) {
@@ -62253,9 +62396,16 @@ MA_API ma_result ma_decoder_seek_to_pcm_frame(ma_decoder* pDecoder, ma_uint64 fr
             internalFrameIndex = ma_calculate_frame_count_after_resampling(internalSampleRate, pDecoder->outputSampleRate, frameIndex);
         }
 
-        result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
-        if (result == MA_SUCCESS) {
-            pDecoder->readPointerInPCMFrames = frameIndex;
+        /* Only seek if we're requesting a different frame to what we're currently sitting on. */
+        ma_data_source_get_cursor_in_pcm_frames(pDecoder->pBackend, &currentFrameIndex);
+        if (currentFrameIndex != internalFrameIndex) {
+            result = ma_data_source_seek_to_pcm_frame(pDecoder->pBackend, internalFrameIndex);
+            if (result == MA_SUCCESS) {
+                pDecoder->readPointerInPCMFrames = frameIndex;
+            }
+
+            /* Reset the data converter so that any cached data in the resampler is cleared. */
+            ma_data_converter_reset(&pDecoder->converter);
         }
 
         return result;
