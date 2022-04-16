@@ -245,17 +245,3 @@ before the implementation of miniaudio. You can enable Vorbis by doing the follo
 #undef STB_VORBIS_HEADER_ONLY
 #include "extras/stb_vorbis.c"
 ```
-
-
-Unofficial Bindings
-===================
-The projects below offer bindings for other languages which you may be interested in. Note that these
-are unofficial and are not maintained as part of this repository. If you encounter a binding-specific
-bug, please post a bug report to the specific project. If you've written your own bindings let me know
-and I'll consider adding it to this list.
-
-Language | Project
----------|--------
-Go       | [malgo](https://github.com/gen2brain/malgo)
-Python   | [pyminiaudio](https://github.com/irmen/pyminiaudio)
-Rust     | [miniaudio-rs](https://github.com/ExPixel/miniaudio-rs)
