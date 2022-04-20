@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.8 - 2022-02-12
+miniaudio - v0.11.9 - 2022-04-20
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 8
+#define MA_VERSION_REVISION 9
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -177,9 +177,15 @@ typedef ma_uint16 wchar_t;
     I am using "__inline__" only when we're compiling in strict ANSI mode.
     */
     #if defined(__STRICT_ANSI__)
-        #define MA_INLINE __inline__ __attribute__((always_inline))
+        #define MA_GNUC_INLINE_HINT __inline__
     #else
-        #define MA_INLINE inline __attribute__((always_inline))
+        #define MA_GNUC_INLINE_HINT inline
+    #endif
+
+    #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)) || defined(__clang__)
+        #define MA_INLINE MA_GNUC_INLINE_HINT __attribute__((always_inline))
+    #else
+        #define MA_INLINE MA_GNUC_INLINE_HINT
     #endif
 #elif defined(__WATCOMC__)
     #define MA_INLINE __inline
@@ -735,6 +741,7 @@ MA_API ma_result ma_biquad_init_preallocated(const ma_biquad_config* pConfig, vo
 MA_API ma_result ma_biquad_init(const ma_biquad_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_biquad* pBQ);
 MA_API void ma_biquad_uninit(ma_biquad* pBQ, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_biquad_reinit(const ma_biquad_config* pConfig, ma_biquad* pBQ);
+MA_API ma_result ma_biquad_clear_cache(ma_biquad* pBQ);
 MA_API ma_result ma_biquad_process_pcm_frames(ma_biquad* pBQ, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_biquad_get_latency(const ma_biquad* pBQ);
 
@@ -773,6 +780,7 @@ MA_API ma_result ma_lpf1_init_preallocated(const ma_lpf1_config* pConfig, void* 
 MA_API ma_result ma_lpf1_init(const ma_lpf1_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf1* pLPF);
 MA_API void ma_lpf1_uninit(ma_lpf1* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf1_reinit(const ma_lpf1_config* pConfig, ma_lpf1* pLPF);
+MA_API ma_result ma_lpf1_clear_cache(ma_lpf1* pLPF);
 MA_API ma_result ma_lpf1_process_pcm_frames(ma_lpf1* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf1_get_latency(const ma_lpf1* pLPF);
 
@@ -786,6 +794,7 @@ MA_API ma_result ma_lpf2_init_preallocated(const ma_lpf2_config* pConfig, void* 
 MA_API ma_result ma_lpf2_init(const ma_lpf2_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf2* pLPF);
 MA_API void ma_lpf2_uninit(ma_lpf2* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf2_reinit(const ma_lpf2_config* pConfig, ma_lpf2* pLPF);
+MA_API ma_result ma_lpf2_clear_cache(ma_lpf2* pLPF);
 MA_API ma_result ma_lpf2_process_pcm_frames(ma_lpf2* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf2_get_latency(const ma_lpf2* pLPF);
 
@@ -821,6 +830,7 @@ MA_API ma_result ma_lpf_init_preallocated(const ma_lpf_config* pConfig, void* pH
 MA_API ma_result ma_lpf_init(const ma_lpf_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_lpf* pLPF);
 MA_API void ma_lpf_uninit(ma_lpf* pLPF, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_lpf_reinit(const ma_lpf_config* pConfig, ma_lpf* pLPF);
+MA_API ma_result ma_lpf_clear_cache(ma_lpf* pLPF);
 MA_API ma_result ma_lpf_process_pcm_frames(ma_lpf* pLPF, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_uint32 ma_lpf_get_latency(const ma_lpf* pLPF);
 
@@ -1460,6 +1470,7 @@ MA_API ma_uint64 ma_linear_resampler_get_input_latency(const ma_linear_resampler
 MA_API ma_uint64 ma_linear_resampler_get_output_latency(const ma_linear_resampler* pResampler);
 MA_API ma_result ma_linear_resampler_get_required_input_frame_count(const ma_linear_resampler* pResampler, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);
 MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_linear_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
+MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler);
 
 
 typedef struct ma_resampler_config ma_resampler_config;
@@ -1476,6 +1487,7 @@ typedef struct
     ma_uint64 (* onGetOutputLatency           )(void* pUserData, const ma_resampling_backend* pBackend);                                                            /* Optional. Latency will be reported as 0. */
     ma_result (* onGetRequiredInputFrameCount )(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 outputFrameCount, ma_uint64* pInputFrameCount);   /* Optional. Latency mitigation will be disabled. */
     ma_result (* onGetExpectedOutputFrameCount)(void* pUserData, const ma_resampling_backend* pBackend, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);   /* Optional. Latency mitigation will be disabled. */
+    ma_result (* onReset                      )(void* pUserData, ma_resampling_backend* pBackend);
 } ma_resampling_backend_vtable;
 
 typedef enum
@@ -1594,6 +1606,11 @@ Calculates the number of whole output frames that would be output after fully re
 input frames.
 */
 MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
+
+/*
+Resets the resampler's timer and clears it's internal cache.
+*/
+MA_API ma_result ma_resampler_reset(ma_resampler* pResampler);
 
 
 /**************************************************************************************************************************************************************
@@ -1734,6 +1751,7 @@ MA_API ma_result ma_data_converter_get_required_input_frame_count(const ma_data_
 MA_API ma_result ma_data_converter_get_expected_output_frame_count(const ma_data_converter* pConverter, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 MA_API ma_result ma_data_converter_get_input_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_converter_get_output_channel_map(const ma_data_converter* pConverter, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_data_converter_reset(ma_data_converter* pConverter);
 
 
 /************************************************************************************************************************************************************
@@ -2298,7 +2316,7 @@ struct ma_job
                 /*ma_resource_manager_data_buffer_node**/ void* pDataBufferNode;
                 char* pFilePath;
                 wchar_t* pFilePathW;
-                ma_bool32 decode;                               /* When set to true, the data buffer will be decoded. Otherwise it'll be encoded and will use a decoder for the connector. */
+                ma_uint32 flags;                                /* Resource manager data source flags that were used when initializing the data buffer. */
                 ma_async_notification* pInitNotification;       /* Signalled when the data buffer has been initialized and the format/channels/rate can be retrieved. */
                 ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. Will be passed through to MA_JOB_TYPE_RESOURCE_MANAGER_PAGE_DATA_BUFFER_NODE when decoding. */
                 ma_fence* pInitFence;                           /* Released when initialization of the decoder is complete. */
@@ -2327,6 +2345,11 @@ struct ma_job
                 ma_async_notification* pDoneNotification;       /* Signalled when the data buffer has been fully decoded. */
                 ma_fence* pInitFence;                           /* Released when the data buffer has been initialized and the format/channels/rate can be retrieved. */
                 ma_fence* pDoneFence;                           /* Released when the data buffer has been fully decoded. */
+                ma_uint64 rangeBegInPCMFrames;
+                ma_uint64 rangeEndInPCMFrames;
+                ma_uint64 loopPointBegInPCMFrames;
+                ma_uint64 loopPointEndInPCMFrames;
+                ma_uint32 isLooping;
             } loadDataBuffer;
             struct
             {
@@ -5692,17 +5715,17 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
 MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSource, float* pCursor);
 MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSource, float* pLength);
 MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping);
-MA_API ma_bool32 ma_data_source_is_looping(ma_data_source* pDataSource);
+MA_API ma_bool32 ma_data_source_is_looping(const ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
-MA_API void ma_data_source_get_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
+MA_API void ma_data_source_get_range_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
 MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
-MA_API void ma_data_source_get_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
+MA_API void ma_data_source_get_loop_point_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
 MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource);
-MA_API ma_data_source* ma_data_source_get_current(ma_data_source* pDataSource);
+MA_API ma_data_source* ma_data_source_get_current(const ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource);
-MA_API ma_data_source* ma_data_source_get_next(ma_data_source* pDataSource);
+MA_API ma_data_source* ma_data_source_get_next(const ma_data_source* pDataSource);
 MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext);
-MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(ma_data_source* pDataSource);
+MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_data_source* pDataSource);
 
 
 typedef struct
@@ -5710,6 +5733,7 @@ typedef struct
     ma_data_source_base ds;
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint64 cursor;
     ma_uint64 sizeInFrames;
     const void* pData;
@@ -5733,6 +5757,7 @@ typedef struct
 {
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate;
     ma_uint64 sizeInFrames;
     const void* pData;  /* If set to NULL, will allocate a block of memory for you. */
     ma_allocation_callbacks allocationCallbacks;
@@ -6250,10 +6275,11 @@ typedef struct ma_resource_manager_data_source      ma_resource_manager_data_sou
 
 typedef enum
 {
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM    = 0x00000001,    /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE    = 0x00000002,    /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC     = 0x00000004,    /* When set, the resource manager will load the data source asynchronously. */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT = 0x00000008     /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM         = 0x00000001,   /* When set, does not load the entire data source in memory. Disk I/O will happen on job threads. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE         = 0x00000002,   /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC          = 0x00000004,   /* When set, the resource manager will load the data source asynchronously. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT      = 0x00000008,   /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010    /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
 } ma_resource_manager_data_source_flags;
 
 
@@ -7123,7 +7149,7 @@ struct ma_sound
 {
     ma_engine_node engineNode;          /* Must be the first member for compatibility with the ma_node API. */
     ma_data_source* pDataSource;
-    ma_uint64 seekTarget;               /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
+    MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
     ma_bool8 ownsDataSource;
 
