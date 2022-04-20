@@ -1,4 +1,4 @@
-v0.11.9 - TBD
+v0.11.9 - 2022-04-20
 ====================
 * Fix some bugs where looping doesn't work with the resource manager.
 * Fix a crash when seeking a sound.
