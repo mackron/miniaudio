@@ -838,9 +838,16 @@ ma_sound_set_stop_time_in_milliseconds()
 The start/stop time needs to be specified based on the absolute timer which is controlled by the
 engine. The current global time time in PCM frames can be retrieved with <span style="font-family:monospace;">ma_engine_get_time()</span>.
 The engine&#39;s global time can be changed with <span style="font-family:monospace;">ma_engine_set_time()</span> for synchronization purposes if
-required.
+required. Note that scheduling a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span>
+before anything will play:
 </p>
 <p>
+
+</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2);
+ma_sound_start(&amp;sound);
+</pre></div><p>
 
 The third parameter of <span style="font-family:monospace;">ma_sound_init_from_file()</span> is a set of flags that control how the sound be
 loaded and a few options on which features should be enabled for that sound. By default, the sound
@@ -2532,6 +2539,11 @@ ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine
 <span style="color:#009900">// Stop the sound in 2 seconds from now.</span>
 ma_sound_set_stop_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2));
 </pre></div><p>
+
+Note that scheduling a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span> before
+anything will play.
+</p>
+<p>
 
 The time is specified in global time which is controlled by the engine. You can get the engine&#39;s
 current time with <span style="font-family:monospace;">ma_engine_get_time()</span>. The engine&#39;s global time is incremented automatically as
