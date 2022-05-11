@@ -386,7 +386,7 @@ Sounds should be uninitialized with `ma_sound_uninit()`.
 
 Sounds are not started by default. Start a sound with `ma_sound_start()` and stop it with
 `ma_sound_stop()`. When a sound is stopped, it is not rewound to the start. Use
-`ma_sound_seek_to_pcm_frames(&sound, 0)` to seek back to the start of a sound. By default, starting
+`ma_sound_seek_to_pcm_frame(&sound, 0)` to seek back to the start of a sound. By default, starting
 and stopping sounds happens immediately, but sometimes it might be convenient to schedule the sound
 the be started and/or stopped at a specific time. This can be done with the following functions:
 
