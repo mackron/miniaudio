@@ -1,3 +1,8 @@
+v0.11.10 - TBD
+=====================
+* Add support for setting the device notification callback when initializing an engine object.
+
+
 v0.11.9 - 2022-04-20
 ====================
 * Fix some bugs where looping doesn't work with the resource manager.
