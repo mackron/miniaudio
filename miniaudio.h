@@ -627,10 +627,29 @@ You cannot use `-std=c*` compiler flags, nor `-ansi`.
     |                                  | and `ma_device` APIs. This is useful if you only want to use       |
     |                                  | miniaudio's data conversion and/or decoding APIs.                  |
     +----------------------------------+--------------------------------------------------------------------+
+    | MA_NO_RESOURCE_MANAGER           | Disables the resource manager. When using the engine this will     |
+    |                                  | also disable the following functions:                              |
+    |                                  |                                                                    |
+    |                                  | ```                                                                |
+    |                                  | ma_sound_init_from_file()                                          |
+    |                                  | ma_sound_init_from_file_w()                                        |
+    |                                  | ma_sound_init_copy()                                               |
+    |                                  | ma_engine_play_sound_ex()                                          |
+    |                                  | ma_engine_play_sound()                                             |
+    |                                  | ```                                                                |
+    |                                  |                                                                    |
+    |                                  | The only way to initialize a `ma_sound` object is to initialize it |
+    |                                  | from a data source.                                                |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_NO_NODE_GRAPH                 | Disables the node graph API. This will also disable the engine API |
+    |                                  | because it depends on the node graph.                              |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_NO_ENGINE                     | Disables the engine API.                                           |
+    +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_THREADING                  | Disables the `ma_thread`, `ma_mutex`, `ma_semaphore` and           |
     |                                  | `ma_event` APIs. This option is useful if you only need to use     |
     |                                  | miniaudio for data conversion, decoding and/or encoding. Some      |
-    |                                  | families of APIsrequire threading which means the following        |
+    |                                  | families of APIs require threading which means the following       |
     |                                  | options must also be set:                                          |
     |                                  |                                                                    |
     |                                  |     ```                                                            |
