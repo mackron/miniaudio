@@ -8165,9 +8165,9 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         By default, miniaudio will disable denormals when the data callback is called. Setting this to true will prevent the disabling of denormals.
 
     noFixedSizedCallback
-        Allows miniaudio to fire the data callback with any frame count. When this is set to true, the data callback will be fired with a consistent frame
-        count as specified by `periodSizeInFrames` or `periodSizeInMilliseconds`. When set to false, miniaudio will fire the callback with whatever the
-        backend requests, which could be anything.
+        Allows miniaudio to fire the data callback with any frame count. When this is set to false (the default), the data callback will be fired with a
+        consistent frame count as specified by `periodSizeInFrames` or `periodSizeInMilliseconds`. When set to true, miniaudio will fire the callback with
+        whatever the backend requests, which could be anything.
 
     dataCallback
         The callback to fire whenever data is ready to be delivered to or from the device.
