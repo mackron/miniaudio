@@ -1,6 +1,7 @@
 v0.11.10 - TBD
 =====================
 * Add support for setting the device notification callback when initializing an engine object.
+* Fix a crash when initializing a channel converter.
 
 
 v0.11.9 - 2022-04-20

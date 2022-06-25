@@ -51185,12 +51185,12 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
             {
                 /* Unmapped input channels. */
                 for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                    ma_channel channelPosIn = pConverter->pChannelMapIn[iChannelIn];
+                    ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
 
                     if (ma_is_spatial_channel_position(channelPosIn)) {
                         if (!ma_channel_map_contains_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, channelPosIn)) {
                             for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                                ma_channel channelPosOut = pConverter->pChannelMapOut[iChannelOut];
+                                ma_channel channelPosOut = ma_channel_map_get_channel(pConverter->pChannelMapOut, pConverter->channelsOut, iChannelOut);
 
                                 if (ma_is_spatial_channel_position(channelPosOut)) {
                                     float weight = 0;
@@ -51216,12 +51216,12 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 
                 /* Unmapped output channels. */
                 for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
-                    ma_channel channelPosOut = pConverter->pChannelMapOut[iChannelOut];
+                    ma_channel channelPosOut = ma_channel_map_get_channel(pConverter->pChannelMapOut, pConverter->channelsOut, iChannelOut);
 
                     if (ma_is_spatial_channel_position(channelPosOut)) {
                         if (!ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, channelPosOut)) {
                             for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                                ma_channel channelPosIn = pConverter->pChannelMapIn[iChannelIn];
+                                ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
 
                                 if (ma_is_spatial_channel_position(channelPosIn)) {
                                     float weight = 0;
