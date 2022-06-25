@@ -2223,7 +2223,7 @@ called `ma_splitter_node`. This takes has 1 input bus and splits the stream into
 You can use it like this:
 
     ```c
-    ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channelsIn, channelsOut);
+    ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channels);
 
     ma_splitter_node splitterNode;
     result = ma_splitter_node_init(&nodeGraph, &splitterNodeConfig, NULL, &splitterNode);
