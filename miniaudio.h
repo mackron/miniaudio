@@ -19141,7 +19141,7 @@ static ma_format ma_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
             }
             if (pWFEX->Samples.wValidBitsPerSample == 24) {
                 if (pWFEX->Format.wBitsPerSample == 32) {
-                    /*return ma_format_s24_32;*/
+                    return ma_format_s32;
                 }
                 if (pWFEX->Format.wBitsPerSample == 24) {
                     return ma_format_s24;
