@@ -1448,7 +1448,7 @@ source, mainly for convenience:
 Sound groups have the same API as sounds, only they are called `ma_sound_group`, and since they do
 not have any notion of a data source, anything relating to a data source is unavailable.
 
-Internally, sound data is loaded via the `ma_decoder` API which means by default in only supports
+Internally, sound data is loaded via the `ma_decoder` API which means by default it only supports
 file formats that have built-in support in miniaudio. You can extend this to support any kind of
 file format through the use of custom decoders. To do this you'll need to use a self-managed
 resource manager and configure it appropriately. See the "Resource Management" section below for
@@ -1463,7 +1463,7 @@ streaming. This is supported by miniaudio via the `ma_resource_manager` API.
 The resource manager is mainly responsible for the following:
 
   * Loading of sound files into memory with reference counting.
-  * Streaming of sound data
+  * Streaming of sound data.
 
 When loading a sound file, the resource manager will give you back a `ma_data_source` compatible
 object called `ma_resource_manager_data_source`. This object can be passed into any
@@ -1952,7 +1952,7 @@ miniaudio's routing infrastructure follows a node graph paradigm. The idea is th
 node whose outputs are attached to inputs of another node, thereby creating a graph. There are
 different types of nodes, with each node in the graph processing input data to produce output,
 which is then fed through the chain. Each node in the graph can apply their own custom effects. At
-the start of the graph will usually be one or more data source nodes which have no inputs, but
+the start of the graph will usually be one or more data source nodes which have no inputs and
 instead pull their data from a data source. At the end of the graph is an endpoint which represents
 the end of the chain and is where the final output is ultimately extracted from.
 
@@ -1978,7 +1978,7 @@ splitter node. It's at this point that the two data sources are mixed. After mix
 performs it's processing routine and produces two outputs which is simply a duplication of the
 input stream. One output is attached to a low pass filter, whereas the other output is attached to
 a echo/delay. The outputs of the the low pass filter and the echo are attached to the endpoint, and
-since they're both connected to the same input but, they'll be mixed.
+since they're both connected to the same input bus, they'll be mixed.
 
 Each input bus must be configured to accept the same number of channels, but the number of channels
 used by input buses can be different to the number of channels for output buses in which case
@@ -19089,11 +19089,9 @@ static DWORD ma_channel_map_to_channel_mask__win32(const ma_channel* pChannelMap
 /* Converts a Win32-style channel mask to a miniaudio channel map. */
 static void ma_channel_mask_to_channel_map__win32(DWORD dwChannelMask, ma_uint32 channels, ma_channel* pChannelMap)
 {
-    if (channels == 1 && dwChannelMask == 0) {
-        pChannelMap[0] = MA_CHANNEL_MONO;
-    } else if (channels == 2 && dwChannelMask == 0) {
-        pChannelMap[0] = MA_CHANNEL_FRONT_LEFT;
-        pChannelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+    /* If the channel mask is set to 0, just assume a default Win32 channel map. */
+    if (dwChannelMask == 0) {
+        ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pChannelMap, channels, channels);
     } else {
         if (channels == 1 && (dwChannelMask & SPEAKER_FRONT_CENTER) != 0) {
             pChannelMap[0] = MA_CHANNEL_MONO;
