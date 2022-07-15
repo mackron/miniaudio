@@ -5520,6 +5520,20 @@ The channel map buffer must have a capacity of at least `channels`.
 */
 MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
 
+/*
+Generates a string representing the given channel map.
+
+This is for printing and debugging purposes, not serialization/deserialization.
+
+Returns the length of the string, not including the null terminator.
+*/
+MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 channels, char* pBufferOut, size_t bufferCap);
+
+/*
+Retrieves a human readable version of a channel position.
+*/
+MA_API const char* ma_channel_position_to_string(ma_channel channel);
+
 
 /************************************************************************************************************************************************************
 
@@ -40173,6 +40187,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Routing:        %s\n", pDevice->capture.converter.hasChannelConverter     ? "YES" : "NO");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Resampling:             %s\n", pDevice->capture.converter.hasResampler            ? "YES" : "NO");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Passthrough:            %s\n", pDevice->capture.converter.isPassthrough           ? "YES" : "NO");
+            {
+                char channelMapStr[1024];
+                ma_channel_map_to_string(pDevice->capture.internalChannelMap, pDevice->capture.internalChannels, channelMapStr, sizeof(channelMapStr));
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Map In:         {%s}\n", channelMapStr);
+
+                ma_channel_map_to_string(pDevice->capture.channelMap, pDevice->capture.channels, channelMapStr, sizeof(channelMapStr));
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Map Out:        {%s}\n", channelMapStr);
+            }
         }
         if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
             char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
@@ -40189,6 +40211,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Routing:        %s\n", pDevice->playback.converter.hasChannelConverter     ? "YES" : "NO");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Resampling:             %s\n", pDevice->playback.converter.hasResampler            ? "YES" : "NO");
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Passthrough:            %s\n", pDevice->playback.converter.isPassthrough           ? "YES" : "NO");
+            {
+                char channelMapStr[1024];
+                ma_channel_map_to_string(pDevice->playback.channelMap, pDevice->playback.channels, channelMapStr, sizeof(channelMapStr));
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Map In:         {%s}\n", channelMapStr);
+
+                ma_channel_map_to_string(pDevice->playback.internalChannelMap, pDevice->playback.internalChannels, channelMapStr, sizeof(channelMapStr));
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "      Channel Map Out:        {%s}\n", channelMapStr);
+            }
         }
     }
 
@@ -53676,6 +53706,102 @@ MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, co
     }
 
     return MA_FALSE;
+}
+
+MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 channels, char* pBufferOut, size_t bufferCap)
+{
+    size_t len;
+    ma_uint32 iChannel;
+
+    len = 0;
+
+    for (iChannel = 0; iChannel < channels; iChannel += 1) {
+        const char* pChannelStr = ma_channel_position_to_string(ma_channel_map_get_channel(pChannelMap, channels, iChannel));
+        size_t channelStrLen = strlen(pChannelStr);
+
+        /* Append the string if necessary. */
+        if (pBufferOut != NULL && bufferCap > len + channelStrLen) {
+            MA_COPY_MEMORY(pBufferOut + len, pChannelStr, channelStrLen);
+        }
+        len += channelStrLen;
+
+        /* Append a space if it's not the last item. */
+        if (iChannel+1 < channels) {
+            if (pBufferOut != NULL && bufferCap > len + 1) {
+                pBufferOut[len] = ' ';
+            }
+            len += 1;
+        }
+    }
+
+    /* Null terminate. Don't increment the length here. */
+    if (pBufferOut != NULL && bufferCap > len + 1) {
+        pBufferOut[len] = '\0';
+    }
+
+    return len;
+}
+
+MA_API const char* ma_channel_position_to_string(ma_channel channel)
+{
+    switch (channel)
+    {
+        case MA_CHANNEL_NONE              : return "CHANNEL_NONE";
+        case MA_CHANNEL_MONO              : return "CHANNEL_MONO";
+        case MA_CHANNEL_FRONT_LEFT        : return "CHANNEL_FRONT_LEFT";
+        case MA_CHANNEL_FRONT_RIGHT       : return "CHANNEL_FRONT_RIGHT";
+        case MA_CHANNEL_FRONT_CENTER      : return "CHANNEL_FRONT_CENTER";
+        case MA_CHANNEL_LFE               : return "CHANNEL_LFE";
+        case MA_CHANNEL_BACK_LEFT         : return "CHANNEL_BACK_LEFT";
+        case MA_CHANNEL_BACK_RIGHT        : return "CHANNEL_BACK_RIGHT";
+        case MA_CHANNEL_FRONT_LEFT_CENTER : return "CHANNEL_FRONT_LEFT_CENTER ";
+        case MA_CHANNEL_FRONT_RIGHT_CENTER: return "CHANNEL_FRONT_RIGHT_CENTER";
+        case MA_CHANNEL_BACK_CENTER       : return "CHANNEL_BACK_CENTER";
+        case MA_CHANNEL_SIDE_LEFT         : return "CHANNEL_SIDE_LEFT";
+        case MA_CHANNEL_SIDE_RIGHT        : return "CHANNEL_SIDE_RIGHT";
+        case MA_CHANNEL_TOP_CENTER        : return "CHANNEL_TOP_CENTER";
+        case MA_CHANNEL_TOP_FRONT_LEFT    : return "CHANNEL_TOP_FRONT_LEFT";
+        case MA_CHANNEL_TOP_FRONT_CENTER  : return "CHANNEL_TOP_FRONT_CENTER";
+        case MA_CHANNEL_TOP_FRONT_RIGHT   : return "CHANNEL_TOP_FRONT_RIGHT";
+        case MA_CHANNEL_TOP_BACK_LEFT     : return "CHANNEL_TOP_BACK_LEFT";
+        case MA_CHANNEL_TOP_BACK_CENTER   : return "CHANNEL_TOP_BACK_CENTER";
+        case MA_CHANNEL_TOP_BACK_RIGHT    : return "CHANNEL_TOP_BACK_RIGHT";
+        case MA_CHANNEL_AUX_0             : return "CHANNEL_AUX_0";
+        case MA_CHANNEL_AUX_1             : return "CHANNEL_AUX_1";
+        case MA_CHANNEL_AUX_2             : return "CHANNEL_AUX_2";
+        case MA_CHANNEL_AUX_3             : return "CHANNEL_AUX_3";
+        case MA_CHANNEL_AUX_4             : return "CHANNEL_AUX_4";
+        case MA_CHANNEL_AUX_5             : return "CHANNEL_AUX_5";
+        case MA_CHANNEL_AUX_6             : return "CHANNEL_AUX_6";
+        case MA_CHANNEL_AUX_7             : return "CHANNEL_AUX_7";
+        case MA_CHANNEL_AUX_8             : return "CHANNEL_AUX_8";
+        case MA_CHANNEL_AUX_9             : return "CHANNEL_AUX_9";
+        case MA_CHANNEL_AUX_10            : return "CHANNEL_AUX_10";
+        case MA_CHANNEL_AUX_11            : return "CHANNEL_AUX_11";
+        case MA_CHANNEL_AUX_12            : return "CHANNEL_AUX_12";
+        case MA_CHANNEL_AUX_13            : return "CHANNEL_AUX_13";
+        case MA_CHANNEL_AUX_14            : return "CHANNEL_AUX_14";
+        case MA_CHANNEL_AUX_15            : return "CHANNEL_AUX_15";
+        case MA_CHANNEL_AUX_16            : return "CHANNEL_AUX_16";
+        case MA_CHANNEL_AUX_17            : return "CHANNEL_AUX_17";
+        case MA_CHANNEL_AUX_18            : return "CHANNEL_AUX_18";
+        case MA_CHANNEL_AUX_19            : return "CHANNEL_AUX_19";
+        case MA_CHANNEL_AUX_20            : return "CHANNEL_AUX_20";
+        case MA_CHANNEL_AUX_21            : return "CHANNEL_AUX_21";
+        case MA_CHANNEL_AUX_22            : return "CHANNEL_AUX_22";
+        case MA_CHANNEL_AUX_23            : return "CHANNEL_AUX_23";
+        case MA_CHANNEL_AUX_24            : return "CHANNEL_AUX_24";
+        case MA_CHANNEL_AUX_25            : return "CHANNEL_AUX_25";
+        case MA_CHANNEL_AUX_26            : return "CHANNEL_AUX_26";
+        case MA_CHANNEL_AUX_27            : return "CHANNEL_AUX_27";
+        case MA_CHANNEL_AUX_28            : return "CHANNEL_AUX_28";
+        case MA_CHANNEL_AUX_29            : return "CHANNEL_AUX_29";
+        case MA_CHANNEL_AUX_30            : return "CHANNEL_AUX_30";
+        case MA_CHANNEL_AUX_31            : return "CHANNEL_AUX_31";
+        default: break;
+    }
+
+    return "UNKNOWN";
 }
 
 
