@@ -10831,6 +10831,7 @@ typedef struct
     ma_context* pContext;
     ma_device* pDevice;                         /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
     ma_device_id* pPlaybackDeviceID;            /* The ID of the playback device to use with the default listener. */
+    ma_device_notification_proc notificationCallback;
 #endif
     ma_log* pLog;                               /* When set to NULL, will use the context's log. */
     ma_uint32 listenerCount;                    /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
@@ -10841,7 +10842,6 @@ typedef struct
     ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 gainSmoothTimeInMilliseconds;     /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_allocation_callbacks allocationCallbacks;
-    ma_device_notification_proc notificationCallback;
     ma_bool32 noAutoStart;                      /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_bool32 noDevice;                         /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
     ma_mono_expansion_mode monoExpansionMode;   /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
