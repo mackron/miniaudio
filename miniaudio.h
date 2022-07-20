@@ -49211,7 +49211,7 @@ static ma_result ma_linear_resampler_get_heap_layout(const ma_linear_resampler_c
     }
 
     /* LPF */
-    pHeapLayout->lpfOffset = pHeapLayout->sizeInBytes;
+    pHeapLayout->lpfOffset = ma_align_64(pHeapLayout->sizeInBytes);
     {
         ma_result result;
         size_t lpfHeapSizeInBytes;
