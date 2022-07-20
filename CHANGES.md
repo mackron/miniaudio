@@ -2,6 +2,7 @@ v0.11.10 - TBD
 =====================
 * Add support for setting the device notification callback when initializing an engine object.
 * Fix a crash when initializing a channel converter.
+* Fix an unaligned access error.
 * Win32: Fix an error when the channel mask reported by Windows is all zero.
 
 
