@@ -6461,32 +6461,32 @@ typedef enum
 typedef enum
 {
     ma_aaudio_usage_default = 0,                    /* Leaves the usage type unset. */
-    ma_aaudio_usage_announcement,                   /* AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT */
-    ma_aaudio_usage_emergency,                      /* AAUDIO_SYSTEM_USAGE_EMERGENCY */
-    ma_aaudio_usage_safety,                         /* AAUDIO_SYSTEM_USAGE_SAFETY */
-    ma_aaudio_usage_vehicle_status,                 /* AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS */
+    ma_aaudio_usage_media,                          /* AAUDIO_USAGE_MEDIA */
+    ma_aaudio_usage_voice_communication,            /* AAUDIO_USAGE_VOICE_COMMUNICATION */
+    ma_aaudio_usage_voice_communication_signalling, /* AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING */
     ma_aaudio_usage_alarm,                          /* AAUDIO_USAGE_ALARM */
+    ma_aaudio_usage_notification,                   /* AAUDIO_USAGE_NOTIFICATION */
+    ma_aaudio_usage_notification_ringtone,          /* AAUDIO_USAGE_NOTIFICATION_RINGTONE */
+    ma_aaudio_usage_notification_event,             /* AAUDIO_USAGE_NOTIFICATION_EVENT */
     ma_aaudio_usage_assistance_accessibility,       /* AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY */
     ma_aaudio_usage_assistance_navigation_guidance, /* AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE */
     ma_aaudio_usage_assistance_sonification,        /* AAUDIO_USAGE_ASSISTANCE_SONIFICATION */
-    ma_aaudio_usage_assitant,                       /* AAUDIO_USAGE_ASSISTANT */
     ma_aaudio_usage_game,                           /* AAUDIO_USAGE_GAME */
-    ma_aaudio_usage_media,                          /* AAUDIO_USAGE_MEDIA */
-    ma_aaudio_usage_notification,                   /* AAUDIO_USAGE_NOTIFICATION */
-    ma_aaudio_usage_notification_event,             /* AAUDIO_USAGE_NOTIFICATION_EVENT */
-    ma_aaudio_usage_notification_ringtone,          /* AAUDIO_USAGE_NOTIFICATION_RINGTONE */
-    ma_aaudio_usage_voice_communication,            /* AAUDIO_USAGE_VOICE_COMMUNICATION */
-    ma_aaudio_usage_voice_communication_signalling  /* AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING */
+    ma_aaudio_usage_assitant,                       /* AAUDIO_USAGE_ASSISTANT */
+    ma_aaudio_usage_emergency,                      /* AAUDIO_SYSTEM_USAGE_EMERGENCY */
+    ma_aaudio_usage_safety,                         /* AAUDIO_SYSTEM_USAGE_SAFETY */
+    ma_aaudio_usage_vehicle_status,                 /* AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS */
+    ma_aaudio_usage_announcement                    /* AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT */
 } ma_aaudio_usage;
 
 /* AAudio content types. */
 typedef enum
 {
     ma_aaudio_content_type_default = 0,             /* Leaves the content type unset. */
-    ma_aaudio_content_type_movie,                   /* AAUDIO_CONTENT_TYPE_MOVIE */
+    ma_aaudio_content_type_speech,                  /* AAUDIO_CONTENT_TYPE_SPEECH */
     ma_aaudio_content_type_music,                   /* AAUDIO_CONTENT_TYPE_MUSIC */
-    ma_aaudio_content_type_sonification,            /* AAUDIO_CONTENT_TYPE_SONIFICATION */
-    ma_aaudio_content_type_speech                   /* AAUDIO_CONTENT_TYPE_SPEECH */
+    ma_aaudio_content_type_movie,                   /* AAUDIO_CONTENT_TYPE_MOVIE */
+    ma_aaudio_content_type_sonification             /* AAUDIO_CONTENT_TYPE_SONIFICATION */
 } ma_aaudio_content_type;
 
 /* AAudio input presets. */
@@ -6495,9 +6495,9 @@ typedef enum
     ma_aaudio_input_preset_default = 0,             /* Leaves the input preset unset. */
     ma_aaudio_input_preset_generic,                 /* AAUDIO_INPUT_PRESET_GENERIC */
     ma_aaudio_input_preset_camcorder,               /* AAUDIO_INPUT_PRESET_CAMCORDER */
-    ma_aaudio_input_preset_unprocessed,             /* AAUDIO_INPUT_PRESET_UNPROCESSED */
     ma_aaudio_input_preset_voice_recognition,       /* AAUDIO_INPUT_PRESET_VOICE_RECOGNITION */
     ma_aaudio_input_preset_voice_communication,     /* AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION */
+    ma_aaudio_input_preset_unprocessed,             /* AAUDIO_INPUT_PRESET_UNPROCESSED */
     ma_aaudio_input_preset_voice_performance        /* AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE */
 } ma_aaudio_input_preset;
 
@@ -35974,22 +35974,22 @@ static ma_result ma_result_from_aaudio(ma_aaudio_result_t resultAA)
 static ma_aaudio_usage_t ma_to_usage__aaudio(ma_aaudio_usage usage)
 {
     switch (usage) {
-        case ma_aaudio_usage_announcement:                   return MA_AAUDIO_USAGE_MEDIA;
-        case ma_aaudio_usage_emergency:                      return MA_AAUDIO_USAGE_VOICE_COMMUNICATION;
-        case ma_aaudio_usage_safety:                         return MA_AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING;
-        case ma_aaudio_usage_vehicle_status:                 return MA_AAUDIO_USAGE_ALARM;
-        case ma_aaudio_usage_alarm:                          return MA_AAUDIO_USAGE_NOTIFICATION;
-        case ma_aaudio_usage_assistance_accessibility:       return MA_AAUDIO_USAGE_NOTIFICATION_RINGTONE;
-        case ma_aaudio_usage_assistance_navigation_guidance: return MA_AAUDIO_USAGE_NOTIFICATION_EVENT;
-        case ma_aaudio_usage_assistance_sonification:        return MA_AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY;
-        case ma_aaudio_usage_assitant:                       return MA_AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE;
-        case ma_aaudio_usage_game:                           return MA_AAUDIO_USAGE_ASSISTANCE_SONIFICATION;
-        case ma_aaudio_usage_media:                          return MA_AAUDIO_USAGE_GAME;
-        case ma_aaudio_usage_notification:                   return MA_AAUDIO_USAGE_ASSISTANT;
-        case ma_aaudio_usage_notification_event:             return MA_AAUDIO_SYSTEM_USAGE_EMERGENCY;
-        case ma_aaudio_usage_notification_ringtone:          return MA_AAUDIO_SYSTEM_USAGE_SAFETY;
-        case ma_aaudio_usage_voice_communication:            return MA_AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS;
-        case ma_aaudio_usage_voice_communication_signalling: return MA_AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT;
+        case ma_aaudio_usage_media:                          return MA_AAUDIO_USAGE_MEDIA;
+        case ma_aaudio_usage_voice_communication:            return MA_AAUDIO_USAGE_VOICE_COMMUNICATION;
+        case ma_aaudio_usage_voice_communication_signalling: return MA_AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING;
+        case ma_aaudio_usage_alarm:                          return MA_AAUDIO_USAGE_ALARM;
+        case ma_aaudio_usage_notification:                   return MA_AAUDIO_USAGE_NOTIFICATION;
+        case ma_aaudio_usage_notification_ringtone:          return MA_AAUDIO_USAGE_NOTIFICATION_RINGTONE;
+        case ma_aaudio_usage_notification_event:             return MA_AAUDIO_USAGE_NOTIFICATION_EVENT;
+        case ma_aaudio_usage_assistance_accessibility:       return MA_AAUDIO_USAGE_ASSISTANCE_ACCESSIBILITY;
+        case ma_aaudio_usage_assistance_navigation_guidance: return MA_AAUDIO_USAGE_ASSISTANCE_NAVIGATION_GUIDANCE;
+        case ma_aaudio_usage_assistance_sonification:        return MA_AAUDIO_USAGE_ASSISTANCE_SONIFICATION;
+        case ma_aaudio_usage_game:                           return MA_AAUDIO_USAGE_GAME;
+        case ma_aaudio_usage_assitant:                       return MA_AAUDIO_USAGE_ASSISTANT;
+        case ma_aaudio_usage_emergency:                      return MA_AAUDIO_SYSTEM_USAGE_EMERGENCY;
+        case ma_aaudio_usage_safety:                         return MA_AAUDIO_SYSTEM_USAGE_SAFETY;
+        case ma_aaudio_usage_vehicle_status:                 return MA_AAUDIO_SYSTEM_USAGE_VEHICLE_STATUS;
+        case ma_aaudio_usage_announcement:                   return MA_AAUDIO_SYSTEM_USAGE_ANNOUNCEMENT;
         default: break;
     }
 
@@ -35999,10 +35999,10 @@ static ma_aaudio_usage_t ma_to_usage__aaudio(ma_aaudio_usage usage)
 static ma_aaudio_content_type_t ma_to_content_type__aaudio(ma_aaudio_content_type contentType)
 {
     switch (contentType) {
-        case ma_aaudio_content_type_movie:        return MA_AAUDIO_CONTENT_TYPE_MOVIE;
-        case ma_aaudio_content_type_music:        return MA_AAUDIO_CONTENT_TYPE_MUSIC;
-        case ma_aaudio_content_type_sonification: return MA_AAUDIO_CONTENT_TYPE_SONIFICATION;
         case ma_aaudio_content_type_speech:       return MA_AAUDIO_CONTENT_TYPE_SPEECH;
+        case ma_aaudio_content_type_music:        return MA_AAUDIO_CONTENT_TYPE_MUSIC;
+        case ma_aaudio_content_type_movie:        return MA_AAUDIO_CONTENT_TYPE_MOVIE;
+        case ma_aaudio_content_type_sonification: return MA_AAUDIO_CONTENT_TYPE_SONIFICATION;
         default: break;
     }
 
@@ -36014,9 +36014,9 @@ static ma_aaudio_input_preset_t ma_to_input_preset__aaudio(ma_aaudio_input_prese
     switch (inputPreset) {
         case ma_aaudio_input_preset_generic:             return MA_AAUDIO_INPUT_PRESET_GENERIC;
         case ma_aaudio_input_preset_camcorder:           return MA_AAUDIO_INPUT_PRESET_CAMCORDER;
-        case ma_aaudio_input_preset_unprocessed:         return MA_AAUDIO_INPUT_PRESET_UNPROCESSED;
         case ma_aaudio_input_preset_voice_recognition:   return MA_AAUDIO_INPUT_PRESET_VOICE_RECOGNITION;
         case ma_aaudio_input_preset_voice_communication: return MA_AAUDIO_INPUT_PRESET_VOICE_COMMUNICATION;
+        case ma_aaudio_input_preset_unprocessed:         return MA_AAUDIO_INPUT_PRESET_UNPROCESSED;
         case ma_aaudio_input_preset_voice_performance:   return MA_AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE;
         default: break;
     }
