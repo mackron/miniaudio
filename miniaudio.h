@@ -6104,8 +6104,12 @@ This section contains the APIs for device playback and capture. Here is where yo
         #define MA_SUPPORT_JACK
     #endif
     #if defined(MA_ANDROID)
-        #define MA_SUPPORT_AAUDIO
-        #define MA_SUPPORT_OPENSL
+        #if __ANDROID_API__ >= 26
+            #define MA_SUPPORT_AAUDIO
+        #endif
+        #if __ANDROID_API__ >= 9
+            #define MA_SUPPORT_OPENSL
+        #endif
     #endif
     #if defined(__OpenBSD__)        /* <-- Change this to "#if defined(MA_BSD)" to enable sndio on all BSD flavors. */
         #define MA_SUPPORT_SNDIO    /* sndio is only supported on OpenBSD for now. May be expanded later if there's demand. */
@@ -17052,6 +17056,10 @@ DEVICE I/O
     #include <mach/mach_time.h> /* For mach_absolute_time() */
 #endif
 
+#ifdef MA_ANDROID
+    #include <sys/system_properties.h>
+#endif
+
 #ifdef MA_POSIX
     #include <sys/types.h>
     #include <unistd.h>
@@ -17184,13 +17192,43 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #endif
         case ma_backend_aaudio:
         #if defined(MA_HAS_AAUDIO)
-            return MA_TRUE;
+            #if defined(MA_ANDROID)
+            {
+                char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
+                if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
+                    if (atoi(sdkVersion) >= 27) {
+                        return MA_TRUE;
+                    } else {
+                        return MA_FALSE;
+                    }
+                } else {
+                    return MA_FALSE;
+                }
+            }
+            #else
+                return MA_FALSE;
+            #endif
         #else
             return MA_FALSE;
         #endif
         case ma_backend_opensl:
         #if defined(MA_HAS_OPENSL)
-            return MA_TRUE;
+            #if defined(MA_ANDROID)
+            {
+                char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
+                if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
+                    if (atoi(sdkVersion) >= 9) {
+                        return MA_TRUE;
+                    } else {
+                        return MA_FALSE;
+                    }
+                } else {
+                    return MA_FALSE;
+                }
+            }
+            #else
+                return MA_TRUE;
+            #endif
         #else
             return MA_FALSE;
         #endif
@@ -39502,13 +39540,17 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         #ifdef MA_HAS_AAUDIO
             case ma_backend_aaudio:
             {
-                pContext->callbacks.onContextInit = ma_context_init__aaudio;
+                if (ma_is_backend_enabled(backend)) {
+                    pContext->callbacks.onContextInit = ma_context_init__aaudio;
+                }
             } break;
         #endif
         #ifdef MA_HAS_OPENSL
             case ma_backend_opensl:
             {
-                pContext->callbacks.onContextInit = ma_context_init__opensl;
+                if (ma_is_backend_enabled(backend)) {
+                    pContext->callbacks.onContextInit = ma_context_init__opensl;
+                }
             } break;
         #endif
         #ifdef MA_HAS_WEBAUDIO
