@@ -50084,6 +50084,7 @@ MA_API ma_result ma_resampler_init(const ma_resampler_config* pConfig, const ma_
 
     result = ma_resampler_init_preallocated(pConfig, pHeap, pResampler);
     if (result != MA_SUCCESS) {
+        ma_free(pHeap, pAllocationCallbacks);
         return result;
     }
 
@@ -60095,6 +60096,7 @@ static ma_result ma_mp3_generate_seek_table(ma_mp3* pMP3, const ma_decoding_back
 
     mp3Result = drmp3_calculate_seek_points(&pMP3->dr, &seekPointCount, pSeekPoints);
     if (mp3Result != MA_TRUE) {
+        ma_free(pSeekPoints, pAllocationCallbacks);
         return MA_ERROR;
     }
 
@@ -81261,7 +81263,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_32(drflac_
     int32x2_t shift64;
     uint32x4_t one128;
     const drflac_uint32 t[2] = {0x00000000, 0xFFFFFFFF};
-    riceParamMask    = ~((~0UL) << riceParam);
+    riceParamMask    = (drflac_uint32)~((~0UL) << riceParam);
     riceParamMask128 = vdupq_n_u32(riceParamMask);
     riceParam128 = vdupq_n_s32(riceParam);
     shift64 = vdup_n_s32(-shift);
@@ -81402,7 +81404,7 @@ static drflac_bool32 drflac__decode_samples_with_residual__rice__neon_64(drflac_
     int64x1_t shift64;
     uint32x4_t one128;
     const drflac_uint32 t[2] = {0x00000000, 0xFFFFFFFF};
-    riceParamMask    = ~((~0UL) << riceParam);
+    riceParamMask    = (drflac_uint32)~((~0UL) << riceParam);
     riceParamMask128 = vdupq_n_u32(riceParamMask);
     riceParam128 = vdupq_n_s32(riceParam);
     shift64 = vdup_n_s64(-shift);
