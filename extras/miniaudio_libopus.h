@@ -303,9 +303,9 @@ MA_API ma_result ma_libopus_read_pcm_frames(ma_libopus* pOpus, void* pFramesOut,
             }
 
             if (format == ma_format_f32) {
-                libopusResult = op_read_float(pOpus->of, ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), framesToRead * channels, NULL);
+                libopusResult = op_read_float(pOpus->of, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), framesToRead * channels, NULL);
             } else {
-                libopusResult = op_read      (pOpus->of, ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), framesToRead * channels, NULL);
+                libopusResult = op_read      (pOpus->of, (opus_int16*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), framesToRead * channels, NULL);
             }
 
             if (libopusResult < 0) {
