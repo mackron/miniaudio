@@ -12270,12 +12270,15 @@ MA_API int ma_strappend(char* dst, size_t dstSize, const char* srcA, const char*
 
 MA_API char* ma_copy_string(const char* src, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    size_t sz;
+    char* dst;
+
     if (src == NULL) {
         return NULL;
     }
 
-    size_t sz = strlen(src)+1;
-    char* dst = (char*)ma_malloc(sz, pAllocationCallbacks);
+    sz = strlen(src)+1;
+    dst = (char*)ma_malloc(sz, pAllocationCallbacks);
     if (dst == NULL) {
         return NULL;
     }
