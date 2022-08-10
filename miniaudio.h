@@ -5521,6 +5521,13 @@ The channel map buffer must have a capacity of at least `channels`.
 MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
 
 /*
+Find a channel position in the given channel map. Returns index of channel or -1 if not found.
+
+The channel map buffer must have a capacity of at least `channels`.
+*/
+MA_API ma_int32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
+
+/*
 Generates a string representing the given channel map.
 
 This is for printing and debugging purposes, not serialization/deserialization.
@@ -47707,6 +47714,7 @@ MA_API ma_vec3f ma_vec3f_cross(ma_vec3f a, ma_vec3f b)
 
 static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode, ma_mono_expansion_mode monoExpansionMode);
 static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition);
+static ma_int32 ma_channel_map_num_spatial_channels(const ma_channel *pChannelMap, ma_uint32 channels);
 
 
 #ifndef MA_DEFAULT_SPEED_OF_SOUND
@@ -50487,6 +50495,19 @@ static ma_int32 ma_channel_converter_float_to_fixed(float x)
     return (ma_int32)(x * (1<<MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT));
 }
 
+static ma_int32 ma_channel_map_num_spatial_channels(const ma_channel* pChannelMap, ma_uint32 channels)
+{
+    ma_int32 numSpatialChannels = 0;
+    ma_uint32 iChannel;
+    MA_ASSERT(pChannelMap != NULL);
+    MA_ASSERT(channels > 0);
+    for (iChannel = 0; iChannel < channels; ++iChannel) {
+        if (ma_is_spatial_channel_position(pChannelMap[iChannel]))
+            numSpatialChannels++;
+    }
+    return numSpatialChannels;
+}
+
 static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
 {
     int i;
@@ -51332,6 +51353,29 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
                                         if (pConverter->weights.s16[iChannelIn][iChannelOut] == 0) {
                                             pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(weight);
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                /* If LFE is in the output channel map but was not present in the input channel map, configure its weight now */
+                if (ma_channel_map_find_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, MA_CHANNEL_LFE) == -1) {
+                    const ma_int32 numSpatialChannels = ma_channel_map_num_spatial_channels(pConverter->pChannelMapIn, pConverter->channelsIn);
+                    const ma_int32 iChannelOutLFE = ma_channel_map_find_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, MA_CHANNEL_LFE);
+                    if (numSpatialChannels > 0 && iChannelOutLFE != -1) {
+                        const float weightForLFE = 1.0f / (float)numSpatialChannels;
+                        for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                            const ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
+                            if (ma_is_spatial_channel_position(channelPosIn)) {
+                                if (pConverter->format == ma_format_f32) {
+                                    if (pConverter->weights.f32[iChannelIn][iChannelOutLFE] == 0) {
+                                        pConverter->weights.f32[iChannelIn][iChannelOutLFE] = weightForLFE;
+                                    }
+                                } else {
+                                    if (pConverter->weights.s16[iChannelIn][iChannelOutLFE] == 0) {
+                                        pConverter->weights.s16[iChannelIn][iChannelOutLFE] = ma_channel_converter_float_to_fixed(weightForLFE);
                                     }
                                 }
                             }
@@ -53763,15 +53807,20 @@ MA_API ma_bool32 ma_channel_map_is_blank(const ma_channel* pChannelMap, ma_uint3
 
 MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition)
 {
-    ma_uint32 iChannel;
+    return ma_channel_map_find_channel_position(channels, pChannelMap, channelPosition) != -1 ? MA_TRUE : MA_FALSE;
+}
+
+MA_API ma_int32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel *pChannelMap, ma_channel channelPosition)
+{
+    ma_int32 iChannel;
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
         if (ma_channel_map_get_channel(pChannelMap, channels, iChannel) == channelPosition) {
-            return MA_TRUE;
+            return iChannel;
         }
     }
 
-    return MA_FALSE;
+    return -1;
 }
 
 MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 channels, char* pBufferOut, size_t bufferCap)
