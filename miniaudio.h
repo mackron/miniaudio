@@ -5521,11 +5521,12 @@ The channel map buffer must have a capacity of at least `channels`.
 MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
 
 /*
-Find a channel position in the given channel map. Returns index of channel or -1 if not found.
+Find a channel position in the given channel map. Returns MA_TRUE if the channel is found; MA_FALSE otherwise. The
+index of the channel is output to `pChannelIndex`.
 
 The channel map buffer must have a capacity of at least `channels`.
 */
-MA_API ma_int32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition);
+MA_API ma_bool32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition, ma_uint32* pChannelIndex);
 
 /*
 Generates a string representing the given channel map.
@@ -50495,17 +50496,20 @@ static ma_int32 ma_channel_converter_float_to_fixed(float x)
     return (ma_int32)(x * (1<<MA_CHANNEL_CONVERTER_FIXED_POINT_SHIFT));
 }
 
-static ma_int32 ma_channel_map_num_spatial_channels(const ma_channel* pChannelMap, ma_uint32 channels)
+static ma_uint32 ma_channel_map_get_spatial_channel_count(const ma_channel* pChannelMap, ma_uint32 channels)
 {
-    ma_int32 numSpatialChannels = 0;
+    ma_uint32 spatialChannelCount = 0;
     ma_uint32 iChannel;
+
     MA_ASSERT(pChannelMap != NULL);
     MA_ASSERT(channels > 0);
+
     for (iChannel = 0; iChannel < channels; ++iChannel) {
         if (ma_is_spatial_channel_position(pChannelMap[iChannel]))
-            numSpatialChannels++;
+            spatialChannelCount++;
     }
-    return numSpatialChannels;
+
+    return spatialChannelCount;
 }
 
 static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition)
@@ -51361,11 +51365,12 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
                 }
 
                 /* If LFE is in the output channel map but was not present in the input channel map, configure its weight now */
-                if (ma_channel_map_find_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, MA_CHANNEL_LFE) == -1) {
-                    const ma_int32 numSpatialChannels = ma_channel_map_num_spatial_channels(pConverter->pChannelMapIn, pConverter->channelsIn);
-                    const ma_int32 iChannelOutLFE = ma_channel_map_find_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, MA_CHANNEL_LFE);
-                    if (numSpatialChannels > 0 && iChannelOutLFE != -1) {
-                        const float weightForLFE = 1.0f / (float)numSpatialChannels;
+                if (!ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, MA_CHANNEL_LFE)) {
+                    ma_uint32 spatialChannelCount = ma_channel_map_get_spatial_channel_count(pConverter->pChannelMapIn, pConverter->channelsIn);
+                    ma_uint32 iChannelOutLFE;
+
+                    if (spatialChannelCount > 0 && ma_channel_map_find_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, MA_CHANNEL_LFE, &iChannelOutLFE)) {
+                        const float weightForLFE = 1.0f / spatialChannelCount;
                         for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
                             const ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
                             if (ma_is_spatial_channel_position(channelPosIn)) {
@@ -53807,20 +53812,29 @@ MA_API ma_bool32 ma_channel_map_is_blank(const ma_channel* pChannelMap, ma_uint3
 
 MA_API ma_bool32 ma_channel_map_contains_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition)
 {
-    return ma_channel_map_find_channel_position(channels, pChannelMap, channelPosition) != -1 ? MA_TRUE : MA_FALSE;
+    return ma_channel_map_find_channel_position(channels, pChannelMap, channelPosition, NULL);
 }
 
-MA_API ma_int32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel *pChannelMap, ma_channel channelPosition)
+MA_API ma_bool32 ma_channel_map_find_channel_position(ma_uint32 channels, const ma_channel* pChannelMap, ma_channel channelPosition, ma_uint32* pChannelIndex)
 {
-    ma_int32 iChannel;
+    ma_uint32 iChannel;
+
+    if (pChannelIndex != NULL) {
+        *pChannelIndex = (ma_uint32)-1;
+    }
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
         if (ma_channel_map_get_channel(pChannelMap, channels, iChannel) == channelPosition) {
-            return iChannel;
+            if (pChannelIndex != NULL) {
+                *pChannelIndex = iChannel;
+            }
+
+            return MA_TRUE;
         }
     }
 
-    return -1;
+    /* Getting here means the channel position was not found. */
+    return MA_FALSE;
 }
 
 MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 channels, char* pBufferOut, size_t bufferCap)
