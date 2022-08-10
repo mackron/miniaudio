@@ -51293,19 +51293,8 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 
             case ma_channel_mix_mode_simple:
             {
-                /* In simple mode, excess channels need to be silenced or dropped. */
-                ma_uint32 iChannel;
-                for (iChannel = 0; iChannel < ma_min(pConverter->channelsIn, pConverter->channelsOut); iChannel += 1) {
-                    if (pConverter->format == ma_format_f32) {
-                        if (pConverter->weights.f32[iChannel][iChannel] == 0) {
-                            pConverter->weights.f32[iChannel][iChannel] = 1;
-                        }
-                    } else {
-                        if (pConverter->weights.s16[iChannel][iChannel] == 0) {
-                            pConverter->weights.s16[iChannel][iChannel] = ma_channel_converter_float_to_fixed(1);
-                        }
-                    }
-                }
+                /* In simple mode, only set weights for channels that have exactly matching types, leave the rest at
+                   zero. The 1:1 mappings have already been covered before this switch statement. */
             } break;
 
             case ma_channel_mix_mode_rectangular:
