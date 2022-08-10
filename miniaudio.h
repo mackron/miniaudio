@@ -51293,8 +51293,10 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
 
             case ma_channel_mix_mode_simple:
             {
-                /* In simple mode, only set weights for channels that have exactly matching types, leave the rest at
-                   zero. The 1:1 mappings have already been covered before this switch statement. */
+                /*
+                In simple mode, only set weights for channels that have exactly matching types, leave the rest at
+                zero. The 1:1 mappings have already been covered before this switch statement.
+                */
             } break;
 
             case ma_channel_mix_mode_rectangular:
