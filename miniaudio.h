@@ -20158,10 +20158,10 @@ static ma_IMMNotificationClientVtbl g_maNotificationCientVtbl = {
 static LPCWSTR ma_to_usage_string__wasapi(ma_wasapi_usage usage)
 {
     switch (usage) {
-    case ma_wasapi_usage_default: return NULL;
-    case ma_wasapi_usage_games: return L"Games";
-    case ma_wasapi_usage_pro_audio: return L"Pro Audio";
-    default: break;
+        case ma_wasapi_usage_default:   return NULL;
+        case ma_wasapi_usage_games:     return L"Games";
+        case ma_wasapi_usage_pro_audio: return L"Pro Audio";
+        default: break;
     }
 
     return NULL;
@@ -22419,12 +22419,12 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         /* Optionally use the Avrt API to specify the audio thread's latency sensitivity requirements */
         pContext->wasapi.hAvrt = ma_dlopen(pContext, "avrt.dll");
         if (pContext->wasapi.hAvrt) {
-            pContext->wasapi.AvSetMmThreadCharacteristicsW = ma_dlsym(pContext, pContext->wasapi.hAvrt, "AvSetMmThreadCharacteristicsW");
+            pContext->wasapi.AvSetMmThreadCharacteristicsW   = ma_dlsym(pContext, pContext->wasapi.hAvrt, "AvSetMmThreadCharacteristicsW");
             pContext->wasapi.AvRevertMmThreadcharacteristics = ma_dlsym(pContext, pContext->wasapi.hAvrt, "AvRevertMmThreadCharacteristics");
 
             /* If either function could not be found, disable use of avrt entirely. */
             if (!pContext->wasapi.AvSetMmThreadCharacteristicsW || !pContext->wasapi.AvRevertMmThreadcharacteristics) {
-                pContext->wasapi.AvSetMmThreadCharacteristicsW = NULL;
+                pContext->wasapi.AvSetMmThreadCharacteristicsW   = NULL;
                 pContext->wasapi.AvRevertMmThreadcharacteristics = NULL;
                 ma_dlclose(pContext, pContext->wasapi.hAvrt);
                 pContext->wasapi.hAvrt = NULL;
