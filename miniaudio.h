@@ -4147,7 +4147,7 @@ typedef enum
 {
     ma_channel_mix_mode_rectangular = 0,   /* Simple averaging based on the plane(s) the channel is sitting on. */
     ma_channel_mix_mode_simple,            /* Drop excess channels; zeroed out extra channels. */
-    ma_channel_mix_mode_custom_weights,    /* Use custom weights specified in ma_channel_router_config. */
+    ma_channel_mix_mode_custom_weights,    /* Use custom weights specified in ma_channel_converter_config. */
     ma_channel_mix_mode_default = ma_channel_mix_mode_rectangular
 } ma_channel_mix_mode;
 
@@ -51216,6 +51216,26 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
         /*
         We now need to fill out our weights table. This is determined by the mixing mode.
         */
+     
+        /* In all cases we need to make sure all channels that are present in both channel maps have a 1:1 mapping. */
+        for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+            ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
+
+            for (iChannelOut = 0; iChannelOut < pConverter->channelsOut; ++iChannelOut) {
+                ma_channel channelPosOut = ma_channel_map_get_channel(pConverter->pChannelMapOut, pConverter->channelsOut, iChannelOut);
+
+                if (channelPosIn == channelPosOut) {
+                    float weight = 1;
+
+                    if (pConverter->format == ma_format_f32) {
+                        pConverter->weights.f32[iChannelIn][iChannelOut] = weight;
+                    } else {
+                        pConverter->weights.s16[iChannelIn][iChannelOut] = ma_channel_converter_float_to_fixed(weight);
+                    }
+                }
+            }
+        }
+
         switch (pConverter->mixingMode)
         {
             case ma_channel_mix_mode_custom_weights:
