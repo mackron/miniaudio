@@ -5288,6 +5288,7 @@ typedef struct
     const ma_channel* pChannelMapIn;
     const ma_channel* pChannelMapOut;
     ma_channel_mix_mode mixingMode;
+    ma_bool32 calculateLFEFromSpatialChannels;  /* When an output LFE channel is present, but no input LFE, set to true to set the output LFE to the average of all spatial channels (LR, FR, etc.). Ignored when an input LFE is present. */
     float** ppWeights;  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
 } ma_channel_converter_config;
 
@@ -5340,6 +5341,7 @@ typedef struct
     ma_channel* pChannelMapOut;
     ma_dither_mode ditherMode;
     ma_channel_mix_mode channelMixMode;
+    ma_bool32 calculateLFEFromSpatialChannels;  /* When an output LFE channel is present, but no input LFE, set to true to set the output LFE to the average of all spatial channels (LR, FR, etc.). Ignored when an input LFE is present. */
     float** ppChannelWeights;  /* [in][out]. Only used when mixingMode is set to ma_channel_mix_mode_custom_weights. */
     ma_bool32 allowDynamicSampleRate;
     ma_resampler_config resampling;
@@ -6634,6 +6636,7 @@ struct ma_device_config
         ma_uint32 channels;
         ma_channel* pChannelMap;
         ma_channel_mix_mode channelMixMode;
+        ma_bool32 calculateLFEFromSpatialChannels;  /* When an output LFE channel is present, but no input LFE, set to true to set the output LFE to the average of all spatial channels (LR, FR, etc.). Ignored when an input LFE is present. */
         ma_share_mode shareMode;
     } playback;
     struct
@@ -6643,6 +6646,7 @@ struct ma_device_config
         ma_uint32 channels;
         ma_channel* pChannelMap;
         ma_channel_mix_mode channelMixMode;
+        ma_bool32 calculateLFEFromSpatialChannels;  /* When an output LFE channel is present, but no input LFE, set to true to set the output LFE to the average of all spatial channels (LR, FR, etc.). Ignored when an input LFE is present. */
         ma_share_mode shareMode;
     } capture;
 
@@ -7328,6 +7332,7 @@ struct ma_device
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
+        ma_bool32 calculateLFEFromSpatialChannels;
         ma_data_converter converter;
         void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
         ma_uint32 intermediaryBufferCap;
@@ -7353,6 +7358,7 @@ struct ma_device
         ma_uint32 internalPeriodSizeInFrames;
         ma_uint32 internalPeriods;
         ma_channel_mix_mode channelMixMode;
+        ma_bool32 calculateLFEFromSpatialChannels;
         ma_data_converter converter;
         void* pIntermediaryBuffer;          /* For implementing fixed sized buffer callbacks. Will be null if using variable sized callbacks. */
         ma_uint32 intermediaryBufferCap;
@@ -38847,20 +38853,21 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         /* Converting from internal device format to client format. */
         ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
-        converterConfig.formatIn                    = pDevice->capture.internalFormat;
-        converterConfig.channelsIn                  = pDevice->capture.internalChannels;
-        converterConfig.sampleRateIn                = pDevice->capture.internalSampleRate;
-        converterConfig.pChannelMapIn               = pDevice->capture.internalChannelMap;
-        converterConfig.formatOut                   = pDevice->capture.format;
-        converterConfig.channelsOut                 = pDevice->capture.channels;
-        converterConfig.sampleRateOut               = pDevice->sampleRate;
-        converterConfig.pChannelMapOut              = pDevice->capture.channelMap;
-        converterConfig.channelMixMode              = pDevice->capture.channelMixMode;
-        converterConfig.allowDynamicSampleRate      = MA_FALSE;
-        converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfOrder  = pDevice->resampling.linear.lpfOrder;
-        converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
-        converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
+        converterConfig.formatIn                        = pDevice->capture.internalFormat;
+        converterConfig.channelsIn                      = pDevice->capture.internalChannels;
+        converterConfig.sampleRateIn                    = pDevice->capture.internalSampleRate;
+        converterConfig.pChannelMapIn                   = pDevice->capture.internalChannelMap;
+        converterConfig.formatOut                       = pDevice->capture.format;
+        converterConfig.channelsOut                     = pDevice->capture.channels;
+        converterConfig.sampleRateOut                   = pDevice->sampleRate;
+        converterConfig.pChannelMapOut                  = pDevice->capture.channelMap;
+        converterConfig.channelMixMode                  = pDevice->capture.channelMixMode;
+        converterConfig.calculateLFEFromSpatialChannels = pDevice->capture.calculateLFEFromSpatialChannels;
+        converterConfig.allowDynamicSampleRate          = MA_FALSE;
+        converterConfig.resampling.algorithm            = pDevice->resampling.algorithm;
+        converterConfig.resampling.linear.lpfOrder      = pDevice->resampling.linear.lpfOrder;
+        converterConfig.resampling.pBackendVTable       = pDevice->resampling.pBackendVTable;
+        converterConfig.resampling.pBackendUserData     = pDevice->resampling.pBackendUserData;
 
         /* Make sure the old converter is uninitialized first. */
         if (ma_device_get_state(pDevice) != ma_device_state_uninitialized) {
@@ -38876,20 +38883,21 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         /* Converting from client format to device format. */
         ma_data_converter_config converterConfig = ma_data_converter_config_init_default();
-        converterConfig.formatIn                    = pDevice->playback.format;
-        converterConfig.channelsIn                  = pDevice->playback.channels;
-        converterConfig.sampleRateIn                = pDevice->sampleRate;
-        converterConfig.pChannelMapIn               = pDevice->playback.channelMap;
-        converterConfig.formatOut                   = pDevice->playback.internalFormat;
-        converterConfig.channelsOut                 = pDevice->playback.internalChannels;
-        converterConfig.sampleRateOut               = pDevice->playback.internalSampleRate;
-        converterConfig.pChannelMapOut              = pDevice->playback.internalChannelMap;
-        converterConfig.channelMixMode              = pDevice->playback.channelMixMode;
-        converterConfig.allowDynamicSampleRate      = MA_FALSE;
-        converterConfig.resampling.algorithm        = pDevice->resampling.algorithm;
-        converterConfig.resampling.linear.lpfOrder  = pDevice->resampling.linear.lpfOrder;
-        converterConfig.resampling.pBackendVTable   = pDevice->resampling.pBackendVTable;
-        converterConfig.resampling.pBackendUserData = pDevice->resampling.pBackendUserData;
+        converterConfig.formatIn                        = pDevice->playback.format;
+        converterConfig.channelsIn                      = pDevice->playback.channels;
+        converterConfig.sampleRateIn                    = pDevice->sampleRate;
+        converterConfig.pChannelMapIn                   = pDevice->playback.channelMap;
+        converterConfig.formatOut                       = pDevice->playback.internalFormat;
+        converterConfig.channelsOut                     = pDevice->playback.internalChannels;
+        converterConfig.sampleRateOut                   = pDevice->playback.internalSampleRate;
+        converterConfig.pChannelMapOut                  = pDevice->playback.internalChannelMap;
+        converterConfig.channelMixMode                  = pDevice->playback.channelMixMode;
+        converterConfig.calculateLFEFromSpatialChannels = pDevice->playback.calculateLFEFromSpatialChannels;
+        converterConfig.allowDynamicSampleRate          = MA_FALSE;
+        converterConfig.resampling.algorithm            = pDevice->resampling.algorithm;
+        converterConfig.resampling.linear.lpfOrder      = pDevice->resampling.linear.lpfOrder;
+        converterConfig.resampling.pBackendVTable       = pDevice->resampling.pBackendVTable;
+        converterConfig.resampling.pBackendUserData     = pDevice->resampling.pBackendUserData;
 
         /* Make sure the old converter is uninitialized first. */
         if (ma_device_get_state(pDevice) != ma_device_state_uninitialized) {
@@ -39957,13 +39965,14 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->capture.channels            = pConfig->capture.channels;
     ma_channel_map_copy_or_default(pDevice->capture.channelMap, ma_countof(pDevice->capture.channelMap), pConfig->capture.pChannelMap, pConfig->capture.channels);
     pDevice->capture.channelMixMode      = pConfig->capture.channelMixMode;
+    pDevice->capture.calculateLFEFromSpatialChannels = pConfig->capture.calculateLFEFromSpatialChannels;
 
     pDevice->playback.shareMode          = pConfig->playback.shareMode;
     pDevice->playback.format             = pConfig->playback.format;
     pDevice->playback.channels           = pConfig->playback.channels;
     ma_channel_map_copy_or_default(pDevice->playback.channelMap, ma_countof(pDevice->playback.channelMap), pConfig->playback.pChannelMap, pConfig->playback.channels);
     pDevice->playback.channelMixMode     = pConfig->playback.channelMixMode;
-
+    pDevice->playback.calculateLFEFromSpatialChannels = pConfig->playback.calculateLFEFromSpatialChannels;
 
     result = ma_mutex_init(&pDevice->startStopLock);
     if (result != MA_SUCCESS) {
@@ -51365,22 +51374,24 @@ MA_API ma_result ma_channel_converter_init_preallocated(const ma_channel_convert
                 }
 
                 /* If LFE is in the output channel map but was not present in the input channel map, configure its weight now */
-                if (!ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, MA_CHANNEL_LFE)) {
-                    ma_uint32 spatialChannelCount = ma_channel_map_get_spatial_channel_count(pConverter->pChannelMapIn, pConverter->channelsIn);
-                    ma_uint32 iChannelOutLFE;
+                if (pConfig->calculateLFEFromSpatialChannels) {
+                    if (!ma_channel_map_contains_channel_position(pConverter->channelsIn, pConverter->pChannelMapIn, MA_CHANNEL_LFE)) {
+                        ma_uint32 spatialChannelCount = ma_channel_map_get_spatial_channel_count(pConverter->pChannelMapIn, pConverter->channelsIn);
+                        ma_uint32 iChannelOutLFE;
 
-                    if (spatialChannelCount > 0 && ma_channel_map_find_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, MA_CHANNEL_LFE, &iChannelOutLFE)) {
-                        const float weightForLFE = 1.0f / spatialChannelCount;
-                        for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
-                            const ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
-                            if (ma_is_spatial_channel_position(channelPosIn)) {
-                                if (pConverter->format == ma_format_f32) {
-                                    if (pConverter->weights.f32[iChannelIn][iChannelOutLFE] == 0) {
-                                        pConverter->weights.f32[iChannelIn][iChannelOutLFE] = weightForLFE;
-                                    }
-                                } else {
-                                    if (pConverter->weights.s16[iChannelIn][iChannelOutLFE] == 0) {
-                                        pConverter->weights.s16[iChannelIn][iChannelOutLFE] = ma_channel_converter_float_to_fixed(weightForLFE);
+                        if (spatialChannelCount > 0 && ma_channel_map_find_channel_position(pConverter->channelsOut, pConverter->pChannelMapOut, MA_CHANNEL_LFE, &iChannelOutLFE)) {
+                            const float weightForLFE = 1.0f / spatialChannelCount;
+                            for (iChannelIn = 0; iChannelIn < pConverter->channelsIn; ++iChannelIn) {
+                                const ma_channel channelPosIn = ma_channel_map_get_channel(pConverter->pChannelMapIn, pConverter->channelsIn, iChannelIn);
+                                if (ma_is_spatial_channel_position(channelPosIn)) {
+                                    if (pConverter->format == ma_format_f32) {
+                                        if (pConverter->weights.f32[iChannelIn][iChannelOutLFE] == 0) {
+                                            pConverter->weights.f32[iChannelIn][iChannelOutLFE] = weightForLFE;
+                                        }
+                                    } else {
+                                        if (pConverter->weights.s16[iChannelIn][iChannelOutLFE] == 0) {
+                                            pConverter->weights.s16[iChannelIn][iChannelOutLFE] = ma_channel_converter_float_to_fixed(weightForLFE);
+                                        }
                                     }
                                 }
                             }
@@ -51888,6 +51899,7 @@ static ma_channel_converter_config ma_channel_converter_config_init_from_data_co
 
     channelConverterConfig = ma_channel_converter_config_init(ma_data_converter_config_get_mid_format(pConfig), pConfig->channelsIn, pConfig->pChannelMapIn, pConfig->channelsOut, pConfig->pChannelMapOut, pConfig->channelMixMode);
     channelConverterConfig.ppWeights = pConfig->ppChannelWeights;
+    channelConverterConfig.calculateLFEFromSpatialChannels = pConfig->calculateLFEFromSpatialChannels;
 
     return channelConverterConfig;
 }
