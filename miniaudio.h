@@ -22013,7 +22013,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
                     }
                     prevFramesAvaialablePlayback = framesAvailablePlayback;
 
-                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
+                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime * 1000);
                     ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
                 }
             }
