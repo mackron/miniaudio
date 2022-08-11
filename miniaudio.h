@@ -17880,6 +17880,11 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
 {
     MA_ASSERT(pDevice != NULL);
 
+    /* Don't read more data from the client if we're in the process of stopping. */
+    if (ma_device_get_state(pDevice) == ma_device_state_stopping) {
+        return;
+    }
+
     if (pDevice->noFixedSizedCallback) {
         /* Fast path. Not using a fixed sized callback. Process directly from the specified buffers. */
         ma_device__on_data_inner(pDevice, pFramesOut, pFramesIn, frameCount);
@@ -40670,6 +40675,15 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             ma_event_wait(&pDevice->stopEvent);
             result = MA_SUCCESS;
         }
+
+        /*
+        This is a safety measure to ensure the internal buffer has been cleared so any leftover
+        does not get played the next time the device starts. Ideally this should be drained by
+        the backend first.
+        */
+        pDevice->playback.intermediaryBufferLen = 0;
+        pDevice->playback.inputCacheConsumed    = 0;
+        pDevice->playback.inputCacheRemaining   = 0;
     }
     ma_mutex_unlock(&pDevice->startStopLock);
 
