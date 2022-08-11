@@ -50577,8 +50577,9 @@ static ma_uint32 ma_channel_map_get_spatial_channel_count(const ma_channel* pCha
     MA_ASSERT(channels > 0);
 
     for (iChannel = 0; iChannel < channels; ++iChannel) {
-        if (ma_is_spatial_channel_position(pChannelMap[iChannel]))
+        if (ma_is_spatial_channel_position(ma_channel_map_get_channel(pChannelMap, channels, iChannel))) {
             spatialChannelCount++;
+        }
     }
 
     return spatialChannelCount;
