@@ -10776,6 +10776,7 @@ typedef struct
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_mono_expansion_mode monoExpansionMode;
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
@@ -10790,6 +10791,7 @@ typedef struct
     ma_node_base baseNode;                              /* Must be the first member for compatiblity with the ma_node API. */
     ma_engine* pEngine;                                 /* A pointer to the engine. Set based on the value from the config. */
     ma_uint32 sampleRate;                               /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
+    ma_mono_expansion_mode monoExpansionMode;
     ma_fader fader;
     ma_linear_resampler resampler;                      /* For pitch shift. */
     ma_spatializer spatializer;
@@ -10823,6 +10825,7 @@ typedef struct
     ma_uint32 initialAttachmentInputBusIndex;   /* The index of the input bus of pInitialAttachment to attach the sound to. */
     ma_uint32 channelsIn;                       /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
     ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. Set to MA_SOUND_SOURCE_CHANNEL_COUNT to use the data source's channel count (only used if using a data source as input). */
+    ma_mono_expansion_mode monoExpansionMode;   /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
     ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
     ma_uint64 initialSeekPointInPCMFrames;      /* Initializes the sound such that it's seeked to this location by default. */
     ma_uint64 rangeBegInPCMFrames;
@@ -10833,7 +10836,8 @@ typedef struct
     ma_fence* pDoneFence;                       /* Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
 
-MA_API ma_sound_config ma_sound_config_init(void);
+MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
+MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
 struct ma_sound
 {
@@ -10865,8 +10869,8 @@ struct ma_sound_inlined
 typedef ma_sound_config ma_sound_group_config;
 typedef ma_sound        ma_sound_group;
 
-MA_API ma_sound_group_config ma_sound_group_config_init(void);
-
+MA_API ma_sound_group_config ma_sound_group_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
+MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
 typedef struct
 {
@@ -71301,6 +71305,7 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
     config.type                     = type;
     config.isPitchDisabled          = (flags & MA_SOUND_FLAG_NO_PITCH) != 0;
     config.isSpatializationDisabled = (flags & MA_SOUND_FLAG_NO_SPATIALIZATION) != 0;
+    config.monoExpansionMode        = pEngine->monoExpansionMode;
 
     return config;
 }
@@ -71493,7 +71498,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
                 ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
-                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple, pEngineNode->pEngine->monoExpansionMode);
+                ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple, pEngineNode->monoExpansionMode);
             }
         }
 
@@ -71976,9 +71981,21 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
 MA_API ma_sound_config ma_sound_config_init(void)
 {
+    return ma_sound_config_init_2(NULL);
+}
+
+MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine)
+{
     ma_sound_config config;
 
     MA_ZERO_OBJECT(&config);
+
+    if (pEngine != NULL) {
+        config.monoExpansionMode = pEngine->monoExpansionMode;
+    } else {
+        config.monoExpansionMode = ma_mono_expansion_mode_average;
+    }
+    
     config.rangeEndInPCMFrames     = ~((ma_uint64)0);
     config.loopPointEndInPCMFrames = ~((ma_uint64)0);
 
@@ -71987,9 +72004,20 @@ MA_API ma_sound_config ma_sound_config_init(void)
 
 MA_API ma_sound_group_config ma_sound_group_config_init(void)
 {
+    return ma_sound_group_config_init_2(NULL);
+}
+
+MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine)
+{
     ma_sound_group_config config;
 
     MA_ZERO_OBJECT(&config);
+
+    if (pEngine != NULL) {
+        config.monoExpansionMode = pEngine->monoExpansionMode;
+    } else {
+        config.monoExpansionMode = ma_mono_expansion_mode_average;
+    }
 
     return config;
 }
@@ -72859,8 +72887,9 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
     source that provides this information upfront.
     */
     engineNodeConfig = ma_engine_node_config_init(pEngine, type, pConfig->flags);
-    engineNodeConfig.channelsIn  = pConfig->channelsIn;
-    engineNodeConfig.channelsOut = pConfig->channelsOut;
+    engineNodeConfig.channelsIn        = pConfig->channelsIn;
+    engineNodeConfig.channelsOut       = pConfig->channelsOut;
+    engineNodeConfig.monoExpansionMode = pConfig->monoExpansionMode;
 
     /* If we're loading from a data source the input channel count needs to be the data source's native channel count. */
     if (pConfig->pDataSource != NULL) {
@@ -72887,7 +72916,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
 
     /* If no attachment is specified, attach the sound straight to the endpoint. */
     if (pConfig->pInitialAttachment == NULL) {
-        /* No group. Attach straight to the endpoint by default, unless the caller has requested that do not. */
+        /* No group. Attach straight to the endpoint by default, unless the caller has requested that it not. */
         if ((pConfig->flags & MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT) == 0) {
             result = ma_node_attach_output_bus(pSound, 0, ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
         }
@@ -72990,7 +73019,7 @@ done:
 
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init();
+    ma_sound_config config = ma_sound_config_init_2(pEngine);
     config.pFilePath          = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -73000,7 +73029,7 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
 
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init();
+    ma_sound_config config = ma_sound_config_init_2(pEngine);
     config.pFilePathW         = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -73042,10 +73071,11 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
         return result;
     }
 
-    config = ma_sound_config_init();
+    config = ma_sound_config_init_2(pEngine);
     config.pDataSource        = pSound->pResourceManagerDataSource;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
+    config.monoExpansionMode  = pExistingSound->engineNode.monoExpansionMode;
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
@@ -73061,7 +73091,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init();
+    ma_sound_config config = ma_sound_config_init_2(pEngine);
     config.pDataSource        = pDataSource;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -73805,7 +73835,7 @@ MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
 {
-    ma_sound_group_config config = ma_sound_group_config_init();
+    ma_sound_group_config config = ma_sound_group_config_init_2(pEngine);
     config.flags              = flags;
     config.pInitialAttachment = pParentGroup;
     return ma_sound_group_init_ex(pEngine, &config, pGroup);
