@@ -47788,7 +47788,6 @@ MA_API ma_vec3f ma_vec3f_cross(ma_vec3f a, ma_vec3f b)
 
 static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChannelMapOut, ma_uint32 channelsOut, const float* pFramesIn, const ma_channel* pChannelMapIn, ma_uint32 channelsIn, ma_uint64 frameCount, ma_channel_mix_mode mode, ma_mono_expansion_mode monoExpansionMode);
 static ma_bool32 ma_is_spatial_channel_position(ma_channel channelPosition);
-static ma_int32 ma_channel_map_num_spatial_channels(const ma_channel *pChannelMap, ma_uint32 channels);
 
 
 #ifndef MA_DEFAULT_SPEED_OF_SOUND
