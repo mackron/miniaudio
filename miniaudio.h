@@ -71993,7 +71993,7 @@ MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine)
     if (pEngine != NULL) {
         config.monoExpansionMode = pEngine->monoExpansionMode;
     } else {
-        config.monoExpansionMode = ma_mono_expansion_mode_average;
+        config.monoExpansionMode = ma_mono_expansion_mode_default;
     }
     
     config.rangeEndInPCMFrames     = ~((ma_uint64)0);
@@ -72016,7 +72016,7 @@ MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine)
     if (pEngine != NULL) {
         config.monoExpansionMode = pEngine->monoExpansionMode;
     } else {
-        config.monoExpansionMode = ma_mono_expansion_mode_average;
+        config.monoExpansionMode = ma_mono_expansion_mode_default;
     }
 
     return config;
