@@ -6152,12 +6152,8 @@ This section contains the APIs for device playback and capture. Here is where yo
         #define MA_SUPPORT_JACK
     #endif
     #if defined(MA_ANDROID)
-        #if __ANDROID_API__ >= 26
-            #define MA_SUPPORT_AAUDIO
-        #endif
-        #if __ANDROID_API__ >= 9
-            #define MA_SUPPORT_OPENSL
-        #endif
+        #define MA_SUPPORT_AAUDIO
+        #define MA_SUPPORT_OPENSL
     #endif
     #if defined(__OpenBSD__)        /* <-- Change this to "#if defined(MA_BSD)" to enable sndio on all BSD flavors. */
         #define MA_SUPPORT_SNDIO    /* sndio is only supported on OpenBSD for now. May be expanded later if there's demand. */
@@ -17270,7 +17266,7 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
             {
                 char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
                 if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
-                    if (atoi(sdkVersion) >= 27) {
+                    if (atoi(sdkVersion) >= 26) {
                         return MA_TRUE;
                     } else {
                         return MA_FALSE;
