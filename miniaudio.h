@@ -71847,6 +71847,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
 
     pEngineNode->pEngine                  = pConfig->pEngine;
     pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
+    pEngineNode->monoExpansionMode        = pConfig->monoExpansionMode;
     pEngineNode->pitch                    = 1;
     pEngineNode->oldPitch                 = 1;
     pEngineNode->oldDopplerPitch          = 1;
