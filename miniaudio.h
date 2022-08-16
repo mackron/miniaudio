@@ -29073,6 +29073,11 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
+        /* Use the requested sample rate if one was specified. */
+        if (pDescriptorCapture->sampleRate != 0) {
+            ss.rate = pDescriptorCapture->sampleRate;
+        }
+
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
                 ss.format = MA_PA_SAMPLE_FLOAT32LE;
@@ -29208,6 +29213,11 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
+
+        /* Use the requested sample rate if one was specified. */
+        if (pDescriptorPlayback->sampleRate != 0) {
+            ss.rate = pDescriptorPlayback->sampleRate;
+        }
 
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
