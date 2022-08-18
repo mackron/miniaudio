@@ -33506,9 +33506,11 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
             I'm going to use trial and error to determine our default session category. First we'll try PlayAndRecord. If that fails
             we'll try Playback and if that fails we'll try record. If all of these fail we'll just not set the category.
             */
+#if 0
         #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
             options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
         #endif
+#endif
 
             if ([pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil]) {
                 /* Using PlayAndRecord */
