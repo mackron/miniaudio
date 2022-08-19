@@ -6460,7 +6460,7 @@ typedef enum
 /* iOS/tvOS/watchOS session categories. */
 typedef enum
 {
-    ma_ios_session_category_default = 0,        /* AVAudioSessionCategoryPlayAndRecord with AVAudioSessionCategoryOptionDefaultToSpeaker. */
+    ma_ios_session_category_default = 0,        /* AVAudioSessionCategoryPlayAndRecord. */
     ma_ios_session_category_none,               /* Leave the session category unchanged. */
     ma_ios_session_category_ambient,            /* AVAudioSessionCategoryAmbient */
     ma_ios_session_category_solo_ambient,       /* AVAudioSessionCategorySoloAmbient */
@@ -33506,11 +33506,9 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
             I'm going to use trial and error to determine our default session category. First we'll try PlayAndRecord. If that fails
             we'll try Playback and if that fails we'll try record. If all of these fail we'll just not set the category.
             */
-#if 0
         #if !defined(MA_APPLE_TV) && !defined(MA_APPLE_WATCH)
             options |= AVAudioSessionCategoryOptionDefaultToSpeaker;
         #endif
-#endif
 
             if ([pAudioSession setCategory: AVAudioSessionCategoryPlayAndRecord withOptions:options error:nil]) {
                 /* Using PlayAndRecord */
@@ -40412,6 +40410,33 @@ MA_API ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backen
     result = MA_NO_BACKEND;
 
     for (iBackend = 0; iBackend < backendsToIterateCount; ++iBackend) {
+        /*
+        This is a hack for iOS. If the context config is null, there's a good chance the
+        `ma_device_init(NULL, &deviceConfig, pDevice);` pattern is being used. In this
+        case, set the session category based on the device type.
+        */
+    #if defined(MA_APPLE_MOBILE)
+        ma_context_config contextConfig;
+
+        if (pContextConfig == NULL) {
+            contextConfig = ma_context_config_init();
+            switch (pConfig->deviceType) {
+                case ma_device_type_duplex: {
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_play_and_record;
+                } break;
+                case ma_device_type_capture: {
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_record;
+                } break;
+                case ma_device_type_playback:
+                default: {
+                    contextConfig.coreaudio.sessionCategory = ma_ios_session_category_playback;
+                } break;
+            }
+
+            pContextConfig = &contextConfig;
+        }
+    #endif
+
         result = ma_context_init(&pBackendsToIterate[iBackend], 1, pContextConfig, pContext);
         if (result == MA_SUCCESS) {
             result = ma_device_init(pContext, pConfig, pDevice);
