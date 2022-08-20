@@ -31050,7 +31050,8 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
     return MA_SUCCESS;
 }
 
-#if defined(MAC_OS_VERSION_12_0) || defined(__IPHONE_15_0)
+#if (defined(MAC_OS_VERSION_12_0) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_12_0) || \
+    (defined(__IPHONE_15_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_15_0)
 #define AUDIO_OBJECT_PROPERTY_ELEMENT kAudioObjectPropertyElementMain
 #else
 /* kAudioObjectPropertyElementMaster is deprecated. */
