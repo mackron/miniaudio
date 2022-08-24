@@ -1597,7 +1597,7 @@ default. This can be done by setting `pVFS` member of the resource manager's con
 
 This is particularly useful in programs like games where you want to read straight from an archive
 rather than the normal file system. If you do not specify a custom VFS, the resource manager will
-use the operating system's normal file operations. This is default.
+use the operating system's normal file operations.
 
 To load a sound file and create a data source, call `ma_resource_manager_data_source_init()`. When
 loading a sound you need to specify the file path and options for how the sounds should be loaded.
