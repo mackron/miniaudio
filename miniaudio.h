@@ -1558,7 +1558,7 @@ need to retrieve a job using `ma_resource_manager_next_job()` and then process i
             ma_job job;
             ma_result result = ma_resource_manager_next_job(pMyResourceManager, &job);
             if (result != MA_SUCCESS) {
-                if (result == MA_NOT_DATA_AVAILABLE) {
+                if (result == MA_NO_DATA_AVAILABLE) {
                     // No jobs are available. Keep going. Will only get this if the resource manager was initialized
                     // with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING.
                     continue;
