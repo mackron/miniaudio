@@ -38756,8 +38756,14 @@ static ma_result ma_context_uninit__webaudio(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_webaudio);
 
-    /* Nothing needs to be done here. */
-    (void)pContext;
+    (void)pContext; /* Unused. */
+
+    /* Remove the global miniaudio object from window. */
+    EM_ASM({
+        if (typeof(window.miniaudio) !== 'undefined') {
+            delete window.miniaudio;
+        }
+    });
 
     return MA_SUCCESS;
 }
