@@ -28331,6 +28331,14 @@ static void ma_device_sink_info_callback(ma_pa_context* pPulseContext, const ma_
         return;
     }
 
+    /*
+    There has been a report that indicates that pInfo can be null which results
+    in a null pointer dereference below. We'll check for this for safety.
+    */
+    if (pInfo == NULL) {
+        return;
+    }
+
     pInfoOut = (ma_pa_sink_info*)pUserData;
     MA_ASSERT(pInfoOut != NULL);
 
@@ -28344,6 +28352,14 @@ static void ma_device_source_info_callback(ma_pa_context* pPulseContext, const m
     ma_pa_source_info* pInfoOut;
 
     if (endOfList > 0) {
+        return;
+    }
+
+    /*
+    There has been a report that indicates that pInfo can be null which results
+    in a null pointer dereference below. We'll check for this for safety.
+    */
+    if (pInfo == NULL) {
         return;
     }
 
