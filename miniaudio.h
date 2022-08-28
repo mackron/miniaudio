@@ -2093,7 +2093,7 @@ pointer to the processing function and the number of input and output buses. Exa
 
     static ma_node_vtable my_custom_node_vtable =
     {
-        my_custom_node_process_pcm_frames, // The function that will be called process your custom node. This is where you'd implement your effect processing.
+        my_custom_node_process_pcm_frames, // The function that will be called to process your custom node. This is where you'd implement your effect processing.
         NULL,   // Optional. A callback for calculating the number of input frames that are required to process a specified number of output frames.
         2,      // 2 input buses.
         1,      // 1 output bus.
@@ -10507,6 +10507,7 @@ typedef struct
 {
     ma_node_config nodeConfig;
     ma_uint32 channels;
+    ma_uint32 outputBusCount;
 } ma_splitter_node_config;
 
 MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels);
@@ -70377,8 +70378,9 @@ MA_API ma_splitter_node_config ma_splitter_node_config_init(ma_uint32 channels)
     ma_splitter_node_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.nodeConfig = ma_node_config_init();
-    config.channels   = channels;
+    config.nodeConfig     = ma_node_config_init();
+    config.channels       = channels;
+    config.outputBusCount = 2;
 
     return config;
 }
@@ -70409,9 +70411,9 @@ static void ma_splitter_node_process_pcm_frames(ma_node* pNode, const float** pp
 static ma_node_vtable g_ma_splitter_node_vtable =
 {
     ma_splitter_node_process_pcm_frames,
-    NULL,   /* onGetRequiredInputFrameCount */
-    1,      /* 1 input bus. */
-    2,      /* 2 output buses. */
+    NULL,                       /* onGetRequiredInputFrameCount */
+    1,                          /* 1 input bus. */
+    MA_NODE_BUS_COUNT_UNKNOWN,  /* The output bus count is specified on a per-node basis. */
     0
 };
 
@@ -70420,7 +70422,8 @@ MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_split
     ma_result result;
     ma_node_config baseConfig;
     ma_uint32 pInputChannels[1];
-    ma_uint32 pOutputChannels[2];
+    ma_uint32 pOutputChannels[MA_MAX_NODE_BUS_COUNT];
+    ma_uint32 iOutputBus;
 
     if (pSplitterNode == NULL) {
         return MA_INVALID_ARGS;
@@ -70432,15 +70435,21 @@ MA_API ma_result ma_splitter_node_init(ma_node_graph* pNodeGraph, const ma_split
         return MA_INVALID_ARGS;
     }
 
+    if (pConfig->outputBusCount > MA_MAX_NODE_BUS_COUNT) {
+        return MA_INVALID_ARGS; /* Too many output buses. */
+    }
+
     /* Splitters require the same number of channels between inputs and outputs. */
     pInputChannels[0]  = pConfig->channels;
-    pOutputChannels[0] = pConfig->channels;
-    pOutputChannels[1] = pConfig->channels;
+    for (iOutputBus = 0; iOutputBus < pConfig->outputBusCount; iOutputBus += 1) {
+        pOutputChannels[iOutputBus] = pConfig->channels;
+    }
 
     baseConfig = pConfig->nodeConfig;
     baseConfig.vtable = &g_ma_splitter_node_vtable;
     baseConfig.pInputChannels  = pInputChannels;
     baseConfig.pOutputChannels = pOutputChannels;
+    baseConfig.outputBusCount  = pConfig->outputBusCount;
 
     result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pSplitterNode->base);
     if (result != MA_SUCCESS) {
