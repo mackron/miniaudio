@@ -38568,10 +38568,13 @@ static ma_result ma_context_uninit__webaudio(ma_context* pContext)
 
     (void)pContext; /* Unused. */
 
-    /* Remove the global miniaudio object from window. */
+    /* Remove the global miniaudio object from window if there are no more references to it. */
     EM_ASM({
         if (typeof(window.miniaudio) !== 'undefined') {
-            delete window.miniaudio;
+            window.miniaudio.referenceCount--;
+            if (window.miniaudio.referenceCount === 0) {
+                delete window.miniaudio;
+            }
         }
     });
 
@@ -38593,7 +38596,9 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
         }
 
         if (typeof(window.miniaudio) === 'undefined') {
-            window.miniaudio = {};
+            window.miniaudio = {
+                referenceCount: 0
+            };
             miniaudio.devices = [];   /* Device cache for mapping devices to indexes for JavaScript/C interop. */
 
             miniaudio.track_device = function(device) {
@@ -38656,6 +38661,8 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
                 document.addEventListener(event_type, miniaudio.unlock, true);
             });
         }
+
+        window.miniaudio.referenceCount++;
 
         return 1;
     }, 0);  /* Must pass in a dummy argument for C99 compatibility. */
