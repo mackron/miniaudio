@@ -39913,7 +39913,12 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
 
             /* Capture devices. */
             if (ppCaptureDeviceInfos != NULL) {
-                *ppCaptureDeviceInfos = pContext->pDeviceInfos + pContext->playbackDeviceInfoCount; /* Capture devices come after playback devices. */
+                *ppCaptureDeviceInfos = pContext->pDeviceInfos;
+                /* Capture devices come after playback devices. */
+                if (pContext->playbackDeviceInfoCount > 0) {
+                    /* Conditional, because NULL+0 is undefined behavior. */
+                    *ppCaptureDeviceInfos += pContext->playbackDeviceInfoCount;
+                }
             }
             if (pCaptureDeviceCount != NULL) {
                 *pCaptureDeviceCount = pContext->captureDeviceInfoCount;
