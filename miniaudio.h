@@ -10732,6 +10732,7 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 #endif  /* MA_NO_NODE_GRAPH */
 
 
+/* SECTION: miniaudio_engine.h */
 /************************************************************************************************************************************************************
 
 Engine
@@ -11088,6 +11089,7 @@ MA_API void ma_sound_group_set_stop_time_in_milliseconds(ma_sound_group* pGroup,
 MA_API ma_bool32 ma_sound_group_is_playing(const ma_sound_group* pGroup);
 MA_API ma_uint64 ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGroup);
 #endif  /* MA_NO_ENGINE */
+/* END SECTION: miniaudio_engine.h */
 
 #ifdef __cplusplus
 }
@@ -71360,6 +71362,7 @@ MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode)
 #endif  /* MA_NO_NODE_GRAPH */
 
 
+/* SECTION: miniaudio_engine.c */
 #if !defined(MA_NO_ENGINE) && !defined(MA_NO_NODE_GRAPH)
 /**************************************************************************************************************************************************************
 
@@ -74210,6 +74213,7 @@ MA_API ma_uint64 ma_sound_group_get_time_in_pcm_frames(const ma_sound_group* pGr
     return ma_sound_get_time_in_pcm_frames(pGroup);
 }
 #endif  /* MA_NO_ENGINE */
+/* END SECTION: miniaudio_engine.c */
 
 
 
