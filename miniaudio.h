@@ -26626,7 +26626,11 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
 
     /* Grab the internal channel map. For now we're not going to bother trying to change the channel map and instead just do it ourselves. */
     {
-        ma_snd_pcm_chmap_t* pChmap = ((ma_snd_pcm_get_chmap_proc)pDevice->pContext->alsa.snd_pcm_get_chmap)(pPCM);
+        ma_snd_pcm_chmap_t* pChmap = NULL;
+        if (pDevice->pContext->alsa.snd_pcm_get_chmap != NULL) {
+            pChmap = ((ma_snd_pcm_get_chmap_proc)pDevice->pContext->alsa.snd_pcm_get_chmap)(pPCM);
+        }
+
         if (pChmap != NULL) {
             ma_uint32 iChannel;
 
