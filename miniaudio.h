@@ -22155,7 +22155,14 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     loopback mode, in which case a timeout probably just means the nothing is playing
                     through the speakers. 
                     */
-                    if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+
+                    /* Experiment: Use a shorter timeout for loopback mode. */
+                    DWORD timeoutInMilliseconds = MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS;
+                    if (pDevice->type == ma_device_type_loopback) {
+                        timeoutInMilliseconds = 10;
+                    }
+
+                    if (WaitForSingleObject(pDevice->wasapi.hEventCapture, timeoutInMilliseconds) != WAIT_OBJECT_0) {
                         if (pDevice->type == ma_device_type_loopback) {
                             continue;   /* Keep waiting in loopback mode. */
                         } else {
