@@ -20925,11 +20925,14 @@ typedef struct
     #pragma GCC diagnostic pop
 #endif
 
+#define MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK L"VAD\\Process_Loopback"
+
 static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_uint32 loopbackProcessID, ma_bool32 loopbackProcessExclude, ma_IAudioClient** ppAudioClient, ma_WASAPIDeviceInterface** ppDeviceInterface)
 {
     MA_AUDIOCLIENT_ACTIVATION_PARAMS audioclientActivationParams;
     PROPVARIANT activationParams;
     PROPVARIANT* pActivationParams = NULL;
+    ma_device_id virtualDeviceID;
 
     /* Activation parameters specific to loopback mode. */
     if (deviceType == ma_device_type_loopback && loopbackProcessID != 0) {
@@ -20942,8 +20945,11 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
         activationParams.vt             = VT_BLOB;
         activationParams.blob.cbSize    = sizeof(audioclientActivationParams);
         activationParams.blob.pBlobData = (BYTE*)&audioclientActivationParams;
-
         pActivationParams = &activationParams;
+
+        /* When requesting a specific device ID we need to use a special device ID. */
+        MA_COPY_MEMORY(virtualDeviceID.wasapi, MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, (wcslen(MA_VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK) + 1) * sizeof(wchar_t)); /* +1 for the null terminator. */
+        pDeviceID = &virtualDeviceID;
     } else {
         pActivationParams = NULL;   /* No activation parameters required. */
     }
