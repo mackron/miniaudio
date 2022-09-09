@@ -20612,7 +20612,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 
     hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
         return ma_result_from_HRESULT(hr);
     }
 
@@ -20624,7 +20624,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 
     ma_IMMDeviceEnumerator_Release(pDeviceEnumerator);
     if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve IMMDevice.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve IMMDevice.\n");
         return ma_result_from_HRESULT(hr);
     }
 
@@ -20733,7 +20733,7 @@ static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pConte
     if (SUCCEEDED(hr)) {
         hr = ma_IMMDeviceCollection_GetCount(pDeviceCollection, &deviceCount);
         if (FAILED(hr)) {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to get device count.");
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to get device count.\n");
             result = ma_result_from_HRESULT(hr);
             goto done;
         }
@@ -20825,14 +20825,14 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     hr = StringFromIID(&iid, &iidStr);
 #endif
     if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.\n");
         return ma_result_from_HRESULT(hr);
     }
 
     result = ma_completion_handler_uwp_init(&completionHandler);
     if (result != MA_SUCCESS) {
         ma_CoTaskMemFree(pContext, iidStr);
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for waiting for ActivateAudioInterfaceAsync().\n");
         return result;
     }
 
@@ -20844,7 +20844,7 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     if (FAILED(hr)) {
         ma_completion_handler_uwp_uninit(&completionHandler);
         ma_CoTaskMemFree(pContext, iidStr);
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] ActivateAudioInterfaceAsync() failed.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] ActivateAudioInterfaceAsync() failed.\n");
         return ma_result_from_HRESULT(hr);
     }
 
@@ -20858,14 +20858,14 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     ma_IActivateAudioInterfaceAsyncOperation_Release(pAsyncOp);
 
     if (FAILED(hr) || FAILED(activateResult)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to activate device.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to activate device.\n");
         return FAILED(hr) ? ma_result_from_HRESULT(hr) : ma_result_from_HRESULT(activateResult);
     }
 
     /* Here is where we grab the IAudioClient interface. */
     hr = ma_IUnknown_QueryInterface(pActivatedInterface, &MA_IID_IAudioClient, (void**)ppAudioClient);
     if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to query IAudioClient interface.");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to query IAudioClient interface.\n");
         return ma_result_from_HRESULT(hr);
     }
 
@@ -20929,13 +20929,19 @@ typedef struct
 
 static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_uint32 loopbackProcessID, ma_bool32 loopbackProcessExclude, ma_IAudioClient** ppAudioClient, ma_WASAPIDeviceInterface** ppDeviceInterface)
 {
+    ma_result result;
+    ma_bool32 usingProcessLoopback = MA_FALSE;
     MA_AUDIOCLIENT_ACTIVATION_PARAMS audioclientActivationParams;
     PROPVARIANT activationParams;
     PROPVARIANT* pActivationParams = NULL;
     ma_device_id virtualDeviceID;
 
-    /* Activation parameters specific to loopback mode. */
-    if (deviceType == ma_device_type_loopback && loopbackProcessID != 0) {
+    /* Activation parameters specific to loopback mode. Note that process-specific loopback will only work when a default device ID is specified. */
+    if (deviceType == ma_device_type_loopback && loopbackProcessID != 0 && pDeviceID == NULL) {
+        usingProcessLoopback = MA_TRUE;
+    }
+
+    if (usingProcessLoopback) {
         MA_ZERO_OBJECT(&audioclientActivationParams);
         audioclientActivationParams.ActivationType                            = MA_AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
         audioclientActivationParams.ProcessLoopbackParams.ProcessLoopbackMode = (loopbackProcessExclude) ? MA_PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE : MA_PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
@@ -20955,10 +20961,23 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
     }
 
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    return ma_context_get_IAudioClient_Desktop__wasapi(pContext, deviceType, pDeviceID, pActivationParams, ppAudioClient, ppDeviceInterface);
+    result = ma_context_get_IAudioClient_Desktop__wasapi(pContext, deviceType, pDeviceID, pActivationParams, ppAudioClient, ppDeviceInterface);
 #else
-    return ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, pActivationParams, ppAudioClient, ppDeviceInterface);
+    result = ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, pActivationParams, ppAudioClient, ppDeviceInterface);
 #endif
+
+    /*
+    If loopback mode was requested with a process ID and initialization failed, it could be because it's
+    trying to run on an older version of Windows where it's not supported. We need to let the caller
+    know about this with a log message.
+    */
+    if (result != MA_SUCCESS) {
+        if (usingProcessLoopback) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Loopback mode requested to %s process ID %u, but initialization failed. Support for this feature begins with Windows 10 Build 20348. Confirm your version of Windows or consider not using process-specific loopback.\n", (loopbackProcessExclude) ? "exclude" : "include", loopbackProcessID);
+        }
+    }
+
+    return result;
 }
 
 
@@ -21566,7 +21585,7 @@ done:
         }
 
         if (errorMsg != NULL && errorMsg[0] != '\0') {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "%s", errorMsg);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "%s\n", errorMsg);
         }
 
         return result;
