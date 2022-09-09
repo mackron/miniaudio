@@ -3766,7 +3766,7 @@ typedef ma_uint16 wchar_t;
     #elif defined(WINAPI_FAMILY) && (defined(WINAPI_FAMILY_GAMES) && WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
         #define MA_WIN32_GDK
     #else
-        #define MA_WIN32_DESKTOP
+        #define MA_WIN32_UWP
     #endif
 #else
     #define MA_POSIX
@@ -20503,6 +20503,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[WASAPI] Failed to open property store for device info retrieval.");
         }
     }
+    #else
+    {
+        (void)pMMDevice;    /* Unused. */
+    }
     #endif
 
     return MA_SUCCESS;
@@ -20807,10 +20811,10 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     if (pDeviceID != NULL) {
         MA_COPY_MEMORY(&iid, pDeviceID->wasapi, sizeof(iid));
     } else {
-        if (deviceType == ma_device_type_playback) {
-            iid = MA_IID_DEVINTERFACE_AUDIO_RENDER;
-        } else {
+        if (deviceType == ma_device_type_capture) {
             iid = MA_IID_DEVINTERFACE_AUDIO_CAPTURE;
+        } else {
+            iid = MA_IID_DEVINTERFACE_AUDIO_RENDER;
         }
     }
 
@@ -21065,7 +21069,7 @@ static ma_result ma_context_get_device_info__wasapi(ma_context* pContext, ma_dev
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
     }
 
-    result = ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, &pAudioClient, NULL);
+    result = ma_context_get_IAudioClient_UWP__wasapi(pContext, deviceType, pDeviceID, NULL, &pAudioClient, NULL);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -39433,6 +39437,8 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
     pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
     pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+#else
+    (void)pContext; /* Unused. */
 #endif
 
     ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
