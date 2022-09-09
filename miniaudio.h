@@ -6908,6 +6908,8 @@ struct ma_context
             ma_handle hAvrt;
             ma_proc AvSetMmThreadCharacteristicsW;
             ma_proc AvRevertMmThreadcharacteristics;
+            ma_handle hMMDevapi;
+            ma_proc ActivateAudioInterfaceAsync;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -17699,17 +17701,18 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
 
 #ifdef _WIN32
-#ifdef MA_WIN32_DESKTOP
-    handle = (ma_handle)LoadLibraryA(filename);
-#else
-    /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
-    WCHAR filenameW[4096];
-    if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
-        handle = NULL;
-    } else {
-        handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
-    }
-#endif
+    /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
+    #if !defined(WINAPI_FAMILY) || (defined(WINAPI_FAMILY) && WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP)
+        handle = (ma_handle)LoadLibraryA(filename);
+    #else
+        /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
+        WCHAR filenameW[4096];
+        if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+            handle = NULL;
+        } else {
+            handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
+        }
+    #endif
 #else
     handle = (ma_handle)dlopen(filename, RTLD_NOW);
 #endif
@@ -19811,12 +19814,16 @@ static MA_INLINE HRESULT ma_IAudioCaptureClient_GetBuffer(ma_IAudioCaptureClient
 static MA_INLINE HRESULT ma_IAudioCaptureClient_ReleaseBuffer(ma_IAudioCaptureClient* pThis, ma_uint32 numFramesRead)                 { return pThis->lpVtbl->ReleaseBuffer(pThis, numFramesRead); }
 static MA_INLINE HRESULT ma_IAudioCaptureClient_GetNextPacketSize(ma_IAudioCaptureClient* pThis, ma_uint32* pNumFramesInNextPacket)   { return pThis->lpVtbl->GetNextPacketSize(pThis, pNumFramesInNextPacket); }
 
+#if defined(MA_WIN32_UWP)
+/* mmdevapi Functions */
+typedef HRESULT (WINAPI * MA_PFN_ActivateAudioInterfaceAsync)(LPCWSTR deviceInterfacePath, const IID* riid, PROPVARIANT *activationParams, ma_IActivateAudioInterfaceCompletionHandler *completionHandler, ma_IActivateAudioInterfaceAsyncOperation **activationOperation);
+#endif
+
 /* Avrt Functions */
 typedef HANDLE (WINAPI * MA_PFN_AvSetMmThreadCharacteristicsW)(LPCWSTR TaskName, LPDWORD TaskIndex);
 typedef BOOL   (WINAPI * MA_PFN_AvRevertMmThreadCharacteristics)(HANDLE AvrtHandle);
 
 #if !defined(MA_WIN32_DESKTOP) && !defined(MA_WIN32_GDK)
-#include <mmdeviceapi.h>
 typedef struct ma_completion_handler_uwp ma_completion_handler_uwp;
 
 typedef struct
@@ -20836,9 +20843,9 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     }
 
 #if defined(__cplusplus)
-    hr = ActivateAudioInterfaceAsync(iidStr, MA_IID_IAudioClient, pActivationParams, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+    hr = ((MA_PFN_ActivateAudioInterfaceAsync)pContext->wasapi.ActivateAudioInterfaceAsync)(iidStr, MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)&completionHandler, (ma_IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
 #else
-    hr = ActivateAudioInterfaceAsync(iidStr, &MA_IID_IAudioClient, pActivationParams, (IActivateAudioInterfaceCompletionHandler*)&completionHandler, (IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
+    hr = ((MA_PFN_ActivateAudioInterfaceAsync)pContext->wasapi.ActivateAudioInterfaceAsync)(iidStr, &MA_IID_IAudioClient, pActivationParams, (ma_IActivateAudioInterfaceCompletionHandler*)&completionHandler, (ma_IActivateAudioInterfaceAsyncOperation**)&pAsyncOp);
 #endif
     if (FAILED(hr)) {
         ma_completion_handler_uwp_uninit(&completionHandler);
@@ -22435,6 +22442,15 @@ static ma_result ma_context_uninit__wasapi(ma_context* pContext)
             pContext->wasapi.hAvrt = NULL;
         }
 
+        #if defined(MA_WIN32_UWP)
+        {
+            if (pContext->wasapi.hMMDevapi) {
+                ma_dlclose(pContext, pContext->wasapi.hMMDevapi);
+                pContext->wasapi.hMMDevapi = NULL;
+            }
+        }
+        #endif
+
         /* Only after the thread has been terminated can we uninitialize the sync objects for the command thread. */
         ma_semaphore_uninit(&pContext->wasapi.commandSem);
         ma_mutex_uninit(&pContext->wasapi.commandLock);
@@ -22540,6 +22556,26 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
             ma_mutex_uninit(&pContext->wasapi.commandLock);
             return result;
         }
+
+        #if defined(MA_WIN32_UWP)
+        {
+            /* Link to mmdevapi so we can get access to ActivateAudioInterfaceAsync(). */
+            pContext->wasapi.hMMDevapi = ma_dlopen(pContext, "mmdevapi.dll");
+            if (pContext->wasapi.hMMDevapi) {
+                pContext->wasapi.ActivateAudioInterfaceAsync = ma_dlsym(pContext, pContext->wasapi.hMMDevapi, "ActivateAudioInterfaceAsync");
+                if (pContext->wasapi.ActivateAudioInterfaceAsync == NULL) {
+                    ma_semaphore_uninit(&pContext->wasapi.commandSem);
+                    ma_mutex_uninit(&pContext->wasapi.commandLock);
+                    ma_dlclose(pContext, pContext->wasapi.hMMDevapi);
+                    return MA_NO_BACKEND;   /* ActivateAudioInterfaceAsync() could not be loaded. */
+                }
+            } else {
+                ma_semaphore_uninit(&pContext->wasapi.commandSem);
+                ma_mutex_uninit(&pContext->wasapi.commandLock);
+                return MA_NO_BACKEND;   /* Failed to load mmdevapi.dll which is required for ActivateAudioInterfaceAsync() */
+            }
+        }
+        #endif
 
         /* Optionally use the Avrt API to specify the audio thread's latency sensitivity requirements */
         pContext->wasapi.hAvrt = ma_dlopen(pContext, "avrt.dll");
