@@ -20816,23 +20816,23 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     MA_ASSERT(ppAudioClient != NULL);
 
     if (pDeviceID != NULL) {
-        MA_COPY_MEMORY(&iid, pDeviceID->wasapi, sizeof(iid));
+        iidStr = (LPOLESTR)pDeviceID->wasapi;
     } else {
         if (deviceType == ma_device_type_capture) {
             iid = MA_IID_DEVINTERFACE_AUDIO_CAPTURE;
         } else {
             iid = MA_IID_DEVINTERFACE_AUDIO_RENDER;
         }
-    }
 
-#if defined(__cplusplus)
-    hr = StringFromIID(iid, &iidStr);
-#else
-    hr = StringFromIID(&iid, &iidStr);
-#endif
-    if (FAILED(hr)) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.\n");
-        return ma_result_from_HRESULT(hr);
+    #if defined(__cplusplus)
+        hr = StringFromIID(iid, &iidStr);
+    #else
+        hr = StringFromIID(&iid, &iidStr);
+    #endif
+        if (FAILED(hr)) {
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to convert device IID to string for ActivateAudioInterfaceAsync(). Out of memory.\n");
+            return ma_result_from_HRESULT(hr);
+        }
     }
 
     result = ma_completion_handler_uwp_init(&completionHandler);
@@ -20850,7 +20850,9 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
         return ma_result_from_HRESULT(hr);
     }
 
-    ma_CoTaskMemFree(pContext, iidStr);
+    if (pDeviceID == NULL) {
+        ma_CoTaskMemFree(pContext, iidStr);
+    }
 
     /* Wait for the async operation for finish. */
     ma_completion_handler_uwp_wait(&completionHandler);
