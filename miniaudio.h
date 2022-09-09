@@ -6661,13 +6661,8 @@ struct ma_device_config
         ma_bool8 noDefaultQualitySRC;       /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY. */
         ma_bool8 noAutoStreamRouting;       /* Disables automatic stream routing. */
         ma_bool8 noHardwareOffloading;      /* Disables WASAPI's hardware offloading feature. */
-
-        /* Members in this struct are experimental and should not be used in production code. */
-        struct
-        {
-            ma_uint32 loopbackProcessID;        /* The process ID to include or exclude for loopback mode. Set to 0 to capture audio from all processes. Ignored when an explicit device ID is specified. */
-            ma_bool8 loopbackProcessExclude;    /* When set to true, excludes the process specified by loopbackProcessID. By default, the process will be included. */
-        } experimental;
+        ma_uint32 loopbackProcessID;        /* The process ID to include or exclude for loopback mode. Set to 0 to capture audio from all processes. Ignored when an explicit device ID is specified. */
+        ma_bool8 loopbackProcessExclude;    /* When set to true, excludes the process specified by loopbackProcessID. By default, the process will be included. */
     } wasapi;
     struct
     {
@@ -21727,10 +21722,12 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     MA_ASSERT(pDevice != NULL);
 
     MA_ZERO_OBJECT(&pDevice->wasapi);
-    pDevice->wasapi.usage                = pConfig->wasapi.usage;
-    pDevice->wasapi.noAutoConvertSRC     = pConfig->wasapi.noAutoConvertSRC;
-    pDevice->wasapi.noDefaultQualitySRC  = pConfig->wasapi.noDefaultQualitySRC;
-    pDevice->wasapi.noHardwareOffloading = pConfig->wasapi.noHardwareOffloading;
+    pDevice->wasapi.usage                  = pConfig->wasapi.usage;
+    pDevice->wasapi.noAutoConvertSRC       = pConfig->wasapi.noAutoConvertSRC;
+    pDevice->wasapi.noDefaultQualitySRC    = pConfig->wasapi.noDefaultQualitySRC;
+    pDevice->wasapi.noHardwareOffloading   = pConfig->wasapi.noHardwareOffloading;
+    pDevice->wasapi.loopbackProcessID      = pConfig->wasapi.loopbackProcessID;
+    pDevice->wasapi.loopbackProcessExclude = pConfig->wasapi.loopbackProcessExclude;
 
     /* Exclusive mode is not allowed with loopback. */
     if (pConfig->deviceType == ma_device_type_loopback && pConfig->playback.shareMode == ma_share_mode_exclusive) {
@@ -21751,8 +21748,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
         data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
-        data.loopbackProcessID          = pConfig->wasapi.experimental.loopbackProcessID;
-        data.loopbackProcessExclude     = pConfig->wasapi.experimental.loopbackProcessExclude;
+        data.loopbackProcessID          = pConfig->wasapi.loopbackProcessID;
+        data.loopbackProcessExclude     = pConfig->wasapi.loopbackProcessExclude;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture, pDescriptorCapture->pDeviceID, &data);
         if (result != MA_SUCCESS) {
@@ -21817,8 +21814,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         data.noAutoConvertSRC           = pConfig->wasapi.noAutoConvertSRC;
         data.noDefaultQualitySRC        = pConfig->wasapi.noDefaultQualitySRC;
         data.noHardwareOffloading       = pConfig->wasapi.noHardwareOffloading;
-        data.loopbackProcessID          = pConfig->wasapi.experimental.loopbackProcessID;
-        data.loopbackProcessExclude     = pConfig->wasapi.experimental.loopbackProcessExclude;
+        data.loopbackProcessID          = pConfig->wasapi.loopbackProcessID;
+        data.loopbackProcessExclude     = pConfig->wasapi.loopbackProcessExclude;
 
         result = ma_device_init_internal__wasapi(pDevice->pContext, ma_device_type_playback, pDescriptorPlayback->pDeviceID, &data);
         if (result != MA_SUCCESS) {
