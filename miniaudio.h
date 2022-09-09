@@ -6665,7 +6665,7 @@ struct ma_device_config
         /* Members in this struct are experimental and should not be used in production code. */
         struct
         {
-            ma_uint32 loopbackProcessID;        /* The process ID to include or exclude for loopback mode. Set to 0 to capture audio from all processes. */
+            ma_uint32 loopbackProcessID;        /* The process ID to include or exclude for loopback mode. Set to 0 to capture audio from all processes. Ignored when an explicit device ID is specified. */
             ma_bool8 loopbackProcessExclude;    /* When set to true, excludes the process specified by loopbackProcessID. By default, the process will be included. */
         } experimental;
     } wasapi;
