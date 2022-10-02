@@ -238,6 +238,9 @@ int main(int argc, char** argv)
         ma_device_uninit(&devices[iEngine]);
     }
 
+    /* The context can only be uninitialized after the devices. */
+    ma_context_uninit(&context);
+
     /*
     Do the resource manager last. This way we can guarantee the data callbacks of each device aren't trying to access
     and data managed by the resource manager.
