@@ -4772,7 +4772,7 @@ typedef struct
 {
     ma_delay_config config;
     ma_uint32 cursor;               /* Feedback is written to this cursor. Always equal or in front of the read cursor. */
-    ma_uint32 bufferSizeInFrames;   /* The maximum of config.startDelayInFrames and config.feedbackDelayInFrames. */
+    ma_uint32 bufferSizeInFrames;
     float* pBuffer;
 } ma_delay;
 
@@ -20899,9 +20899,10 @@ typedef enum
 } MA_PROCESS_LOOPBACK_MODE;
 
 /* https://docs.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params */
-typedef struct {
-  DWORD TargetProcessId;
-  MA_PROCESS_LOOPBACK_MODE ProcessLoopbackMode;
+typedef struct
+{
+    DWORD TargetProcessId;
+    MA_PROCESS_LOOPBACK_MODE ProcessLoopbackMode;
 } MA_AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS;
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -47178,7 +47179,7 @@ MA_API ma_delay_config ma_delay_config_init(ma_uint32 channels, ma_uint32 sample
     config.delayInFrames = delayInFrames;
     config.delayStart    = (decay == 0) ? MA_TRUE : MA_FALSE;   /* Delay the start if it looks like we're not configuring an echo. */
     config.wet           = 1;
-    config.dry           = 1;
+    config.dry           = 0;
     config.decay         = decay;
 
     return config;
@@ -47243,18 +47244,18 @@ MA_API ma_result ma_delay_process_pcm_frames(ma_delay* pDelay, void* pFramesOut,
                 /* Delayed start. */
 
                 /* Read */
-                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
+                pFramesOutF32[iChannel] = (pDelay->pBuffer[iBuffer] * pDelay->config.wet) + (pFramesInF32[iChannel] * pDelay->config.dry);
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pDelay->pBuffer[iBuffer] = pFramesInF32[iChannel] + (pDelay->pBuffer[iBuffer] * pDelay->config.decay);
             } else {
                 /* Immediate start */
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pDelay->pBuffer[iBuffer] = pFramesInF32[iChannel] + (pDelay->pBuffer[iBuffer] * pDelay->config.decay);
 
                 /* Read */
-                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
+                pFramesOutF32[iChannel] = (pDelay->pBuffer[iBuffer] * pDelay->config.wet) + (pFramesInF32[iChannel] * pDelay->config.dry);
             }
         }
 
