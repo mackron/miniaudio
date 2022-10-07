@@ -47179,7 +47179,7 @@ MA_API ma_delay_config ma_delay_config_init(ma_uint32 channels, ma_uint32 sample
     config.delayInFrames = delayInFrames;
     config.delayStart    = (decay == 0) ? MA_TRUE : MA_FALSE;   /* Delay the start if it looks like we're not configuring an echo. */
     config.wet           = 1;
-    config.dry           = 0;
+    config.dry           = 1;
     config.decay         = decay;
 
     return config;
@@ -47244,18 +47244,18 @@ MA_API ma_result ma_delay_process_pcm_frames(ma_delay* pDelay, void* pFramesOut,
                 /* Delayed start. */
 
                 /* Read */
-                pFramesOutF32[iChannel] = (pDelay->pBuffer[iBuffer] * pDelay->config.wet) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = pFramesInF32[iChannel] + (pDelay->pBuffer[iBuffer] * pDelay->config.decay);
+                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
             } else {
                 /* Immediate start */
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = pFramesInF32[iChannel] + (pDelay->pBuffer[iBuffer] * pDelay->config.decay);
+                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
 
                 /* Read */
-                pFramesOutF32[iChannel] = (pDelay->pBuffer[iBuffer] * pDelay->config.wet) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
             }
         }
 
