@@ -64685,10 +64685,15 @@ static MA_INLINE ma_uint32 ma_rotl32(ma_uint32 x, ma_int8 r)
 
 static MA_INLINE ma_uint32 ma_hash_getblock(const ma_uint32* blocks, int i)
 {
+    ma_uint32 block;
+
+    /* Try silencing a sanitization warning about unaligned access by doing a memcpy() instead of assignment. */
+    MA_COPY_MEMORY(&block, ma_offset_ptr(blocks, i * sizeof(block)), sizeof(block));
+
     if (ma_is_little_endian()) {
-        return blocks[i];
+        return block;
     } else {
-        return ma_swap_endian_uint32(blocks[i]);
+        return ma_swap_endian_uint32(block);
     }
 }
 
