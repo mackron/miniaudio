@@ -69025,11 +69025,15 @@ static ma_result ma_node_input_bus_init(ma_uint32 channels, ma_node_input_bus* p
 
 static void ma_node_input_bus_lock(ma_node_input_bus* pInputBus)
 {
+    MA_ASSERT(pInputBus != NULL);
+
     ma_spinlock_lock(&pInputBus->lock);
 }
 
 static void ma_node_input_bus_unlock(ma_node_input_bus* pInputBus)
 {
+    MA_ASSERT(pInputBus != NULL);
+
     ma_spinlock_unlock(&pInputBus->lock);
 }
 
