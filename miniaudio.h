@@ -38952,7 +38952,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
 
     /* Here is where our global JavaScript object is initialized. */
     resultFromJS = EM_ASM_INT({
-        if ((window.AudioContext || window.webkitAudioContext) === undefined) {
+        if (typeof window === 'undefined' || (window.AudioContext || window.webkitAudioContext) === undefined) {
             return 0;   /* Web Audio not supported. */
         }
 
