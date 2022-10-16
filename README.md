@@ -73,8 +73,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     if (pDecoder == NULL) {
         return;
     }
-
-    ma_decoder_read_pcm_frames(pDecoder, pOutput, frameCount);
+    ma_uint64 pframeRead;
+    ma_decoder_read_pcm_frames(pDecoder, pOutput, frameCount, &pframeRead);
 
     (void)pInput;
 }
