@@ -38,7 +38,7 @@ A config/init pattern is used throughout the entire library. The idea is that yo
 object and pass that into the initialization routine. The advantage to this system is that the
 config object can be initialized with logical defaults and new properties added to it without
 breaking the API. The config object can be allocated on the stack and does not need to be
-maintained after initialization of the corresponding object. 
+maintained after initialization of the corresponding object.
 
 
 1.1. Low Level API
@@ -363,7 +363,7 @@ initialized. The easiest but least flexible way of playing a sound is like so:
 This plays what miniaudio calls an "inline" sound. It plays the sound once, and then puts the
 internal sound up for recycling. The last parameter is used to specify which sound group the sound
 should be associated with which will be explained later. This particular way of playing a sound is
-simple, but lacks flexibility and features. A more flexible way of playing a sound is to first 
+simple, but lacks flexibility and features. A more flexible way of playing a sound is to first
 initialize a sound:
 
     ```c
@@ -803,7 +803,7 @@ retrieved like so:
     ma_uint32 channels;
     ma_uint32 sampleRate;
     ma_channel channelMap[MA_MAX_CHANNELS];
-    
+
     result = ma_data_source_get_data_format(pDataSource, &format, &channels, &sampleRate, channelMap, MA_MAX_CHANNELS);
     if (result != MA_SUCCESS) {
         return result;  // Failed to retrieve data format.
@@ -859,7 +859,7 @@ To do this, you can use chaining:
     ```
 
 In the example above we're using decoders. When reading from a chain, you always want to read from
-the top level data source in the chain. In the example above, `decoder1` is the top level data 
+the top level data source in the chain. In the example above, `decoder1` is the top level data
 source in the chain. When `decoder1` reaches the end, `decoder2` will start seamlessly without any
 gaps.
 
@@ -952,7 +952,7 @@ base object (`ma_data_source_base`):
     void my_data_source_uninit(my_data_source* pMyDataSource)
     {
         // ... do the uninitialization of your custom data source here ...
-        
+
         // You must uninitialize the base data source.
         ma_data_source_uninit(&pMyDataSource->base);
     }
@@ -2532,7 +2532,7 @@ The `ma_decoding_backend_vtable` vtable has the following functions:
 
     ```
     onInit
-    onInitFile 
+    onInitFile
     onInitFileW
     onInitMemory
     onUninit
@@ -3655,7 +3655,7 @@ extern "C" {
         #pragma GCC diagnostic ignored "-Wc11-extensions"   /* anonymous unions are a C11 extension */
     #endif
 #endif
-  
+
 
 
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
@@ -3890,7 +3890,7 @@ implications. Where supported by the compiler, alignment will be used, but other
 architecture does not require it, it will simply leave it unaligned. This is the case with old
 versions of Visual Studio, which I've confirmed with at least VC6.
 */
-#if defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+#if !defined(_MSC_VER) && defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #include <stdalign.h>
     #define MA_ATOMIC(alignment, type)            alignas(alignment) type
 #else
@@ -4050,7 +4050,7 @@ typedef enum
 
 
 #define MA_MIN_CHANNELS                 1
-#ifndef MA_MAX_CHANNELS                 
+#ifndef MA_MAX_CHANNELS
 #define MA_MAX_CHANNELS                 254
 #endif
 
@@ -17846,7 +17846,7 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
                         /* The intermediary buffer has just been filled. */
                         pDevice->playback.intermediaryBufferLen = pDevice->playback.intermediaryBufferCap;
                     }
-                }   
+                }
             }
 
             /* If we're in duplex mode we might need to do a refill of the data. */
@@ -22009,7 +22009,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     microphone isn't delivering data for whatever reason. In this case we'll just
                     abort the read and return whatever we were able to get. The other situations is
                     loopback mode, in which case a timeout probably just means the nothing is playing
-                    through the speakers. 
+                    through the speakers.
                     */
                     if (WaitForSingleObject(pDevice->wasapi.hEventCapture, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                         if (pDevice->type == ma_device_type_loopback) {
@@ -28894,7 +28894,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         sampleRate = pDescriptorCapture->sampleRate;
     }
 
-    
+
 
     result = ma_init_pa_mainloop_and_pa_context__pulse(pDevice->pContext, pDevice->pContext->pulse.pApplicationName, pDevice->pContext->pulse.pServerName, MA_FALSE, &pDevice->pulse.pMainLoop, &pDevice->pulse.pPulseContext);
     if (result != MA_SUCCESS) {
@@ -32014,7 +32014,7 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "Failed to allocate AudioBufferList for capture.\n");
         return noErr;
     }
-    
+
     pRenderedBufferList = (AudioBufferList*)pDevice->coreaudio.pAudioBufferList;
     MA_ASSERT(pRenderedBufferList);
 
@@ -32452,7 +32452,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
             */
             ma_device__on_notification_interruption_began(m_pDevice);
         } break;
-        
+
         case AVAudioSessionInterruptionTypeEnded:
         {
             ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_INFO, "[Core Audio] Interruption: AVAudioSessionInterruptionTypeEnded\n");
@@ -32506,7 +32506,7 @@ static ma_result ma_device__untrack__coreaudio(ma_device* pDevice)
     }
 
     ma_log_postf(ma_device_get_log(m_pDevice), MA_LOG_LEVEL_DEBUG, "[Core Audio] Changing Route. inputNumberChannels=%d; outputNumberOfChannels=%d\n", (int)pSession.inputNumberOfChannels, (int)pSession.outputNumberOfChannels);
-    
+
     /* Let the application know about the route change. */
     ma_device__on_notification_rerouted(m_pDevice);
 }
@@ -32879,7 +32879,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     @autoreleasepool {
         AVAudioSession* pAudioSession = [AVAudioSession sharedInstance];
         MA_ASSERT(pAudioSession != NULL);
-        
+
         [pAudioSession setPreferredIOBufferDuration:((float)actualPeriodSizeInFrames / pAudioSession.sampleRate) error:nil];
         actualPeriodSizeInFrames = ma_next_power_of_2((ma_uint32)(pAudioSession.IOBufferDuration * pAudioSession.sampleRate));
     }
@@ -33120,7 +33120,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
 
     #if defined(MA_APPLE_DESKTOP)
         ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDCapture, sizeof(pDevice->capture.id.coreaudio), pDevice->capture.id.coreaudio);
-    
+
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
@@ -33184,7 +33184,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
 
     #if defined(MA_APPLE_DESKTOP)
         ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
-    
+
         /*
         If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
         switch the device in the background.
@@ -36772,7 +36772,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
             return result;
         }
     }
-    
+
 
     (void)pConfig;
     return MA_SUCCESS;
@@ -39289,7 +39289,7 @@ MA_API ma_result ma_device_job_thread_init(const ma_device_job_thread_config* pC
 
 
     /* Initialize the job queue before the thread to ensure it's in a valid state. */
-    jobQueueConfig = ma_job_queue_config_init(pConfig->jobQueueFlags, pConfig->jobQueueCapacity);   
+    jobQueueConfig = ma_job_queue_config_init(pConfig->jobQueueFlags, pConfig->jobQueueCapacity);
 
     result = ma_job_queue_init(&jobQueueConfig, pAllocationCallbacks, &pJobThread->jobQueue);
     if (result != MA_SUCCESS) {
@@ -40074,7 +40074,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
         if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
             ma_uint64 intermediaryBufferSizeInBytes;
-            
+
             pDevice->playback.intermediaryBufferLen = 0;
             if (pConfig->deviceType == ma_device_type_duplex) {
                 pDevice->playback.intermediaryBufferCap = pDevice->capture.intermediaryBufferCap;   /* In duplex mode, make sure the intermediary buffer is always the same size as the capture side. */
@@ -40086,7 +40086,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             }
 
             intermediaryBufferSizeInBytes = pDevice->playback.intermediaryBufferCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            
+
             pDevice->playback.pIntermediaryBuffer = ma_malloc((size_t)intermediaryBufferSizeInBytes, &pContext->allocationCallbacks);
             if (pDevice->playback.pIntermediaryBuffer == NULL) {
                 ma_device_uninit(pDevice);
@@ -66590,7 +66590,7 @@ MA_API ma_result ma_resource_manager_data_stream_init(ma_resource_manager* pReso
     config.pFilePath      = pFilePath;
     config.flags          = flags;
     config.pNotifications = pNotifications;
-    
+
     return ma_resource_manager_data_stream_init_ex(pResourceManager, &config, pDataStream);
 }
 
@@ -66602,7 +66602,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_w(ma_resource_manager* pRe
     config.pFilePathW     = pFilePath;
     config.flags          = flags;
     config.pNotifications = pNotifications;
-    
+
     return ma_resource_manager_data_stream_init_ex(pResourceManager, &config, pDataStream);
 }
 
@@ -67715,7 +67715,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
     There is a hole between here and the where the data connector is initialized where the data
     buffer node may have finished initializing. We need to check for this by checking the result of
     the data buffer node and whether or not we had an unknown data supply type at the time of
-    trying to initialize the data connector. 
+    trying to initialize the data connector.
     */
     result = ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
     if (result == MA_BUSY || (result == MA_SUCCESS && isConnectorInitialized == MA_FALSE && dataSupplyType == ma_resource_manager_data_supply_type_unknown)) {
@@ -69826,7 +69826,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
             ma_node_output_bus_set_has_read(&pNodeBase->pOutputBuses[outputBusIndex], MA_TRUE);
         }
     }
-    
+
     /* Apply volume, if necessary. */
     ma_apply_volume_factor_f32(pFramesOut, totalFramesRead * ma_node_get_output_channels(pNodeBase, outputBusIndex), ma_node_output_bus_get_volume(&pNodeBase->pOutputBuses[outputBusIndex]));
 
@@ -71418,7 +71418,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     /* Resmapler. */
     resamplerConfig = ma_linear_resampler_config_init(ma_format_f32, channelsIn, 1, 1); /* Input and output sample rates don't affect the calculation of the heap size. */
     resamplerConfig.lpfOrder = 0;
-    
+
     result = ma_linear_resampler_get_heap_size(&resamplerConfig, &tempHeapSize);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the size of the heap for the resampler. */
@@ -71729,7 +71729,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     #if !defined(MA_NO_DEVICE_IO)
     {
         pEngine->pDevice = engineConfig.pDevice;
-    
+
         /* If we don't have a device, we need one. */
         if (pEngine->pDevice == NULL && engineConfig.noDevice == MA_FALSE) {
             ma_device_config deviceConfig;
