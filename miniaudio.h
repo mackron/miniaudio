@@ -55673,7 +55673,8 @@ MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSourc
         return result;
     }
 
-    *pCursor = cursorInPCMFrames / (float)sampleRate;
+    /* VC6 does not support division of unsigned 64-bit integers with floating point numbers. Need to use a signed number. This shouldn't effect anything in practice. */
+    *pCursor = (ma_int64)cursorInPCMFrames / (float)sampleRate;
 
     return MA_SUCCESS;
 }
@@ -55700,7 +55701,8 @@ MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSourc
         return result;
     }
 
-    *pLength = lengthInPCMFrames / (float)sampleRate;
+    /* VC6 does not support division of unsigned 64-bit integers with floating point numbers. Need to use a signed number. This shouldn't effect anything in practice. */
+    *pLength = (ma_int64)lengthInPCMFrames / (float)sampleRate;
 
     return MA_SUCCESS;
 }
