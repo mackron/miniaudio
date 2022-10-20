@@ -462,19 +462,19 @@ int verblib_initialize ( verblib* verb, unsigned long sample_rate, unsigned int 
 void verblib_process ( verblib* verb, const float* input_buffer, float* output_buffer, unsigned long frames )
 {
     int i;
-    float outL, outR, inputL, inputR;
+    float outL, outR, input;
 
     if ( verb->channels == 1 )
     {
         while ( frames-- > 0 )
         {
             outL = 0.0f;
-            inputL = ( input_buffer[0] * 2.0f ) * verb->gain;
+            input = ( input_buffer[0] * 2.0f ) * verb->gain;
 
             /* Accumulate comb filters in parallel. */
             for ( i = 0; i < verblib_numcombs; i++ )
             {
-                outL += verblib_comb_process ( &verb->combL[i], inputL );
+                outL += verblib_comb_process ( &verb->combL[i], input );
             }
 
             /* Feed through allpasses in series. */
@@ -496,14 +496,13 @@ void verblib_process ( verblib* verb, const float* input_buffer, float* output_b
         while ( frames-- > 0 )
         {
             outL = outR = 0.0f;
-            inputL = ( input_buffer[0] * 2 ) * verb->gain;
-            inputR = ( input_buffer[1] * 2 ) * verb->gain;
+            input = ( input_buffer[0] + input_buffer[1] ) * verb->gain;
 
             /* Accumulate comb filters in parallel. */
             for ( i = 0; i < verblib_numcombs; i++ )
             {
-                outL += verblib_comb_process ( &verb->combL[i], inputL );
-                outR += verblib_comb_process ( &verb->combR[i], inputR );
+                outL += verblib_comb_process ( &verb->combL[i], input );
+                outR += verblib_comb_process ( &verb->combR[i], input );
             }
 
             /* Feed through allpasses in series. */
