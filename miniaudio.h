@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.10 - TBD
+miniaudio - v0.11.10 - 2022-10-20
 
 David Reid - mackron@gmail.com
 
