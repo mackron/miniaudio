@@ -821,7 +821,7 @@ Sounds should be uninitialized with <span style="font-family:monospace;">ma_soun
 
 Sounds are not started by default. Start a sound with <span style="font-family:monospace;">ma_sound_start()</span> and stop it with
 <span style="font-family:monospace;">ma_sound_stop()</span>. When a sound is stopped, it is not rewound to the start. Use
-<span style="font-family:monospace;">ma_sound_seek_to_pcm_frames(&amp;sound, 0)</span> to seek back to the start of a sound. By default, starting
+<span style="font-family:monospace;">ma_sound_seek_to_pcm_frame(&amp;sound, 0)</span> to seek back to the start of a sound. By default, starting
 and stopping sounds happens immediately, but sometimes it might be convenient to schedule the sound
 the be started and/or stopped at a specific time. This can be done with the following functions:
 </p>
@@ -1379,6 +1379,66 @@ miniaudio&#39;s data conversion and/or decoding APIs.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
+MA_NO_RESOURCE_MANAGER
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables the resource manager. When using the engine this will
+also disable the following functions:
+
+</p>
+<div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+ma_sound_init_from_file()
+ma_sound_init_from_file_w()
+ma_sound_init_copy()
+ma_engine_play_sound_ex()
+ma_engine_play_sound()
+</pre></div><p>
+The only way to initialize a <span style="font-family:monospace;">ma_sound</span> object is to initialize it
+from a data source.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_NO_NODE_GRAPH
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables the node graph API. This will also disable the engine API
+because it depends on the node graph.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_NO_ENGINE</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables the engine API.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
 MA_NO_THREADING
 
 </p>
@@ -1399,7 +1459,7 @@ MA_NO_THREADING
 Disables the <span style="font-family:monospace;">ma_thread</span>, <span style="font-family:monospace;">ma_mutex</span>, <span style="font-family:monospace;">ma_semaphore</span> and
 <span style="font-family:monospace;">ma_event</span> APIs. This option is useful if you only need to use
 miniaudio for data conversion, decoding and/or encoding. Some
-families of APIsrequire threading which means the following
+families of APIs require threading which means the following
 options must also be set:
 
 </p>
@@ -2585,7 +2645,7 @@ not have any notion of a data source, anything relating to a data source is unav
 </p>
 <p>
 
-Internally, sound data is loaded via the <span style="font-family:monospace;">ma_decoder</span> API which means by default in only supports
+Internally, sound data is loaded via the <span style="font-family:monospace;">ma_decoder</span> API which means by default it only supports
 file formats that have built-in support in miniaudio. You can extend this to support any kind of
 file format through the use of custom decoders. To do this you&#39;ll need to use a self-managed
 resource manager and configure it appropriately. See the &quot;Resource Management&quot; section below for
@@ -2610,7 +2670,7 @@ The resource manager is mainly responsible for the following:
 <li>
 Loading of sound files into memory with reference counting.</li>
 <li>
-Streaming of sound data</li>
+Streaming of sound data.</li>
 </ul>
 <p>
 
@@ -2728,7 +2788,7 @@ config.flags = MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING; <span style="color:#009900
         ma_job job;
         <span style="color:#0099cc">ma_result</span> result = ma_resource_manager_next_job(pMyResourceManager, &amp;job);
         <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-            <span style="color:#0033ff">if</span> (result == MA_NOT_DATA_AVAILABLE) {
+            <span style="color:#0033ff">if</span> (result == MA_NO_DATA_AVAILABLE) {
                 <span style="color:#009900">// No jobs are available. Keep going. Will only get this if the resource manager was initialized</span>
                 <span style="color:#009900">// with MA_RESOURCE_MANAGER_FLAG_NON_BLOCKING.</span>
                 <span style="color:#0033ff">continue</span>;
@@ -2772,7 +2832,7 @@ config.pVFS = &amp;vfs;
 
 This is particularly useful in programs like games where you want to read straight from an archive
 rather than the normal file system. If you do not specify a custom VFS, the resource manager will
-use the operating system&#39;s normal file operations. This is default.
+use the operating system&#39;s normal file operations.
 </p>
 <p>
 
@@ -3230,7 +3290,7 @@ miniaudio&#39;s routing infrastructure follows a node graph paradigm. The idea i
 node whose outputs are attached to inputs of another node, thereby creating a graph. There are
 different types of nodes, with each node in the graph processing input data to produce output,
 which is then fed through the chain. Each node in the graph can apply their own custom effects. At
-the start of the graph will usually be one or more data source nodes which have no inputs, but
+the start of the graph will usually be one or more data source nodes which have no inputs and
 instead pull their data from a data source. At the end of the graph is an endpoint which represents
 the end of the chain and is where the final output is ultimately extracted from.
 </p>
@@ -3261,7 +3321,7 @@ splitter node. It&#39;s at this point that the two data sources are mixed. After
 performs it&#39;s processing routine and produces two outputs which is simply a duplication of the
 input stream. One output is attached to a low pass filter, whereas the other output is attached to
 a echo/delay. The outputs of the the low pass filter and the echo are attached to the endpoint, and
-since they&#39;re both connected to the same input but, they&#39;ll be mixed.
+since they&#39;re both connected to the same input bus, they&#39;ll be mixed.
 </p>
 <p>
 
@@ -3403,7 +3463,7 @@ pointer to the processing function and the number of input and output buses. Exa
 
 <span style="color:#0033ff">static</span> ma_node_vtable my_custom_node_vtable =
 {
-    my_custom_node_process_pcm_frames, <span style="color:#009900">// The function that will be called process your custom node. This is where you&#39;d implement your effect processing.</span>
+    my_custom_node_process_pcm_frames, <span style="color:#009900">// The function that will be called to process your custom node. This is where you&#39;d implement your effect processing.</span>
     NULL,   <span style="color:#009900">// Optional. A callback for calculating the number of input frames that are required to process a specified number of output frames.</span>
     2,      <span style="color:#009900">// 2 input buses.</span>
     1,      <span style="color:#009900">// 1 output bus.</span>
@@ -3636,7 +3696,7 @@ You can use it like this:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channelsIn, channelsOut);
+ma_splitter_node_config splitterNodeConfig = ma_splitter_node_config_init(channels);
 
 ma_splitter_node splitterNode;
 result = ma_splitter_node_init(&amp;nodeGraph, &amp;splitterNodeConfig, NULL, &amp;splitterNode);
@@ -5834,7 +5894,14 @@ producer thread.
 </p>
 <h1 id="Backends" class="man">15. Backends</h1>
 <p>
-The following backends are supported by miniaudio.
+The following backends are supported by miniaudio. These are listed in order of default priority.
+When no backend is specified when initializing a context or device, miniaudio will attempt to use
+each of these backends in the order listed in the table below.
+</p>
+<p>
+
+Note that backends that are not usable by the build target will not be included in the build. For
+example, ALSA, which is specific to Linux, will not be included in the Windows build.
 </p>
 <p>
 
@@ -5896,39 +5963,6 @@ macOS, iOS</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
-ALSA</p>
-</td>
-<td class="doc" valign="top"><p>
-ma_backend_alsa</p>
-</td>
-<td class="doc" valign="top"><p>
-Linux</p>
-</td>
-</tr>
-<tr>
-<td class="doc" valign="top"><p>
-PulseAudio</p>
-</td>
-<td class="doc" valign="top"><p>
-ma_backend_pulseaudio</p>
-</td>
-<td class="doc" valign="top"><p>
-Cross Platform (disabled on Windows, BSD and Android)</p>
-</td>
-</tr>
-<tr>
-<td class="doc" valign="top"><p>
-JACK</p>
-</td>
-<td class="doc" valign="top"><p>
-ma_backend_jack</p>
-</td>
-<td class="doc" valign="top"><p>
-Cross Platform (disabled on BSD and Android)</p>
-</td>
-</tr>
-<tr>
-<td class="doc" valign="top"><p>
 sndio</p>
 </td>
 <td class="doc" valign="top"><p>
@@ -5958,6 +5992,39 @@ ma_backend_oss</p>
 </td>
 <td class="doc" valign="top"><p>
 FreeBSD</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+PulseAudio</p>
+</td>
+<td class="doc" valign="top"><p>
+ma_backend_pulseaudio</p>
+</td>
+<td class="doc" valign="top"><p>
+Cross Platform (disabled on Windows, BSD and Android)</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+ALSA</p>
+</td>
+<td class="doc" valign="top"><p>
+ma_backend_alsa</p>
+</td>
+<td class="doc" valign="top"><p>
+Linux</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+JACK</p>
+</td>
+<td class="doc" valign="top"><p>
+ma_backend_jack</p>
+</td>
+<td class="doc" valign="top"><p>
+Cross Platform (disabled on BSD and Android)</p>
 </td>
 </tr>
 <tr>

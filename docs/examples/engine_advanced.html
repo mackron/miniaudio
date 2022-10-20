@@ -500,6 +500,9 @@ might be a local co-op multiplayer game where each player has their own headphon
         ma_device_uninit(&amp;devices[iEngine]);
     }
 
+    <span style="color:#009900">/* The context can only be uninitialized after the devices. */</span>
+    ma_context_uninit(&amp;context);
+
     <span style="color:#009900">/*
     Do the resource manager last. This way we can guarantee the data callbacks of each device aren&#39;t trying to access
     and data managed by the resource manager.
