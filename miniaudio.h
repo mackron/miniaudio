@@ -11881,7 +11881,7 @@ Standard Library Stuff
 #endif
 #endif
 
-static MA_INLINE void ma_zero_memory(void* p, size_t sz)
+static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
 {
 #ifdef MA_WIN32
     ZeroMemory(p, sz);
@@ -11893,7 +11893,7 @@ static MA_INLINE void ma_zero_memory(void* p, size_t sz)
 }
 
 #ifndef MA_ZERO_MEMORY
-#define MA_ZERO_MEMORY(p, sz) ma_zero_memory((p), (sz))
+#define MA_ZERO_MEMORY(p, sz) ma_zero_memory_default((p), (sz))
 #endif
 
 #ifndef MA_COPY_MEMORY
