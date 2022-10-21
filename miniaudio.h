@@ -18189,6 +18189,9 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
             totalDeviceFramesProcessed  += deviceFramesProcessedThisIteration;
             totalClientFramesProcessed  += clientFramesProcessedThisIteration;
 
+            /* This is just to silence a warning. I might want to use this variable later so leaving in place for now. */
+            (void)totalClientFramesProcessed;
+
             if (deviceFramesProcessedThisIteration == 0 && clientFramesProcessedThisIteration == 0) {
                 break;  /* We're done. */
             }
@@ -38737,7 +38740,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                     }
 
                     /* Send data to the client from our intermediary buffer. */
-                    ccall("ma_device_process_pcm_frames_capture__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+                    _ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
 
                     totalFramesProcessed += framesToProcess;
                 }
@@ -38783,7 +38786,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                     }
 
                     /* Read data from the client into our intermediary buffer. */
-                    ccall("ma_device_process_pcm_frames_playback__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+                    _ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
 
                     /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
                     if (outputSilence) {
