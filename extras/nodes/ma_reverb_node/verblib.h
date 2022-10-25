@@ -1,5 +1,5 @@
 /* Reverb Library
-* Verblib version 0.4 - 2021-01-23
+* Verblib version 0.5 - 2022-10-25
 *
 * Philip Bennefall - philip@blastbay.com
 *
@@ -87,6 +87,14 @@ extern "C" {
     /* Get the volume of the dry signal. */
     float verblib_get_dry ( const verblib* verb );
 
+    /* Set the stereo width of the input signal sent to the reverb, 0.0 or greater.
+    * Values less than 1.0 narrow the signal, 1.0 sends the input signal unmodified, values greater than 1.0 widen the signal.
+    */
+    void verblib_set_input_width ( verblib* verb, float value );
+
+    /* Get the stereo width of the input signal sent to the reverb. */
+    float verblib_get_input_width ( const verblib* verb );
+
     /* Set the mode of the reverb, where values below 0.5 mean normal and values above mean frozen. */
     void verblib_set_mode ( verblib* verb, float value );
 
@@ -137,6 +145,7 @@ extern "C" {
 #define verblib_initialwet 1.0f/verblib_scalewet
 #define verblib_initialdry 0.0f
 #define verblib_initialwidth 1.0f
+#define verblib_initialinputwidth 0.0f
 #define verblib_initialmode 0.0f
 #define verblib_freezemode 0.5f
 #define verblib_stereospread 23
@@ -180,6 +189,7 @@ extern "C" {
         float wet, wet1, wet2;
         float dry;
         float width;
+        float input_width;
         float mode;
 
         /*
@@ -246,6 +256,8 @@ extern "C" {
 #define VERBLIB_INLINE inline
 #endif
 #endif
+
+#define verblib_max(x, y)                (((x) > (y)) ? (x) : (y))
 
 #define undenormalise(sample) sample+=1.0f; sample-=1.0f;
 
@@ -451,6 +463,7 @@ int verblib_initialize ( verblib* verb, unsigned long sample_rate, unsigned int 
     verblib_set_dry ( verb, verblib_initialdry );
     verblib_set_damping ( verb, verblib_initialdamp );
     verblib_set_width ( verb, verblib_initialwidth );
+    verblib_set_input_width ( verb, verblib_initialinputwidth );
     verblib_set_mode ( verb, verblib_initialmode );
 
     /* The buffers will be full of rubbish - so we MUST mute them. */
@@ -493,32 +506,82 @@ void verblib_process ( verblib* verb, const float* input_buffer, float* output_b
     }
     else if ( verb->channels == 2 )
     {
-        while ( frames-- > 0 )
+        if ( verb->input_width > 0.0f ) /* Stereo input is widened or narrowed. */
         {
-            outL = outR = 0.0f;
-            input = ( input_buffer[0] + input_buffer[1] ) * verb->gain;
 
-            /* Accumulate comb filters in parallel. */
-            for ( i = 0; i < verblib_numcombs; i++ )
+            /*
+            * The stereo mid/side code is derived from:
+            * https://www.musicdsp.org/en/latest/Effects/256-stereo-width-control-obtained-via-transfromation-matrix.html
+            * The description of the code on the above page says:
+            *
+            * This work is hereby placed in the public domain for all purposes, including
+            * use in commercial applications.
+            */
+
+            const float tmp = 1 / verblib_max ( 1 + verb->input_width, 2 );
+            const float coef_mid = 1 * tmp;
+            const float coef_side = verb->input_width * tmp;
+            while ( frames-- > 0 )
             {
-                outL += verblib_comb_process ( &verb->combL[i], input );
-                outR += verblib_comb_process ( &verb->combR[i], input );
-            }
+                const float mid = ( input_buffer[0] + input_buffer[1] ) * coef_mid;
+                const float side = ( input_buffer[1] - input_buffer[0] ) * coef_side;
+                const float input_left = ( mid - side ) * ( verb->gain * 2.0f );
+                const float input_right = ( mid + side ) * ( verb->gain * 2.0f );
 
-            /* Feed through allpasses in series. */
-            for ( i = 0; i < verblib_numallpasses; i++ )
+                outL = outR = 0.0f;
+
+                /* Accumulate comb filters in parallel. */
+                for ( i = 0; i < verblib_numcombs; i++ )
+                {
+                    outL += verblib_comb_process ( &verb->combL[i], input_left );
+                    outR += verblib_comb_process ( &verb->combR[i], input_right );
+                }
+
+                /* Feed through allpasses in series. */
+                for ( i = 0; i < verblib_numallpasses; i++ )
+                {
+                    outL = verblib_allpass_process ( &verb->allpassL[i], outL );
+                    outR = verblib_allpass_process ( &verb->allpassR[i], outR );
+                }
+
+                /* Calculate output REPLACING anything already there. */
+                output_buffer[0] = outL * verb->wet1 + outR * verb->wet2 + input_buffer[0] * verb->dry;
+                output_buffer[1] = outR * verb->wet1 + outL * verb->wet2 + input_buffer[1] * verb->dry;
+
+                /* Increment sample pointers. */
+                input_buffer += 2;
+                output_buffer += 2;
+            }
+        }
+        else /* Stereo input is summed to mono. */
+        {
+            while ( frames-- > 0 )
             {
-                outL = verblib_allpass_process ( &verb->allpassL[i], outL );
-                outR = verblib_allpass_process ( &verb->allpassR[i], outR );
+                outL = outR = 0.0f;
+                input = ( input_buffer[0] + input_buffer[1] ) * verb->gain;
+
+                /* Accumulate comb filters in parallel. */
+                for ( i = 0; i < verblib_numcombs; i++ )
+                {
+                    outL += verblib_comb_process ( &verb->combL[i], input );
+                    outR += verblib_comb_process ( &verb->combR[i], input );
+                }
+
+                /* Feed through allpasses in series. */
+                for ( i = 0; i < verblib_numallpasses; i++ )
+                {
+                    outL = verblib_allpass_process ( &verb->allpassL[i], outL );
+                    outR = verblib_allpass_process ( &verb->allpassR[i], outR );
+                }
+
+                /* Calculate output REPLACING anything already there. */
+                output_buffer[0] = outL * verb->wet1 + outR * verb->wet2 + input_buffer[0] * verb->dry;
+                output_buffer[1] = outR * verb->wet1 + outL * verb->wet2 + input_buffer[1] * verb->dry;
+
+                /* Increment sample pointers. */
+                input_buffer += 2;
+                output_buffer += 2;
             }
-
-            /* Calculate output REPLACING anything already there. */
-            output_buffer[0] = outL * verb->wet1 + outR * verb->wet2 + input_buffer[0] * verb->dry;
-            output_buffer[1] = outR * verb->wet1 + outL * verb->wet2 + input_buffer[1] * verb->dry;
-
-            /* Increment sample pointers. */
-            input_buffer += 2;
-            output_buffer += 2;
         }
     }
 }
@@ -577,6 +640,16 @@ float verblib_get_width ( const verblib* verb )
     return verb->width;
 }
 
+void verblib_set_input_width ( verblib* verb, float value )
+{
+    verb->input_width = value;
+}
+
+float verblib_get_input_width ( const verblib* verb )
+{
+    return verb->input_width;
+}
+
 void verblib_set_mode ( verblib* verb, float value )
 {
     verb->mode = value;
@@ -610,6 +683,9 @@ unsigned long verblib_get_decay_time_in_frames ( const verblib* verb )
 
 /* REVISION HISTORY
 *
+* Version 0.5 - 2022-10-25
+* Added two functions called verblib_set_input_width and verblib_get_input_width.
+*
 * Version 0.4 - 2021-01-23
 * Added a function called verblib_get_decay_time_in_frames.
 *
@@ -628,7 +704,7 @@ unsigned long verblib_get_decay_time_in_frames ( const verblib* verb )
 This software is available under 2 licenses -- choose whichever you prefer.
 ------------------------------------------------------------------------------
 ALTERNATIVE A - MIT No Attribution License
-Copyright (c) 2021 Philip Bennefall
+Copyright (c) 2022 Philip Bennefall
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
