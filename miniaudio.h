@@ -22247,13 +22247,25 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                         for (i = 0; i < iterationCount; i += 1) {
                             hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
                             if (FAILED(hr)) {
+                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_ReleaseBuffer() failed with %d.\n", hr);
                                 break;
                             }
 
                             hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pMappedBufferCapture, &pDevice->wasapi.mappedBufferCaptureCap, &flags, NULL, NULL);
                             if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || FAILED(hr)) {
+                                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY) {
+                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Buffer emptied.\n");
+                                }
+                                if (FAILED(hr)) {
+                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_GetBuffer() failed with %d.\n", hr);
+                                }
+
                                 break;
                             }
+                        }
+
+                        if (i == iterationCount) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Iteration limit reached.\n");
                         }
                     }
 
