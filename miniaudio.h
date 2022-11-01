@@ -22231,14 +22231,27 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                 /* We got a data buffer. Continue to the next loop iteration which will then read from the mapped pointer. */
                 pDevice->wasapi.mappedBufferCaptureLen = pDevice->wasapi.mappedBufferCaptureCap;
 
-                if (flags != 0) {
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld\n", flags);
+                /*
+                There have been reports that indicate that at times the AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY is reported for every
+                call to IAudioCaptureClient_GetBuffer() above which results in spamming of the debug messages below. To partially
+                work around this, I'm only outputting these messages when MA_DEBUG_OUTPUT is explicitly defined. The better solution
+                would be to figure out why the flag is always getting reported.
+                */
+                #if defined(MA_DEBUG_OUTPUT)
+                {
+                    if (flags != 0) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld\n", flags);
+
+                        if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. mappedBufferCaptureCap=%d\n", pDevice->wasapi.mappedBufferCaptureCap);
+                        }
+                    }
                 }
+                #endif
 
                 /* Overrun detection. */
                 if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
                     /* Glitched. Probably due to an overrun. */
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. mappedBufferCaptureCap=%d\n", pDevice->wasapi.mappedBufferCaptureCap);
 
                     /*
                     If we got an overrun it probably means we're straddling the end of the buffer. In normal capture
@@ -22316,7 +22329,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     microphone isn't delivering data for whatever reason. In this case we'll just
                     abort the read and return whatever we were able to get. The other situations is
                     loopback mode, in which case a timeout probably just means the nothing is playing
-                    through the speakers. 
+                    through the speakers.
                     */
 
                     /* Experiment: Use a shorter timeout for loopback mode. */
