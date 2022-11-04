@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.10 - 2022-10-20
+miniaudio - v0.11.11 - 2022-11-04
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 10
+#define MA_VERSION_REVISION 11
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -2507,10 +2507,6 @@ This section contains the APIs for device playback and capture. Here is where yo
         #define MA_SUPPORT_PULSEAUDIO
         #define MA_SUPPORT_JACK
     #endif
-    #if defined(MA_ANDROID)
-        #define MA_SUPPORT_AAUDIO
-        #define MA_SUPPORT_OPENSL
-    #endif
     #if defined(__OpenBSD__)        /* <-- Change this to "#if defined(MA_BSD)" to enable sndio on all BSD flavors. */
         #define MA_SUPPORT_SNDIO    /* sndio is only supported on OpenBSD for now. May be expanded later if there's demand. */
     #endif
@@ -2520,6 +2516,10 @@ This section contains the APIs for device playback and capture. Here is where yo
     #if defined(__FreeBSD__) || defined(__DragonFly__)
         #define MA_SUPPORT_OSS      /* Only support OSS on specific platforms with known support. */
     #endif
+#endif
+#if defined(MA_ANDROID)
+    #define MA_SUPPORT_AAUDIO
+    #define MA_SUPPORT_OPENSL
 #endif
 #if defined(MA_APPLE)
     #define MA_SUPPORT_COREAUDIO

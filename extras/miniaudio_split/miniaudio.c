@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.10 - 2022-10-20
+miniaudio - v0.11.11 - 2022-11-04
 
 David Reid - mackron@gmail.com
 
@@ -7081,6 +7081,9 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
             totalDeviceFramesProcessed  += deviceFramesProcessedThisIteration;
             totalClientFramesProcessed  += clientFramesProcessedThisIteration;
 
+            /* This is just to silence a warning. I might want to use this variable later so leaving in place for now. */
+            (void)totalClientFramesProcessed;
+
             if (deviceFramesProcessedThisIteration == 0 && clientFramesProcessedThisIteration == 0) {
                 break;  /* We're done. */
             }
@@ -11112,50 +11115,100 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
         } else {
             /* We don't have any cached data pointer, so grab another one. */
             HRESULT hr;
-            DWORD flags;
+            DWORD flags = 0;
 
             /* First just ask WASAPI for a data buffer. If it's not available, we'll wait for more. */
             hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pMappedBufferCapture, &pDevice->wasapi.mappedBufferCaptureCap, &flags, NULL, NULL);
             if (hr == S_OK) {
                 /* We got a data buffer. Continue to the next loop iteration which will then read from the mapped pointer. */
+                pDevice->wasapi.mappedBufferCaptureLen = pDevice->wasapi.mappedBufferCaptureCap;
+
+                /*
+                There have been reports that indicate that at times the AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY is reported for every
+                call to IAudioCaptureClient_GetBuffer() above which results in spamming of the debug messages below. To partially
+                work around this, I'm only outputting these messages when MA_DEBUG_OUTPUT is explicitly defined. The better solution
+                would be to figure out why the flag is always getting reported.
+                */
+                #if defined(MA_DEBUG_OUTPUT)
+                {
+                    if (flags != 0) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld\n", flags);
+
+                        if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. mappedBufferCaptureCap=%d\n", pDevice->wasapi.mappedBufferCaptureCap);
+                        }
+                    }
+                }
+                #endif
 
                 /* Overrun detection. */
                 if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
                     /* Glitched. Probably due to an overrun. */
-                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity (possible overrun). Attempting recovery. mappedBufferCaptureCap=%d\n", pDevice->wasapi.mappedBufferCaptureCap);
 
                     /*
-                    If we got an overrun it probably means we're straddling the end of the buffer. In order to prevent
-                    a never-ending sequence of glitches we're going to recover by completely clearing out the capture
-                    buffer.
+                    If we got an overrun it probably means we're straddling the end of the buffer. In normal capture
+                    mode this is the fault of the client application because they're responsible for ensuring data is
+                    processed fast enough. In duplex mode, however, the processing of audio is tied to the playback
+                    device, so this can possibly be the result of a timing de-sync.
+
+                    In capture mode we're not going to do any kind of recovery because the real fix is for the client
+                    application to process faster. In duplex mode, we'll treat this as a desync and reset the buffers
+                    to prevent a never-ending sequence of glitches due to straddling the end of the buffer.
                     */
-                    {
-                        ma_uint32 iterationCount = 4;   /* Safety to prevent an infinite loop. */
+                    if (pDevice->type == ma_device_type_duplex) {
+                        /*
+                        Experiment:
+
+                        If we empty out the *entire* buffer we may end up putting ourselves into an underrun position
+                        which isn't really any better than the overrun we're probably in right now. Instead we'll just
+                        empty out about half.
+                        */
                         ma_uint32 i;
+                        ma_uint32 periodCount = (pDevice->wasapi.actualBufferSizeInFramesCapture / pDevice->wasapi.periodSizeInFramesCapture);
+                        ma_uint32 iterationCount = periodCount / 2;
+                        if ((periodCount % 2) > 0) {
+                            iterationCount += 1;
+                        }
 
                         for (i = 0; i < iterationCount; i += 1) {
                             hr = ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
                             if (FAILED(hr)) {
+                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_ReleaseBuffer() failed with %d.\n", hr);
                                 break;
                             }
 
+                            flags = 0;
                             hr = ma_IAudioCaptureClient_GetBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, (BYTE**)&pDevice->wasapi.pMappedBufferCapture, &pDevice->wasapi.mappedBufferCaptureCap, &flags, NULL, NULL);
                             if (hr == MA_AUDCLNT_S_BUFFER_EMPTY || FAILED(hr)) {
+                                /*
+                                The buffer has been completely emptied or an error occurred. In this case we'll need
+                                to reset the state of the mapped buffer which will trigger the next iteration to get
+                                a fresh buffer from WASAPI.
+                                */
+                                pDevice->wasapi.pMappedBufferCapture   = NULL;
+                                pDevice->wasapi.mappedBufferCaptureCap = 0;
+                                pDevice->wasapi.mappedBufferCaptureLen = 0;
+
+                                if (hr == MA_AUDCLNT_S_BUFFER_EMPTY) {
+                                    if ((flags & MA_AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+                                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Buffer emptied, and data discontinuity still reported.\n");
+                                    } else {
+                                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: Buffer emptied.\n");
+                                    }
+                                }
+
+                                if (FAILED(hr)) {
+                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Data discontinuity recovery: IAudioCaptureClient_GetBuffer() failed with %d.\n", hr);
+                                }
+
                                 break;
                             }
                         }
-                    }
 
-                    /* We should not have a valid buffer at this point so make sure everything is empty. */
-                    pDevice->wasapi.pMappedBufferCapture   = NULL;
-                    pDevice->wasapi.mappedBufferCaptureCap = 0;
-                    pDevice->wasapi.mappedBufferCaptureLen = 0;
-                } else {
-                    /* The data is clean. */
-                    pDevice->wasapi.mappedBufferCaptureLen = pDevice->wasapi.mappedBufferCaptureCap;
-
-                    if (flags != 0) {
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Capture Flags: %ld\n", flags);
+                        /* If at this point we have a valid buffer mapped, make sure the buffer length is set appropriately. */
+                        if (pDevice->wasapi.pMappedBufferCapture != NULL) {
+                            pDevice->wasapi.mappedBufferCaptureLen = pDevice->wasapi.mappedBufferCaptureCap;
+                        }
                     }
                 }
 
@@ -11168,7 +11221,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     microphone isn't delivering data for whatever reason. In this case we'll just
                     abort the read and return whatever we were able to get. The other situations is
                     loopback mode, in which case a timeout probably just means the nothing is playing
-                    through the speakers. 
+                    through the speakers.
                     */
 
                     /* Experiment: Use a shorter timeout for loopback mode. */
@@ -27629,7 +27682,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                     }
 
                     /* Send data to the client from our intermediary buffer. */
-                    ccall("ma_device_process_pcm_frames_capture__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+                    _ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
 
                     totalFramesProcessed += framesToProcess;
                 }
@@ -27675,7 +27728,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
                     }
 
                     /* Read data from the client into our intermediary buffer. */
-                    ccall("ma_device_process_pcm_frames_playback__webaudio", "undefined", ["number", "number", "number"], [pDevice, framesToProcess, device.intermediaryBuffer]);
+                    _ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
 
                     /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
                     if (outputSilence) {

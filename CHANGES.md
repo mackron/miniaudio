@@ -1,4 +1,4 @@
-v0.11.11 - TBD
+v0.11.11 - 2022-11-04
 =====================
 * Silence an unused variable warning.
 * Remove references to ccall() from the Empscripten build.
