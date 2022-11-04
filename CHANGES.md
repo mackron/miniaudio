@@ -3,6 +3,7 @@ v0.11.11 - TBD
 * Silence an unused variable warning.
 * Remove references to ccall() from the Empscripten build.
 * Improve Android detection.
+* WASAPI: Some minor improvements to overrun recovery for capture and duplex modes.
 
 
 v0.11.10 - 2022-10-20
