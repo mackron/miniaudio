@@ -1273,6 +1273,14 @@ When streaming sounds, 2 seconds worth of audio data is stored in memory. Althou
 fine, it's inefficient to use streaming for short sounds. Streaming is useful for things like music
 tracks in games.
 
+When loading a sound from a file path, the engine will reference count the file to prevent it from
+being loaded if it's already in memory. When you uninitialize a sound, the reference count will be
+decremented, and if it hits zero, the sound will be unloaded from memory. This reference counting
+system is not used for streams. The engine will use a 64-bit hash of the file name when comparing
+file paths which means there's a small chance you might encounter a name collision. If this is an
+issue, you'll need to use a different name for one of the colliding file paths, or just not load
+from files and instead load from a data source.
+
 When you initialize a sound, if you specify a sound group the sound will be attached to that group
 automatically. If you set it to NULL, it will be automatically attached to the engine's endpoint.
 If you would instead rather leave the sound unattached by default, you can can specify the
@@ -1870,9 +1878,11 @@ A binary search tree (BST) is used for storing data buffers as it has good balan
 efficiency and simplicity. The key of the BST is a 64-bit hash of the file path that was passed
 into `ma_resource_manager_data_source_init()`. The advantage of using a hash is that it saves
 memory over storing the entire path, has faster comparisons, and results in a mostly balanced BST
-due to the random nature of the hash. The disadvantage is that file names are case-sensitive. If
-this is an issue, you should normalize your file names to upper- or lower-case before initializing
-your data sources.
+due to the random nature of the hash. The disadvantages are that file names are case-sensitive and
+there's a small chance of name collisions. If case-sensitivity is an issue, you should normalize
+your file names to upper- or lower-case before initializing your data sources. If name collisions
+become an issue, you'll need to change the name of one of the colliding names or just not use the
+resource manager.
 
 When a sound file has not already been loaded and the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC`
 flag is excluded, the file will be decoded synchronously by the calling thread. There are two
