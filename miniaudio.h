@@ -3748,6 +3748,10 @@ typedef ma_uint32   ma_bool32;
 #define MA_TRUE     1
 #define MA_FALSE    0
 
+/* These float types are not used universally by miniaudio. It's to simplify some macro expansion for atomic types. */
+typedef float       ma_float;
+typedef double      ma_double;
+
 typedef void* ma_handle;
 typedef void* ma_ptr;
 typedef void (* ma_proc)(void);
@@ -4193,6 +4197,64 @@ typedef struct
 {
     ma_int32 state;
 } ma_lcg;
+
+
+/*
+Atomics.
+
+These are typesafe structures to prevent errors as a result of forgetting to reference variables atomically. It's too
+easy to introduce subtle bugs where you accidentally do a regular assignment instead of an atomic load/store, etc. By
+using a struct we can enforce the use of atomics at compile time.
+
+These types are declared in the header section because we need to reference them in structs below, but functions for
+using them are only exposed in the implementation section. I do not want these to be part of the public API.
+
+There's a few downsides to this system. The first is that you need to declare a new struct for each type. Below are
+some macros to help with the declarations. They will be named like so:
+
+    ma_atomic_uint32 - atomic ma_uint32
+    ma_atomic_int32  - atomic ma_int32
+    ma_atomic_uint64 - atomic ma_uint64
+    ma_atomic_float  - atomic float
+    ma_atomic_bool32 - atomic ma_bool32
+
+The other downside is that atomic pointers are extremely messy. You need to declare a new struct for each specific
+type of pointer you need to make atomic. For example, an atomic ma_node* will look like this:
+
+    MA_ATOMIC_SAFE_TYPE_IMPL_PTR(node)
+
+Which will declare a type struct that's named like so:
+
+    ma_atomic_ptr_node
+
+Functions to use the atomic types are declared in the implementation section. All atomic functions are prefixed with
+the name of the struct. For example:
+
+    ma_atomic_uint32_set() - Atomic store of ma_uint32
+    ma_atomic_uint32_get() - Atomic load of ma_uint32
+    etc.
+
+For pointer types it's the same, which makes them a bit messy to use due to the length of each function name, but in
+return you get type safety and enforcement of atomic operations.
+*/
+#define MA_ATOMIC_SAFE_TYPE_DECL(c89TypeExtension, typeSize, type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(typeSize, ma_##type) value; \
+    } ma_atomic_##type; \
+
+#define MA_ATOMIC_SAFE_TYPE_DECL_PTR(type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(MA_SIZEOF_PTR, ma_##type*) value; \
+    } ma_atomic_ptr_##type; \
+
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, uint32)
+MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, int32)
+MA_ATOMIC_SAFE_TYPE_DECL(64,  8, uint64)
+MA_ATOMIC_SAFE_TYPE_DECL(f32, 4, float)
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, bool32)
+
 
 
 /* Spinlocks are 32-bit for compatibility reasons. */
@@ -10118,7 +10180,7 @@ struct ma_resource_manager_data_buffer
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
     MA_ATOMIC(4, ma_result) result;                 /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
     MA_ATOMIC(4, ma_bool32) isLooping;              /* Can be read and written by different threads at the same time. Must be used atomically. */
-    ma_bool32 isConnectorInitialized;               /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
+    ma_atomic_bool32 isConnectorInitialized;        /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
     union
     {
         ma_decoder decoder;                 /* Supply type is ma_resource_manager_data_supply_type_encoded */
@@ -15448,6 +15510,76 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 #endif
 #endif
 /* c89atomic.h end */
+
+#define MA_ATOMIC_SAFE_TYPE_IMPL(c89TypeExtension, type) \
+    static MA_INLINE ma_##type ma_atomic_##type##_get(ma_atomic_##type* x) \
+    { \
+        return c89atomic_load_##c89TypeExtension(&x->value); \
+    } \
+    static MA_INLINE void ma_atomic_##type##_set(ma_atomic_##type* x, ma_##type value) \
+    { \
+        c89atomic_store_##c89TypeExtension(&x->value, value); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_exchange(ma_atomic_##type* x, ma_##type value) \
+    { \
+        return c89atomic_exchange_##c89TypeExtension(&x->value, value); \
+    } \
+    static MA_INLINE ma_bool32 ma_atomic_##type##_compare_exchange(ma_atomic_##type* x, ma_##type* expected, ma_##type desired) \
+    { \
+        return c89atomic_compare_exchange_weak_##c89TypeExtension(&x->value, expected, desired); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_add(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_sub(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_or(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_xor(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_and(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_compare_and_swap(ma_atomic_##type* x, ma_##type expected, ma_##type desired) \
+    { \
+        return c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
+    } \
+
+#define MA_ATOMIC_SAFE_TYPE_IMPL_PTR(type) \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_get(ma_atomic_ptr_##type* x) \
+    { \
+        return c89atomic_load_ptr((void**)&x->value); \
+    } \
+    static MA_INLINE void ma_atomic_ptr_##type##_set(ma_atomic_ptr_##type* x, ma_##type* value) \
+    { \
+        c89atomic_store_ptr((void**)&x->value, (void*)value); \
+    } \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_exchange(ma_atomic_ptr_##type* x, ma_##type* value) \
+    { \
+        return c89atomic_exchange_ptr((void**)&x->value, (void*)value); \
+    } \
+    static MA_INLINE ma_bool32 ma_atomic_ptr_##type##_compare_exchange(ma_atomic_ptr_##type* x, ma_##type** expected, ma_##type* desired) \
+    { \
+        return c89atomic_compare_exchange_weak_ptr((void**)&x->value, (void*)expected, (void*)desired); \
+    } \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_compare_and_swap(ma_atomic_ptr_##type* x, ma_##type* expected, ma_##type* desired) \
+    { \
+        return (ma_##type*)c89atomic_compare_and_swap_ptr((void**)&x->value, (void*)expected, (void*)desired); \
+    } \
+
+MA_ATOMIC_SAFE_TYPE_IMPL(32,  uint32)
+MA_ATOMIC_SAFE_TYPE_IMPL(i32, int32)
+MA_ATOMIC_SAFE_TYPE_IMPL(64,  uint64)
+MA_ATOMIC_SAFE_TYPE_IMPL(f32, float)
+MA_ATOMIC_SAFE_TYPE_IMPL(32,  bool32)
 
 
 
@@ -65761,7 +65893,7 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
 
 static ma_bool32 ma_resource_manager_data_buffer_has_connector(ma_resource_manager_data_buffer* pDataBuffer)
 {
-    return pDataBuffer->isConnectorInitialized; /* TODO: Need to make this atomic. */
+    return ma_atomic_bool32_get(&pDataBuffer->isConnectorInitialized);
 }
 
 static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource_manager_data_buffer* pDataBuffer)
@@ -65791,7 +65923,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
 
     MA_ASSERT(pDataBuffer != NULL);
     MA_ASSERT(pConfig     != NULL);
-    MA_ASSERT(pDataBuffer->isConnectorInitialized == MA_FALSE);
+    MA_ASSERT(ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE);
 
     /* The underlying data buffer must be initialized before we'll be able to know how to initialize the backend. */
     result = ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
@@ -65848,7 +65980,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
         ma_data_source_set_looping(pDataBuffer, pConfig->isLooping);
 
-        pDataBuffer->isConnectorInitialized = MA_TRUE;
+        ma_atomic_bool32_set(&pDataBuffer->isConnectorInitialized, MA_TRUE);
 
         if (pInitNotification != NULL) {
             ma_async_notification_signal(pInitNotification);
@@ -68509,7 +68641,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
     }
 
     /* Try initializing the connector if we haven't already. */
-    isConnectorInitialized = pDataBuffer->isConnectorInitialized;
+    isConnectorInitialized = ma_resource_manager_data_buffer_has_connector(pDataBuffer);
     if (isConnectorInitialized == MA_FALSE) {
         dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode);
 
@@ -68565,7 +68697,7 @@ done:
     If at this point the data buffer has not had it's connector initialized, it means the
     notification event was never signalled which means we need to signal it here.
     */
-    if (pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE && result != MA_SUCCESS) {
         if (pJob->data.resourceManager.loadDataBuffer.pInitNotification != NULL) {
             ma_async_notification_signal(pJob->data.resourceManager.loadDataBuffer.pInitNotification);
         }
