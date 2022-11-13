@@ -1,5 +1,6 @@
 v0.11.12 - TBD
 =====================
+* Fix a crash due to a race condition in the resource manager.
 
 
 v0.11.11 - 2022-11-04

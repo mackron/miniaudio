@@ -10518,7 +10518,7 @@ MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourc
 MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode);
 
 
-/* Splitter Node. 1 input, 2 outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
+/* Splitter Node. 1 input, many outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
 typedef struct
 {
     ma_node_config nodeConfig;
@@ -65759,8 +65759,17 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     return MA_SUCCESS;
 }
 
+static ma_bool32 ma_resource_manager_data_buffer_has_connector(ma_resource_manager_data_buffer* pDataBuffer)
+{
+    return pDataBuffer->isConnectorInitialized; /* TODO: Need to make this atomic. */
+}
+
 static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource_manager_data_buffer* pDataBuffer)
 {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
+        return NULL;    /* Connector not yet initialized. */
+    }
+
     switch (pDataBuffer->pNode->data.type)
     {
         case ma_resource_manager_data_supply_type_encoded:       return &pDataBuffer->connector.decoder;
@@ -66844,15 +66853,25 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If the node is not initialized we need to abort with a busy code. */
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
         return MA_BUSY; /* Still loading. */
     }
 
+    /*
+    If we've got a seek scheduled we'll want to do that before reading. However, for paged buffers, there's
+    a chance that the sound hasn't yet been decoded up to the seek point will result in the seek failing. If
+    this happens, we need to keep the seek scheduled and return MA_BUSY.
+    */
     if (pDataBuffer->seekToCursorOnNextRead) {
         pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
 
         result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->seekTargetInPCMFrames);
         if (result != MA_SUCCESS) {
+            if (result == MA_BAD_SEEK && ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_decoded_paged) {
+                pDataBuffer->seekToCursorOnNextRead = MA_TRUE;  /* Keep the seek scheduled. We just haven't loaded enough data yet to do the seek properly. */
+                return MA_BUSY;
+            }
+                
             return result;
         }
     }
@@ -66925,7 +66944,7 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
         pDataBuffer->seekTargetInPCMFrames = frameIndex;
         pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
         return MA_BUSY; /* Still loading. */
