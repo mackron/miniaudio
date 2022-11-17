@@ -1,4 +1,4 @@
-/* Include ma_reverb_node.h after miniaudio.h */
+/* Include ma_channel_combiner_node.h after miniaudio.h */
 #ifndef ma_channel_combiner_node_h
 #define ma_channel_combiner_node_h
 

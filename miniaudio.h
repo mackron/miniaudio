@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.11 - 2022-11-04
+miniaudio - v0.11.12 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -1226,7 +1226,7 @@ might be beneficial to pre-decode the sound. You can do this with the `MA_SOUND_
 
 By default, sounds will be loaded synchronously, meaning `ma_sound_init_*()` will not return until
 the sound has been fully loaded. If this is prohibitive you can instead load sounds asynchronously
-by specificying the `MA_SOUND_FLAG_ASYNC` flag:
+by specifying the `MA_SOUND_FLAG_ASYNC` flag:
 
     ```c
     ma_sound_init_from_file(&engine, "my_sound.wav", MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_ASYNC, pGroup, NULL, &sound);
@@ -1247,7 +1247,7 @@ counter hit's zero. You can specify a fence like so:
     ma_sound sounds[4];
 
     result = ma_fence_init(&fence);
-    if (result != MA_SUCCES) {
+    if (result != MA_SUCCESS) {
         return result;
     }
 
@@ -2028,14 +2028,14 @@ data from the graph:
     ```
 
 When you read audio data, miniaudio starts at the node graph's endpoint node which then pulls in
-data from it's input attachments, which in turn recusively pull in data from their inputs, and so
+data from it's input attachments, which in turn recursively pull in data from their inputs, and so
 on. At the start of the graph there will be some kind of data source node which will have zero
 inputs and will instead read directly from a data source. The base nodes don't literally need to
 read from a `ma_data_source` object, but they will always have some kind of underlying object that
 sources some kind of audio. The `ma_data_source_node` node can be used to read from a
 `ma_data_source`. Data is always in floating-point format and in the number of channels you
 specified when the graph was initialized. The sample rate is defined by the underlying data sources.
-It's up to you to ensure they use a consistent and appropraite sample rate.
+It's up to you to ensure they use a consistent and appropriate sample rate.
 
 The `ma_node` API is designed to allow custom nodes to be implemented with relative ease, but
 miniaudio includes a few stock nodes for common functionality. This is how you would initialize a
@@ -2076,7 +2076,7 @@ another, you do not need to detach first. You can just call `ma_node_attach_outp
 deal with it for you.
 
 Less frequently you may want to create a specialized node. This will be a node where you implement
-your own processing callback to apply a custom effect of some kind. This is similar to initalizing
+your own processing callback to apply a custom effect of some kind. This is similar to initializing
 one of the stock node types, only this time you need to specify a pointer to a vtable containing a
 pointer to the processing function and the number of input and output buses. Example:
 
@@ -2115,7 +2115,7 @@ pointer to the processing function and the number of input and output buses. Exa
     // Each bus needs to have a channel count specified. To do this you need to specify the channel
     // counts in an array and then pass that into the node config.
     ma_uint32 inputChannels[2];     // Equal in size to the number of input channels specified in the vtable.
-    ma_uint32 outputChannels[1];    // Equal in size to the number of output channels specicied in the vtable.
+    ma_uint32 outputChannels[1];    // Equal in size to the number of output channels specified in the vtable.
 
     inputChannels[0]  = channelsIn;
     inputChannels[1]  = channelsIn;
@@ -2393,7 +2393,7 @@ bus and input bus is locked. This locking is specifically for attaching and deta
 different threads and does not affect `ma_node_graph_read_pcm_frames()` in any way. The locking and
 unlocking is mostly self-explanatory, but a slightly less intuitive aspect comes into it when
 considering that iterating over attachments must not break as a result of attaching or detaching a
-node while iteration is occuring.
+node while iteration is occurring.
 
 Attaching and detaching are both quite simple. When an output bus of a node is attached to an input
 bus of another node, it's added to a linked list. Basically, an input bus is a linked list, where
@@ -2459,7 +2459,7 @@ implementation:
     #define MA_NO_FLAC
     ```
 
-Disabling built-in decoding libraries is useful if you use these libraries independantly of the
+Disabling built-in decoding libraries is useful if you use these libraries independently of the
 `ma_decoder` API.
 
 A decoder can be initialized from a file with `ma_decoder_init_file()`, a block of memory with
@@ -2573,11 +2573,11 @@ these are not specified, miniaudio will deal with it for you via a generic imple
 
 When you initialize a custom data source (by implementing the `onInit` function in the vtable) you
 will need to output a pointer to a `ma_data_source` which implements your custom decoder. See the
-section about data sources for details on how to implemen this. Alternatively, see the
+section about data sources for details on how to implement this. Alternatively, see the
 "custom_decoders" example in the miniaudio repository.
 
 The `onInit` function takes a pointer to some callbacks for the purpose of reading raw audio data
-from some abitrary source. You'll use these functions to read from the raw data and perform the
+from some arbitrary source. You'll use these functions to read from the raw data and perform the
 decoding. When you call them, you will pass in the `pReadSeekTellUserData` pointer to the relevant
 parameter.
 
@@ -2728,7 +2728,7 @@ To perform the conversion simply call `ma_channel_converter_process_pcm_frames()
     }
     ```
 
-It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM
+It is up to the caller to ensure the output buffer is large enough to accommodate the new PCM
 frames.
 
 Input and output PCM frames are always interleaved. Deinterleaved layouts are not supported.
@@ -3174,7 +3174,7 @@ you can chain first and second order filters together.
 
 If you need to change the configuration of the filter, but need to maintain the state of internal
 registers you can do so with `ma_lpf_reinit()`. This may be useful if you need to change the sample
-rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the
+rate and/or cutoff frequency dynamically while maintaining smooth transitions. Note that changing the
 format or channel count after initialization is invalid and will result in an error.
 
 The `ma_lpf` object supports a configurable order, but if you only need a first order filter you
@@ -3496,7 +3496,7 @@ you will want to use. To initialize a ring buffer, do something like the followi
     ```
 
 The `ma_pcm_rb_init()` function takes the sample format and channel count as parameters because
-it's the PCM varient of the ring buffer API. For the regular ring buffer that operates on bytes you
+it's the PCM variant of the ring buffer API. For the regular ring buffer that operates on bytes you
 would call `ma_rb_init()` which leaves these out and just takes the size of the buffer in bytes
 instead of frames. The fourth parameter is an optional pre-allocated buffer and the fifth parameter
 is a pointer to a `ma_allocation_callbacks` structure for custom memory allocation routines.
@@ -3636,8 +3636,8 @@ Some backends have some nuance details you may want to be aware of.
 --------------------
 - If a sound does not require doppler or pitch shifting, consider disabling pitching by
   initializing the sound with the `MA_SOUND_FLAG_NO_PITCH` flag.
-- If a sound does not require spatialization, disable it by initialzing the sound with the
-  `MA_SOUND_FLAG_NO_SPATIALIZATION` flag. It can be renabled again post-initialization with
+- If a sound does not require spatialization, disable it by initializing the sound with the
+  `MA_SOUND_FLAG_NO_SPATIALIZATION` flag. It can be re-enabled again post-initialization with
   `ma_sound_set_spatialization_enabled()`.
 
 
@@ -3674,7 +3674,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 11
+#define MA_VERSION_REVISION 12
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -3747,6 +3747,10 @@ typedef ma_uint8    ma_bool8;
 typedef ma_uint32   ma_bool32;
 #define MA_TRUE     1
 #define MA_FALSE    0
+
+/* These float types are not used universally by miniaudio. It's to simplify some macro expansion for atomic types. */
+typedef float       ma_float;
+typedef double      ma_double;
 
 typedef void* ma_handle;
 typedef void* ma_ptr;
@@ -4193,6 +4197,63 @@ typedef struct
 {
     ma_int32 state;
 } ma_lcg;
+
+
+/*
+Atomics.
+
+These are typesafe structures to prevent errors as a result of forgetting to reference variables atomically. It's too
+easy to introduce subtle bugs where you accidentally do a regular assignment instead of an atomic load/store, etc. By
+using a struct we can enforce the use of atomics at compile time.
+
+These types are declared in the header section because we need to reference them in structs below, but functions for
+using them are only exposed in the implementation section. I do not want these to be part of the public API.
+
+There's a few downsides to this system. The first is that you need to declare a new struct for each type. Below are
+some macros to help with the declarations. They will be named like so:
+
+    ma_atomic_uint32 - atomic ma_uint32
+    ma_atomic_int32  - atomic ma_int32
+    ma_atomic_uint64 - atomic ma_uint64
+    ma_atomic_float  - atomic float
+    ma_atomic_bool32 - atomic ma_bool32
+
+The other downside is that atomic pointers are extremely messy. You need to declare a new struct for each specific
+type of pointer you need to make atomic. For example, an atomic ma_node* will look like this:
+
+    MA_ATOMIC_SAFE_TYPE_IMPL_PTR(node)
+
+Which will declare a type struct that's named like so:
+
+    ma_atomic_ptr_node
+
+Functions to use the atomic types are declared in the implementation section. All atomic functions are prefixed with
+the name of the struct. For example:
+
+    ma_atomic_uint32_set() - Atomic store of ma_uint32
+    ma_atomic_uint32_get() - Atomic load of ma_uint32
+    etc.
+
+For pointer types it's the same, which makes them a bit messy to use due to the length of each function name, but in
+return you get type safety and enforcement of atomic operations.
+*/
+#define MA_ATOMIC_SAFE_TYPE_DECL(c89TypeExtension, typeSize, type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(typeSize, ma_##type) value; \
+    } ma_atomic_##type; \
+
+#define MA_ATOMIC_SAFE_TYPE_DECL_PTR(type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(MA_SIZEOF_PTR, ma_##type*) value; \
+    } ma_atomic_ptr_##type; \
+
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, uint32)
+MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, int32)
+MA_ATOMIC_SAFE_TYPE_DECL(64,  8, uint64)
+MA_ATOMIC_SAFE_TYPE_DECL(f32, 4, float)
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, bool32)
 
 
 /* Spinlocks are 32-bit for compatibility reasons. */
@@ -5225,7 +5286,7 @@ MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const
 
 
 /*
-Sets the input and output sample sample rate.
+Sets the input and output sample rate.
 */
 MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 
@@ -6246,6 +6307,9 @@ typedef enum
     ma_device_state_stopping      = 4   /* Transitioning from a started state to stopped. */
 } ma_device_state;
 
+MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, device_state)
+
+
 #ifdef MA_SUPPORT_WASAPI
 /* We need a IMMNotificationClient object for WASAPI. */
 typedef struct
@@ -6438,7 +6502,7 @@ DEPRECATED. Use ma_device_notification_proc instead.
 The callback for when the device has been stopped.
 
 This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
-such as being unplugged or an internal error occuring.
+such as being unplugged or an internal error occurring.
 
 
 Parameters
@@ -6801,7 +6865,7 @@ If the backend requires absolute flexibility with it's data delivery, it can opt
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == ma_device_state_started` and no errors have been
-encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
+encountered. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
 
 The invocation of the `onDeviceDataLoop()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == ma_device_state_started` condition will fail and the loop will be terminated
@@ -7310,7 +7374,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    MA_ATOMIC(4, ma_device_state) state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
+    ma_atomic_device_state state;               /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                        /* DEPRECATED. Use the notification callback instead. Set once at initialization time and should not be changed after. */
@@ -7326,7 +7390,7 @@ struct ma_device
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
     ma_bool8 noFixedSizedCallback;
-    MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
+    ma_atomic_float masterVolumeFactor;         /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
@@ -7414,8 +7478,8 @@ struct ma_device
             void* pMappedBufferPlayback;
             ma_uint32 mappedBufferPlaybackCap;
             ma_uint32 mappedBufferPlaybackLen;
-            MA_ATOMIC(4, ma_bool32) isStartedCapture;               /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
-            MA_ATOMIC(4, ma_bool32) isStartedPlayback;              /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            ma_atomic_bool32 isStartedCapture;                      /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            ma_atomic_bool32 isStartedPlayback;                     /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_uint32 loopbackProcessID;
             ma_bool8 loopbackProcessExclude;
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
@@ -7588,7 +7652,7 @@ struct ma_device
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            MA_ATOMIC(4, ma_bool32) isStarted;  /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
+            ma_atomic_bool32 isStarted; /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
 #endif
     };
@@ -8252,7 +8316,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         A pointer that will passed to callbacks in pBackendVTable.
 
     resampling.linear.lpfOrder
-        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the order of the filter. The higher
+        The linear resampler applies a low-pass filter as part of it's processing for anti-aliasing. This setting controls the order of the filter. The higher
         the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
         `MA_MAX_FILTER_ORDER`. The default value is `min(4, MA_MAX_FILTER_ORDER)`.
 
@@ -9259,7 +9323,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 /************************************************************************************************************************************************************
 
-Utiltities
+Utilities
 
 ************************************************************************************************************************************************************/
 
@@ -10118,7 +10182,7 @@ struct ma_resource_manager_data_buffer
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
     MA_ATOMIC(4, ma_result) result;                 /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
     MA_ATOMIC(4, ma_bool32) isLooping;              /* Can be read and written by different threads at the same time. Must be used atomically. */
-    ma_bool32 isConnectorInitialized;               /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
+    ma_atomic_bool32 isConnectorInitialized;        /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
     union
     {
         ma_decoder decoder;                 /* Supply type is ma_resource_manager_data_supply_type_encoded */
@@ -10518,7 +10582,7 @@ MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourc
 MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode);
 
 
-/* Splitter Node. 1 input, 2 outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
+/* Splitter Node. 1 input, many outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
 typedef struct
 {
     ma_node_config nodeConfig;
@@ -15140,10 +15204,10 @@ typedef unsigned char           c89atomic_bool;
 #define c89atomic_clear_explicit_i16(ptr, order)                        c89atomic_clear_explicit_16((c89atomic_uint16*)ptr, order)
 #define c89atomic_clear_explicit_i32(ptr, order)                        c89atomic_clear_explicit_32((c89atomic_uint32*)ptr, order)
 #define c89atomic_clear_explicit_i64(ptr, order)                        c89atomic_clear_explicit_64((c89atomic_uint64*)ptr, order)
-#define c89atomic_store_explicit_i8( dst, src, order)                   (c89atomic_int8 )c89atomic_store_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
-#define c89atomic_store_explicit_i16(dst, src, order)                   (c89atomic_int16)c89atomic_store_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
-#define c89atomic_store_explicit_i32(dst, src, order)                   (c89atomic_int32)c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
-#define c89atomic_store_explicit_i64(dst, src, order)                   (c89atomic_int64)c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
+#define c89atomic_store_explicit_i8( dst, src, order)                   c89atomic_store_explicit_8( (c89atomic_uint8* )dst, (c89atomic_uint8 )src, order)
+#define c89atomic_store_explicit_i16(dst, src, order)                   c89atomic_store_explicit_16((c89atomic_uint16*)dst, (c89atomic_uint16)src, order)
+#define c89atomic_store_explicit_i32(dst, src, order)                   c89atomic_store_explicit_32((c89atomic_uint32*)dst, (c89atomic_uint32)src, order)
+#define c89atomic_store_explicit_i64(dst, src, order)                   c89atomic_store_explicit_64((c89atomic_uint64*)dst, (c89atomic_uint64)src, order)
 #define c89atomic_load_explicit_i8( ptr, order)                         (c89atomic_int8 )c89atomic_load_explicit_8( (c89atomic_uint8* )ptr, order)
 #define c89atomic_load_explicit_i16(ptr, order)                         (c89atomic_int16)c89atomic_load_explicit_16((c89atomic_uint16*)ptr, order)
 #define c89atomic_load_explicit_i32(ptr, order)                         (c89atomic_int32)c89atomic_load_explicit_32((c89atomic_uint32*)ptr, order)
@@ -15284,6 +15348,110 @@ static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* 
     r.i = c89atomic_exchange_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
     return r.f;
 }
+static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_f32(volatile float* dst, float* expected, float desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+{
+    c89atomic_if32 d;
+    d.f = desired;
+    return c89atomic_compare_exchange_strong_explicit_32((volatile c89atomic_uint32*)dst, (c89atomic_uint32*)expected, d.i, successOrder, failureOrder);
+}
+static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_f64(volatile double* dst, double* expected, double desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+{
+    c89atomic_if64 d;
+    d.f = desired;
+    return c89atomic_compare_exchange_strong_explicit_64((volatile c89atomic_uint64*)dst, (c89atomic_uint64*)expected, d.i, successOrder, failureOrder);
+}
+static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_weak_explicit_f32(volatile float* dst, float* expected, float desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+{
+    c89atomic_if32 d;
+    d.f = desired;
+    return c89atomic_compare_exchange_weak_explicit_32((volatile c89atomic_uint32*)dst, (c89atomic_uint32*)expected, d.i, successOrder, failureOrder);
+}
+static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_weak_explicit_f64(volatile double* dst, double* expected, double desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+{
+    c89atomic_if64 d;
+    d.f = desired;
+    return c89atomic_compare_exchange_weak_explicit_64((volatile c89atomic_uint64*)dst, (c89atomic_uint64*)expected, d.i, successOrder, failureOrder);
+}
+static C89ATOMIC_INLINE float c89atomic_fetch_add_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_fetch_add_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_fetch_add_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_fetch_add_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE float c89atomic_fetch_sub_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_fetch_sub_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_fetch_sub_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_fetch_sub_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE float c89atomic_fetch_or_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_fetch_or_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_fetch_or_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_fetch_or_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE float c89atomic_fetch_xor_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_fetch_xor_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_fetch_xor_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_fetch_xor_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE float c89atomic_fetch_and_explicit_f32(volatile float* dst, float src, c89atomic_memory_order order)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 x;
+    x.f = src;
+    r.i = c89atomic_fetch_and_explicit_32((volatile c89atomic_uint32*)dst, x.i, order);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_fetch_and_explicit_f64(volatile double* dst, double src, c89atomic_memory_order order)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 x;
+    x.f = src;
+    r.i = c89atomic_fetch_and_explicit_64((volatile c89atomic_uint64*)dst, x.i, order);
+    return r.f;
+}
 #define c89atomic_clear_f32(ptr)                                        (float )c89atomic_clear_explicit_f32(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_clear_f64(ptr)                                        (double)c89atomic_clear_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_store_f32(dst, src)                                   c89atomic_store_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
@@ -15292,6 +15460,38 @@ static C89ATOMIC_INLINE double c89atomic_exchange_explicit_f64(volatile double* 
 #define c89atomic_load_f64(ptr)                                         (double)c89atomic_load_explicit_f64(ptr, c89atomic_memory_order_seq_cst)
 #define c89atomic_exchange_f32(dst, src)                                (float )c89atomic_exchange_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
 #define c89atomic_exchange_f64(dst, src)                                (double)c89atomic_exchange_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_f32(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_f32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_strong_f64(dst, expected, desired)   c89atomic_compare_exchange_strong_explicit_f64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_f32(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_f32(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_compare_exchange_weak_f64(dst, expected, desired)     c89atomic_compare_exchange_weak_explicit_f64(dst, expected, desired, c89atomic_memory_order_seq_cst, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_f32(dst, src)                               c89atomic_fetch_add_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_add_f64(dst, src)                               c89atomic_fetch_add_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_f32(dst, src)                               c89atomic_fetch_sub_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_sub_f64(dst, src)                               c89atomic_fetch_sub_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_f32(dst, src)                                c89atomic_fetch_or_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_or_f64(dst, src)                                c89atomic_fetch_or_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_f32(dst, src)                               c89atomic_fetch_xor_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_xor_f64(dst, src)                               c89atomic_fetch_xor_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_f32(dst, src)                               c89atomic_fetch_and_explicit_f32(dst, src, c89atomic_memory_order_seq_cst)
+#define c89atomic_fetch_and_f64(dst, src)                               c89atomic_fetch_and_explicit_f64(dst, src, c89atomic_memory_order_seq_cst)
+static C89ATOMIC_INLINE float c89atomic_compare_and_swap_f32(volatile float* dst, float expected, float desired)
+{
+    c89atomic_if32 r;
+    c89atomic_if32 e, d;
+    e.f = expected;
+    d.f = desired;
+    r.i = c89atomic_compare_and_swap_32((volatile c89atomic_uint32*)dst, e.i, e.i);
+    return r.f;
+}
+static C89ATOMIC_INLINE double c89atomic_compare_and_swap_f64(volatile double* dst, double expected, double desired)
+{
+    c89atomic_if64 r;
+    c89atomic_if64 e, d;
+    e.f = expected;
+    d.f = desired;
+    r.i = c89atomic_compare_and_swap_64((volatile c89atomic_uint64*)dst, e.i, e.i);
+    return r.f;
+}
 typedef c89atomic_flag c89atomic_spinlock;
 static C89ATOMIC_INLINE void c89atomic_spinlock_lock(volatile c89atomic_spinlock* pSpinlock)
 {
@@ -15313,6 +15513,76 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 #endif
 /* c89atomic.h end */
 
+#define MA_ATOMIC_SAFE_TYPE_IMPL(c89TypeExtension, type) \
+    static MA_INLINE ma_##type ma_atomic_##type##_get(ma_atomic_##type* x) \
+    { \
+        return (ma_##type) c89atomic_load_##c89TypeExtension(&x->value); \
+    } \
+    static MA_INLINE void ma_atomic_##type##_set(ma_atomic_##type* x, ma_##type value) \
+    { \
+        c89atomic_store_##c89TypeExtension(&x->value, value); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_exchange(ma_atomic_##type* x, ma_##type value) \
+    { \
+        return (ma_##type) c89atomic_exchange_##c89TypeExtension(&x->value, value); \
+    } \
+    static MA_INLINE ma_bool32 ma_atomic_##type##_compare_exchange(ma_atomic_##type* x, ma_##type* expected, ma_##type desired) \
+    { \
+        return c89atomic_compare_exchange_weak_##c89TypeExtension(&x->value, expected, desired); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_add(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return (ma_##type) c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_sub(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return (ma_##type) c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_or(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return (ma_##type) c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_xor(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return (ma_##type) c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_fetch_and(ma_atomic_##type* x, ma_##type y) \
+    { \
+        return (ma_##type) c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
+    } \
+    static MA_INLINE ma_##type ma_atomic_##type##_compare_and_swap(ma_atomic_##type* x, ma_##type expected, ma_##type desired) \
+    { \
+        return (ma_##type) c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
+    } \
+
+#define MA_ATOMIC_SAFE_TYPE_IMPL_PTR(type) \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_get(ma_atomic_ptr_##type* x) \
+    { \
+        return c89atomic_load_ptr((void**)&x->value); \
+    } \
+    static MA_INLINE void ma_atomic_ptr_##type##_set(ma_atomic_ptr_##type* x, ma_##type* value) \
+    { \
+        c89atomic_store_ptr((void**)&x->value, (void*)value); \
+    } \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_exchange(ma_atomic_ptr_##type* x, ma_##type* value) \
+    { \
+        return c89atomic_exchange_ptr((void**)&x->value, (void*)value); \
+    } \
+    static MA_INLINE ma_bool32 ma_atomic_ptr_##type##_compare_exchange(ma_atomic_ptr_##type* x, ma_##type** expected, ma_##type* desired) \
+    { \
+        return c89atomic_compare_exchange_weak_ptr((void**)&x->value, (void*)expected, (void*)desired); \
+    } \
+    static MA_INLINE ma_##type* ma_atomic_ptr_##type##_compare_and_swap(ma_atomic_ptr_##type* x, ma_##type* expected, ma_##type* desired) \
+    { \
+        return (ma_##type*)c89atomic_compare_and_swap_ptr((void**)&x->value, (void*)expected, (void*)desired); \
+    } \
+
+MA_ATOMIC_SAFE_TYPE_IMPL(32,  uint32)
+MA_ATOMIC_SAFE_TYPE_IMPL(i32, int32)
+MA_ATOMIC_SAFE_TYPE_IMPL(64,  uint64)
+MA_ATOMIC_SAFE_TYPE_IMPL(f32, float)
+MA_ATOMIC_SAFE_TYPE_IMPL(32,  bool32)
+MA_ATOMIC_SAFE_TYPE_IMPL(i32, device_state)
 
 
 MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
@@ -18338,7 +18608,7 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
 /* A helper for changing the state of the device. */
 static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state newState)
 {
-    c89atomic_exchange_i32((ma_int32*)&pDevice->state, (ma_int32)newState);
+    ma_atomic_device_state_set(&pDevice->state, newState);
 }
 
 
@@ -18849,7 +19119,7 @@ static ma_result ma_device_start__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_START__NULL);
 
-    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_TRUE);
+    ma_atomic_bool32_set(&pDevice->null_device.isStarted, MA_TRUE);
     return MA_SUCCESS;
 }
 
@@ -18859,8 +19129,15 @@ static ma_result ma_device_stop__null(ma_device* pDevice)
 
     ma_device_do_operation__null(pDevice, MA_DEVICE_OP_SUSPEND__NULL);
 
-    c89atomic_exchange_32(&pDevice->null_device.isStarted, MA_FALSE);
+    ma_atomic_bool32_set(&pDevice->null_device.isStarted, MA_FALSE);
     return MA_SUCCESS;
+}
+
+static ma_bool32 ma_device_is_started__null(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    return ma_atomic_bool32_get(&pDevice->null_device.isStarted);
 }
 
 static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
@@ -18873,7 +19150,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         *pFramesWritten = 0;
     }
 
-    wasStartedOnEntry = c89atomic_load_32(&pDevice->null_device.isStarted);
+    wasStartedOnEntry = ma_device_is_started__null(pDevice);
 
     /* Keep going until everything has been read. */
     totalPCMFramesProcessed = 0;
@@ -18899,7 +19176,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
         if (pDevice->null_device.currentPeriodFramesRemainingPlayback == 0) {
             pDevice->null_device.currentPeriodFramesRemainingPlayback = 0;
 
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted) && !wasStartedOnEntry) {
+            if (!ma_device_is_started__null(pDevice) && !wasStartedOnEntry) {
                 result = ma_device_start__null(pDevice);
                 if (result != MA_SUCCESS) {
                     break;
@@ -18919,7 +19196,7 @@ static ma_result ma_device_write__null(ma_device* pDevice, const void* pPCMFrame
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
+            if (!ma_device_is_started__null(pDevice)) {
                 break;
             }
 
@@ -18990,7 +19267,7 @@ static ma_result ma_device_read__null(ma_device* pDevice, void* pPCMFrames, ma_u
             ma_uint64 currentFrame;
 
             /* Stop waiting if the device has been stopped. */
-            if (!c89atomic_load_32(&pDevice->null_device.isStarted)) {
+            if (!ma_device_is_started__null(pDevice)) {
                 break;
             }
 
@@ -21961,8 +22238,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     }
 #endif
 
-    c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
-    c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+    ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture,  MA_FALSE);
+    ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
 
     return MA_SUCCESS;
 }
@@ -22067,7 +22344,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
             return ma_result_from_HRESULT(hr);
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_TRUE);
+        ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture, MA_TRUE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -22077,7 +22354,7 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
             return ma_result_from_HRESULT(hr);
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
+        ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_TRUE);
     }
 
     return MA_SUCCESS;
@@ -22117,7 +22394,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
             pDevice->wasapi.mappedBufferCaptureLen = 0;
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedCapture, MA_FALSE);
+        ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -22125,7 +22402,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
         */
-        if (c89atomic_load_32(&pDevice->wasapi.isStartedPlayback)) {
+        if (ma_atomic_bool32_get(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
             DWORD waitTime = pDevice->wasapi.actualBufferSizeInFramesPlayback / pDevice->playback.internalSampleRate;
 
@@ -22179,7 +22456,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
             pDevice->wasapi.mappedBufferPlaybackLen = 0;
         }
 
-        c89atomic_exchange_32(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
+        ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
     }
 
     return MA_SUCCESS;
@@ -39144,6 +39421,14 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
     MA_ASSERT(pDevice != NULL);
 
+	if (pDevice->type == ma_device_type_duplex) {
+	    // device is expected to be used as both input/output
+		// without this, deviceType could be playback,
+		// causing the device input cache to be freed
+		// and this will break other code using that cache later
+	    deviceType = ma_device_type_duplex;
+	}
+
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         if (pDevice->capture.format == ma_format_unknown) {
             pDevice->capture.format = pDevice->capture.internalFormat;
@@ -40303,7 +40588,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->noClip                      = pConfig->noClip;
     pDevice->noDisableDenormals          = pConfig->noDisableDenormals;
     pDevice->noFixedSizedCallback        = pConfig->noFixedSizedCallback;
-    pDevice->masterVolumeFactor          = 1;
+    ma_atomic_float_set(&pDevice->masterVolumeFactor, 1);
 
     pDevice->type                        = pConfig->deviceType;
     pDevice->sampleRate                  = pConfig->sampleRate;
@@ -41011,7 +41296,7 @@ MA_API ma_device_state ma_device_get_state(const ma_device* pDevice)
         return ma_device_state_uninitialized;
     }
 
-    return (ma_device_state)c89atomic_load_i32((ma_int32*)&pDevice->state);  /* Naughty cast to get rid of a const warning. */
+    return ma_atomic_device_state_get((ma_atomic_device_state*)&pDevice->state);   /* Naughty cast to get rid of a const warning. */
 }
 
 MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
@@ -41024,7 +41309,7 @@ MA_API ma_result ma_device_set_master_volume(ma_device* pDevice, float volume)
         return MA_INVALID_ARGS;
     }
 
-    c89atomic_exchange_f32(&pDevice->masterVolumeFactor, volume);
+    ma_atomic_float_set(&pDevice->masterVolumeFactor, volume);
 
     return MA_SUCCESS;
 }
@@ -41040,7 +41325,7 @@ MA_API ma_result ma_device_get_master_volume(ma_device* pDevice, float* pVolume)
         return MA_INVALID_ARGS;
     }
 
-    *pVolume = c89atomic_load_f32(&pDevice->masterVolumeFactor);
+    *pVolume = ma_atomic_float_get(&pDevice->masterVolumeFactor);
 
     return MA_SUCCESS;
 }
@@ -65623,8 +65908,17 @@ static ma_result ma_resource_manager__init_decoder(ma_resource_manager* pResourc
     return MA_SUCCESS;
 }
 
+static ma_bool32 ma_resource_manager_data_buffer_has_connector(ma_resource_manager_data_buffer* pDataBuffer)
+{
+    return ma_atomic_bool32_get(&pDataBuffer->isConnectorInitialized);
+}
+
 static ma_data_source* ma_resource_manager_data_buffer_get_connector(ma_resource_manager_data_buffer* pDataBuffer)
 {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
+        return NULL;    /* Connector not yet initialized. */
+    }
+
     switch (pDataBuffer->pNode->data.type)
     {
         case ma_resource_manager_data_supply_type_encoded:       return &pDataBuffer->connector.decoder;
@@ -65646,7 +65940,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
 
     MA_ASSERT(pDataBuffer != NULL);
     MA_ASSERT(pConfig     != NULL);
-    MA_ASSERT(pDataBuffer->isConnectorInitialized == MA_FALSE);
+    MA_ASSERT(ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE);
 
     /* The underlying data buffer must be initialized before we'll be able to know how to initialize the backend. */
     result = ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode);
@@ -65703,7 +65997,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
         ma_data_source_set_looping(pDataBuffer, pConfig->isLooping);
 
-        pDataBuffer->isConnectorInitialized = MA_TRUE;
+        ma_atomic_bool32_set(&pDataBuffer->isConnectorInitialized, MA_TRUE);
 
         if (pInitNotification != NULL) {
             ma_async_notification_signal(pInitNotification);
@@ -66708,15 +67002,25 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If the node is not initialized we need to abort with a busy code. */
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
         return MA_BUSY; /* Still loading. */
     }
 
+    /*
+    If we've got a seek scheduled we'll want to do that before reading. However, for paged buffers, there's
+    a chance that the sound hasn't yet been decoded up to the seek point will result in the seek failing. If
+    this happens, we need to keep the seek scheduled and return MA_BUSY.
+    */
     if (pDataBuffer->seekToCursorOnNextRead) {
         pDataBuffer->seekToCursorOnNextRead = MA_FALSE;
 
         result = ma_data_source_seek_to_pcm_frame(ma_resource_manager_data_buffer_get_connector(pDataBuffer), pDataBuffer->seekTargetInPCMFrames);
         if (result != MA_SUCCESS) {
+            if (result == MA_BAD_SEEK && ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_decoded_paged) {
+                pDataBuffer->seekToCursorOnNextRead = MA_TRUE;  /* Keep the seek scheduled. We just haven't loaded enough data yet to do the seek properly. */
+                return MA_BUSY;
+            }
+                
             return result;
         }
     }
@@ -66789,7 +67093,7 @@ MA_API ma_result ma_resource_manager_data_buffer_seek_to_pcm_frame(ma_resource_m
     MA_ASSERT(ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) != MA_UNAVAILABLE);
 
     /* If we haven't yet got a connector we need to abort. */
-    if (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode) == ma_resource_manager_data_supply_type_unknown) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE) {
         pDataBuffer->seekTargetInPCMFrames = frameIndex;
         pDataBuffer->seekToCursorOnNextRead = MA_TRUE;
         return MA_BUSY; /* Still loading. */
@@ -68354,7 +68658,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
     }
 
     /* Try initializing the connector if we haven't already. */
-    isConnectorInitialized = pDataBuffer->isConnectorInitialized;
+    isConnectorInitialized = ma_resource_manager_data_buffer_has_connector(pDataBuffer);
     if (isConnectorInitialized == MA_FALSE) {
         dataSupplyType = ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode);
 
@@ -68410,7 +68714,7 @@ done:
     If at this point the data buffer has not had it's connector initialized, it means the
     notification event was never signalled which means we need to signal it here.
     */
-    if (pDataBuffer->isConnectorInitialized == MA_FALSE && result != MA_SUCCESS) {
+    if (ma_resource_manager_data_buffer_has_connector(pDataBuffer) == MA_FALSE && result != MA_SUCCESS) {
         if (pJob->data.resourceManager.loadDataBuffer.pInitNotification != NULL) {
             ma_async_notification_signal(pJob->data.resourceManager.loadDataBuffer.pInitNotification);
         }
@@ -77235,10 +77539,10 @@ DRWAV_PRIVATE drwav_result drwav_wfopen(FILE** ppFile, const wchar_t* pFilePath,
         (void)pAllocationCallbacks;
     }
 #else
-	#if defined(__DJGPP__)
-	{
-	}
-	#else
+    #if defined(__DJGPP__)
+    {
+    }
+    #else
     {
         mbstate_t mbs;
         size_t lenMB;
@@ -77271,7 +77575,7 @@ DRWAV_PRIVATE drwav_result drwav_wfopen(FILE** ppFile, const wchar_t* pFilePath,
         *ppFile = fopen(pFilePathMB, pOpenModeMB);
         drwav__free_from_callbacks(pFilePathMB, pAllocationCallbacks);
     }
-	#endif
+    #endif
     if (*ppFile == NULL) {
         return DRWAV_ERROR;
     }
@@ -85196,10 +85500,10 @@ static drflac_result drflac_wfopen(FILE** ppFile, const wchar_t* pFilePath, cons
         (void)pAllocationCallbacks;
     }
 #else
-	#if defined(__DJGPP__)
-	{
-	}
-	#else
+    #if defined(__DJGPP__)
+    {
+    }
+    #else
     {
         mbstate_t mbs;
         size_t lenMB;
@@ -85232,7 +85536,7 @@ static drflac_result drflac_wfopen(FILE** ppFile, const wchar_t* pFilePath, cons
         *ppFile = fopen(pFilePathMB, pOpenModeMB);
         drflac__free_from_callbacks(pFilePathMB, pAllocationCallbacks);
     }
-	#endif
+    #endif
     if (*ppFile == NULL) {
         return DRFLAC_ERROR;
     }
@@ -90532,10 +90836,10 @@ static drmp3_result drmp3_wfopen(FILE** ppFile, const wchar_t* pFilePath, const 
         (void)pAllocationCallbacks;
     }
 #else
-	#if defined(__DJGPP__)
-	{
-	}
-	#else
+    #if defined(__DJGPP__)
+    {
+    }
+    #else
     {
         mbstate_t mbs;
         size_t lenMB;
@@ -90568,7 +90872,7 @@ static drmp3_result drmp3_wfopen(FILE** ppFile, const wchar_t* pFilePath, const 
         *ppFile = fopen(pFilePathMB, pOpenModeMB);
         drmp3__free_from_callbacks(pFilePathMB, pAllocationCallbacks);
     }
-	#endif
+    #endif
     if (*ppFile == NULL) {
         return DRMP3_ERROR;
     }
