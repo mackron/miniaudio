@@ -72382,6 +72382,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     ma_spatializer_config spatializerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
+    ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
 
     MA_ASSERT(pHeapLayout);
 
@@ -72431,6 +72432,10 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     /* Spatializer. */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
 
+    if (spatializerConfig.channelsIn == 2) {
+        spatializerConfig.pChannelMapIn = defaultStereoChannelMap;
+    }
+
     result = ma_spatializer_get_heap_size(&spatializerConfig, &tempHeapSize);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the size of the heap for the spatializer. */
@@ -72475,6 +72480,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     ma_panner_config pannerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
+    ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
 
     if (pEngineNode == NULL) {
         return MA_INVALID_ARGS;
@@ -72553,6 +72559,10 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
     spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
+
+    if (spatializerConfig.channelsIn == 2) {
+        spatializerConfig.pChannelMapIn = defaultStereoChannelMap;
+    }
 
     result = ma_spatializer_init_preallocated(&spatializerConfig, ma_offset_ptr(pHeap, heapLayout.spatializerOffset), &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
