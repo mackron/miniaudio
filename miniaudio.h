@@ -69691,6 +69691,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
         ma_bool32 isSilentOutput = MA_FALSE;
 
         MA_ASSERT(pOutputBus->pNode != NULL);
+        MA_ASSERT(((ma_node_base*)pOutputBus->pNode)->vtable != NULL);
 
         isSilentOutput = (((ma_node_base*)pOutputBus->pNode)->vtable->flags & MA_NODE_FLAG_SILENT_OUTPUT) != 0;
 
