@@ -15516,7 +15516,7 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 #define MA_ATOMIC_SAFE_TYPE_IMPL(c89TypeExtension, type) \
     static MA_INLINE ma_##type ma_atomic_##type##_get(ma_atomic_##type* x) \
     { \
-        return (ma_##type) c89atomic_load_##c89TypeExtension(&x->value); \
+        return (ma_##type)c89atomic_load_##c89TypeExtension(&x->value); \
     } \
     static MA_INLINE void ma_atomic_##type##_set(ma_atomic_##type* x, ma_##type value) \
     { \
@@ -15524,7 +15524,7 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_exchange(ma_atomic_##type* x, ma_##type value) \
     { \
-        return (ma_##type) c89atomic_exchange_##c89TypeExtension(&x->value, value); \
+        return (ma_##type)c89atomic_exchange_##c89TypeExtension(&x->value, value); \
     } \
     static MA_INLINE ma_bool32 ma_atomic_##type##_compare_exchange(ma_atomic_##type* x, ma_##type* expected, ma_##type desired) \
     { \
@@ -15532,27 +15532,27 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_add(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_sub(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_or(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_xor(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_and(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_compare_and_swap(ma_atomic_##type* x, ma_##type expected, ma_##type desired) \
     { \
-        return (ma_##type) c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
+        return (ma_##type)c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
     } \
 
 #define MA_ATOMIC_SAFE_TYPE_IMPL_PTR(type) \
