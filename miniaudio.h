@@ -26894,7 +26894,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     isUsingMMap = MA_FALSE;
 #if 0   /* NOTE: MMAP mode temporarily disabled. */
     if (deviceType != ma_device_type_capture) {    /* <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome. */
-        if (!pConfig->alsa.noMMap && ma_device__is_async(pDevice)) {
+        if (!pConfig->alsa.noMMap) {
             if (((ma_snd_pcm_hw_params_set_access_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_access)(pPCM, pHWParams, MA_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
                 pDevice->alsa.isUsingMMap = MA_TRUE;
             }
