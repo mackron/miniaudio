@@ -73669,21 +73669,35 @@ done:
 
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init_2(pEngine);
+    ma_sound_config config;
+
+    if (pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+    
+    config = ma_sound_config_init_2(pEngine);
     config.pFilePath          = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     config.pDoneFence         = pDoneFence;
+
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init_2(pEngine);
+    ma_sound_config config;
+
+    if (pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+    
+    config = ma_sound_config_init_2(pEngine);
     config.pFilePathW         = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     config.pDoneFence         = pDoneFence;
+
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
