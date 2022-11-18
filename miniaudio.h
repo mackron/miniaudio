@@ -39415,19 +39415,27 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint
 }
 
 
+static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
+{
+    MA_ASSERT(pContext != NULL);
+
+    if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
+        if (pContext->callbacks.onDeviceDataLoop == NULL) {
+            return MA_TRUE;
+        } else {
+            return MA_FALSE;
+        }
+    } else {
+        return MA_FALSE;
+    }
+}
+
+
 static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
-
-	if (pDevice->type == ma_device_type_duplex) {
-	    // device is expected to be used as both input/output
-		// without this, deviceType could be playback,
-		// causing the device input cache to be freed
-		// and this will break other code using that cache later
-	    deviceType = ma_device_type_duplex;
-	}
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         if (pDevice->capture.format == ma_format_unknown) {
@@ -39542,8 +39550,23 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
 
     /*
-    In playback mode, if the data converter does not support retrieval of the required number of
-    input frames given a number of output frames, we need to fall back to a heap-allocated cache.
+    If the device is doing playback (ma_device_type_playback or ma_device_type_duplex), there's
+    a couple of situations where we'll need a heap allocated cache.
+
+    The first is a duplex device for backends that use a callback for data delivery. The reason
+    this is needed is that the input stage needs to have a buffer to place the input data while it
+    waits for the playback stage, after which the miniaudio data callback will get fired. This is
+    not needed for backends that use a blocking API because miniaudio manages temporary buffers on
+    the stack to achieve this.
+
+    The other situation is when the data converter does not have the ability to query the number
+    of input frames that are required in order to process a given number of output frames. When
+    performing data conversion, it's useful if miniaudio know exactly how many frames it needs
+    from the client in order to generate a given number of output frames. This way, only exactly
+    the number of frames are needed to be read from the client which means no cache is necessary.
+    On the other hand, if miniaudio doesn't know how many frames to read, it is forced to read
+    in fixed sized chunks and then cache any residual unused input frames, those of which will be
+    processed at a later stage.
     */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint64 unused;
@@ -39551,7 +39574,9 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         pDevice->playback.inputCacheConsumed  = 0;
         pDevice->playback.inputCacheRemaining = 0;
 
-        if (deviceType == ma_device_type_duplex || ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS) {
+        if ((pDevice->type == ma_device_type_duplex && ma_context_is_backend_asynchronous(pDevice->pContext)) ||            /* Duplex with asynchronous backend. */
+            ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS)       /* Data conversion required input frame calculation not supported. */
+        {
             /* We need a heap allocated cache. We want to size this based on the period size. */
             void* pNewInputCache;
             ma_uint64 newInputCacheCap;
@@ -39567,7 +39592,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
                 return MA_OUT_OF_MEMORY;    /* Allocation too big. Should never hit this, but makes the cast below safer for 32-bit builds. */
             }
 
-            pNewInputCache   = ma_realloc(pDevice->playback.pInputCache, (size_t)newInputCacheSizeInBytes, &pDevice->pContext->allocationCallbacks);
+            pNewInputCache = ma_realloc(pDevice->playback.pInputCache, (size_t)newInputCacheSizeInBytes, &pDevice->pContext->allocationCallbacks);
             if (pNewInputCache == NULL) {
                 ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
                 pDevice->playback.pInputCache   = NULL;
@@ -39937,22 +39962,6 @@ static ma_result ma_context_uninit_backend_apis(ma_context* pContext)
 #endif
 
     return result;
-}
-
-
-static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
-{
-    MA_ASSERT(pContext != NULL);
-
-    if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
-        if (pContext->callbacks.onDeviceDataLoop == NULL) {
-            return MA_TRUE;
-        } else {
-            return MA_FALSE;
-        }
-    } else {
-        return MA_FALSE;
-    }
 }
 
 
