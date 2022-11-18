@@ -10448,7 +10448,7 @@ struct ma_node_output_bus
     ma_uint8 channels;                                      /* The number of channels in the audio stream for this bus. */
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
-    MA_ATOMIC(1, ma_uint8) inputNodeInputBusIndex;          /* The index of the input bus on the input. Required for detaching. */
+    ma_uint8 inputNodeInputBusIndex;                        /* The index of the input bus on the input. Required for detaching. Will only be used within the spinlock so does not need to be atomic. */
     MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. A combination of MA_NODE_OUTPUT_BUS_FLAG_*. */
     MA_ATOMIC(4, ma_uint32) refCount;                       /* Reference count for some thread-safety when detaching. */
     MA_ATOMIC(4, ma_bool32) isAttached;                     /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
@@ -10472,7 +10472,7 @@ struct ma_node_input_bus
     MA_ATOMIC(4, ma_spinlock) lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
 
     /* Set once at startup. */
-    ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
+    ma_uint8 channels;                      /* The number of channels in the audio stream for this bus. */
 };
 
 
@@ -10480,7 +10480,7 @@ typedef struct ma_node_base ma_node_base;
 struct ma_node_base
 {
     /* These variables are set once at startup. */
-    ma_node_graph* pNodeGraph;  /* The graph this node belongs to. */
+    ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
     float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
     ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
@@ -15516,7 +15516,7 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 #define MA_ATOMIC_SAFE_TYPE_IMPL(c89TypeExtension, type) \
     static MA_INLINE ma_##type ma_atomic_##type##_get(ma_atomic_##type* x) \
     { \
-        return (ma_##type) c89atomic_load_##c89TypeExtension(&x->value); \
+        return (ma_##type)c89atomic_load_##c89TypeExtension(&x->value); \
     } \
     static MA_INLINE void ma_atomic_##type##_set(ma_atomic_##type* x, ma_##type value) \
     { \
@@ -15524,7 +15524,7 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_exchange(ma_atomic_##type* x, ma_##type value) \
     { \
-        return (ma_##type) c89atomic_exchange_##c89TypeExtension(&x->value, value); \
+        return (ma_##type)c89atomic_exchange_##c89TypeExtension(&x->value, value); \
     } \
     static MA_INLINE ma_bool32 ma_atomic_##type##_compare_exchange(ma_atomic_##type* x, ma_##type* expected, ma_##type desired) \
     { \
@@ -15532,27 +15532,27 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_add(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_add_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_sub(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_sub_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_or(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_or_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_xor(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_xor_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_fetch_and(ma_atomic_##type* x, ma_##type y) \
     { \
-        return (ma_##type) c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
+        return (ma_##type)c89atomic_fetch_and_##c89TypeExtension(&x->value, y); \
     } \
     static MA_INLINE ma_##type ma_atomic_##type##_compare_and_swap(ma_atomic_##type* x, ma_##type expected, ma_##type desired) \
     { \
-        return (ma_##type) c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
+        return (ma_##type)c89atomic_compare_and_swap_##c89TypeExtension(&x->value, expected, desired); \
     } \
 
 #define MA_ATOMIC_SAFE_TYPE_IMPL_PTR(type) \
@@ -26894,7 +26894,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     isUsingMMap = MA_FALSE;
 #if 0   /* NOTE: MMAP mode temporarily disabled. */
     if (deviceType != ma_device_type_capture) {    /* <-- Disabling MMAP mode for capture devices because I apparently do not have a device that supports it which means I can't test it... Contributions welcome. */
-        if (!pConfig->alsa.noMMap && ma_device__is_async(pDevice)) {
+        if (!pConfig->alsa.noMMap) {
             if (((ma_snd_pcm_hw_params_set_access_proc)pDevice->pContext->alsa.snd_pcm_hw_params_set_access)(pPCM, pHWParams, MA_SND_PCM_ACCESS_MMAP_INTERLEAVED) == 0) {
                 pDevice->alsa.isUsingMMap = MA_TRUE;
             }
@@ -39415,19 +39415,27 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint
 }
 
 
+static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
+{
+    MA_ASSERT(pContext != NULL);
+
+    if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
+        if (pContext->callbacks.onDeviceDataLoop == NULL) {
+            return MA_TRUE;
+        } else {
+            return MA_FALSE;
+        }
+    } else {
+        return MA_FALSE;
+    }
+}
+
+
 static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
-
-	if (pDevice->type == ma_device_type_duplex) {
-	    // device is expected to be used as both input/output
-		// without this, deviceType could be playback,
-		// causing the device input cache to be freed
-		// and this will break other code using that cache later
-	    deviceType = ma_device_type_duplex;
-	}
 
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
         if (pDevice->capture.format == ma_format_unknown) {
@@ -39542,8 +39550,23 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
 
     /*
-    In playback mode, if the data converter does not support retrieval of the required number of
-    input frames given a number of output frames, we need to fall back to a heap-allocated cache.
+    If the device is doing playback (ma_device_type_playback or ma_device_type_duplex), there's
+    a couple of situations where we'll need a heap allocated cache.
+
+    The first is a duplex device for backends that use a callback for data delivery. The reason
+    this is needed is that the input stage needs to have a buffer to place the input data while it
+    waits for the playback stage, after which the miniaudio data callback will get fired. This is
+    not needed for backends that use a blocking API because miniaudio manages temporary buffers on
+    the stack to achieve this.
+
+    The other situation is when the data converter does not have the ability to query the number
+    of input frames that are required in order to process a given number of output frames. When
+    performing data conversion, it's useful if miniaudio know exactly how many frames it needs
+    from the client in order to generate a given number of output frames. This way, only exactly
+    the number of frames are needed to be read from the client which means no cache is necessary.
+    On the other hand, if miniaudio doesn't know how many frames to read, it is forced to read
+    in fixed sized chunks and then cache any residual unused input frames, those of which will be
+    processed at a later stage.
     */
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint64 unused;
@@ -39551,7 +39574,9 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         pDevice->playback.inputCacheConsumed  = 0;
         pDevice->playback.inputCacheRemaining = 0;
 
-        if (deviceType == ma_device_type_duplex || ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS) {
+        if ((pDevice->type == ma_device_type_duplex && ma_context_is_backend_asynchronous(pDevice->pContext)) ||            /* Duplex with asynchronous backend. */
+            ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS)       /* Data conversion required input frame calculation not supported. */
+        {
             /* We need a heap allocated cache. We want to size this based on the period size. */
             void* pNewInputCache;
             ma_uint64 newInputCacheCap;
@@ -39567,7 +39592,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
                 return MA_OUT_OF_MEMORY;    /* Allocation too big. Should never hit this, but makes the cast below safer for 32-bit builds. */
             }
 
-            pNewInputCache   = ma_realloc(pDevice->playback.pInputCache, (size_t)newInputCacheSizeInBytes, &pDevice->pContext->allocationCallbacks);
+            pNewInputCache = ma_realloc(pDevice->playback.pInputCache, (size_t)newInputCacheSizeInBytes, &pDevice->pContext->allocationCallbacks);
             if (pNewInputCache == NULL) {
                 ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
                 pDevice->playback.pInputCache   = NULL;
@@ -39937,22 +39962,6 @@ static ma_result ma_context_uninit_backend_apis(ma_context* pContext)
 #endif
 
     return result;
-}
-
-
-static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
-{
-    MA_ASSERT(pContext != NULL);
-
-    if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
-        if (pContext->callbacks.onDeviceDataLoop == NULL) {
-            return MA_TRUE;
-        } else {
-            return MA_FALSE;
-        }
-    } else {
-        return MA_FALSE;
-    }
 }
 
 
@@ -69542,7 +69551,7 @@ static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_outpu
         old input bus has been updated so that pOutputBus will not get iterated again.
         */
         pOutputBus->pInputNode             = pNewInputNode;                     /* No need for an atomic assignment here because modification of this variable always happens within a lock. */
-        pOutputBus->inputNodeInputBusIndex = (ma_uint8)inputNodeInputBusIndex;  /* As above. */
+        pOutputBus->inputNodeInputBusIndex = (ma_uint8)inputNodeInputBusIndex;
 
         /*
         Now we need to attach the output bus to the linked list. This involves updating two pointers on
@@ -69682,6 +69691,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
         ma_bool32 isSilentOutput = MA_FALSE;
 
         MA_ASSERT(pOutputBus->pNode != NULL);
+        MA_ASSERT(((ma_node_base*)pOutputBus->pNode)->vtable != NULL);
 
         isSilentOutput = (((ma_node_base*)pOutputBus->pNode)->vtable->flags & MA_NODE_FLAG_SILENT_OUTPUT) != 0;
 
@@ -72372,6 +72382,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     ma_spatializer_config spatializerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
+    ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
 
     MA_ASSERT(pHeapLayout);
 
@@ -72421,6 +72432,10 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     /* Spatializer. */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
 
+    if (spatializerConfig.channelsIn == 2) {
+        spatializerConfig.pChannelMapIn = defaultStereoChannelMap;
+    }
+
     result = ma_spatializer_get_heap_size(&spatializerConfig, &tempHeapSize);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to retrieve the size of the heap for the spatializer. */
@@ -72465,6 +72480,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     ma_panner_config pannerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
+    ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
 
     if (pEngineNode == NULL) {
         return MA_INVALID_ARGS;
@@ -72543,6 +72559,10 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
     spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
+
+    if (spatializerConfig.channelsIn == 2) {
+        spatializerConfig.pChannelMapIn = defaultStereoChannelMap;
+    }
 
     result = ma_spatializer_init_preallocated(&spatializerConfig, ma_offset_ptr(pHeap, heapLayout.spatializerOffset), &pEngineNode->spatializer);
     if (result != MA_SUCCESS) {
@@ -73659,21 +73679,35 @@ done:
 
 MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init_2(pEngine);
+    ma_sound_config config;
+
+    if (pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = ma_sound_config_init_2(pEngine);
     config.pFilePath          = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     config.pDoneFence         = pDoneFence;
+
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
 MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init_2(pEngine);
+    ma_sound_config config;
+
+    if (pFilePath == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    config = ma_sound_config_init_2(pEngine);
     config.pFilePathW         = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     config.pDoneFence         = pDoneFence;
+
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
