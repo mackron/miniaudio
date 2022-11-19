@@ -4072,6 +4072,7 @@ typedef enum
     MA_API_NOT_FOUND                  = -105,
     MA_INVALID_DEVICE_CONFIG          = -106,
     MA_LOOP                           = -107,
+    MA_BACKEND_NOT_ENABLED            = -108,
 
     /* State errors. */
     MA_DEVICE_NOT_INITIALIZED         = -200,
@@ -40277,7 +40278,16 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize %s backend...\n", ma_get_backend_name(backend));
             result = pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
         } else {
-            result = MA_NO_BACKEND;
+            /* Getting here means the onContextInit callback is not set which means the backend is not enabled. Special case for the custom backend. */
+            if (backend != ma_backend_custom) {
+                result = MA_BACKEND_NOT_ENABLED;
+            } else {
+            #if !defined(MA_HAS_CUSTOM)
+                result = MA_BACKEND_NOT_ENABLED;
+            #else
+                result = MA_NO_BACKEND;
+            #endif
+            }
         }
 
         /* If this iteration was successful, return. */
@@ -40301,7 +40311,11 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             pContext->backend = backend;
             return result;
         } else {
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Failed to initialize %s backend.\n", ma_get_backend_name(backend));
+            if (result == MA_BACKEND_NOT_ENABLED) {
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "%s backend is disabled.\n", ma_get_backend_name(backend));
+            } else {
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Failed to initialize %s backend.\n", ma_get_backend_name(backend));
+            }
         }
     }
 
