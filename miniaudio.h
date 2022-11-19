@@ -47850,11 +47850,124 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
     ma_uint32 iChannel;
     float* pFramesOutF32 = (float*)pFramesOut;
     const float* pFramesInF32 = (const float*)pFramesIn;
+    ma_uint64 interpolatedFrameCount;
 
     if (pGainer == NULL) {
         return MA_INVALID_ARGS;
     }
 
+    /*
+    We don't necessarily need to apply a linear interpolation for the entire frameCount frames. When
+    linear interpolation is not needed we can do a simple volume adjustment which will be more
+    efficient than a lerp with an alpha value of 1.
+
+    To do this, all we need to do is determine how many frames need to have a lerp applied. Then we
+    just process that number of frames with linear interpolation. After that we run on an optimized
+    path which just applies the new gains without a lerp.
+    */
+    if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
+        interpolatedFrameCount = 0;
+    } else {
+        interpolatedFrameCount = pGainer->t - pGainer->config.smoothTimeInFrames;
+        if (interpolatedFrameCount > frameCount) {
+            interpolatedFrameCount = frameCount;
+        }
+    }
+
+    /*
+    Start off with our interpolated frames. When we do this, we'll adjust frameCount and our pointers
+    so that the fast path can work naturally without consideration of the interpolated path.
+    */
+    if (interpolatedFrameCount > 0) {
+        /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
+        if (pFramesOut != NULL && pFramesIn != NULL) {
+            /*
+            All we're really doing here is moving the old gains towards the new gains. We don't want to
+            be modifying the gains inside the ma_gainer object because that will break things. Instead
+            we can make a copy here on the stack. For extreme channel counts we can fall back to a slower
+            implementation which just uses a standard lerp.
+            */
+            float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
+            float d = 1.0f / pGainer->config.smoothTimeInFrames;
+
+            if (pGainer->config.channels <= 32) {
+                float pRunningGain[32];
+                float pRunningGainDelta[32];    /* Could this be heap-allocated as part of the ma_gainer object? */
+
+                /* Initialize the running gain. */
+                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                    float t = pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel];
+                    pRunningGainDelta[iChannel] = t * d;
+                    pRunningGain[iChannel] = pGainer->pOldGains[iChannel] + (t * a);
+                }
+
+                iFrame = 0;
+
+                /* Optimized loop unroll for stereo. This is mostly just experimenting with some SIMD ideas. It's not necessarily final. */
+                if (pGainer->config.channels == 2) {
+                    ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
+
+                    /* Expand some arrays so we can have a clean 4x SIMD operation in the loop. */
+                    pRunningGainDelta[2] = pRunningGainDelta[0];
+                    pRunningGainDelta[3] = pRunningGainDelta[1];
+                    pRunningGain[2] = pRunningGain[0] + pRunningGainDelta[0];
+                    pRunningGain[3] = pRunningGain[1] + pRunningGainDelta[1];
+
+                    for (; iFrame < unrolledLoopCount; iFrame += 1) {
+                        pFramesOutF32[iFrame*4 + 0] = pFramesInF32[iFrame*4 + 0] * pRunningGain[0];
+                        pFramesOutF32[iFrame*4 + 1] = pFramesInF32[iFrame*4 + 1] * pRunningGain[1];
+                        pFramesOutF32[iFrame*4 + 2] = pFramesInF32[iFrame*4 + 2] * pRunningGain[2];
+                        pFramesOutF32[iFrame*4 + 3] = pFramesInF32[iFrame*4 + 3] * pRunningGain[3];
+
+                        /* Move the running gain forward towards the new gain. */
+                        pRunningGain[0] += pRunningGainDelta[0];
+                        pRunningGain[1] += pRunningGainDelta[1];
+                        pRunningGain[2] += pRunningGainDelta[2];
+                        pRunningGain[3] += pRunningGainDelta[3];
+                    }
+
+                    iFrame = unrolledLoopCount << 1;
+                }
+
+                for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel]  = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * pRunningGain[iChannel];
+                        pRunningGain[iChannel] += pRunningGainDelta[iChannel];
+                    }
+                }
+            } else {
+                /* Slower path for extreme channel counts where we can't fit enough on the stack. We could also move this to the heap as part of the ma_gainer object which might even be better since it'll only be updated when the gains actually change. */
+                for (iFrame = 0; iFrame < interpolatedFrameCount; iFrame += 1) {
+                    for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
+                    }
+
+                    a += d;
+                }
+            }
+        }
+
+        /* Make sure the timer is updated. */
+        pGainer->t = (ma_uint32)ma_min(pGainer->t + interpolatedFrameCount, pGainer->config.smoothTimeInFrames);
+
+        /* Adjust our arguments so the next part can work normally. */
+        frameCount -= interpolatedFrameCount;
+        pFramesOut  = ma_offset_ptr(pFramesOut, interpolatedFrameCount * sizeof(float));
+        pFramesIn   = ma_offset_ptr(pFramesIn,  interpolatedFrameCount * sizeof(float));
+    }
+
+    /* All we need to do here is apply the new gains using an optimized path. */
+    if (pFramesOut != NULL && pFramesIn != NULL) {
+        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOut, pFramesIn, frameCount, pGainer->config.channels, pGainer->pNewGains);
+    }
+
+    /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
+    if (pGainer->t == (ma_uint32)-1) {
+        pGainer->t = pGainer->config.smoothTimeInFrames;
+    }
+
+
+#if 0
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         /* Fast path. No gain calculation required. */
         ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->pNewGains);
@@ -47903,6 +48016,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
         }
     #endif
     }
+#endif
 
     return MA_SUCCESS;
 }
