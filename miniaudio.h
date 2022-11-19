@@ -47963,7 +47963,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
     /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
     if (pGainer->t == (ma_uint32)-1) {
-        pGainer->t = pGainer->config.smoothTimeInFrames;
+        pGainer->t  = (ma_uint32)ma_min(pGainer->config.smoothTimeInFrames, frameCount);
     }
 
 
