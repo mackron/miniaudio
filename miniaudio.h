@@ -47848,8 +47848,6 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
-    float* pFramesOutF32 = (float*)pFramesOut;
-    const float* pFramesInF32 = (const float*)pFramesIn;
     ma_uint64 interpolatedFrameCount;
 
     if (pGainer == NULL) {
@@ -47887,6 +47885,8 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
             we can make a copy here on the stack. For extreme channel counts we can fall back to a slower
             implementation which just uses a standard lerp.
             */
+            float* pFramesOutF32 = (float*)pFramesOut;
+            const float* pFramesInF32 = (const float*)pFramesIn;
             float a = (float)pGainer->t / pGainer->config.smoothTimeInFrames;
             float d = 1.0f / pGainer->config.smoothTimeInFrames;
 
@@ -47958,7 +47958,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
     /* All we need to do here is apply the new gains using an optimized path. */
     if (pFramesOut != NULL && pFramesIn != NULL) {
-        ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOut, pFramesIn, frameCount, pGainer->config.channels, pGainer->pNewGains);
+        ma_copy_and_apply_volume_factor_per_channel_f32((float*)pFramesOut, (const float*)pFramesIn, frameCount, pGainer->config.channels, pGainer->pNewGains);
     }
 
     /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
