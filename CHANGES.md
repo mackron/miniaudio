@@ -2,6 +2,7 @@ v0.11.12 - TBD
 =====================
 * Fix a crash due to a race condition in the resource manager.
 * Fix a crash with some backends when rerouting the playback side of a duplex device.
+* Fix some bugs with initialization of POSIX threads.
 
 
 v0.11.11 - 2022-11-04

@@ -15852,6 +15852,10 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     pthread_attr_t attr;
     if (pthread_attr_init(&attr) == 0) {
         int scheduler = -1;
+
+        /* We successfully initialized our attributes object so we can assign the pointer so it's passed into pthread_create(). */
+        pAttr = &attr;
+
         if (priority == ma_thread_priority_idle) {
 #ifdef SCHED_IDLE
             if (pthread_attr_setschedpolicy(&attr, SCHED_IDLE) == 0) {
@@ -15895,9 +15899,8 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
                     }
                 }
 
-                if (pthread_attr_setschedparam(&attr, &sched) == 0) {
-                    pAttr = &attr;
-                }
+                /* I'm not treating a failure of setting the priority as a critical error so not checking the return value here. */
+                pthread_attr_setschedparam(&attr, &sched);
             }
         }
     }
