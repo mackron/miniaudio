@@ -7348,22 +7348,7 @@ struct ma_context
 #ifdef MA_POSIX
         struct
         {
-            ma_handle pthreadSO;
-            ma_proc pthread_create;
-            ma_proc pthread_join;
-            ma_proc pthread_mutex_init;
-            ma_proc pthread_mutex_destroy;
-            ma_proc pthread_mutex_lock;
-            ma_proc pthread_mutex_unlock;
-            ma_proc pthread_cond_init;
-            ma_proc pthread_cond_destroy;
-            ma_proc pthread_cond_wait;
-            ma_proc pthread_cond_signal;
-            ma_proc pthread_attr_init;
-            ma_proc pthread_attr_destroy;
-            ma_proc pthread_attr_setschedpolicy;
-            ma_proc pthread_attr_getschedparam;
-            ma_proc pthread_attr_setschedparam;
+            int _unused;
         } posix;
 #endif
         int _unused;
@@ -17436,14 +17421,6 @@ DEVICE I/O
     #include <dlfcn.h>
 #endif
 
-/*
-Unfortunately using runtime linking for pthreads causes problems. This has occurred for me when testing on FreeBSD. When
-using runtime linking, deadlocks can occur (for me it happens when loading data from fread()). It turns out that doing
-compile-time linking fixes this. I'm not sure why this happens, but the safest way I can think of to fix this is to simply
-disable runtime linking by default. To enable runtime linking, #define this before the implementation of this file. I am
-not officially supporting this, but I'm leaving it here in case it's useful for somebody, somewhere.
-*/
-/*#define MA_USE_RUNTIME_LINKING_FOR_PTHREAD*/
 
 /* Disable run-time linking on certain backends. */
 #ifndef MA_NO_RUNTIME_LINKING
@@ -39874,71 +39851,14 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 #else
 static ma_result ma_context_uninit_backend_apis__nix(ma_context* pContext)
 {
-#if defined(MA_USE_RUNTIME_LINKING_FOR_PTHREAD) && !defined(MA_NO_RUNTIME_LINKING)
-    ma_dlclose(pContext, pContext->posix.pthreadSO);
-#else
     (void)pContext;
-#endif
 
     return MA_SUCCESS;
 }
 
 static ma_result ma_context_init_backend_apis__nix(ma_context* pContext)
 {
-    /* pthread */
-#if defined(MA_USE_RUNTIME_LINKING_FOR_PTHREAD) && !defined(MA_NO_RUNTIME_LINKING)
-    const char* libpthreadFileNames[] = {
-        "libpthread.so",
-        "libpthread.so.0",
-        "libpthread.dylib"
-    };
-    size_t i;
-
-    for (i = 0; i < sizeof(libpthreadFileNames) / sizeof(libpthreadFileNames[0]); ++i) {
-        pContext->posix.pthreadSO = ma_dlopen(pContext, libpthreadFileNames[i]);
-        if (pContext->posix.pthreadSO != NULL) {
-            break;
-        }
-    }
-
-    if (pContext->posix.pthreadSO == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pContext->posix.pthread_create              = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_create");
-    pContext->posix.pthread_join                = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_join");
-    pContext->posix.pthread_mutex_init          = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_mutex_init");
-    pContext->posix.pthread_mutex_destroy       = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_mutex_destroy");
-    pContext->posix.pthread_mutex_lock          = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_mutex_lock");
-    pContext->posix.pthread_mutex_unlock        = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_mutex_unlock");
-    pContext->posix.pthread_cond_init           = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_cond_init");
-    pContext->posix.pthread_cond_destroy        = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_cond_destroy");
-    pContext->posix.pthread_cond_wait           = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_cond_wait");
-    pContext->posix.pthread_cond_signal         = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_cond_signal");
-    pContext->posix.pthread_attr_init           = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_attr_init");
-    pContext->posix.pthread_attr_destroy        = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_attr_destroy");
-    pContext->posix.pthread_attr_setschedpolicy = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_attr_setschedpolicy");
-    pContext->posix.pthread_attr_getschedparam  = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_attr_getschedparam");
-    pContext->posix.pthread_attr_setschedparam  = (ma_proc)ma_dlsym(pContext, pContext->posix.pthreadSO, "pthread_attr_setschedparam");
-#else
-    pContext->posix.pthread_create              = (ma_proc)pthread_create;
-    pContext->posix.pthread_join                = (ma_proc)pthread_join;
-    pContext->posix.pthread_mutex_init          = (ma_proc)pthread_mutex_init;
-    pContext->posix.pthread_mutex_destroy       = (ma_proc)pthread_mutex_destroy;
-    pContext->posix.pthread_mutex_lock          = (ma_proc)pthread_mutex_lock;
-    pContext->posix.pthread_mutex_unlock        = (ma_proc)pthread_mutex_unlock;
-    pContext->posix.pthread_cond_init           = (ma_proc)pthread_cond_init;
-    pContext->posix.pthread_cond_destroy        = (ma_proc)pthread_cond_destroy;
-    pContext->posix.pthread_cond_wait           = (ma_proc)pthread_cond_wait;
-    pContext->posix.pthread_cond_signal         = (ma_proc)pthread_cond_signal;
-    pContext->posix.pthread_attr_init           = (ma_proc)pthread_attr_init;
-    pContext->posix.pthread_attr_destroy        = (ma_proc)pthread_attr_destroy;
-#if !defined(__EMSCRIPTEN__)
-    pContext->posix.pthread_attr_setschedpolicy = (ma_proc)pthread_attr_setschedpolicy;
-    pContext->posix.pthread_attr_getschedparam  = (ma_proc)pthread_attr_getschedparam;
-    pContext->posix.pthread_attr_setschedparam  = (ma_proc)pthread_attr_setschedparam;
-#endif
-#endif
+    (void)pContext;
 
     return MA_SUCCESS;
 }

@@ -3,6 +3,7 @@ v0.11.12 - TBD
 * Fix a crash due to a race condition in the resource manager.
 * Fix a crash with some backends when rerouting the playback side of a duplex device.
 * Fix some bugs with initialization of POSIX threads.
+* Remove the old runtime linking system for pthread. The `MA_USE_RUNTIME_LINKING_FOR_PTHREAD` option is no longer used.
 
 
 v0.11.11 - 2022-11-04
