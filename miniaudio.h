@@ -17422,13 +17422,22 @@ DEVICE I/O
 #ifdef MA_POSIX
     #include <sys/types.h>
     #include <unistd.h>
+#endif
+
+#ifndef MA_NO_DLOPEN
+    #if defined(MA_POSIX) && (defined(MA_ORBIS) || defined(MA_PROSPERO))
+        #define MA_NO_DLOPEN
+    #endif
+#endif
+
+#ifndef MA_NO_DLOPEN
     #include <dlfcn.h>
 #endif
 
 
 /* Disable run-time linking on certain backends. */
 #ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_EMSCRIPTEN)
+    #if defined(MA_NO_DLOPEN) || defined(MA_EMSCRIPTEN)
         #define MA_NO_RUNTIME_LINKING
     #endif
 #endif
@@ -17968,6 +17977,7 @@ Dynamic Linking
 *******************************************************************************/
 MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 {
+#ifndef MA_NO_DLOPEN
     ma_handle handle;
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
@@ -17999,10 +18009,16 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 
     (void)pContext; /* It's possible for pContext to be unused. */
     return handle;
+#else
+    (void)pContext;
+    (void)filename;
+    return NULL;
+#endif
 }
 
 MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
+#ifndef MA_NO_DLOPEN
 #ifdef _WIN32
     FreeLibrary((HMODULE)handle);
 #else
@@ -18010,10 +18026,15 @@ MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 #endif
 
     (void)pContext;
+#else
+    (void)pContext;
+    (void)handle;
+#endif
 }
 
 MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
 {
+#ifndef MA_NO_DLOPEN
     ma_proc proc;
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
@@ -18037,6 +18058,12 @@ MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symb
 
     (void)pContext; /* It's possible for pContext to be unused. */
     return proc;
+#else
+    (void)pContext;
+    (void)handle;
+    (void)symbol;
+    return NULL;
+#endif
 }
 
 
