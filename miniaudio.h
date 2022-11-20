@@ -3805,7 +3805,11 @@ typedef ma_uint16 wchar_t;
 
     #ifdef __unix__
         #define MA_UNIX
-        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        #ifdef __ORBIS__
+            #define MA_ORBIS
+        #elif defined(__PROSPERO__)
+            #define MA_PROSPERO
+        #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
             #define MA_BSD
         #endif
     #endif
