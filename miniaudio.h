@@ -15481,7 +15481,7 @@ static C89ATOMIC_INLINE float c89atomic_compare_and_swap_f32(volatile float* dst
     c89atomic_if32 e, d;
     e.f = expected;
     d.f = desired;
-    r.i = c89atomic_compare_and_swap_32((volatile c89atomic_uint32*)dst, e.i, e.i);
+    r.i = c89atomic_compare_and_swap_32((volatile c89atomic_uint32*)dst, e.i, d.i);
     return r.f;
 }
 static C89ATOMIC_INLINE double c89atomic_compare_and_swap_f64(volatile double* dst, double expected, double desired)
@@ -15490,7 +15490,7 @@ static C89ATOMIC_INLINE double c89atomic_compare_and_swap_f64(volatile double* d
     c89atomic_if64 e, d;
     e.f = expected;
     d.f = desired;
-    r.i = c89atomic_compare_and_swap_64((volatile c89atomic_uint64*)dst, e.i, e.i);
+    r.i = c89atomic_compare_and_swap_64((volatile c89atomic_uint64*)dst, e.i, d.i);
     return r.f;
 }
 typedef c89atomic_flag c89atomic_spinlock;
