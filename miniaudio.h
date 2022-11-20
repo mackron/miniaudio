@@ -17404,6 +17404,14 @@ DEVICE I/O
 
 *************************************************************************************************************************************************************
 ************************************************************************************************************************************************************/
+
+/* Disable run-time linking on certain backends and platforms. */
+#ifndef MA_NO_RUNTIME_LINKING
+    #if defined(MA_EMSCRIPTEN) || defined(MA_ORBIS) || defined(MA_PROSPERO)
+        #define MA_NO_RUNTIME_LINKING
+    #endif
+#endif
+
 #ifndef MA_NO_DEVICE_IO
 #ifdef MA_WIN32
     #include <objbase.h>
@@ -17422,25 +17430,13 @@ DEVICE I/O
 #ifdef MA_POSIX
     #include <sys/types.h>
     #include <unistd.h>
-#endif
 
-#ifndef MA_NO_DLOPEN
-    #if defined(MA_POSIX) && (defined(MA_ORBIS) || defined(MA_PROSPERO))
-        #define MA_NO_DLOPEN
+    /* No need for dlfcn.h if we're not using runtime linking. */
+    #ifndef MA_NO_RUNTIME_LINKING
+        #include <dlfcn.h>
     #endif
 #endif
 
-#ifndef MA_NO_DLOPEN
-    #include <dlfcn.h>
-#endif
-
-
-/* Disable run-time linking on certain backends. */
-#ifndef MA_NO_RUNTIME_LINKING
-    #if defined(MA_NO_DLOPEN) || defined(MA_EMSCRIPTEN)
-        #define MA_NO_RUNTIME_LINKING
-    #endif
-#endif
 
 
 MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 flags)
@@ -17977,7 +17973,7 @@ Dynamic Linking
 *******************************************************************************/
 MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 {
-#ifndef MA_NO_DLOPEN
+#ifndef MA_NO_RUNTIME_LINKING
     ma_handle handle;
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
@@ -18010,6 +18006,7 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
     (void)pContext; /* It's possible for pContext to be unused. */
     return handle;
 #else
+    /* Runtime linking is disabled. */
     (void)pContext;
     (void)filename;
     return NULL;
@@ -18018,7 +18015,7 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 
 MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
-#ifndef MA_NO_DLOPEN
+#ifndef MA_NO_RUNTIME_LINKING
 #ifdef _WIN32
     FreeLibrary((HMODULE)handle);
 #else
@@ -18027,6 +18024,7 @@ MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 
     (void)pContext;
 #else
+    /* Runtime linking is disabled. */
     (void)pContext;
     (void)handle;
 #endif
@@ -18034,7 +18032,7 @@ MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 
 MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
 {
-#ifndef MA_NO_DLOPEN
+#ifndef MA_NO_RUNTIME_LINKING
     ma_proc proc;
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
@@ -18059,6 +18057,7 @@ MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symb
     (void)pContext; /* It's possible for pContext to be unused. */
     return proc;
 #else
+    /* Runtime linking is disabled. */
     (void)pContext;
     (void)handle;
     (void)symbol;
