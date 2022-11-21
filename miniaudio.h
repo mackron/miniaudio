@@ -3836,6 +3836,9 @@ typedef ma_uint16 wchar_t;
     #ifdef __EMSCRIPTEN__
         #define MA_EMSCRIPTEN
     #endif
+    #if defined(__NX__)
+        #define MA_NX
+    #endif
 #endif
 
 
@@ -11220,6 +11223,10 @@ IMPLEMENTATION
 #include <pthread.h>
 #endif
 
+#ifdef MA_NX
+#include <time.h> /* For nanosleep() */
+#endif
+
 #include <sys/stat.h>   /* For fstat(), etc. */
 
 #ifdef MA_EMSCRIPTEN
@@ -11631,7 +11638,7 @@ static void ma_sleep__posix(ma_uint32 milliseconds)
     (void)milliseconds;
     MA_ASSERT(MA_FALSE);  /* The Emscripten build should never sleep. */
 #else
-    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L) || defined(MA_NX)
         struct timespec ts;
         ts.tv_sec  = milliseconds / 1000;
         ts.tv_nsec = milliseconds % 1000 * 1000000;
