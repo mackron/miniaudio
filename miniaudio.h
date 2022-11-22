@@ -9240,6 +9240,11 @@ Retrieves a friendly name for a backend.
 MA_API const char* ma_get_backend_name(ma_backend backend);
 
 /*
+Retrieves the backend enum from the given name.
+*/
+MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend);
+
+/*
 Determines whether or not the given backend is available by the compilation environment.
 */
 MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend);
@@ -17633,27 +17638,60 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 }
 
 
+typedef struct
+{
+    ma_backend backend;
+    const char* pName;
+} ma_backend_info;
+
+static ma_backend_info gBackendInfo[] = /* Indexed by the backend enum. Must be in the order backends are declared in the ma_backend enum. */
+{
+    {ma_backend_wasapi,     "WASAPI"},
+    {ma_backend_dsound,     "DirectSound"},
+    {ma_backend_winmm,      "WinMM"},
+    {ma_backend_coreaudio,  "Core Audio"},
+    {ma_backend_sndio,      "sndio"},
+    {ma_backend_audio4,     "audio(4)"},
+    {ma_backend_oss,        "OSS"},
+    {ma_backend_pulseaudio, "PulseAudio"},
+    {ma_backend_alsa,       "ALSA"},
+    {ma_backend_jack,       "JACK"},
+    {ma_backend_aaudio,     "AAudio"},
+    {ma_backend_opensl,     "OpenSL|ES"},
+    {ma_backend_webaudio,   "Web Audio"},
+    {ma_backend_custom,     "Custom"},
+    {ma_backend_null,       "Null"}
+};
+
 MA_API const char* ma_get_backend_name(ma_backend backend)
 {
-    switch (backend)
-    {
-        case ma_backend_wasapi:     return "WASAPI";
-        case ma_backend_dsound:     return "DirectSound";
-        case ma_backend_winmm:      return "WinMM";
-        case ma_backend_coreaudio:  return "Core Audio";
-        case ma_backend_sndio:      return "sndio";
-        case ma_backend_audio4:     return "audio(4)";
-        case ma_backend_oss:        return "OSS";
-        case ma_backend_pulseaudio: return "PulseAudio";
-        case ma_backend_alsa:       return "ALSA";
-        case ma_backend_jack:       return "JACK";
-        case ma_backend_aaudio:     return "AAudio";
-        case ma_backend_opensl:     return "OpenSL|ES";
-        case ma_backend_webaudio:   return "Web Audio";
-        case ma_backend_custom:     return "Custom";
-        case ma_backend_null:       return "Null";
-        default:                    return "Unknown";
+    if (backend >= ma_countof(gBackendInfo)) {
+        return "Unknown";
     }
+
+    return gBackendInfo[backend].pName;
+}
+
+MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend)
+{
+    size_t iBackend;
+
+    if (pBackendName == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    for (iBackend = 0; iBackend < ma_countof(gBackendInfo); iBackend += 1) {
+        if (ma_strcmp(pBackendName, gBackendInfo[iBackend].pName) == 0) {
+            if (pBackend != NULL) {
+                *pBackend = gBackendInfo[iBackend].backend;
+            }
+
+            return MA_SUCCESS;
+        }
+    }
+
+    /* Getting here means the backend name is unknown. */
+    return MA_INVALID_ARGS;
 }
 
 MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
