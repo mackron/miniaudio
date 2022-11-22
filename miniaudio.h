@@ -7494,7 +7494,8 @@ struct ma_device
             ma_bool8 isDetachedPlayback;
             ma_bool8 isDetachedCapture;
             ma_wasapi_usage usage;
-            void *hAvrtHandle;
+            void* hAvrtHandle;
+            ma_mutex rerouteLock;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -20434,7 +20435,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
         ma_uint32 previousState = ma_device_get_state(pThis->pDevice);
         ma_bool8 restartDevice = MA_FALSE;
 
-        if (previousState == ma_device_state_starting) {
+        if (previousState == ma_device_state_uninitialized || previousState == ma_device_state_starting) {
             ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting abandoned because the device is in the process of starting.\n");
             return S_OK;
         }
@@ -20445,31 +20446,38 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
         }
 
         if (pDefaultDeviceID != NULL) { /* <-- The input device ID will be null if there's no other device available. */
-            if (dataFlow == ma_eRender) {
-                ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
+            ma_mutex_lock(&pThis->pDevice->wasapi.rerouteLock);
+            {
+                if (dataFlow == ma_eRender) {
+                    ma_device_reroute__wasapi(pThis->pDevice, ma_device_type_playback);
 
-                if (pThis->pDevice->wasapi.isDetachedPlayback) {
-                    pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
+                    if (pThis->pDevice->wasapi.isDetachedPlayback) {
+                        pThis->pDevice->wasapi.isDetachedPlayback = MA_FALSE;
 
-                    if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedCapture) {
-                        restartDevice = MA_FALSE;   /* It's a duplex device and the capture side is detached. We cannot be restarting the device just yet. */
-                    } else {
-                        restartDevice = MA_TRUE;    /* It's not a duplex device, or the capture side is also attached so we can go ahead and restart the device. */
+                        if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedCapture) {
+                            restartDevice = MA_FALSE;   /* It's a duplex device and the capture side is detached. We cannot be restarting the device just yet. */
+                        }
+                        else {
+                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the capture side is also attached so we can go ahead and restart the device. */
+                        }
                     }
                 }
-            } else {
-                ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
+                else {
+                    ma_device_reroute__wasapi(pThis->pDevice, (pThis->pDevice->type == ma_device_type_loopback) ? ma_device_type_loopback : ma_device_type_capture);
 
-                if (pThis->pDevice->wasapi.isDetachedCapture) {
-                    pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
+                    if (pThis->pDevice->wasapi.isDetachedCapture) {
+                        pThis->pDevice->wasapi.isDetachedCapture = MA_FALSE;
 
-                    if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedPlayback) {
-                        restartDevice = MA_FALSE;   /* It's a duplex device and the playback side is detached. We cannot be restarting the device just yet. */
-                    } else {
-                        restartDevice = MA_TRUE;    /* It's not a duplex device, or the playback side is also attached so we can go ahead and restart the device. */
+                        if (pThis->pDevice->type == ma_device_type_duplex && pThis->pDevice->wasapi.isDetachedPlayback) {
+                            restartDevice = MA_FALSE;   /* It's a duplex device and the playback side is detached. We cannot be restarting the device just yet. */
+                        }
+                        else {
+                            restartDevice = MA_TRUE;    /* It's not a duplex device, or the playback side is also attached so we can go ahead and restart the device. */
+                        }
                     }
                 }
             }
+            ma_mutex_unlock(&pThis->pDevice->wasapi.rerouteLock);
 
             if (restartDevice) {
                 ma_device_start(pThis->pDevice);
@@ -22251,6 +22259,8 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         }
     }
 
+    ma_mutex_init(&pDevice->wasapi.rerouteLock);
+
     hr = ma_CoCreateInstance(pDevice->pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_device_uninit__wasapi(pDevice);
@@ -22350,8 +22360,9 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     }
 
     ma_device__post_init_setup(pDevice, deviceType);
-
     ma_device__on_notification_rerouted(pDevice);
+
+    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "=== DEVICE CHANGED ===\n");
 
     return MA_SUCCESS;
 }
@@ -41171,46 +41182,51 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return MA_SUCCESS;  /* Already started. */
     }
 
-    ma_mutex_lock(&pDevice->startStopLock);
+    /* Wait for any rerouting to finish before attempting to start the device. */
+    ma_mutex_lock(&pDevice->wasapi.rerouteLock);
     {
-        /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
-        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
+        ma_mutex_lock(&pDevice->startStopLock);
+        {
+            /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
+            MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
 
-        ma_device__set_state(pDevice, ma_device_state_starting);
+            ma_device__set_state(pDevice, ma_device_state_starting);
 
-        /* Asynchronous backends need to be handled differently. */
-        if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-                result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+            /* Asynchronous backends need to be handled differently. */
+            if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
+                if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
+                    result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+                } else {
+                    result = MA_INVALID_OPERATION;
+                }
+
+                if (result == MA_SUCCESS) {
+                    ma_device__set_state(pDevice, ma_device_state_started);
+                    ma_device__on_notification_started(pDevice);
+                }
             } else {
-                result = MA_INVALID_OPERATION;
+                /*
+                Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
+                thread and then wait for the start event.
+                */
+                ma_event_signal(&pDevice->wakeupEvent);
+
+                /*
+                Wait for the worker thread to finish starting the device. Note that the worker thread will be the one who puts the device
+                into the started state. Don't call ma_device__set_state() here.
+                */
+                ma_event_wait(&pDevice->startEvent);
+                result = pDevice->workResult;
             }
 
-            if (result == MA_SUCCESS) {
-                ma_device__set_state(pDevice, ma_device_state_started);
-                ma_device__on_notification_started(pDevice);
+            /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
+            if (result != MA_SUCCESS) {
+                ma_device__set_state(pDevice, ma_device_state_stopped);
             }
-        } else {
-            /*
-            Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
-            thread and then wait for the start event.
-            */
-            ma_event_signal(&pDevice->wakeupEvent);
-
-            /*
-            Wait for the worker thread to finish starting the device. Note that the worker thread will be the one who puts the device
-            into the started state. Don't call ma_device__set_state() here.
-            */
-            ma_event_wait(&pDevice->startEvent);
-            result = pDevice->workResult;
         }
-
-        /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
-        if (result != MA_SUCCESS) {
-            ma_device__set_state(pDevice, ma_device_state_stopped);
-        }
+        ma_mutex_unlock(&pDevice->startStopLock);
     }
-    ma_mutex_unlock(&pDevice->startStopLock);
+    ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
 
     return result;
 }
