@@ -22367,11 +22367,9 @@ static ma_result ma_device_reroute__wasapi(ma_device* pDevice, ma_device_type de
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_start__wasapi(ma_device* pDevice)
+static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
 {
     HRESULT hr;
-
-    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->pContext->wasapi.hAvrt) {
         LPCWSTR pTaskName = ma_to_usage_string__wasapi(pDevice->wasapi.usage);
@@ -22404,7 +22402,23 @@ static ma_result ma_device_start__wasapi(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_stop__wasapi(ma_device* pDevice)
+static ma_result ma_device_start__wasapi(ma_device* pDevice)
+{
+    ma_result result;
+
+    MA_ASSERT(pDevice != NULL);
+
+    /* Wait for any rerouting to finish before attempting to start the device. */
+    ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+    {
+        result = ma_device_start__wasapi_nolock(pDevice);
+    }
+    ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+
+    return result;
+}
+
+static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
 {
     ma_result result;
     HRESULT hr;
@@ -22433,7 +22447,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
         /* If we have a mapped buffer we need to release it. */
         if (pDevice->wasapi.pMappedBufferCapture != NULL) {
             ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
-            pDevice->wasapi.pMappedBufferCapture   = NULL;
+            pDevice->wasapi.pMappedBufferCapture = NULL;
             pDevice->wasapi.mappedBufferCaptureCap = 0;
             pDevice->wasapi.mappedBufferCaptureLen = 0;
         }
@@ -22452,7 +22466,8 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                 WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
-            } else {
+            }
+            else {
                 ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
                 ma_uint32 framesAvailablePlayback;
                 for (;;) {
@@ -22495,7 +22510,7 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
 
         if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
             ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.mappedBufferPlaybackCap, 0);
-            pDevice->wasapi.pMappedBufferPlayback   = NULL;
+            pDevice->wasapi.pMappedBufferPlayback = NULL;
             pDevice->wasapi.mappedBufferPlaybackCap = 0;
             pDevice->wasapi.mappedBufferPlaybackLen = 0;
         }
@@ -22504,6 +22519,22 @@ static ma_result ma_device_stop__wasapi(ma_device* pDevice)
     }
 
     return MA_SUCCESS;
+}
+
+static ma_result ma_device_stop__wasapi(ma_device* pDevice)
+{
+    ma_result result;
+
+    MA_ASSERT(pDevice != NULL);
+
+    /* Wait for any rerouting to finish before attempting to stop the device. */
+    ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+    {
+        result = ma_device_stop__wasapi_nolock(pDevice);
+    }
+    ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+
+    return result;
 }
 
 
@@ -41182,51 +41213,46 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         return MA_SUCCESS;  /* Already started. */
     }
 
-    /* Wait for any rerouting to finish before attempting to start the device. */
-    ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+    ma_mutex_lock(&pDevice->startStopLock);
     {
-        ma_mutex_lock(&pDevice->startStopLock);
-        {
-            /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
-            MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
+        /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
 
-            ma_device__set_state(pDevice, ma_device_state_starting);
+        ma_device__set_state(pDevice, ma_device_state_starting);
 
-            /* Asynchronous backends need to be handled differently. */
-            if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-                if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-                    result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
-                } else {
-                    result = MA_INVALID_OPERATION;
-                }
-
-                if (result == MA_SUCCESS) {
-                    ma_device__set_state(pDevice, ma_device_state_started);
-                    ma_device__on_notification_started(pDevice);
-                }
+        /* Asynchronous backends need to be handled differently. */
+        if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
+            if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
+                result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
             } else {
-                /*
-                Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
-                thread and then wait for the start event.
-                */
-                ma_event_signal(&pDevice->wakeupEvent);
-
-                /*
-                Wait for the worker thread to finish starting the device. Note that the worker thread will be the one who puts the device
-                into the started state. Don't call ma_device__set_state() here.
-                */
-                ma_event_wait(&pDevice->startEvent);
-                result = pDevice->workResult;
+                result = MA_INVALID_OPERATION;
             }
 
-            /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
-            if (result != MA_SUCCESS) {
-                ma_device__set_state(pDevice, ma_device_state_stopped);
+            if (result == MA_SUCCESS) {
+                ma_device__set_state(pDevice, ma_device_state_started);
+                ma_device__on_notification_started(pDevice);
             }
+        } else {
+            /*
+            Synchronous backends are started by signaling an event that's being waited on in the worker thread. We first wake up the
+            thread and then wait for the start event.
+            */
+            ma_event_signal(&pDevice->wakeupEvent);
+
+            /*
+            Wait for the worker thread to finish starting the device. Note that the worker thread will be the one who puts the device
+            into the started state. Don't call ma_device__set_state() here.
+            */
+            ma_event_wait(&pDevice->startEvent);
+            result = pDevice->workResult;
         }
-        ma_mutex_unlock(&pDevice->startStopLock);
+
+        /* We changed the state from stopped to started, so if we failed, make sure we put the state back to stopped. */
+        if (result != MA_SUCCESS) {
+            ma_device__set_state(pDevice, ma_device_state_stopped);
+        }
     }
-    ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+    ma_mutex_unlock(&pDevice->startStopLock);
 
     return result;
 }
@@ -41247,59 +41273,54 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         return MA_SUCCESS;  /* Already stopped. */
     }
 
-    /* Wait for any rerouting to finish before attempting to stop the device. */
-    ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+    ma_mutex_lock(&pDevice->startStopLock);
     {
-        ma_mutex_lock(&pDevice->startStopLock);
-        {
-            /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
-            MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_started);
+        /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
+        MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_started);
 
-            ma_device__set_state(pDevice, ma_device_state_stopping);
+        ma_device__set_state(pDevice, ma_device_state_stopping);
 
-            /* Asynchronous backends need to be handled differently. */
-            if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-                /* Asynchronous backends must have a stop operation. */
-                if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                    result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
-                } else {
-                    result = MA_INVALID_OPERATION;
-                }
-
-                ma_device__set_state(pDevice, ma_device_state_stopped);
+        /* Asynchronous backends need to be handled differently. */
+        if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
+            /* Asynchronous backends must have a stop operation. */
+            if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
+                result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
             } else {
-                /*
-                Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. If
-                the backend is implementing it's own audio thread loop we'll need to wake it up if required. Note that we need to make
-                sure the state of the device is *not* playing right now, which it shouldn't be since we set it above. This is super
-                important though, so I'm asserting it here as well for extra safety in case we accidentally change something later.
-                */
-                MA_ASSERT(ma_device_get_state(pDevice) != ma_device_state_started);
+                result = MA_INVALID_OPERATION;
+            }
 
-                if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup != NULL) {
-                    pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
-                }
+            ma_device__set_state(pDevice, ma_device_state_stopped);
+        } else {
+            /*
+            Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. If
+            the backend is implementing it's own audio thread loop we'll need to wake it up if required. Note that we need to make
+            sure the state of the device is *not* playing right now, which it shouldn't be since we set it above. This is super
+            important though, so I'm asserting it here as well for extra safety in case we accidentally change something later.
+            */
+            MA_ASSERT(ma_device_get_state(pDevice) != ma_device_state_started);
 
-                /*
-                We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
-                the one who puts the device into the stopped state. Don't call ma_device__set_state() here.
-                */
-                ma_event_wait(&pDevice->stopEvent);
-                result = MA_SUCCESS;
+            if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup != NULL) {
+                pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
             }
 
             /*
-            This is a safety measure to ensure the internal buffer has been cleared so any leftover
-            does not get played the next time the device starts. Ideally this should be drained by
-            the backend first.
+            We need to wait for the worker thread to become available for work before returning. Note that the worker thread will be
+            the one who puts the device into the stopped state. Don't call ma_device__set_state() here.
             */
-            pDevice->playback.intermediaryBufferLen = 0;
-            pDevice->playback.inputCacheConsumed    = 0;
-            pDevice->playback.inputCacheRemaining   = 0;
+            ma_event_wait(&pDevice->stopEvent);
+            result = MA_SUCCESS;
         }
-        ma_mutex_unlock(&pDevice->startStopLock);
+
+        /*
+        This is a safety measure to ensure the internal buffer has been cleared so any leftover
+        does not get played the next time the device starts. Ideally this should be drained by
+        the backend first.
+        */
+        pDevice->playback.intermediaryBufferLen = 0;
+        pDevice->playback.inputCacheConsumed    = 0;
+        pDevice->playback.inputCacheRemaining   = 0;
     }
-    ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+    ma_mutex_unlock(&pDevice->startStopLock);
 
     return result;
 }
@@ -73009,7 +73030,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
                 Temporarily disabled. There is a subtle bug here where front-left and front-right
                 will be used by the device's channel map, but this is not what we want to use for
                 spatialization. Instead we want to use side-left and side-right. I need to figure
-                out a better solution for this. For now, disabling the user of device channel maps.
+                out a better solution for this. For now, disabling the use of device channel maps.
                 */
                 /*listenerConfig.pChannelMapOut = pEngine->pDevice->playback.channelMap;*/
             }
