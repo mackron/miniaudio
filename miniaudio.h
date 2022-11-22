@@ -43823,7 +43823,8 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
     float ditherMax;
 
     if (!ma_has_neon()) {
-        return ma_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        ma_pcm_f32_to_s16__optimized(dst, src, count, ditherMode);
+        return;
     }
 
     /* Both the input and output buffers need to be aligned to 16 bytes. */
