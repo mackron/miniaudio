@@ -99,6 +99,10 @@ static size_t ma_libvorbis_vf_callback__read(void* pBufferOut, size_t size, size
 
     bytesToRead = size * count;
     result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, pBufferOut, bytesToRead, &bytesRead);
+    if (result != MA_SUCCESS) {
+        /* Not entirely sure what to return here. What if an error occurs, but some data was read and bytesRead is > 0? */
+        return 0;
+    }
 
     return bytesRead / size;
 }
