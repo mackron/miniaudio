@@ -20425,7 +20425,6 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
 
 
 
-
     /*
     Second attempt at device rerouting. We're going to retrieve the device's state at the time of
     the route change. We're then going to stop the device, reinitialize the device, and then start
@@ -20434,6 +20433,11 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     {
         ma_uint32 previousState = ma_device_get_state(pThis->pDevice);
         ma_bool8 restartDevice = MA_FALSE;
+
+        if (previousState == ma_device_state_starting) {
+            ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting abandoned because the device is in the process of starting.\n");
+            return S_OK;
+        }
 
         if (previousState == ma_device_state_started) {
             ma_device_stop(pThis->pDevice);
