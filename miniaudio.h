@@ -11940,6 +11940,14 @@ MA_API const char* ma_version_string(void)
 Standard Library Stuff
 
 ******************************************************************************/
+#ifndef MA_ASSERT
+#ifdef MA_WIN32
+#define MA_ASSERT(condition) assert(condition)
+#else
+#define MA_ASSERT(condition) assert(condition)
+#endif
+#endif
+
 #ifndef MA_MALLOC
 #ifdef MA_WIN32
 #define MA_MALLOC(sz) HeapAlloc(GetProcessHeap(), 0, (sz))
@@ -11966,6 +11974,11 @@ Standard Library Stuff
 
 static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
 {
+    if (p == NULL) {
+        MA_ASSERT(sz == 0); /* If this is triggered there's an error with the calling code. */
+        return;
+    }
+
 #ifdef MA_WIN32
     ZeroMemory(p, sz);
 #else
@@ -11992,14 +12005,6 @@ static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
 #define MA_MOVE_MEMORY(dst, src, sz) MoveMemory((dst), (src), (sz))
 #else
 #define MA_MOVE_MEMORY(dst, src, sz) memmove((dst), (src), (sz))
-#endif
-#endif
-
-#ifndef MA_ASSERT
-#ifdef MA_WIN32
-#define MA_ASSERT(condition) assert(condition)
-#else
-#define MA_ASSERT(condition) assert(condition)
 #endif
 #endif
 
