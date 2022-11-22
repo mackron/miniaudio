@@ -17665,7 +17665,7 @@ static ma_backend_info gBackendInfo[] = /* Indexed by the backend enum. Must be 
 
 MA_API const char* ma_get_backend_name(ma_backend backend)
 {
-    if (backend >= ma_countof(gBackendInfo)) {
+    if (backend < 0 || backend >= ma_countof(gBackendInfo)) {
         return "Unknown";
     }
 
