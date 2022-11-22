@@ -10860,7 +10860,7 @@ typedef struct
     ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_mono_expansion_mode monoExpansionMode;
-    ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
+    ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disabled with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 } ma_engine_node_config;
@@ -72629,9 +72629,16 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
     pEngineNode->pinnedListenerIndex      = pConfig->pinnedListenerIndex;
 
-
     channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
     channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
+
+    /*
+    If the sample rate of the sound is different to the engine, make sure pitching is enabled so that the resampler
+    is activated. Not doing this will result in the sound not being resampled if MA_SOUND_FLAG_NO_PITCH is used.
+    */
+    if (pEngineNode->sampleRate != ma_engine_get_sample_rate(pEngineNode->pEngine)) {
+        pEngineNode->isPitchDisabled = MA_FALSE;
+    }
 
 
     /* Base node. */
