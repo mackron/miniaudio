@@ -52138,19 +52138,82 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
                     }
                 }
 
-                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                iFrame = 0;
+
+                /* Experiment: Try an optimized unroll for some specific cases to see how it improves performance. RESULT: Good gains. */
+                if (channelsOut == 8) {
+                    /* Experiment 2: Expand the inner loop to see what kind of different it makes. RESULT: Small, but worthwhile gain. */
+                    if (channelsIn == 2) {
+                        for (; iFrame < frameCount; iFrame += 1) {
+                            float accumulation[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+                            accumulation[0] += pFramesIn[iFrame*2 + 0] * weights[0][0];
+                            accumulation[1] += pFramesIn[iFrame*2 + 0] * weights[1][0];
+                            accumulation[2] += pFramesIn[iFrame*2 + 0] * weights[2][0];
+                            accumulation[3] += pFramesIn[iFrame*2 + 0] * weights[3][0];
+                            accumulation[4] += pFramesIn[iFrame*2 + 0] * weights[4][0];
+                            accumulation[5] += pFramesIn[iFrame*2 + 0] * weights[5][0];
+                            accumulation[6] += pFramesIn[iFrame*2 + 0] * weights[6][0];
+                            accumulation[7] += pFramesIn[iFrame*2 + 0] * weights[7][0];
+
+                            accumulation[0] += pFramesIn[iFrame*2 + 1] * weights[0][1];
+                            accumulation[1] += pFramesIn[iFrame*2 + 1] * weights[1][1];
+                            accumulation[2] += pFramesIn[iFrame*2 + 1] * weights[2][1];
+                            accumulation[3] += pFramesIn[iFrame*2 + 1] * weights[3][1];
+                            accumulation[4] += pFramesIn[iFrame*2 + 1] * weights[4][1];
+                            accumulation[5] += pFramesIn[iFrame*2 + 1] * weights[5][1];
+                            accumulation[6] += pFramesIn[iFrame*2 + 1] * weights[6][1];
+                            accumulation[7] += pFramesIn[iFrame*2 + 1] * weights[7][1];
+
+
+                            pFramesOut[iFrame * 8 + 0] = accumulation[0];
+                            pFramesOut[iFrame * 8 + 1] = accumulation[1];
+                            pFramesOut[iFrame * 8 + 2] = accumulation[2];
+                            pFramesOut[iFrame * 8 + 3] = accumulation[3];
+                            pFramesOut[iFrame * 8 + 4] = accumulation[4];
+                            pFramesOut[iFrame * 8 + 5] = accumulation[5];
+                            pFramesOut[iFrame * 8 + 6] = accumulation[6];
+                            pFramesOut[iFrame * 8 + 7] = accumulation[7];
+                        }
+                    } else {
+                        /* When outputting to 8 channels, we can do everything in groups of two 4x SIMD operations. */
+                        for (; iFrame < frameCount; iFrame += 1) {
+                            float accumulation[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+                            for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                                accumulation[0] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[0][iChannelIn];
+                                accumulation[1] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[1][iChannelIn];
+                                accumulation[2] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[2][iChannelIn];
+                                accumulation[3] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[3][iChannelIn];
+                                accumulation[4] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[4][iChannelIn];
+                                accumulation[5] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[5][iChannelIn];
+                                accumulation[6] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[6][iChannelIn];
+                                accumulation[7] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[7][iChannelIn];
+                            }
+
+                            pFramesOut[iFrame * 8 + 0] = accumulation[0];
+                            pFramesOut[iFrame * 8 + 1] = accumulation[1];
+                            pFramesOut[iFrame * 8 + 2] = accumulation[2];
+                            pFramesOut[iFrame * 8 + 3] = accumulation[3];
+                            pFramesOut[iFrame * 8 + 4] = accumulation[4];
+                            pFramesOut[iFrame * 8 + 5] = accumulation[5];
+                            pFramesOut[iFrame * 8 + 6] = accumulation[6];
+                            pFramesOut[iFrame * 8 + 7] = accumulation[7];
+                        }
+                    }
+                }
+
+                /* Leftover frames. */
+                for (; iFrame < frameCount; iFrame += 1) {
                     for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
                         float accumulation = 0;
 
                         for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
-                            accumulation += pFramesIn[iChannelIn] * weights[iChannelOut][iChannelIn];
+                            accumulation += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[iChannelOut][iChannelIn];
                         }
 
-                        pFramesOut[iChannelOut] = accumulation;
+                        pFramesOut[iFrame*channelsOut + iChannelOut] = accumulation;
                     }
-
-                    pFramesOut += channelsOut;
-                    pFramesIn  += channelsIn;
                 }
             } else {
                 /* Cannot pre-compute weights because not enough room in stack-allocated buffer. */
@@ -52161,14 +52224,11 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
 
                         for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
                             ma_channel channelIn = ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn);
-                            accumulation += pFramesIn[iChannelIn] * ma_calculate_channel_position_rectangular_weight(channelOut, channelIn);
+                            accumulation += pFramesIn[iFrame*channelsIn + iChannelIn] * ma_calculate_channel_position_rectangular_weight(channelOut, channelIn);
                         }
 
-                        pFramesOut[iChannelOut] = accumulation;
+                        pFramesOut[iFrame*channelsOut + iChannelOut] = accumulation;
                     }
-
-                    pFramesOut += channelsOut;
-                    pFramesIn  += channelsIn;
                 }
             }
         }
