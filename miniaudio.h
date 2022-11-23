@@ -17666,7 +17666,7 @@ static ma_backend_info gBackendInfo[] = /* Indexed by the backend enum. Must be 
 
 MA_API const char* ma_get_backend_name(ma_backend backend)
 {
-    if (backend < 0 || backend >= ma_countof(gBackendInfo)) {
+    if (backend < 0 || backend >= (int)ma_countof(gBackendInfo)) {
         return "Unknown";
     }
 
@@ -42241,15 +42241,15 @@ MA_API void ma_pcm_u8_to_s16(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_u8_to_s16__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -42308,15 +42308,15 @@ MA_API void ma_pcm_u8_to_s24(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_u8_to_s24__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -42373,15 +42373,15 @@ MA_API void ma_pcm_u8_to_s32(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_u8_to_s32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -42439,15 +42439,15 @@ MA_API void ma_pcm_u8_to_f32(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_u8_to_f32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -42601,15 +42601,15 @@ MA_API void ma_pcm_s16_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s16_to_u8__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -42672,15 +42672,15 @@ MA_API void ma_pcm_s16_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s16_to_s24__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -42734,15 +42734,15 @@ MA_API void ma_pcm_s16_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s16_to_s32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -42808,15 +42808,15 @@ MA_API void ma_pcm_s16_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s16_to_f32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -42946,15 +42946,15 @@ MA_API void ma_pcm_s24_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s24_to_u8__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -43026,15 +43026,15 @@ MA_API void ma_pcm_s24_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s24_to_s16__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -43096,15 +43096,15 @@ MA_API void ma_pcm_s24_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s24_to_s32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -43170,15 +43170,15 @@ MA_API void ma_pcm_s24_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s24_to_f32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -43316,15 +43316,15 @@ MA_API void ma_pcm_s32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s32_to_u8__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -43396,15 +43396,15 @@ MA_API void ma_pcm_s32_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s32_to_s16__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -43461,15 +43461,15 @@ MA_API void ma_pcm_s32_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s32_to_s24__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -43541,15 +43541,15 @@ MA_API void ma_pcm_s32_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_s32_to_f32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -43674,15 +43674,15 @@ MA_API void ma_pcm_f32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_f32_to_u8__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -44121,15 +44121,15 @@ MA_API void ma_pcm_f32_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_f32_to_s16__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -44200,15 +44200,15 @@ MA_API void ma_pcm_f32_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_f32_to_s24__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -44275,15 +44275,15 @@ MA_API void ma_pcm_f32_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2
+    #  if MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
         if (ma_has_avx2()) {
             ma_pcm_f32_to_s32__avx2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2
+    #elif MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON
+    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -48074,15 +48074,13 @@ static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint3
     return ma_mix_f32_fast(pGainer->pOldGains[channel], pGainer->pNewGains[channel], a);
 }
 
-MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+static __attribute__((noinline)) ma_result ma_gainer_process_pcm_frames_internal(ma_gainer* pGainer, void* MA_RESTRICT pFramesOut, const void* MA_RESTRICT pFramesIn, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
     ma_uint64 interpolatedFrameCount;
 
-    if (pGainer == NULL) {
-        return MA_INVALID_ARGS;
-    }
+    MA_ASSERT(pGainer != NULL);
 
     /*
     We don't necessarily need to apply a linear interpolation for the entire frameCount frames. When
@@ -48157,9 +48155,8 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                     }
 
                     iFrame = unrolledLoopCount << 1;
-                }
-                else if (pGainer->config.channels == 6) {
-                    /* 
+                } else if (pGainer->config.channels == 6) {
+                    /*
                     For 6 channels things are a bit more complicated because 6 isn't cleanly divisible by 4. We need to do 2 frames
                     at a time, meaning we'll be doing 12 samples in a group. Like the stereo case we'll need to expand some arrays
                     so we can do clean 4x SIMD operations.
@@ -48181,18 +48178,18 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                     pRunningGain[11] = pRunningGain[5] + pRunningGainDelta[5];
 
                     for (; iFrame < unrolledLoopCount; iFrame += 1) {
-                        pFramesOutF32[iFrame*12 +  0] = pFramesInF32[iFrame*12 +  0] * pRunningGain[ 0];
-                        pFramesOutF32[iFrame*12 +  1] = pFramesInF32[iFrame*12 +  1] * pRunningGain[ 1];
-                        pFramesOutF32[iFrame*12 +  2] = pFramesInF32[iFrame*12 +  2] * pRunningGain[ 2];
-                        pFramesOutF32[iFrame*12 +  3] = pFramesInF32[iFrame*12 +  3] * pRunningGain[ 3];
-                        pFramesOutF32[iFrame*12 +  4] = pFramesInF32[iFrame*12 +  4] * pRunningGain[ 4];
-                        pFramesOutF32[iFrame*12 +  5] = pFramesInF32[iFrame*12 +  5] * pRunningGain[ 5];
-                        pFramesOutF32[iFrame*12 +  6] = pFramesInF32[iFrame*12 +  6] * pRunningGain[ 6];
-                        pFramesOutF32[iFrame*12 +  7] = pFramesInF32[iFrame*12 +  7] * pRunningGain[ 7];
-                        pFramesOutF32[iFrame*12 +  8] = pFramesInF32[iFrame*12 +  8] * pRunningGain[ 8];
-                        pFramesOutF32[iFrame*12 +  9] = pFramesInF32[iFrame*12 +  9] * pRunningGain[ 9];
-                        pFramesOutF32[iFrame*12 + 10] = pFramesInF32[iFrame*12 + 10] * pRunningGain[10];
-                        pFramesOutF32[iFrame*12 + 11] = pFramesInF32[iFrame*12 + 11] * pRunningGain[11];
+                        pFramesOutF32[iFrame*12 +  0] = pFramesInF32[iFrame * 12 +  0] * pRunningGain[ 0];
+                        pFramesOutF32[iFrame*12 +  1] = pFramesInF32[iFrame * 12 +  1] * pRunningGain[ 1];
+                        pFramesOutF32[iFrame*12 +  2] = pFramesInF32[iFrame * 12 +  2] * pRunningGain[ 2];
+                        pFramesOutF32[iFrame*12 +  3] = pFramesInF32[iFrame * 12 +  3] * pRunningGain[ 3];
+                        pFramesOutF32[iFrame*12 +  4] = pFramesInF32[iFrame * 12 +  4] * pRunningGain[ 4];
+                        pFramesOutF32[iFrame*12 +  5] = pFramesInF32[iFrame * 12 +  5] * pRunningGain[ 5];
+                        pFramesOutF32[iFrame*12 +  6] = pFramesInF32[iFrame * 12 +  6] * pRunningGain[ 6];
+                        pFramesOutF32[iFrame*12 +  7] = pFramesInF32[iFrame * 12 +  7] * pRunningGain[ 7];
+                        pFramesOutF32[iFrame*12 +  8] = pFramesInF32[iFrame * 12 +  8] * pRunningGain[ 8];
+                        pFramesOutF32[iFrame*12 +  9] = pFramesInF32[iFrame * 12 +  9] * pRunningGain[ 9];
+                        pFramesOutF32[iFrame*12 + 10] = pFramesInF32[iFrame * 12 + 10] * pRunningGain[10];
+                        pFramesOutF32[iFrame*12 + 11] = pFramesInF32[iFrame * 12 + 11] * pRunningGain[11];
 
                         /* Move the running gain forward towards the new gain. */
                         pRunningGain[ 0] += pRunningGainDelta[ 0];
@@ -48210,10 +48207,9 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                     }
 
                     iFrame = unrolledLoopCount << 1;
-                }
-                else if (pGainer->config.channels == 8) {
+                } else if (pGainer->config.channels == 8) {
                     /* For 8 channels we can just go over frame by frame and do all eight channels as 2 separate 4x SIMD operations. */
-                #if defined(MA_SUPPORT_SSE2)
+                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
                         __m128 runningGain0      = _mm_loadu_ps(&pRunningGain[0]);
                         __m128 runningGain1      = _mm_loadu_ps(&pRunningGain[4]);
@@ -48227,20 +48223,23 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                             runningGain0 = _mm_add_ps(runningGain0, runningGainDelta0);
                             runningGain1 = _mm_add_ps(runningGain1, runningGainDelta1);
                         }
-                    }
-                    else
+                    } else
+                #elif MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
+                    if (ma_has_avx2()) {
+                        __m256 runningGain0      = _mm256_loadu_ps(&pRunningGain[0]);
+                        __m256 runningGainDelta0 = _mm256_loadu_ps(&pRunningGainDelta[0]);
+
+                        for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                            _mm256_storeu_ps(&pFramesOutF32[iFrame*8 + 0], _mm256_mul_ps(_mm256_loadu_ps(&pFramesInF32[iFrame*8 + 0]), runningGain0));
+                            runningGain0 = _mm256_add_ps(runningGain0, runningGainDelta0);
+                        }
+                    } else
                 #endif
                     {
                         /* This is crafted so that it auto-vectorizes when compiled with Clang. */
                         for (; iFrame < interpolatedFrameCount; iFrame += 1) {
-                            /* This temp buffer is required to allow Clang to generate efficient auto-vectorized code. */
-                            float temp[8];
                             for (iChannel = 0; iChannel < 8; iChannel += 1) {
-                                temp[iChannel] = pFramesInF32[iFrame*8 + iChannel];
-                            }
-
-                            for (iChannel = 0; iChannel < 8; iChannel += 1) {
-                                pFramesOutF32[iFrame*8 + iChannel] = temp[iChannel] * pRunningGain[iChannel];
+                                pFramesOutF32[iFrame*8 + iChannel] = pFramesInF32[iFrame*8 + iChannel] * pRunningGain[iChannel];
                             }
 
                             /* Move the running gain forward towards the new gain. */
@@ -48253,7 +48252,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 
                 for (; iFrame < interpolatedFrameCount; iFrame += 1) {
                     for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel]  = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * pRunningGain[iChannel];
+                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * pRunningGain[iChannel];
                         pRunningGain[iChannel] += pRunningGainDelta[iChannel];
                     }
                 }
@@ -48329,7 +48328,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
             /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
             if (pFramesOut != NULL && pFramesIn != NULL) {
                 for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
+                    pFramesOutF32[iFrame * pGainer->config.channels + iChannel] = pFramesInF32[iFrame * pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
                 }
             }
 
@@ -48341,6 +48340,19 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 #endif
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount)
+{
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    ma_gainer_process_pcm_frames_internal() marks pFramesOut and pFramesIn with MA_RESTRICT which
+    helps with auto-vectorization.
+    */
+    return ma_gainer_process_pcm_frames_internal(pGainer, pFramesOut, pFramesIn, frameCount);
 }
 
 static void ma_gainer_set_gain_by_index(ma_gainer* pGainer, float newGain, ma_uint32 iChannel)
@@ -66545,6 +66557,8 @@ static ma_result ma_resource_manager_data_buffer_uninit_connector(ma_resource_ma
     MA_ASSERT(pResourceManager != NULL);
     MA_ASSERT(pDataBuffer      != NULL);
 
+    (void)pResourceManager;
+
     switch (ma_resource_manager_data_buffer_node_get_data_supply_type(pDataBuffer->pNode))
     {
         case ma_resource_manager_data_supply_type_encoded:          /* Connector is a decoder. */
@@ -70167,6 +70181,8 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     ma_node_output_bus* pFirst;
     ma_uint32 inputChannels;
     ma_bool32 doesOutputBufferHaveContent = MA_FALSE;
+
+    (void)pInputNode;   /* Not currently used. */
 
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
