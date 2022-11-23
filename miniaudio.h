@@ -3899,6 +3899,14 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
+#ifndef MA_RESTRICT
+    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+        #define MA_RESTRICT __restrict
+    #else
+        #define MA_RESTRICT
+    #endif
+#endif
+
 /* SIMD alignment in bytes. Currently set to 32 bytes in preparation for future AVX optimizations. */
 #define MA_SIMD_ALIGNMENT  32
 
@@ -11520,7 +11528,8 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
 #define MA_SIMD_NEON    3
 
 #ifndef MA_PREFERRED_SIMD
-    #  if defined(MA_SUPPORT_SSE2) && defined(MA_PREFER_SSE2)
+    /* Prefer SSE2 over AVX2 if AVX2 has not bee explicitly requested. */
+    #  if defined(MA_SUPPORT_SSE2) && (defined(MA_PREFER_SSE2) || !defined(MA_PREFER_AVX2))
         #define MA_PREFERRED_SIMD MA_SIMD_SSE2
     #elif defined(MA_SUPPORT_AVX2) && defined(MA_PREFER_AVX2)
         #define MA_PREFERRED_SIMD MA_SIMD_AVX2
@@ -11546,14 +11555,6 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
         #define MA_ASSUME(x) __assume(x)
     #else
         #define MA_ASSUME(x) (void)(x)
-    #endif
-#endif
-
-#ifndef MA_RESTRICT
-    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
-        #define MA_RESTRICT __restrict
-    #else
-        #define MA_RESTRICT
     #endif
 #endif
 
@@ -48209,27 +48210,44 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
                     }
 
                     iFrame = unrolledLoopCount << 1;
-                } else if (pGainer->config.channels == 8) {
+                }
+                else if (pGainer->config.channels == 8) {
                     /* For 8 channels we can just go over frame by frame and do all eight channels as 2 separate 4x SIMD operations. */
-                    for (; iFrame < interpolatedFrameCount; iFrame += 1) {
-                        pFramesOutF32[iFrame*8 + 0] = pFramesInF32[iFrame*8 + 0] * pRunningGain[0];
-                        pFramesOutF32[iFrame*8 + 1] = pFramesInF32[iFrame*8 + 1] * pRunningGain[1];
-                        pFramesOutF32[iFrame*8 + 2] = pFramesInF32[iFrame*8 + 2] * pRunningGain[2];
-                        pFramesOutF32[iFrame*8 + 3] = pFramesInF32[iFrame*8 + 3] * pRunningGain[3];
-                        pFramesOutF32[iFrame*8 + 4] = pFramesInF32[iFrame*8 + 4] * pRunningGain[4];
-                        pFramesOutF32[iFrame*8 + 5] = pFramesInF32[iFrame*8 + 5] * pRunningGain[5];
-                        pFramesOutF32[iFrame*8 + 6] = pFramesInF32[iFrame*8 + 6] * pRunningGain[6];
-                        pFramesOutF32[iFrame*8 + 7] = pFramesInF32[iFrame*8 + 7] * pRunningGain[7];
+                #if defined(MA_SUPPORT_SSE2)
+                    if (ma_has_sse2()) {
+                        __m128 runningGain0      = _mm_loadu_ps(&pRunningGain[0]);
+                        __m128 runningGain1      = _mm_loadu_ps(&pRunningGain[4]);
+                        __m128 runningGainDelta0 = _mm_loadu_ps(&pRunningGainDelta[0]);
+                        __m128 runningGainDelta1 = _mm_loadu_ps(&pRunningGainDelta[4]);
 
-                        /* Move the running gain forward towards the new gain. */
-                        pRunningGain[0] += pRunningGainDelta[0];
-                        pRunningGain[1] += pRunningGainDelta[1];
-                        pRunningGain[2] += pRunningGainDelta[2];
-                        pRunningGain[3] += pRunningGainDelta[3];
-                        pRunningGain[4] += pRunningGainDelta[4];
-                        pRunningGain[5] += pRunningGainDelta[5];
-                        pRunningGain[6] += pRunningGainDelta[6];
-                        pRunningGain[7] += pRunningGainDelta[7];
+                        for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*8 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*8 + 0]), runningGain0));
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*8 + 4], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*8 + 4]), runningGain1));
+
+                            runningGain0 = _mm_add_ps(runningGain0, runningGainDelta0);
+                            runningGain1 = _mm_add_ps(runningGain1, runningGainDelta1);
+                        }
+                    }
+                    else
+                #endif
+                    {
+                        /* This is crafted so that it auto-vectorizes when compiled with Clang. */
+                        for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                            /* This temp buffer is required to allow Clang to generate efficient auto-vectorized code. */
+                            float temp[8];
+                            for (iChannel = 0; iChannel < 8; iChannel += 1) {
+                                temp[iChannel] = pFramesInF32[iFrame*8 + iChannel];
+                            }
+
+                            for (iChannel = 0; iChannel < 8; iChannel += 1) {
+                                pFramesOutF32[iFrame*8 + iChannel] = temp[iChannel] * pRunningGain[iChannel];
+                            }
+
+                            /* Move the running gain forward towards the new gain. */
+                            for (iChannel = 0; iChannel < 8; iChannel += 1) {
+                                pRunningGain[iChannel] += pRunningGainDelta[iChannel];
+                            }
+                        }
                     }
                 }
 
@@ -52165,15 +52183,14 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
                             accumulation[6] += pFramesIn[iFrame*2 + 1] * weights[6][1];
                             accumulation[7] += pFramesIn[iFrame*2 + 1] * weights[7][1];
 
-
-                            pFramesOut[iFrame * 8 + 0] = accumulation[0];
-                            pFramesOut[iFrame * 8 + 1] = accumulation[1];
-                            pFramesOut[iFrame * 8 + 2] = accumulation[2];
-                            pFramesOut[iFrame * 8 + 3] = accumulation[3];
-                            pFramesOut[iFrame * 8 + 4] = accumulation[4];
-                            pFramesOut[iFrame * 8 + 5] = accumulation[5];
-                            pFramesOut[iFrame * 8 + 6] = accumulation[6];
-                            pFramesOut[iFrame * 8 + 7] = accumulation[7];
+                            pFramesOut[iFrame*8 + 0] = accumulation[0];
+                            pFramesOut[iFrame*8 + 1] = accumulation[1];
+                            pFramesOut[iFrame*8 + 2] = accumulation[2];
+                            pFramesOut[iFrame*8 + 3] = accumulation[3];
+                            pFramesOut[iFrame*8 + 4] = accumulation[4];
+                            pFramesOut[iFrame*8 + 5] = accumulation[5];
+                            pFramesOut[iFrame*8 + 6] = accumulation[6];
+                            pFramesOut[iFrame*8 + 7] = accumulation[7];
                         }
                     } else {
                         /* When outputting to 8 channels, we can do everything in groups of two 4x SIMD operations. */
@@ -52191,15 +52208,39 @@ static void ma_channel_map_apply_f32(float* pFramesOut, const ma_channel* pChann
                                 accumulation[7] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[7][iChannelIn];
                             }
 
-                            pFramesOut[iFrame * 8 + 0] = accumulation[0];
-                            pFramesOut[iFrame * 8 + 1] = accumulation[1];
-                            pFramesOut[iFrame * 8 + 2] = accumulation[2];
-                            pFramesOut[iFrame * 8 + 3] = accumulation[3];
-                            pFramesOut[iFrame * 8 + 4] = accumulation[4];
-                            pFramesOut[iFrame * 8 + 5] = accumulation[5];
-                            pFramesOut[iFrame * 8 + 6] = accumulation[6];
-                            pFramesOut[iFrame * 8 + 7] = accumulation[7];
+                            pFramesOut[iFrame*8 + 0] = accumulation[0];
+                            pFramesOut[iFrame*8 + 1] = accumulation[1];
+                            pFramesOut[iFrame*8 + 2] = accumulation[2];
+                            pFramesOut[iFrame*8 + 3] = accumulation[3];
+                            pFramesOut[iFrame*8 + 4] = accumulation[4];
+                            pFramesOut[iFrame*8 + 5] = accumulation[5];
+                            pFramesOut[iFrame*8 + 6] = accumulation[6];
+                            pFramesOut[iFrame*8 + 7] = accumulation[7];
                         }
+                    }
+                } else if (channelsOut == 6) {
+                    /*
+                    When outputting to 6 channels we unfortunately don't have a nice multiple of 4 to do 4x SIMD operations. Instead we'll
+                    expand our weights and do two frames at a time.
+                    */
+                    for (; iFrame < frameCount; iFrame += 1) {
+                        float accumulation[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+                        for (iChannelIn = 0; iChannelIn < channelsIn; iChannelIn += 1) {
+                            accumulation[0] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[0][iChannelIn];
+                            accumulation[1] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[1][iChannelIn];
+                            accumulation[2] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[2][iChannelIn];
+                            accumulation[3] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[3][iChannelIn];
+                            accumulation[4] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[4][iChannelIn];
+                            accumulation[5] += pFramesIn[iFrame*channelsIn + iChannelIn] * weights[5][iChannelIn];
+                        }
+
+                        pFramesOut[iFrame*6 + 0] = accumulation[0];
+                        pFramesOut[iFrame*6 + 1] = accumulation[1];
+                        pFramesOut[iFrame*6 + 2] = accumulation[2];
+                        pFramesOut[iFrame*6 + 3] = accumulation[3];
+                        pFramesOut[iFrame*6 + 4] = accumulation[4];
+                        pFramesOut[iFrame*6 + 5] = accumulation[5];
                     }
                 }
 
