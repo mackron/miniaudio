@@ -51877,6 +51877,28 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                 }
                             }
                         } else if (channelsOut == 6) {
+                        #if defined(MA_SUPPORT_SSE2)
+                            if (ma_has_sse2()) {
+                                /* We want to do two frames in each iteration so we can have a multiple of 4 samples. */
+                                ma_uint64 unrolledFrameCount = frameCount >> 1;
+
+                                for (iFrame = 0; iFrame < unrolledFrameCount; iFrame += 1) {
+                                    __m128 in0 = _mm_set1_ps(pFramesIn[iFrame*2 + 0]);
+                                    __m128 in1 = _mm_set1_ps(pFramesIn[iFrame*2 + 1]);
+
+                                    _mm_storeu_ps(&pFramesOut[iFrame*12 + 0], in0);
+                                    _mm_storeu_ps(&pFramesOut[iFrame*12 + 4], _mm_shuffle_ps(in1, in0, _MM_SHUFFLE(0, 0, 0, 0)));
+                                    _mm_storeu_ps(&pFramesOut[iFrame*12 + 8], in1);
+                                }
+
+                                /* Tail. */
+                                for (iFrame = unrolledFrameCount << 1; iFrame < frameCount; iFrame += 1) {
+                                    for (iChannelOut = 0; iChannelOut < 6; iChannelOut += 1) {
+                                        pFramesOut[iFrame*6 + iChannelOut] = pFramesIn[iFrame];
+                                    }
+                                }
+                            } else
+                        #endif
                             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                                 for (iChannelOut = 0; iChannelOut < 6; iChannelOut += 1) {
                                     pFramesOut[iFrame*6 + iChannelOut] = pFramesIn[iFrame];
@@ -51917,7 +51939,7 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                         }
                     }
                 } else {
-                    /* Slot path. Too many channels to store on the stack. */
+                    /* Slow path. Too many channels to store on the stack. */
                     for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                         for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
                             ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
