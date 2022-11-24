@@ -4891,6 +4891,7 @@ typedef struct
 {
     ma_gainer_config config;
     ma_uint32 t;
+    float masterVolume;
     float* pOldGains;
     float* pNewGains;
 
@@ -4906,6 +4907,8 @@ MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* 
 MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
 MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
+MA_API ma_result ma_gainer_set_master_volume(ma_gainer* pGainer, float volume);
+MA_API ma_result ma_gainer_get_master_volume(ma_gainer* pGainer, float* pVolume);
 
 
 
@@ -47680,6 +47683,7 @@ MA_API ma_result ma_gainer_init_preallocated(const ma_gainer_config* pConfig, vo
 
     pGainer->pOldGains = (float*)ma_offset_ptr(pHeap, heapLayout.oldGainsOffset);
     pGainer->pNewGains = (float*)ma_offset_ptr(pHeap, heapLayout.newGainsOffset);
+    pGainer->masterVolume = 1;
 
     pGainer->config = *pConfig;
     pGainer->t      = (ma_uint32)-1;  /* No interpolation by default. */
@@ -47789,9 +47793,9 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
                 /* Initialize the running gain. */
                 for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    float t = pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel];
+                    float t = pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel] * pGainer->masterVolume;
                     pRunningGainDelta[iChannel] = t * d;
-                    pRunningGain[iChannel] = pGainer->pOldGains[iChannel] + (t * a);
+                    pRunningGain[iChannel] = (pGainer->pOldGains[iChannel] * pGainer->masterVolume) + (t * a);
                 }
 
                 iFrame = 0;
@@ -47943,7 +47947,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                 /* Slower path for extreme channel counts where we can't fit enough on the stack. We could also move this to the heap as part of the ma_gainer object which might even be better since it'll only be updated when the gains actually change. */
                 for (iFrame = 0; iFrame < interpolatedFrameCount; iFrame += 1) {
                     for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
+                        pFramesOutF32[iFrame*pGainer->config.channels + iChannel] = pFramesInF32[iFrame*pGainer->config.channels + iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a) * pGainer->masterVolume;
                     }
 
                     a += d;
@@ -47962,7 +47966,21 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
     /* All we need to do here is apply the new gains using an optimized path. */
     if (pFramesOut != NULL && pFramesIn != NULL) {
-        ma_copy_and_apply_volume_factor_per_channel_f32((float*)pFramesOut, (const float*)pFramesIn, frameCount, pGainer->config.channels, pGainer->pNewGains);
+        if (pGainer->config.channels <= 32) {
+            float gains[32];
+            for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                gains[iChannel] = pGainer->pNewGains[iChannel] * pGainer->masterVolume;
+            }
+
+            ma_copy_and_apply_volume_factor_per_channel_f32((float*)pFramesOut, (const float*)pFramesIn, frameCount, pGainer->config.channels, gains);
+        } else {
+            /* Slow path. Too many channels to fit on the stack. Need to apply a master volume as a separate path. */
+            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
+                    ((float*)pFramesOut)[iFrame*pGainer->config.channels + iChannel] = ((const float*)pFramesIn)[iFrame*pGainer->config.channels + iChannel] * pGainer->pNewGains[iChannel] * pGainer->masterVolume;
+                }
+            }
+        }
     }
 
     /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
@@ -47970,11 +47988,11 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
         pGainer->t  = (ma_uint32)ma_min(pGainer->config.smoothTimeInFrames, frameCount);
     }
 
-
 #if 0
     if (pGainer->t >= pGainer->config.smoothTimeInFrames) {
         /* Fast path. No gain calculation required. */
         ma_copy_and_apply_volume_factor_per_channel_f32(pFramesOutF32, pFramesInF32, frameCount, pGainer->config.channels, pGainer->pNewGains);
+        ma_apply_volume_factor_f32(pFramesOutF32, frameCount * pGainer->config.channels, pGainer->masterVolume);
 
         /* Now that some frames have been processed we need to make sure future changes to the gain are interpolated. */
         if (pGainer->t == (ma_uint32)-1) {
@@ -47991,7 +48009,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channelCount; iChannel += 1) {
-                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a);
+                    pFramesOutF32[iChannel] = pFramesInF32[iChannel] * ma_mix_f32_fast(pGainer->pOldGains[iChannel], pGainer->pNewGains[iChannel], a) * pGainer->masterVolume;
                 }
 
                 pFramesOutF32 += channelCount;
@@ -48011,7 +48029,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
             /* We can allow the input and output buffers to be null in which case we'll just update the internal timer. */
             if (pFramesOut != NULL && pFramesIn != NULL) {
                 for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    pFramesOutF32[iFrame * pGainer->config.channels + iChannel] = pFramesInF32[iFrame * pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel);
+                    pFramesOutF32[iFrame * pGainer->config.channels + iChannel] = pFramesInF32[iFrame * pGainer->config.channels + iChannel] * ma_gainer_calculate_current_gain(pGainer, iChannel) * pGainer->masterVolume;
                 }
             }
 
@@ -48085,6 +48103,28 @@ MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains)
 
     /* The smoothing time needs to be reset to ensure we always interpolate by the configured smoothing time, but only if it's not the first setting. */
     ma_gainer_reset_smoothing_time(pGainer);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_set_master_volume(ma_gainer* pGainer, float volume)
+{
+    if (pGainer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pGainer->masterVolume = volume;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_gainer_get_master_volume(ma_gainer* pGainer, float* pVolume)
+{
+    if (pGainer == NULL || pVolume == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pVolume = pGainer->masterVolume;
 
     return MA_SUCCESS;
 }
