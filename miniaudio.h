@@ -5112,6 +5112,8 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, float volume);
+MA_API ma_result ma_spatializer_get_master_volume(ma_spatializer* pSpatializer, float* pVolume);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
@@ -49620,6 +49622,24 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
     }
 
     return MA_SUCCESS;
+}
+
+MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, float volume)
+{
+    if (pSpatializer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_gainer_set_master_volume(&pSpatializer->gainer, volume);
+}
+
+MA_API ma_result ma_spatializer_get_master_volume(ma_spatializer* pSpatializer, float* pVolume)
+{
+    if (pSpatializer == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_gainer_get_master_volume(&pSpatializer->gainer, pVolume);
 }
 
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer)
