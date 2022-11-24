@@ -48133,10 +48133,10 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
                 /* Optimized paths for common channel counts. This is mostly just experimenting with some SIMD ideas. It's not necessarily final. */
                 if (pGainer->config.channels == 2) {
-                    ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
-
                 #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
+                        ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
+
                         /* Expand some arrays so we can have a clean SIMD loop below. */
                         __m128 runningGainDelta0 = _mm_set_ps(pRunningGainDelta[1], pRunningGainDelta[0], pRunningGainDelta[1], pRunningGainDelta[0]);
                         __m128 runningGain0      = _mm_set_ps(pRunningGain[1] + pRunningGainDelta[1], pRunningGain[0] + pRunningGainDelta[0], pRunningGain[1], pRunningGain[0]);
@@ -48151,6 +48151,15 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                 #elif MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
                 #endif
                     {
+                        /*
+                        Two different scalar implementations here. Clang (and I assume GCC) will vectorize
+                        both of these, but the bottom version results in a nicer vectorization with less
+                        instructions emitted. The problem, however, is that the bottom version runs slower
+                        when compiled with MSVC. The top version will be partially vectorized by MSVC.
+                        */
+                    #if defined(_MSC_VER) && !defined(__clang__)
+                        ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
+
                         /* Expand some arrays so we can have a clean 4x SIMD operation in the loop. */
                         pRunningGainDelta[2] = pRunningGainDelta[0];
                         pRunningGainDelta[3] = pRunningGainDelta[1];
@@ -48171,17 +48180,28 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                         }
 
                         iFrame = unrolledLoopCount << 1;
+                    #else
+                        for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                            for (iChannel = 0; iChannel < 2; iChannel += 1) {
+                                pFramesOutF32[iFrame*2 + iChannel] = pFramesInF32[iFrame*2 + iChannel] * pRunningGain[iChannel];
+                            }
+
+                            for (iChannel = 0; iChannel < 2; iChannel += 1) {
+                                pRunningGain[iChannel] += pRunningGainDelta[iChannel];
+                            }
+                        }
+                    #endif
                     }
                 } else if (pGainer->config.channels == 6) {
-                    /*
-                    For 6 channels things are a bit more complicated because 6 isn't cleanly divisible by 4. We need to do 2 frames
-                    at a time, meaning we'll be doing 12 samples in a group. Like the stereo case we'll need to expand some arrays
-                    so we can do clean 4x SIMD operations.
-                    */
-                    ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
-
                 #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
+                        /*
+                        For 6 channels things are a bit more complicated because 6 isn't cleanly divisible by 4. We need to do 2 frames
+                        at a time, meaning we'll be doing 12 samples in a group. Like the stereo case we'll need to expand some arrays
+                        so we can do clean 4x SIMD operations.
+                        */
+                        ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
+
                         /* Expand some arrays so we can have a clean SIMD loop below. */
                         __m128 runningGainDelta0 = _mm_set_ps(pRunningGainDelta[3], pRunningGainDelta[2], pRunningGainDelta[1], pRunningGainDelta[0]);
                         __m128 runningGainDelta1 = _mm_set_ps(pRunningGainDelta[1], pRunningGainDelta[0], pRunningGainDelta[5], pRunningGainDelta[4]);
@@ -48206,50 +48226,16 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                 #elif MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
                 #endif
                     {
-                        pRunningGainDelta[ 6] = pRunningGainDelta[0];
-                        pRunningGainDelta[ 7] = pRunningGainDelta[1];
-                        pRunningGainDelta[ 8] = pRunningGainDelta[2];
-                        pRunningGainDelta[ 9] = pRunningGainDelta[3];
-                        pRunningGainDelta[10] = pRunningGainDelta[4];
-                        pRunningGainDelta[11] = pRunningGainDelta[5];
-
-                        pRunningGain[ 6] = pRunningGain[0] + pRunningGainDelta[0];
-                        pRunningGain[ 7] = pRunningGain[1] + pRunningGainDelta[1];
-                        pRunningGain[ 8] = pRunningGain[2] + pRunningGainDelta[2];
-                        pRunningGain[ 9] = pRunningGain[3] + pRunningGainDelta[3];
-                        pRunningGain[10] = pRunningGain[4] + pRunningGainDelta[4];
-                        pRunningGain[11] = pRunningGain[5] + pRunningGainDelta[5];
-
-                        for (; iFrame < unrolledLoopCount; iFrame += 1) {
-                            pFramesOutF32[iFrame*12 +  0] = pFramesInF32[iFrame * 12 +  0] * pRunningGain[ 0];
-                            pFramesOutF32[iFrame*12 +  1] = pFramesInF32[iFrame * 12 +  1] * pRunningGain[ 1];
-                            pFramesOutF32[iFrame*12 +  2] = pFramesInF32[iFrame * 12 +  2] * pRunningGain[ 2];
-                            pFramesOutF32[iFrame*12 +  3] = pFramesInF32[iFrame * 12 +  3] * pRunningGain[ 3];
-                            pFramesOutF32[iFrame*12 +  4] = pFramesInF32[iFrame * 12 +  4] * pRunningGain[ 4];
-                            pFramesOutF32[iFrame*12 +  5] = pFramesInF32[iFrame * 12 +  5] * pRunningGain[ 5];
-                            pFramesOutF32[iFrame*12 +  6] = pFramesInF32[iFrame * 12 +  6] * pRunningGain[ 6];
-                            pFramesOutF32[iFrame*12 +  7] = pFramesInF32[iFrame * 12 +  7] * pRunningGain[ 7];
-                            pFramesOutF32[iFrame*12 +  8] = pFramesInF32[iFrame * 12 +  8] * pRunningGain[ 8];
-                            pFramesOutF32[iFrame*12 +  9] = pFramesInF32[iFrame * 12 +  9] * pRunningGain[ 9];
-                            pFramesOutF32[iFrame*12 + 10] = pFramesInF32[iFrame * 12 + 10] * pRunningGain[10];
-                            pFramesOutF32[iFrame*12 + 11] = pFramesInF32[iFrame * 12 + 11] * pRunningGain[11];
+                        for (; iFrame < interpolatedFrameCount; iFrame += 1) {
+                            for (iChannel = 0; iChannel < 6; iChannel += 1) {
+                                pFramesOutF32[iFrame*6 + iChannel] = pFramesInF32[iFrame*6 + iChannel] * pRunningGain[iChannel];
+                            }
 
                             /* Move the running gain forward towards the new gain. */
-                            pRunningGain[ 0] += pRunningGainDelta[ 0];
-                            pRunningGain[ 1] += pRunningGainDelta[ 1];
-                            pRunningGain[ 2] += pRunningGainDelta[ 2];
-                            pRunningGain[ 3] += pRunningGainDelta[ 3];
-                            pRunningGain[ 4] += pRunningGainDelta[ 4];
-                            pRunningGain[ 5] += pRunningGainDelta[ 5];
-                            pRunningGain[ 6] += pRunningGainDelta[ 6];
-                            pRunningGain[ 7] += pRunningGainDelta[ 7];
-                            pRunningGain[ 8] += pRunningGainDelta[ 8];
-                            pRunningGain[ 9] += pRunningGainDelta[ 9];
-                            pRunningGain[10] += pRunningGainDelta[10];
-                            pRunningGain[11] += pRunningGainDelta[11];
+                            for (iChannel = 0; iChannel < 6; iChannel += 1) {
+                                pRunningGain[iChannel] += pRunningGainDelta[iChannel];
+                            }
                         }
-
-                        iFrame = unrolledLoopCount << 1;
                     }
                 } else if (pGainer->config.channels == 8) {
                     /* For 8 channels we can just go over frame by frame and do all eight channels as 2 separate 4x SIMD operations. */
