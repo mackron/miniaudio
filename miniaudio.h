@@ -4908,7 +4908,7 @@ MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesO
 MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
 MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
 MA_API ma_result ma_gainer_set_master_volume(ma_gainer* pGainer, float volume);
-MA_API ma_result ma_gainer_get_master_volume(ma_gainer* pGainer, float* pVolume);
+MA_API ma_result ma_gainer_get_master_volume(const ma_gainer* pGainer, float* pVolume);
 
 
 
@@ -5113,7 +5113,7 @@ MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, const
 MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, float volume);
-MA_API ma_result ma_spatializer_get_master_volume(ma_spatializer* pSpatializer, float* pVolume);
+MA_API ma_result ma_spatializer_get_master_volume(const ma_spatializer* pSpatializer, float* pVolume);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
@@ -47795,7 +47795,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
                 /* Initialize the running gain. */
                 for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    float t = pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel] * pGainer->masterVolume;
+                    float t = (pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel]) * pGainer->masterVolume;
                     pRunningGainDelta[iChannel] = t * d;
                     pRunningGain[iChannel] = (pGainer->pOldGains[iChannel] * pGainer->masterVolume) + (t * a);
                 }
@@ -48120,7 +48120,7 @@ MA_API ma_result ma_gainer_set_master_volume(ma_gainer* pGainer, float volume)
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_gainer_get_master_volume(ma_gainer* pGainer, float* pVolume)
+MA_API ma_result ma_gainer_get_master_volume(const ma_gainer* pGainer, float* pVolume)
 {
     if (pGainer == NULL || pVolume == NULL) {
         return MA_INVALID_ARGS;
@@ -49633,7 +49633,7 @@ MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, 
     return ma_gainer_set_master_volume(&pSpatializer->gainer, volume);
 }
 
-MA_API ma_result ma_spatializer_get_master_volume(ma_spatializer* pSpatializer, float* pVolume)
+MA_API ma_result ma_spatializer_get_master_volume(const ma_spatializer* pSpatializer, float* pVolume)
 {
     if (pSpatializer == NULL) {
         return MA_INVALID_ARGS;
@@ -72294,6 +72294,33 @@ static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_n
     return inputFrameCount;
 }
 
+static ma_result ma_engine_node_set_volume(ma_engine_node* pEngineNode, float volume)
+{
+    if (pEngineNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for hodling our volume. */
+    ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_engine_node_get_volume(const ma_engine_node* pEngineNode, float* pVolume)
+{
+    if (pVolume == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    *pVolume = 0.0f;
+
+    if (pEngineNode == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    return ma_spatializer_get_master_volume(&pEngineNode->spatializer, pVolume);
+}
+
 static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     ma_uint32 frameCountIn;
@@ -72419,13 +72446,17 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
             ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listeners[iListener], pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
         } else {
-            /* No spatialization, but we still need to do channel conversion. */
+            /* No spatialization, but we still need to do channel conversion and master volume. */
+            float volume;
+            ma_engine_node_get_volume(pEngineNode, &volume);    /* Should never fail. */
+
             if (channelsIn == channelsOut) {
                 /* No channel conversion required. Just copy straight to the output buffer. */
-                ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut, ma_format_f32, channelsOut);
+                ma_copy_and_apply_volume_factor_f32(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut * channelsOut, volume);
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
                 ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple, pEngineNode->monoExpansionMode);
+                ma_apply_volume_factor_f32(pRunningFramesOut, framesJustProcessedOut * channelsOut, volume);
             }
         }
 
@@ -74175,17 +74206,20 @@ MA_API void ma_sound_set_volume(ma_sound* pSound, float volume)
         return;
     }
 
-    /* The volume is controlled via the output bus. */
-    ma_node_set_output_bus_volume(pSound, 0, volume);
+    ma_engine_node_set_volume(&pSound->engineNode, volume);
 }
 
 MA_API float ma_sound_get_volume(const ma_sound* pSound)
 {
+    float volume = 0;
+
     if (pSound == NULL) {
         return 0;
     }
 
-    return ma_node_get_output_bus_volume(pSound, 0);
+    ma_engine_node_get_volume(&pSound->engineNode, &volume);
+
+    return volume;
 }
 
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan)
