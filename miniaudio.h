@@ -3899,14 +3899,6 @@ typedef ma_uint16 wchar_t;
     #endif
 #endif
 
-#ifndef MA_RESTRICT
-    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
-        #define MA_RESTRICT __restrict
-    #else
-        #define MA_RESTRICT
-    #endif
-#endif
-
 /* SIMD alignment in bytes. Currently set to 32 bytes in preparation for future AVX optimizations. */
 #define MA_SIMD_ALIGNMENT  32
 
@@ -11555,6 +11547,14 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
         #define MA_ASSUME(x) __assume(x)
     #else
         #define MA_ASSUME(x) (void)(x)
+    #endif
+#endif
+
+#ifndef MA_RESTRICT
+    #if defined(__clang__) || defined(__GNUC__) || defined(_MSC_VER)
+        #define MA_RESTRICT __restrict
+    #else
+        #define MA_RESTRICT
     #endif
 #endif
 
@@ -48074,7 +48074,7 @@ static float ma_gainer_calculate_current_gain(const ma_gainer* pGainer, ma_uint3
     return ma_mix_f32_fast(pGainer->pOldGains[channel], pGainer->pNewGains[channel], a);
 }
 
-static ma_result ma_gainer_process_pcm_frames_internal(ma_gainer* pGainer, void* MA_RESTRICT pFramesOut, const void* MA_RESTRICT pFramesIn, ma_uint64 frameCount)
+static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_internal(ma_gainer * pGainer, void* MA_RESTRICT pFramesOut, const void* MA_RESTRICT pFramesIn, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint32 iChannel;
@@ -48135,26 +48135,43 @@ static ma_result ma_gainer_process_pcm_frames_internal(ma_gainer* pGainer, void*
                 if (pGainer->config.channels == 2) {
                     ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
 
-                    /* Expand some arrays so we can have a clean 4x SIMD operation in the loop. */
-                    pRunningGainDelta[2] = pRunningGainDelta[0];
-                    pRunningGainDelta[3] = pRunningGainDelta[1];
-                    pRunningGain[2] = pRunningGain[0] + pRunningGainDelta[0];
-                    pRunningGain[3] = pRunningGain[1] + pRunningGainDelta[1];
+                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+                    if (ma_has_sse2()) {
+                        /* Expand some arrays so we can have a clean SIMD loop below. */
+                        __m128 runningGainDelta0 = _mm_set_ps(pRunningGainDelta[1], pRunningGainDelta[0], pRunningGainDelta[1], pRunningGainDelta[0]);
+                        __m128 runningGain0      = _mm_set_ps(pRunningGain[1] + pRunningGainDelta[1], pRunningGain[0] + pRunningGainDelta[0], pRunningGain[1], pRunningGain[0]);
 
-                    for (; iFrame < unrolledLoopCount; iFrame += 1) {
-                        pFramesOutF32[iFrame*4 + 0] = pFramesInF32[iFrame*4 + 0] * pRunningGain[0];
-                        pFramesOutF32[iFrame*4 + 1] = pFramesInF32[iFrame*4 + 1] * pRunningGain[1];
-                        pFramesOutF32[iFrame*4 + 2] = pFramesInF32[iFrame*4 + 2] * pRunningGain[2];
-                        pFramesOutF32[iFrame*4 + 3] = pFramesInF32[iFrame*4 + 3] * pRunningGain[3];
+                        for (; iFrame < unrolledLoopCount; iFrame += 1) {
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*4 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*4 + 0]), runningGain0));
+                            runningGain0 = _mm_add_ps(runningGain0, runningGainDelta0);
+                        }
 
-                        /* Move the running gain forward towards the new gain. */
-                        pRunningGain[0] += pRunningGainDelta[0];
-                        pRunningGain[1] += pRunningGainDelta[1];
-                        pRunningGain[2] += pRunningGainDelta[2];
-                        pRunningGain[3] += pRunningGainDelta[3];
+                        iFrame = unrolledLoopCount << 1;
+                    } else
+                #elif MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
+                #endif
+                    {
+                        /* Expand some arrays so we can have a clean 4x SIMD operation in the loop. */
+                        pRunningGainDelta[2] = pRunningGainDelta[0];
+                        pRunningGainDelta[3] = pRunningGainDelta[1];
+                        pRunningGain[2] = pRunningGain[0] + pRunningGainDelta[0];
+                        pRunningGain[3] = pRunningGain[1] + pRunningGainDelta[1];
+
+                        for (; iFrame < unrolledLoopCount; iFrame += 1) {
+                            pFramesOutF32[iFrame*4 + 0] = pFramesInF32[iFrame*4 + 0] * pRunningGain[0];
+                            pFramesOutF32[iFrame*4 + 1] = pFramesInF32[iFrame*4 + 1] * pRunningGain[1];
+                            pFramesOutF32[iFrame*4 + 2] = pFramesInF32[iFrame*4 + 2] * pRunningGain[2];
+                            pFramesOutF32[iFrame*4 + 3] = pFramesInF32[iFrame*4 + 3] * pRunningGain[3];
+
+                            /* Move the running gain forward towards the new gain. */
+                            pRunningGain[0] += pRunningGainDelta[0];
+                            pRunningGain[1] += pRunningGainDelta[1];
+                            pRunningGain[2] += pRunningGainDelta[2];
+                            pRunningGain[3] += pRunningGainDelta[3];
+                        }
+
+                        iFrame = unrolledLoopCount << 1;
                     }
-
-                    iFrame = unrolledLoopCount << 1;
                 } else if (pGainer->config.channels == 6) {
                     /*
                     For 6 channels things are a bit more complicated because 6 isn't cleanly divisible by 4. We need to do 2 frames
@@ -48163,58 +48180,85 @@ static ma_result ma_gainer_process_pcm_frames_internal(ma_gainer* pGainer, void*
                     */
                     ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
 
-                    pRunningGainDelta[ 6] = pRunningGainDelta[0];
-                    pRunningGainDelta[ 7] = pRunningGainDelta[1];
-                    pRunningGainDelta[ 8] = pRunningGainDelta[2];
-                    pRunningGainDelta[ 9] = pRunningGainDelta[3];
-                    pRunningGainDelta[10] = pRunningGainDelta[4];
-                    pRunningGainDelta[11] = pRunningGainDelta[5];
+                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+                    if (ma_has_sse2()) {
+                        /* Expand some arrays so we can have a clean SIMD loop below. */
+                        __m128 runningGainDelta0 = _mm_set_ps(pRunningGainDelta[3], pRunningGainDelta[2], pRunningGainDelta[1], pRunningGainDelta[0]);
+                        __m128 runningGainDelta1 = _mm_set_ps(pRunningGainDelta[1], pRunningGainDelta[0], pRunningGainDelta[5], pRunningGainDelta[4]);
+                        __m128 runningGainDelta2 = _mm_set_ps(pRunningGainDelta[5], pRunningGainDelta[4], pRunningGainDelta[3], pRunningGainDelta[2]);
 
-                    pRunningGain[ 6] = pRunningGain[0] + pRunningGainDelta[0];
-                    pRunningGain[ 7] = pRunningGain[1] + pRunningGainDelta[1];
-                    pRunningGain[ 8] = pRunningGain[2] + pRunningGainDelta[2];
-                    pRunningGain[ 9] = pRunningGain[3] + pRunningGainDelta[3];
-                    pRunningGain[10] = pRunningGain[4] + pRunningGainDelta[4];
-                    pRunningGain[11] = pRunningGain[5] + pRunningGainDelta[5];
+                        __m128 runningGain0      = _mm_set_ps(pRunningGain[3],                        pRunningGain[2],                        pRunningGain[1],                        pRunningGain[0]);
+                        __m128 runningGain1      = _mm_set_ps(pRunningGain[1] + pRunningGainDelta[1], pRunningGain[0] + pRunningGainDelta[0], pRunningGain[5],                        pRunningGain[4]);
+                        __m128 runningGain2      = _mm_set_ps(pRunningGain[5] + pRunningGainDelta[5], pRunningGain[4] + pRunningGainDelta[4], pRunningGain[3] + pRunningGainDelta[3], pRunningGain[2] + pRunningGainDelta[2]);
 
-                    for (; iFrame < unrolledLoopCount; iFrame += 1) {
-                        pFramesOutF32[iFrame*12 +  0] = pFramesInF32[iFrame * 12 +  0] * pRunningGain[ 0];
-                        pFramesOutF32[iFrame*12 +  1] = pFramesInF32[iFrame * 12 +  1] * pRunningGain[ 1];
-                        pFramesOutF32[iFrame*12 +  2] = pFramesInF32[iFrame * 12 +  2] * pRunningGain[ 2];
-                        pFramesOutF32[iFrame*12 +  3] = pFramesInF32[iFrame * 12 +  3] * pRunningGain[ 3];
-                        pFramesOutF32[iFrame*12 +  4] = pFramesInF32[iFrame * 12 +  4] * pRunningGain[ 4];
-                        pFramesOutF32[iFrame*12 +  5] = pFramesInF32[iFrame * 12 +  5] * pRunningGain[ 5];
-                        pFramesOutF32[iFrame*12 +  6] = pFramesInF32[iFrame * 12 +  6] * pRunningGain[ 6];
-                        pFramesOutF32[iFrame*12 +  7] = pFramesInF32[iFrame * 12 +  7] * pRunningGain[ 7];
-                        pFramesOutF32[iFrame*12 +  8] = pFramesInF32[iFrame * 12 +  8] * pRunningGain[ 8];
-                        pFramesOutF32[iFrame*12 +  9] = pFramesInF32[iFrame * 12 +  9] * pRunningGain[ 9];
-                        pFramesOutF32[iFrame*12 + 10] = pFramesInF32[iFrame * 12 + 10] * pRunningGain[10];
-                        pFramesOutF32[iFrame*12 + 11] = pFramesInF32[iFrame * 12 + 11] * pRunningGain[11];
+                        for (; iFrame < unrolledLoopCount; iFrame += 1) {
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*12 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*12 + 0]), runningGain0));
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*12 + 4], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*12 + 4]), runningGain1));
+                            _mm_storeu_ps(&pFramesOutF32[iFrame*12 + 8], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*12 + 8]), runningGain2));
 
-                        /* Move the running gain forward towards the new gain. */
-                        pRunningGain[ 0] += pRunningGainDelta[ 0];
-                        pRunningGain[ 1] += pRunningGainDelta[ 1];
-                        pRunningGain[ 2] += pRunningGainDelta[ 2];
-                        pRunningGain[ 3] += pRunningGainDelta[ 3];
-                        pRunningGain[ 4] += pRunningGainDelta[ 4];
-                        pRunningGain[ 5] += pRunningGainDelta[ 5];
-                        pRunningGain[ 6] += pRunningGainDelta[ 6];
-                        pRunningGain[ 7] += pRunningGainDelta[ 7];
-                        pRunningGain[ 8] += pRunningGainDelta[ 8];
-                        pRunningGain[ 9] += pRunningGainDelta[ 9];
-                        pRunningGain[10] += pRunningGainDelta[10];
-                        pRunningGain[11] += pRunningGainDelta[11];
+                            runningGain0 = _mm_add_ps(runningGain0, runningGainDelta0);
+                            runningGain1 = _mm_add_ps(runningGain1, runningGainDelta1);
+                            runningGain2 = _mm_add_ps(runningGain2, runningGainDelta2);
+                        }
+
+                        iFrame = unrolledLoopCount << 1;
+                    } else
+                #elif MA_PREFERRED_SIMD == MA_SIMD_AVX2 && defined(MA_SUPPORT_AVX2)
+                #endif
+                    {
+                        pRunningGainDelta[ 6] = pRunningGainDelta[0];
+                        pRunningGainDelta[ 7] = pRunningGainDelta[1];
+                        pRunningGainDelta[ 8] = pRunningGainDelta[2];
+                        pRunningGainDelta[ 9] = pRunningGainDelta[3];
+                        pRunningGainDelta[10] = pRunningGainDelta[4];
+                        pRunningGainDelta[11] = pRunningGainDelta[5];
+
+                        pRunningGain[ 6] = pRunningGain[0] + pRunningGainDelta[0];
+                        pRunningGain[ 7] = pRunningGain[1] + pRunningGainDelta[1];
+                        pRunningGain[ 8] = pRunningGain[2] + pRunningGainDelta[2];
+                        pRunningGain[ 9] = pRunningGain[3] + pRunningGainDelta[3];
+                        pRunningGain[10] = pRunningGain[4] + pRunningGainDelta[4];
+                        pRunningGain[11] = pRunningGain[5] + pRunningGainDelta[5];
+
+                        for (; iFrame < unrolledLoopCount; iFrame += 1) {
+                            pFramesOutF32[iFrame*12 +  0] = pFramesInF32[iFrame * 12 +  0] * pRunningGain[ 0];
+                            pFramesOutF32[iFrame*12 +  1] = pFramesInF32[iFrame * 12 +  1] * pRunningGain[ 1];
+                            pFramesOutF32[iFrame*12 +  2] = pFramesInF32[iFrame * 12 +  2] * pRunningGain[ 2];
+                            pFramesOutF32[iFrame*12 +  3] = pFramesInF32[iFrame * 12 +  3] * pRunningGain[ 3];
+                            pFramesOutF32[iFrame*12 +  4] = pFramesInF32[iFrame * 12 +  4] * pRunningGain[ 4];
+                            pFramesOutF32[iFrame*12 +  5] = pFramesInF32[iFrame * 12 +  5] * pRunningGain[ 5];
+                            pFramesOutF32[iFrame*12 +  6] = pFramesInF32[iFrame * 12 +  6] * pRunningGain[ 6];
+                            pFramesOutF32[iFrame*12 +  7] = pFramesInF32[iFrame * 12 +  7] * pRunningGain[ 7];
+                            pFramesOutF32[iFrame*12 +  8] = pFramesInF32[iFrame * 12 +  8] * pRunningGain[ 8];
+                            pFramesOutF32[iFrame*12 +  9] = pFramesInF32[iFrame * 12 +  9] * pRunningGain[ 9];
+                            pFramesOutF32[iFrame*12 + 10] = pFramesInF32[iFrame * 12 + 10] * pRunningGain[10];
+                            pFramesOutF32[iFrame*12 + 11] = pFramesInF32[iFrame * 12 + 11] * pRunningGain[11];
+
+                            /* Move the running gain forward towards the new gain. */
+                            pRunningGain[ 0] += pRunningGainDelta[ 0];
+                            pRunningGain[ 1] += pRunningGainDelta[ 1];
+                            pRunningGain[ 2] += pRunningGainDelta[ 2];
+                            pRunningGain[ 3] += pRunningGainDelta[ 3];
+                            pRunningGain[ 4] += pRunningGainDelta[ 4];
+                            pRunningGain[ 5] += pRunningGainDelta[ 5];
+                            pRunningGain[ 6] += pRunningGainDelta[ 6];
+                            pRunningGain[ 7] += pRunningGainDelta[ 7];
+                            pRunningGain[ 8] += pRunningGainDelta[ 8];
+                            pRunningGain[ 9] += pRunningGainDelta[ 9];
+                            pRunningGain[10] += pRunningGainDelta[10];
+                            pRunningGain[11] += pRunningGainDelta[11];
+                        }
+
+                        iFrame = unrolledLoopCount << 1;
                     }
-
-                    iFrame = unrolledLoopCount << 1;
                 } else if (pGainer->config.channels == 8) {
                     /* For 8 channels we can just go over frame by frame and do all eight channels as 2 separate 4x SIMD operations. */
                 #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
-                        __m128 runningGain0      = _mm_loadu_ps(&pRunningGain[0]);
-                        __m128 runningGain1      = _mm_loadu_ps(&pRunningGain[4]);
                         __m128 runningGainDelta0 = _mm_loadu_ps(&pRunningGainDelta[0]);
                         __m128 runningGainDelta1 = _mm_loadu_ps(&pRunningGainDelta[4]);
+                        __m128 runningGain0      = _mm_loadu_ps(&pRunningGain[0]);
+                        __m128 runningGain1      = _mm_loadu_ps(&pRunningGain[4]);
 
                         for (; iFrame < interpolatedFrameCount; iFrame += 1) {
                             _mm_storeu_ps(&pFramesOutF32[iFrame*8 + 0], _mm_mul_ps(_mm_loadu_ps(&pFramesInF32[iFrame*8 + 0]), runningGain0));
