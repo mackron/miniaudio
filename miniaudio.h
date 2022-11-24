@@ -11514,21 +11514,6 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
 #endif
 }
 
-#define MA_SIMD_NONE    0
-#define MA_SIMD_SSE2    1
-#define MA_SIMD_NEON    3
-
-#ifndef MA_PREFERRED_SIMD
-    /* Prefer SSE2 over AVX2 if AVX2 has not bee explicitly requested. */
-    #  if defined(MA_SUPPORT_SSE2) && defined(MA_PREFER_SSE2)
-        #define MA_PREFERRED_SIMD MA_SIMD_SSE2
-    #elif defined(MA_SUPPORT_NEON) && defined(MA_PREFER_NEON)
-        #define MA_PREFERRED_SIMD MA_SIMD_NEON
-    #else
-        #define MA_PREFERRED_SIMD MA_SIMD_NONE
-    #endif
-#endif
-
 #if defined(__has_builtin)
     #define MA_COMPILER_HAS_BUILTIN(x) __has_builtin(x)
 #else
@@ -42232,11 +42217,11 @@ MA_API void ma_pcm_u8_to_s16(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -42289,11 +42274,11 @@ MA_API void ma_pcm_u8_to_s24(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -42344,11 +42329,11 @@ MA_API void ma_pcm_u8_to_s32(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -42400,11 +42385,11 @@ MA_API void ma_pcm_u8_to_f32(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_u8_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_u8_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_u8_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -42552,11 +42537,11 @@ MA_API void ma_pcm_s16_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -42613,11 +42598,11 @@ MA_API void ma_pcm_s16_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -42665,11 +42650,11 @@ MA_API void ma_pcm_s16_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -42729,11 +42714,11 @@ MA_API void ma_pcm_s16_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s16_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s16_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s16_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -42857,11 +42842,11 @@ MA_API void ma_pcm_s24_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -42927,11 +42912,11 @@ MA_API void ma_pcm_s24_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -42987,11 +42972,11 @@ MA_API void ma_pcm_s24_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -43051,11 +43036,11 @@ MA_API void ma_pcm_s24_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s24_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s24_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s24_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -43187,11 +43172,11 @@ MA_API void ma_pcm_s32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -43257,11 +43242,11 @@ MA_API void ma_pcm_s32_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -43312,11 +43297,11 @@ MA_API void ma_pcm_s32_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -43382,11 +43367,11 @@ MA_API void ma_pcm_s32_to_f32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_s32_to_f32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_s32_to_f32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_s32_to_f32__neon(dst, src, count, ditherMode);
         } else
@@ -43505,11 +43490,11 @@ MA_API void ma_pcm_f32_to_u8(void* dst, const void* src, ma_uint64 count, ma_dit
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_u8__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_u8__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_u8__neon(dst, src, count, ditherMode);
         } else
@@ -43825,11 +43810,11 @@ MA_API void ma_pcm_f32_to_s16(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s16__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s16__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s16__neon(dst, src, count, ditherMode);
         } else
@@ -43894,11 +43879,11 @@ MA_API void ma_pcm_f32_to_s24(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s24__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s24__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s24__neon(dst, src, count, ditherMode);
         } else
@@ -43959,11 +43944,11 @@ MA_API void ma_pcm_f32_to_s32(void* dst, const void* src, ma_uint64 count, ma_di
 #ifdef MA_USE_REFERENCE_CONVERSION_APIS
     ma_pcm_f32_to_s32__reference(dst, src, count, ditherMode);
 #else
-    #  if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+    #  if defined(MA_SUPPORT_SSE2)
         if (ma_has_sse2()) {
             ma_pcm_f32_to_s32__sse2(dst, src, count, ditherMode);
         } else
-    #elif MA_PREFERRED_SIMD == MA_SIMD_NEON && defined(MA_SUPPORT_NEON)
+    #elif defined(MA_SUPPORT_NEON)
         if (ma_has_neon()) {
             ma_pcm_f32_to_s32__neon(dst, src, count, ditherMode);
         } else
@@ -47813,7 +47798,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
                 /* Optimized paths for common channel counts. This is mostly just experimenting with some SIMD ideas. It's not necessarily final. */
                 if (pGainer->config.channels == 2) {
-                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+                #if defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
                         ma_uint64 unrolledLoopCount = interpolatedFrameCount >> 1;
 
@@ -47872,7 +47857,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                     #endif
                     }
                 } else if (pGainer->config.channels == 6) {
-                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+                #if defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
                         /*
                         For 6 channels things are a bit more complicated because 6 isn't cleanly divisible by 4. We need to do 2 frames
@@ -47917,7 +47902,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
                     }
                 } else if (pGainer->config.channels == 8) {
                     /* For 8 channels we can just go over frame by frame and do all eight channels as 2 separate 4x SIMD operations. */
-                #if MA_PREFERRED_SIMD == MA_SIMD_SSE2 && defined(MA_SUPPORT_SSE2)
+                #if defined(MA_SUPPORT_SSE2)
                     if (ma_has_sse2()) {
                         __m128 runningGainDelta0 = _mm_loadu_ps(&pRunningGainDelta[0]);
                         __m128 runningGainDelta1 = _mm_loadu_ps(&pRunningGainDelta[4]);
