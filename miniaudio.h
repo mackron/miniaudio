@@ -51835,16 +51835,44 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* pFramesOut, const ma_ch
         {
             default_handler:
             {
-                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                if (channelsOut <= MA_MAX_CHANNELS) {
+                    ma_bool32 hasEmptyChannel = MA_FALSE;
+                    ma_channel channelPositions[MA_MAX_CHANNELS];
                     for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
-                        ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
-                        if (channelOut != MA_CHANNEL_NONE) {
-                            pFramesOut[iChannelOut] = pFramesIn[0];
+                        channelPositions[iChannelOut] = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                        if (channelPositions[iChannelOut] == MA_CHANNEL_NONE) {
+                            hasEmptyChannel = MA_TRUE;
                         }
                     }
 
-                    pFramesOut += channelsOut;
-                    pFramesIn  += 1;
+                    if (hasEmptyChannel == MA_FALSE) {
+                        /*
+                        Faster path when there's no MA_CHANNEL_NONE channel positions. This should hopefully
+                        help the compiler with auto-vectorization.
+                        */
+                        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                            for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                                pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                            }
+                        }
+                    } else {
+                        for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                            for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                                if (channelPositions[iChannelOut] != MA_CHANNEL_NONE) {
+                                    pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                        for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                            ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
+                            if (channelOut != MA_CHANNEL_NONE) {
+                                pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                            }
+                        }
+                    }
                 }
             }
         } break;
