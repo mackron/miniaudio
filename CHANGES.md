@@ -4,6 +4,8 @@ v0.11.12 - TBD
 * Fix a crash with some backends when rerouting the playback side of a duplex device.
 * Fix some bugs with initialization of POSIX threads.
 * Fix a bug where sounds are not resampled when `MA_SOUND_NO_PITCH` is used.
+* Fix some Wimplicit-fallthrough warnings.
+* Optimizations to the high level API.
 * Remove the old runtime linking system for pthread. The `MA_USE_RUNTIME_LINKING_FOR_PTHREAD` option is no longer used.
 * WASAPI: Fix a crash when starting a device while it's in the process of rerouting.
 
