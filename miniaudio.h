@@ -51876,10 +51876,8 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                 }
 
                                 /* Tail. */
-                                for (iFrame = unrolledFrameCount << 1; iFrame < frameCount; iFrame += 1) {
-                                    pFramesOut[iFrame*2 + 0] = pFramesIn[iFrame];
-                                    pFramesOut[iFrame*2 + 1] = pFramesIn[iFrame];
-                                }
+                                iFrame = unrolledFrameCount << 1;
+                                goto generic_on_fastpath;
                             } else
                         #endif
                             {
@@ -51905,16 +51903,15 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                 }
 
                                 /* Tail. */
-                                for (iFrame = unrolledFrameCount << 1; iFrame < frameCount; iFrame += 1) {
+                                iFrame = unrolledFrameCount << 1;
+                                goto generic_on_fastpath;
+                            } else
+                        #endif
+                            {
+                                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                                     for (iChannelOut = 0; iChannelOut < 6; iChannelOut += 1) {
                                         pFramesOut[iFrame*6 + iChannelOut] = pFramesIn[iFrame];
                                     }
-                                }
-                            } else
-                        #endif
-                            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                                for (iChannelOut = 0; iChannelOut < 6; iChannelOut += 1) {
-                                    pFramesOut[iFrame*6 + iChannelOut] = pFramesIn[iFrame];
                                 }
                             }
                         } else if (channelsOut == 8) {
@@ -51935,9 +51932,14 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                 }
                             }
                         } else {
-                            for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                                for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
-                                    pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                            iFrame = 0;
+
+                            generic_on_fastpath:
+                            {
+                                for (; iFrame < frameCount; iFrame += 1) {
+                                    for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
+                                        pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame];
+                                    }
                                 }
                             }
                         }
@@ -51946,7 +51948,7 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                             for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
                                 if (channelPositions[iChannelOut] != MA_CHANNEL_NONE) {
-                                    pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                                    pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame];
                                 }
                             }
                         }
@@ -51957,7 +51959,7 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                         for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
                             ma_channel channelOut = ma_channel_map_get_channel(pChannelMapOut, channelsOut, iChannelOut);
                             if (channelOut != MA_CHANNEL_NONE) {
-                                pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame + 0];
+                                pFramesOut[iFrame*channelsOut + iChannelOut] = pFramesIn[iFrame];
                             }
                         }
                     }
