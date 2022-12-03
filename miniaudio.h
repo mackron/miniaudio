@@ -65052,6 +65052,7 @@ MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type)
     will be removed in version 0.12.
     */
     MA_ASSERT(MA_FALSE);
+    (void)type;
 
     return MA_INVALID_OPERATION;
 }
