@@ -3349,8 +3349,8 @@ The noise API uses simple LCG random number generation. It supports a custom see
 for things like automated testing requiring reproducibility. Setting the seed to zero will default
 to `MA_DEFAULT_LCG_SEED`.
 
-The amplitude, seed, and type can be changed dynamically with `ma_noise_set_amplitude()`,
-`ma_noise_set_seed()`, and `ma_noise_set_type()` respectively.
+The amplitude and seedcan be changed dynamically with `ma_noise_set_amplitude()` and
+`ma_noise_set_seed()` respectively.
 
 By default, the noise API will use different values for different channels. So, for example, the
 left side in a stereo stream will be different to the right side. To instead have each channel use
