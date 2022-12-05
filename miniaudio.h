@@ -770,7 +770,7 @@ you could plug in a decoder like so:
     ma_uint64 framesRead;
     ma_decoder decoder;   // <-- This would be initialized with `ma_decoder_init_*()`.
 
-    result = ma_data_source_read_pcm_frames(&decoder, pFramesOut, frameCount, &framesRead, loop);
+    result = ma_data_source_read_pcm_frames(&decoder, pFramesOut, frameCount, &framesRead);
     if (result != MA_SUCCESS) {
         return result;  // Failed to read data from the decoder.
     }
@@ -4374,7 +4374,7 @@ Logging
     #endif
 #endif
 #ifndef MA_ATTRIBUTE_FORMAT
-#define MA_ATTRIBUTE_FORMAT(fmt,va)
+#define MA_ATTRIBUTE_FORMAT(fmt, va)
 #endif
 
 #ifndef MA_MAX_LOG_CALLBACKS
