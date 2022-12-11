@@ -48565,7 +48565,7 @@ MA_API ma_vec3f ma_vec3f_init_3f(float x, float y, float z)
     return v;
 }
 
-MA_API ma_vec3f ma_vec3f_sub(volatile ma_vec3f a, volatile ma_vec3f b)
+MA_API ma_vec3f ma_vec3f_sub(ma_vec3f a, ma_vec3f b)
 {
     return ma_vec3f_init_3f(
         a.x - b.x,
@@ -48574,7 +48574,7 @@ MA_API ma_vec3f ma_vec3f_sub(volatile ma_vec3f a, volatile ma_vec3f b)
     );
 }
 
-MA_API ma_vec3f ma_vec3f_neg(volatile ma_vec3f a)
+MA_API ma_vec3f ma_vec3f_neg(ma_vec3f a)
 {
     return ma_vec3f_init_3f(
         -a.x,
