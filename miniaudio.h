@@ -48646,7 +48646,7 @@ MA_API void ma_atomic_vec3f_set(ma_atomic_vec3f* v, ma_vec3f value)
     ma_spinlock_unlock(&v->lock);
 }
 
-MA_API ma_vec3f ma_atomic_vec3f_get(volatile ma_atomic_vec3f* v)
+MA_API ma_vec3f ma_atomic_vec3f_get(ma_atomic_vec3f* v)
 {
     ma_vec3f r;
 
