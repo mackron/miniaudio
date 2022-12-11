@@ -12064,6 +12064,40 @@ static MA_INLINE double ma_sqrtd(double x)
 }
 
 
+static MA_INLINE float ma_rsqrtf(float x)
+{
+    #if defined(MA_SUPPORT_SSE2) && !defined(MA_NO_SSE2) && (defined(MA_X64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(__SSE2__))
+    {
+        /*
+        For SSE we can use RSQRTSS.
+
+        This Stack Overflow post suggests that compilers don't necessarily generate optimal code
+        when using intrinsics:
+
+            https://web.archive.org/web/20221211012522/https://stackoverflow.com/questions/32687079/getting-fewest-instructions-for-rsqrtss-wrapper
+
+        I'm going to do something similar here, but a bit simpler.
+        */
+        #if defined(__GNUC__) || defined(__clang__)
+        {
+            float result;
+            __asm__ __volatile__("rsqrtss %1, %0" : "=x"(result) : "x"(x));
+            return result;
+        }
+        #else
+        {
+            return _mm_cvtss_f32(_mm_rsqrt_ss(_mm_set_ps1(x)));
+        }
+        #endif
+    }
+    #else
+    {
+        return 1 / (float)ma_sqrtd(x);
+    }
+    #endif
+}
+
+
 static MA_INLINE float ma_sinf(float x)
 {
     return (float)ma_sind((float)x);
@@ -48579,8 +48613,7 @@ MA_API ma_vec3f ma_vec3f_normalize(ma_vec3f v)
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    invLen = 1 / (float)ma_sqrtd(len2); /* TODO: Change this to a fast invese sqrt. Use rsqrtss with SSE enabled hardware. */
-
+    invLen = ma_rsqrtf(len2);
     v.x *= invLen;
     v.y *= invLen;
     v.z *= invLen;
