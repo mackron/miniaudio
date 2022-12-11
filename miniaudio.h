@@ -4995,6 +4995,12 @@ typedef struct
     float z;
 } ma_vec3f;
 
+typedef struct
+{
+    ma_vec3f v;
+    ma_spinlock lock;
+} ma_atomic_vec3f;
+
 typedef enum
 {
     ma_attenuation_model_none,          /* No distance attenuation and no spatialization. */
@@ -5034,9 +5040,9 @@ MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uin
 typedef struct
 {
     ma_spatializer_listener_config config;
-    ma_vec3f position;  /* The absolute position of the listener. */
-    ma_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
-    ma_vec3f velocity;
+    ma_atomic_vec3f position;  /* The absolute position of the listener. */
+    ma_atomic_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
+    ma_atomic_vec3f velocity;
     ma_bool32 isEnabled;
 
     /* Memory management. */
@@ -5108,9 +5114,9 @@ typedef struct
     float dopplerFactor;                /* Set to 0 to disable doppler effect. */
     float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
-    ma_vec3f position;
-    ma_vec3f direction;
-    ma_vec3f velocity;  /* For doppler effect. */
+    ma_atomic_vec3f position;
+    ma_atomic_vec3f direction;
+    ma_atomic_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
     ma_gainer gainer;   /* For smooth gain transitions. */
     float* pNewChannelGainsOut; /* An offset of _pHeap. Used by ma_spatializer_process_pcm_frames() to store new channel gains. The number of elements in this array is equal to config.channelsOut. */
@@ -48525,7 +48531,7 @@ MA_API ma_vec3f ma_vec3f_init_3f(float x, float y, float z)
     return v;
 }
 
-MA_API ma_vec3f ma_vec3f_sub(ma_vec3f a, ma_vec3f b)
+MA_API ma_vec3f ma_vec3f_sub(volatile ma_vec3f a, volatile ma_vec3f b)
 {
     return ma_vec3f_init_3f(
         a.x - b.x,
@@ -48534,7 +48540,7 @@ MA_API ma_vec3f ma_vec3f_sub(ma_vec3f a, ma_vec3f b)
     );
 }
 
-MA_API ma_vec3f ma_vec3f_neg(ma_vec3f a)
+MA_API ma_vec3f ma_vec3f_neg(volatile ma_vec3f a)
 {
     return ma_vec3f_init_3f(
         -a.x,
@@ -48558,6 +48564,8 @@ MA_API float ma_vec3f_len(ma_vec3f v)
     return (float)ma_sqrtd(ma_vec3f_len2(v));
 }
 
+
+
 MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
 {
     return ma_vec3f_len(ma_vec3f_sub(a, b));
@@ -48565,16 +48573,17 @@ MA_API float ma_vec3f_dist(ma_vec3f a, ma_vec3f b)
 
 MA_API ma_vec3f ma_vec3f_normalize(ma_vec3f v)
 {
-    float f;
-    float l = ma_vec3f_len(v);
-    if (l == 0) {
+    float invLen;
+    float len2 = ma_vec3f_len2(v);
+    if (len2 == 0) {
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    f = 1 / l;
-    v.x *= f;
-    v.y *= f;
-    v.z *= f;
+    invLen = 1 / (float)ma_sqrtd(len2); /* TODO: Change this to a fast invese sqrt. Use rsqrtss with SSE enabled hardware. */
+
+    v.x *= invLen;
+    v.y *= invLen;
+    v.z *= invLen;
 
     return v;
 }
@@ -48586,6 +48595,35 @@ MA_API ma_vec3f ma_vec3f_cross(ma_vec3f a, ma_vec3f b)
         a.z*b.x - a.x*b.z,
         a.x*b.y - a.y*b.x
     );
+}
+
+
+MA_API void ma_atomic_vec3f_init(ma_atomic_vec3f* v, ma_vec3f value)
+{
+    v->v = value;
+    v->lock = 0;    /* Important this is initialized to 0. */
+}
+
+MA_API void ma_atomic_vec3f_set(ma_atomic_vec3f* v, ma_vec3f value)
+{
+    ma_spinlock_lock(&v->lock);
+    {
+        v->v = value;
+    }
+    ma_spinlock_unlock(&v->lock);
+}
+
+MA_API ma_vec3f ma_atomic_vec3f_get(volatile ma_atomic_vec3f* v)
+{
+    ma_vec3f r;
+
+    ma_spinlock_lock(&v->lock);
+    {
+        r = v->v;
+    }
+    ma_spinlock_unlock(&v->lock);
+
+    return r;
 }
 
 
@@ -48839,14 +48877,15 @@ MA_API ma_result ma_spatializer_listener_init_preallocated(const ma_spatializer_
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
     pListener->config    = *pConfig;
-    pListener->position  = ma_vec3f_init_3f(0, 0,  0);
-    pListener->direction = ma_vec3f_init_3f(0, 0, -1);
-    pListener->velocity  = ma_vec3f_init_3f(0, 0,  0);
+    ma_atomic_vec3f_init(&pListener->position,  ma_vec3f_init_3f(0, 0, 0));
+    ma_atomic_vec3f_init(&pListener->direction, ma_vec3f_init_3f(0, 0, -1));
+    ma_atomic_vec3f_init(&pListener->velocity,  ma_vec3f_init_3f(0, 0,  0));
     pListener->isEnabled = MA_TRUE;
 
     /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
     if (pListener->config.handedness == ma_handedness_left) {
-        pListener->direction = ma_vec3f_neg(pListener->direction);
+        ma_vec3f negDir = ma_vec3f_neg(ma_spatializer_listener_get_direction(pListener));
+        ma_spatializer_listener_set_direction(pListener, negDir.x, negDir.y, negDir.z);
     }
 
 
@@ -48949,7 +48988,7 @@ MA_API void ma_spatializer_listener_set_position(ma_spatializer_listener* pListe
         return;
     }
 
-    pListener->position = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pListener->position, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_listener_get_position(const ma_spatializer_listener* pListener)
@@ -48958,7 +48997,7 @@ MA_API ma_vec3f ma_spatializer_listener_get_position(const ma_spatializer_listen
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return pListener->position;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pListener->position); /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_listener_set_direction(ma_spatializer_listener* pListener, float x, float y, float z)
@@ -48967,7 +49006,7 @@ MA_API void ma_spatializer_listener_set_direction(ma_spatializer_listener* pList
         return;
     }
 
-    pListener->direction = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pListener->direction, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_listener_get_direction(const ma_spatializer_listener* pListener)
@@ -48976,7 +49015,7 @@ MA_API ma_vec3f ma_spatializer_listener_get_direction(const ma_spatializer_liste
         return ma_vec3f_init_3f(0, 0, -1);
     }
 
-    return pListener->direction;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pListener->direction);    /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_listener_set_velocity(ma_spatializer_listener* pListener, float x, float y, float z)
@@ -48985,7 +49024,7 @@ MA_API void ma_spatializer_listener_set_velocity(ma_spatializer_listener* pListe
         return;
     }
 
-    pListener->velocity = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pListener->velocity, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_listener_get_velocity(const ma_spatializer_listener* pListener)
@@ -48994,7 +49033,7 @@ MA_API ma_vec3f ma_spatializer_listener_get_velocity(const ma_spatializer_listen
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return pListener->velocity;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pListener->velocity); /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_listener_set_speed_of_sound(ma_spatializer_listener* pListener, float speedOfSound)
@@ -49217,14 +49256,15 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
     pSpatializer->dopplerFactor                = pConfig->dopplerFactor;
     pSpatializer->directionalAttenuationFactor = pConfig->directionalAttenuationFactor;
     pSpatializer->gainSmoothTimeInFrames       = pConfig->gainSmoothTimeInFrames;
-    pSpatializer->position                     = ma_vec3f_init_3f(0, 0,  0);
-    pSpatializer->direction                    = ma_vec3f_init_3f(0, 0, -1);
-    pSpatializer->velocity                     = ma_vec3f_init_3f(0, 0,  0);
+    ma_atomic_vec3f_init(&pSpatializer->position,  ma_vec3f_init_3f(0, 0,  0));
+    ma_atomic_vec3f_init(&pSpatializer->direction, ma_vec3f_init_3f(0, 0, -1));
+    ma_atomic_vec3f_init(&pSpatializer->velocity,  ma_vec3f_init_3f(0, 0,  0));
     pSpatializer->dopplerPitch                 = 1;
 
     /* Swap the forward direction if we're left handed (it was initialized based on right handed). */
     if (pSpatializer->handedness == ma_handedness_left) {
-        pSpatializer->direction = ma_vec3f_neg(pSpatializer->direction);
+        ma_vec3f negDir = ma_vec3f_neg(ma_spatializer_get_direction(pSpatializer));
+        ma_spatializer_set_direction(pSpatializer, negDir.x, negDir.y, negDir.z);
     }
 
     /* Channel map. This will be on the heap. */
@@ -49389,7 +49429,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         defined by the listener, so we'll grab that here too.
         */
         if (pListener != NULL) {
-            listenerVel  = pListener->velocity;
+            listenerVel  = ma_spatializer_listener_get_velocity(pListener);
             speedOfSound = pListener->config.speedOfSound;
         } else {
             listenerVel  = ma_vec3f_init_3f(0, 0, 0);
@@ -49398,8 +49438,8 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
         if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
             /* There's no listener or we're using relative positioning. */
-            relativePos = pSpatializer->position;
-            relativeDir = pSpatializer->direction;
+            relativePos = ma_spatializer_get_position(pSpatializer);
+            relativeDir = ma_spatializer_get_direction(pSpatializer);
         } else {
             /*
             We've found a listener and we're using absolute positioning. We need to transform the
@@ -49628,7 +49668,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         source.
         */
         if (dopplerFactor > 0) {
-            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(pListener->position, pSpatializer->position), pSpatializer->velocity, listenerVel, speedOfSound, dopplerFactor);
+            pSpatializer->dopplerPitch = ma_doppler_pitch(ma_vec3f_sub(ma_spatializer_listener_get_position(pListener), ma_spatializer_get_position(pSpatializer)), ma_spatializer_get_velocity(pSpatializer), listenerVel, speedOfSound, dopplerFactor);
         } else {
             pSpatializer->dopplerPitch = 1;
         }
@@ -49871,7 +49911,7 @@ MA_API void ma_spatializer_set_position(ma_spatializer* pSpatializer, float x, f
         return;
     }
 
-    pSpatializer->position = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pSpatializer->position, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer)
@@ -49880,7 +49920,7 @@ MA_API ma_vec3f ma_spatializer_get_position(const ma_spatializer* pSpatializer)
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return pSpatializer->position;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pSpatializer->position);  /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, float y, float z)
@@ -49889,7 +49929,7 @@ MA_API void ma_spatializer_set_direction(ma_spatializer* pSpatializer, float x, 
         return;
     }
 
-    pSpatializer->direction = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pSpatializer->direction, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer)
@@ -49898,7 +49938,7 @@ MA_API ma_vec3f ma_spatializer_get_direction(const ma_spatializer* pSpatializer)
         return ma_vec3f_init_3f(0, 0, -1);
     }
 
-    return pSpatializer->direction;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pSpatializer->direction); /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, float y, float z)
@@ -49907,7 +49947,7 @@ MA_API void ma_spatializer_set_velocity(ma_spatializer* pSpatializer, float x, f
         return;
     }
 
-    pSpatializer->velocity = ma_vec3f_init_3f(x, y, z);
+    ma_atomic_vec3f_set(&pSpatializer->velocity, ma_vec3f_init_3f(x, y, z));
 }
 
 MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
@@ -49916,7 +49956,7 @@ MA_API ma_vec3f ma_spatializer_get_velocity(const ma_spatializer* pSpatializer)
         return ma_vec3f_init_3f(0, 0, 0);
     }
 
-    return pSpatializer->velocity;
+    return ma_atomic_vec3f_get((ma_atomic_vec3f*)&pSpatializer->velocity);  /* Naughty const-cast. It's just for atomically loading the vec3 which should be safe. */
 }
 
 MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatializer* pSpatializer, const ma_spatializer_listener* pListener, ma_vec3f* pRelativePos, ma_vec3f* pRelativeDir)
@@ -49940,23 +49980,32 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
     if (pListener == NULL || ma_spatializer_get_positioning(pSpatializer) == ma_positioning_relative) {
         /* There's no listener or we're using relative positioning. */
         if (pRelativePos != NULL) {
-            *pRelativePos = pSpatializer->position;
+            *pRelativePos = ma_spatializer_get_position(pSpatializer);
         }
         if (pRelativeDir != NULL) {
-            *pRelativeDir = pSpatializer->direction;
+            *pRelativeDir = ma_spatializer_get_direction(pSpatializer);
         }
     } else {
+        ma_vec3f spatializerPosition;
+        ma_vec3f spatializerDirection;
+        ma_vec3f listenerPosition;
+        ma_vec3f listenerDirection;
         ma_vec3f v;
         ma_vec3f axisX;
         ma_vec3f axisY;
         ma_vec3f axisZ;
         float m[4][4];
 
+        spatializerPosition  = ma_spatializer_get_position(pSpatializer);
+        spatializerDirection = ma_spatializer_get_direction(pSpatializer);
+        listenerPosition     = ma_spatializer_listener_get_position(pListener);
+        listenerDirection    = ma_spatializer_listener_get_direction(pListener);
+
         /*
         We need to calcualte the right vector from our forward and up vectors. This is done with
         a cross product.
         */
-        axisZ = ma_vec3f_normalize(pListener->direction);                               /* Normalization required here because we can't trust the caller. */
+        axisZ = ma_vec3f_normalize(listenerDirection);                                  /* Normalization required here because we can't trust the caller. */
         axisX = ma_vec3f_normalize(ma_vec3f_cross(axisZ, pListener->config.worldUp));   /* Normalization required here because the world up vector may not be perpendicular with the forward vector. */
 
         /*
@@ -49981,9 +50030,9 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
         }
 
         /* Lookat. */
-        m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               pListener->position);
-        m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               pListener->position);
-        m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), pListener->position);
+        m[0][0] =  axisX.x; m[1][0] =  axisX.y; m[2][0] =  axisX.z; m[3][0] = -ma_vec3f_dot(axisX,               listenerPosition);
+        m[0][1] =  axisY.x; m[1][1] =  axisY.y; m[2][1] =  axisY.z; m[3][1] = -ma_vec3f_dot(axisY,               listenerPosition);
+        m[0][2] = -axisZ.x; m[1][2] = -axisZ.y; m[2][2] = -axisZ.z; m[3][2] = -ma_vec3f_dot(ma_vec3f_neg(axisZ), listenerPosition);
         m[0][3] = 0;        m[1][3] = 0;        m[2][3] = 0;        m[3][3] = 1;
 
         /*
@@ -49992,7 +50041,7 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
         origin which makes things simpler.
         */
         if (pRelativePos != NULL) {
-            v = pSpatializer->position;
+            v = spatializerPosition;
             pRelativePos->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z + m[3][0] * 1;
             pRelativePos->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z + m[3][1] * 1;
             pRelativePos->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z + m[3][2] * 1;
@@ -50003,7 +50052,7 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
         rotation of the listener.
         */
         if (pRelativeDir != NULL) {
-            v = pSpatializer->direction;
+            v = spatializerDirection;
             pRelativeDir->x = m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z;
             pRelativeDir->y = m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z;
             pRelativeDir->z = m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z;
@@ -51934,7 +51983,9 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                         } else {
                             iFrame = 0;
 
+                            #if defined(MA_SUPPORT_SSE2)    /* For silencing a warning with non-x86 builds. */
                             generic_on_fastpath:
+                            #endif
                             {
                                 for (; iFrame < frameCount; iFrame += 1) {
                                     for (iChannelOut = 0; iChannelOut < channelsOut; iChannelOut += 1) {
@@ -72566,7 +72617,8 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             if (pEngineNode->pinnedListenerIndex != MA_LISTENER_INDEX_CLOSEST && pEngineNode->pinnedListenerIndex < ma_engine_get_listener_count(pEngineNode->pEngine)) {
                 iListener = pEngineNode->pinnedListenerIndex;
             } else {
-                iListener = ma_engine_find_closest_listener(pEngineNode->pEngine, pEngineNode->spatializer.position.x, pEngineNode->spatializer.position.y, pEngineNode->spatializer.position.z);
+                ma_vec3f spatializerPosition = ma_spatializer_get_position(&pEngineNode->spatializer);
+                iListener = ma_engine_find_closest_listener(pEngineNode->pEngine, spatializerPosition.x, spatializerPosition.y, spatializerPosition.z);
             }
 
             ma_spatializer_process_pcm_frames(&pEngineNode->spatializer, &pEngineNode->pEngine->listeners[iListener], pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut);
@@ -73689,7 +73741,7 @@ MA_API ma_uint32 ma_engine_find_closest_listener(const ma_engine* pEngine, float
     iListenerClosest = 0;
     for (iListener = 0; iListener < pEngine->listenerCount; iListener += 1) {
         if (ma_engine_listener_is_enabled(pEngine, iListener)) {
-            float len2 = ma_vec3f_len2(ma_vec3f_sub(pEngine->listeners[iListener].position, ma_vec3f_init_3f(absolutePosX, absolutePosY, absolutePosZ)));
+            float len2 = ma_vec3f_len2(ma_vec3f_sub(ma_spatializer_listener_get_position(&pEngine->listeners[iListener]), ma_vec3f_init_3f(absolutePosX, absolutePosY, absolutePosZ)));
             if (closestLen2 > len2) {
                 closestLen2 = len2;
                 iListenerClosest = iListener;
