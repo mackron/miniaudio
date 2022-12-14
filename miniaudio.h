@@ -491,9 +491,10 @@ notarization process. To fix this there are two options. The first is to use the
     #include "miniaudio.h"
     ```
 
-This will require linking with `-framework CoreFoundation -framework CoreAudio -framework AudioUnit`.
-Alternatively, if you would rather keep using runtime linking you can add the following to your
-entitlements.xcent file:
+This will require linking with `-framework CoreFoundation -framework CoreAudio -framework AudioToolbox`.
+If you get errors about AudioToolbox, try with `-framework AudioUnit` instead. You may get this when
+using older versions of iOS. Alternatively, if you would rather keep using runtime linking you can
+add the following to your entitlements.xcent file:
 
     ```
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
