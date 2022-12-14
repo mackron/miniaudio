@@ -37041,6 +37041,8 @@ static ma_aaudio_input_preset_t ma_to_input_preset__aaudio(ma_aaudio_input_prese
 
 static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
 {
+    ma_result result;
+    ma_job job;
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
@@ -37049,26 +37051,24 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d\n", error, ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream));
 
     /*
-    From the documentation for AAudio, when a device is disconnected all we can do is stop it. However, we cannot stop it from the callback - we need
-    to do it from another thread. Therefore we are going to use an event thread for the AAudio backend to do this cleanly and safely.
+    When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
+    we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
+    cleanly and safely.
     */
-    if (((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream) == MA_AAUDIO_STREAM_STATE_DISCONNECTED) {
-        /* We need to post a job to the job thread for processing. This will reroute the device by reinitializing the stream. */
-        ma_result result;
-        ma_job job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
-        job.data.device.aaudio.reroute.pDevice = pDevice;
+    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
+    job.data.device.aaudio.reroute.pDevice = pDevice;
 
-        if (pStream == pDevice->aaudio.pStreamCapture) {
-            job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
-        } else {
-            job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
-        }
+    if (pStream == pDevice->aaudio.pStreamCapture) {
+        job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+    }
+    else {
+        job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
+    }
 
-        result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
-        if (result != MA_SUCCESS) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
-            return;
-        }
+    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
+    if (result != MA_SUCCESS) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+        return;
     }
 }
 
