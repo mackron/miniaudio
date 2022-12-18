@@ -2202,10 +2202,19 @@ and include the following:
     +-----------------------------------------+---------------------------------------------------+
     | MA_NODE_FLAG_CONTINUOUS_PROCESSING      | Causes the processing callback to be called even  |
     |                                         | when no data is available to be read from input   |
-    |                                         | attachments. This is useful for effects like      |
+    |                                         | attachments. When a node has at least one input   |
+    |                                         | bus, but there are no inputs attached or the      |
+    |                                         | inputs do not deliver any data, the node's        |
+    |                                         | processing callback will not get fired. This flag |
+    |                                         | will make it so the callback is always fired      |
+    |                                         | regardless of whether or not any input data is    |
+    |                                         | received. This is useful for effects like         |
     |                                         | echos where there will be a tail of audio data    |
     |                                         | that still needs to be processed even when the    |
-    |                                         | original data sources have reached their ends.    |
+    |                                         | original data sources have reached their ends. It |
+    |                                         | may also be useful for nodes that must always     |
+    |                                         | have their processing callback fired when there   |
+    |                                         | are no inputs attached.                           |
     +-----------------------------------------+---------------------------------------------------+
     | MA_NODE_FLAG_ALLOW_NULL_INPUT           | Used in conjunction with                          |
     |                                         | `MA_NODE_FLAG_CONTINUOUS_PROCESSING`. When this   |
@@ -49633,7 +49642,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
                 0, panning will be most extreme and any sounds that are positioned on the opposite side of the
                 speaker will be completely silent from that speaker. Not only does this feel uncomfortable, it
                 doesn't even remotely represent the real world at all because sounds that come from your right side
-                are still clearly audible from your left side. Setting "dMin" to 1 will  result in no panning at
+                are still clearly audible from your left side. Setting "dMin" to 1 will result in no panning at
                 all, which is also not ideal. By setting it to something greater than 0, the spatialization effect
                 becomes much less dramatic and a lot more bearable.
 
