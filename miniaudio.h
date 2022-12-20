@@ -13203,6 +13203,9 @@ MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 }
 
 #if defined(MA_DEBUG_OUTPUT)
+#if defined(MA_ANDROID)
+    #include <android/log.h>
+#endif
 
 /* Customize this to use a specific tag in __android_log_print() for debug output messages. */
 #ifndef MA_ANDROID_LOG_TAG
