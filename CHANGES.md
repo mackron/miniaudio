@@ -1,5 +1,6 @@
 v0.11.12 - TBD
 =====================
+* Fix a bug with data source ranges which resulted in data being read from outside the range.
 * Fix a crash due to a race condition in the resource manager.
 * Fix a crash with some backends when rerouting the playback side of a duplex device.
 * Fix some bugs with initialization of POSIX threads.

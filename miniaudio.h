@@ -4415,11 +4415,6 @@ logLevel (in)
 
 pMessage (in)
     The log message.
-
-
-Remarks
--------
-Do not modify the state of the device from inside the callback.
 */
 typedef void (* ma_log_callback_proc)(void* pUserData, ma_uint32 level, const char* pMessage);
 
@@ -56161,17 +56156,22 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
     } else {
         /* Need to clamp to within the range. */
-        ma_uint64 cursor;
+        ma_uint64 relativeCursor;
+        ma_uint64 absoluteCursor;
 
-        result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &cursor);
+        result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &relativeCursor);
         if (result != MA_SUCCESS) {
             /* Failed to retrieve the cursor. Cannot read within a range or loop points. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
             result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
         } else {
+            ma_uint64 rangeBeg;
             ma_uint64 rangeEnd;
 
             /* We have the cursor. We need to make sure we don't read beyond our range. */
+            rangeBeg = pDataSourceBase->rangeBegInFrames;
             rangeEnd = pDataSourceBase->rangeEndInFrames;
+
+            absoluteCursor = rangeBeg + relativeCursor;
 
             /* If looping, make sure we're within range. */
             if (loop) {
@@ -56180,8 +56180,8 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
                 }
             }
 
-            if (frameCount > (rangeEnd - cursor) && rangeEnd != ~((ma_uint64)0)) {
-                frameCount = (rangeEnd - cursor);
+            if (frameCount > (rangeEnd - absoluteCursor) && rangeEnd != ~((ma_uint64)0)) {
+                frameCount = (rangeEnd - absoluteCursor);
             }
 
             /*
