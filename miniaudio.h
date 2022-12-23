@@ -56062,6 +56062,11 @@ MA_API ma_uint32 ma_get_bytes_per_sample(ma_format format)
 
 
 
+#define MA_DATA_SOURCE_DEFAULT_RANGE_BEG        0
+#define MA_DATA_SOURCE_DEFAULT_RANGE_END        ~((ma_uint64)0)
+#define MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG   0
+#define MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END   ~((ma_uint64)0)
+
 MA_API ma_data_source_config ma_data_source_config_init(void)
 {
     ma_data_source_config config;
@@ -56087,10 +56092,10 @@ MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_da
     }
 
     pDataSourceBase->vtable           = pConfig->vtable;
-    pDataSourceBase->rangeBegInFrames = 0;
-    pDataSourceBase->rangeEndInFrames = ~((ma_uint64)0);
-    pDataSourceBase->loopBegInFrames  = 0;
-    pDataSourceBase->loopEndInFrames  = ~((ma_uint64)0);
+    pDataSourceBase->rangeBegInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_BEG;
+    pDataSourceBase->rangeEndInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_END;
+    pDataSourceBase->loopBegInFrames  = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG;
+    pDataSourceBase->loopEndInFrames  = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END;
     pDataSourceBase->pCurrent         = pDataSource;    /* Always read from ourself by default. */
     pDataSourceBase->pNext            = NULL;
     pDataSourceBase->onGetNext        = NULL;
@@ -66363,8 +66368,11 @@ MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_co
     ma_resource_manager_data_source_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.rangeEndInPCMFrames     = ~((ma_uint64)0);
-    config.loopPointEndInPCMFrames = ~((ma_uint64)0);
+    config.rangeBegInPCMFrames     = MA_DATA_SOURCE_DEFAULT_RANGE_BEG;
+    config.rangeEndInPCMFrames     = MA_DATA_SOURCE_DEFAULT_RANGE_END;
+    config.loopPointBegInPCMFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG;
+    config.loopPointEndInPCMFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END;
+    config.isLooping               = MA_FALSE;
 
     return config;
 }
@@ -66495,12 +66503,28 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
     */
     if (result == MA_SUCCESS) {
         /*
-        Make sure the looping state is set before returning in order to handle the case where the
-        loop state was set on the data buffer before the connector was initialized.
+        The resource manager supports the ability to set the range and loop settings via a config at
+        initialization time. This results in an case where the ranges could be set explicitly via
+        ma_data_source_set_*() before we get to this point here. If this happens, we'll end up
+        hitting a case where we just override those settings which results in what feels like a bug.
+
+        To address this we only change the relevant properties if they're not equal to defaults. If
+        they're equal to defaults there's no need to change them anyway. If they're *not* set to the
+        default values, we can assume the user has set the range and loop settings via the config. If
+        they're doing their own calls to ma_data_source_set_*() in addition to setting them via the
+        config, that's entirely on the caller and any synchronization issue becomes their problem.
         */
-        ma_data_source_set_range_in_pcm_frames(pDataBuffer, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
-        ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
-        ma_data_source_set_looping(pDataBuffer, pConfig->isLooping);
+        if (pConfig->rangeBegInPCMFrames != MA_DATA_SOURCE_DEFAULT_RANGE_BEG || pConfig->rangeEndInPCMFrames != MA_DATA_SOURCE_DEFAULT_RANGE_END) {
+            ma_data_source_set_range_in_pcm_frames(pDataBuffer, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
+        }
+
+        if (pConfig->loopPointBegInPCMFrames != MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG || pConfig->loopPointEndInPCMFrames != MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END) {
+            ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
+        }
+
+        if (pConfig->isLooping != MA_FALSE) {
+            ma_data_source_set_looping(pDataBuffer, pConfig->isLooping);
+        }
 
         ma_atomic_bool32_set(&pDataBuffer->isConnectorInitialized, MA_TRUE);
 
