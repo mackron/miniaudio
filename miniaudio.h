@@ -56586,9 +56586,9 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_result result;
-    ma_uint64 cursor;
-    ma_uint64 loopBegAbsolute;
-    ma_uint64 loopEndAbsolute;
+    ma_uint64 relativeCursor;
+    ma_uint64 absoluteCursor;
+    ma_bool32 doSeekAdjustment = MA_FALSE;
 
     if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
@@ -56599,51 +56599,51 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
     }
 
     /*
-    The loop points need to be updated. We'll be storing the loop points relative to the range. We'll update
-    these so that they maintain their absolute positioning. The loop points will then be clamped to the range.
+    We may need to adjust the position of the cursor to ensure it's clamped to the range. Grab it now
+    so we can calculate it's absolute position before we change the range.
     */
-    loopBegAbsolute = pDataSourceBase->loopBegInFrames + pDataSourceBase->rangeBegInFrames;
-    loopEndAbsolute = pDataSourceBase->loopEndInFrames + ((pDataSourceBase->loopEndInFrames != ~((ma_uint64)0)) ? pDataSourceBase->rangeBegInFrames : 0);
+    result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &relativeCursor);
+    if (result == MA_SUCCESS) {
+        doSeekAdjustment = MA_TRUE;
+        absoluteCursor = relativeCursor + pDataSourceBase->rangeBegInFrames;
+    } else {
+        /*
+        We couldn't get the position of the cursor. It probably means the data source has no notion
+        of a cursor. We'll just leave it at position 0. Don't treat this as an error.
+        */
+        doSeekAdjustment = MA_FALSE;
+        relativeCursor = 0;
+        absoluteCursor = 0;
+    }
 
     pDataSourceBase->rangeBegInFrames = rangeBegInFrames;
     pDataSourceBase->rangeEndInFrames = rangeEndInFrames;
 
-    /* Make the loop points relative again, and make sure they're clamped to within the range. */
-    if (loopBegAbsolute > pDataSourceBase->rangeBegInFrames) {
-        pDataSourceBase->loopBegInFrames = loopBegAbsolute - pDataSourceBase->rangeBegInFrames;
-    } else {
-        pDataSourceBase->loopBegInFrames = 0;
-    }
+    /*
+    The commented out logic below was intended to maintain loop points in response to a change in the
+    range. However, this is not useful because it results in the sound breaking when you move the range
+    outside of the old loop points. I'm simplifying this by simply resetting the loop points. The
+    caller is expected to update their loop points if they change the range.
 
-    if (pDataSourceBase->loopBegInFrames > pDataSourceBase->rangeEndInFrames) {
-        pDataSourceBase->loopBegInFrames = pDataSourceBase->rangeEndInFrames;
-    }
+    In practice this should be mostly a non-issue because the majority of the time the range will be
+    set once right after initialization.
+    */
+    pDataSourceBase->loopBegInFrames = 0;
+    pDataSourceBase->loopEndInFrames = ~((ma_uint64)0);
 
-    /* Only need to update the loop end point if it's not -1. */
-    if (loopEndAbsolute != ~((ma_uint64)0)) {
-        if (loopEndAbsolute > pDataSourceBase->rangeBegInFrames) {
-            pDataSourceBase->loopEndInFrames = loopEndAbsolute - pDataSourceBase->rangeBegInFrames;
-        } else {
-            pDataSourceBase->loopEndInFrames = 0;
-        }
-
-        if (pDataSourceBase->loopEndInFrames > pDataSourceBase->rangeEndInFrames && pDataSourceBase->loopEndInFrames) {
-            pDataSourceBase->loopEndInFrames = pDataSourceBase->rangeEndInFrames;
-        }
-    }
-
-
-    /* If the new range is past the current cursor position we need to seek to it. */
-    result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &cursor);
-    if (result == MA_SUCCESS) {
-        /* Seek to within range. Note that our seek positions here are relative to the new range. */
-        if (cursor < rangeBegInFrames) {
+    
+    /*
+    Seek to within range. Note that our seek positions here are relative to the new range. We don't want
+    do do this if we failed to retrieve the cursor earlier on because it probably means the data source
+    has no notion of a cursor. In practice the seek would probably fail (which we silently ignore), but
+    I'm just not even going to attempt it.
+    */
+    if (doSeekAdjustment) {
+        if (absoluteCursor < rangeBegInFrames) {
             ma_data_source_seek_to_pcm_frame(pDataSource, 0);
-        } else if (cursor > rangeEndInFrames) {
+        } else if (absoluteCursor > rangeEndInFrames) {
             ma_data_source_seek_to_pcm_frame(pDataSource, rangeEndInFrames - rangeBegInFrames);
         }
-    } else {
-        /* We failed to get the cursor position. Probably means the data source has no notion of a cursor such a noise data source. Just pretend the seeking worked. */
     }
 
     return MA_SUCCESS;

@@ -5,6 +5,7 @@ v0.11.12 - TBD
 * Fix a crash with some backends when rerouting the playback side of a duplex device.
 * Fix some bugs with initialization of POSIX threads.
 * Fix a bug where sounds are not resampled when `MA_SOUND_NO_PITCH` is used.
+* Fix a bug where changing the range of a data source would result in no audio being read.
 * Fix some Wimplicit-fallthrough warnings.
 * Optimizations to the high level API.
 * Remove the old runtime linking system for pthread. The `MA_USE_RUNTIME_LINKING_FOR_PTHREAD` option is no longer used.
