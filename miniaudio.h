@@ -62586,6 +62586,7 @@ MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64
             }
 
             stb_vorbis_flush_pushdata(pVorbis->stb);
+            pVorbis->push.framesConsumed  = 0;
             pVorbis->push.framesRemaining = 0;
             pVorbis->push.dataSize        = 0;
 
@@ -68081,6 +68082,14 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
 
         if (notifications.init.pNotification != NULL) {
             ma_async_notification_signal(notifications.init.pNotification);
+        }
+
+        /*
+        If there was an error during initialization make sure we return that result here. We don't want to do this
+        if we're not waiting because it will most likely be in a busy state.
+        */
+        if (pDataStream->result != MA_SUCCESS) {
+            return pDataStream->result;
         }
 
         /* NOTE: Do not release pInitFence here. That will be done by the job. */
