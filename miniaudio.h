@@ -62080,6 +62080,7 @@ typedef struct
         ma_uint8* pData;
         size_t dataSize;
         size_t dataCapacity;
+        size_t audioStartOffsetInBytes;
         ma_uint32 framesConsumed;   /* The number of frames consumed in ppPacketData. */
         ma_uint32 framesRemaining;  /* The number of frames remaining in ppPacketData. */
         float** ppPacketData;
@@ -62246,6 +62247,13 @@ MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
                 */
                 dataSize -= (size_t)consumedDataSize;   /* Consume the data. */
                 MA_MOVE_MEMORY(pData, ma_offset_ptr(pData, consumedDataSize), dataSize);
+
+                /*
+                We need to track the start point so we can seek back to the start of the audio
+                data when seeking.
+                */
+                pVorbis->push.audioStartOffsetInBytes = consumedDataSize;
+
                 break;
             } else {
                 /* Failed to open the decoder. */
@@ -62579,8 +62587,8 @@ MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64
             TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
             */
 
-            /* Seek to the start of the file to begin with. */
-            result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, 0, ma_seek_origin_start);
+            /* Seek to the start of the audio data in the file to begin with. */
+            result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, pVorbis->push.audioStartOffsetInBytes, ma_seek_origin_start);
             if (result != MA_SUCCESS) {
                 return result;
             }
