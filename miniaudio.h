@@ -24308,6 +24308,8 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         ma_uint32 periodSizeInFrames;
         ma_uint32 periodCount;
         MA_DSBUFFERDESC descDS;
+        WORD nativeChannelCount;
+        DWORD nativeChannelMask = 0;
 
         result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorPlayback->format, pDescriptorPlayback->channels, pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, &wf);
         if (result != MA_SUCCESS) {
@@ -24341,21 +24343,25 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
             return ma_result_from_HRESULT(hr);
         }
 
-        if (pDescriptorPlayback->channels == 0) {
-            if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
-                DWORD speakerConfig;
+        if ((caps.dwFlags & MA_DSCAPS_PRIMARYSTEREO) != 0) {
+            DWORD speakerConfig;
 
-                /* It supports at least stereo, but could support more. */
-                wf.Format.nChannels = 2;
+            /* It supports at least stereo, but could support more. */
+            nativeChannelCount = 2;
 
-                /* Look at the speaker configuration to get a better idea on the channel count. */
-                if (SUCCEEDED(ma_IDirectSound_GetSpeakerConfig((ma_IDirectSound*)pDevice->dsound.pPlayback, &speakerConfig))) {
-                    ma_get_channels_from_speaker_config__dsound(speakerConfig, &wf.Format.nChannels, &wf.dwChannelMask);
-                }
-            } else {
-                /* It does not support stereo, which means we are stuck with mono. */
-                wf.Format.nChannels = 1;
+            /* Look at the speaker configuration to get a better idea on the channel count. */
+            if (SUCCEEDED(ma_IDirectSound_GetSpeakerConfig((ma_IDirectSound*)pDevice->dsound.pPlayback, &speakerConfig))) {
+                ma_get_channels_from_speaker_config__dsound(speakerConfig, &nativeChannelCount, &nativeChannelMask);
             }
+        } else {
+            /* It does not support stereo, which means we are stuck with mono. */
+            nativeChannelCount = 1;
+            nativeChannelMask  = 0x00000001;
+        }
+
+        if (pDescriptorPlayback->channels == 0) {
+            wf.Format.nChannels = nativeChannelCount;
+            wf.dwChannelMask    = nativeChannelMask;
         }
 
         if (pDescriptorPlayback->sampleRate == 0) {
@@ -24377,11 +24383,28 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         supported format. To determine whether this has happened, an application can call the GetFormat method for the primary buffer
         and compare the result with the format that was requested with the SetFormat method.
         */
-        hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)&wf);
+        hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, &wf.Format);
         if (FAILED(hr)) {
-            ma_device_uninit__dsound(pDevice);
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to set format of playback device's primary buffer.");
-            return ma_result_from_HRESULT(hr);
+            /*
+            If setting of the format failed we'll try again with some fallback settings. On Windows 98 I have
+            observed that IEEE_FLOAT does not work. We'll therefore enforce PCM. I also had issues where a
+            sample rate of 48000 did not work correctly. Not sure if it was a driver issue or not, but will
+            use 44100 for the sample rate.
+            */
+            wf.Format.cbSize          = sizeof(wf.Format);
+            wf.Format.wFormatTag      = WAVE_FORMAT_PCM;
+            wf.Format.wBitsPerSample  = 16;
+            wf.Format.nChannels       = nativeChannelCount;
+            wf.Format.nSamplesPerSec  = 44100;
+            wf.Format.nBlockAlign     = wf.Format.nChannels * (wf.Format.wBitsPerSample / 8);
+            wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
+
+            hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, &wf.Format);
+            if (FAILED(hr)) {
+                ma_device_uninit__dsound(pDevice);
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to set format of playback device's primary buffer.");
+                return ma_result_from_HRESULT(hr);
+            }
         }
 
         /* Get the _actual_ properties of the buffer. */
@@ -24428,7 +24451,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MA_DSBCAPS_CTRLPOSITIONNOTIFY | MA_DSBCAPS_GLOBALFOCUS | MA_DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = periodSizeInFrames * periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
-        descDS.lpwfxFormat = (WAVEFORMATEX*)&wf;
+        descDS.lpwfxFormat = &pActualFormat->Format;
         hr = ma_IDirectSound_CreateSoundBuffer((ma_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (ma_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
