@@ -15938,7 +15938,9 @@ static int ma_thread_priority_to_win32(ma_thread_priority priority)
 
 static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
 {
-    *pThread = CreateThread(NULL, stackSize, entryProc, pData, 0, NULL);
+    DWORD threadID; /* Not used. Only used for passing into CreateThread() so it doesn't fail on Windows 98. */
+
+    *pThread = CreateThread(NULL, stackSize, entryProc, pData, 0, &threadID);
     if (*pThread == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -15957,7 +15959,7 @@ static void ma_thread_wait__win32(ma_thread* pThread)
 
 static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
 {
-    *pMutex = CreateEventW(NULL, FALSE, TRUE, NULL);
+    *pMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
     if (*pMutex == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -15983,7 +15985,7 @@ static void ma_mutex_unlock__win32(ma_mutex* pMutex)
 
 static ma_result ma_event_init__win32(ma_event* pEvent)
 {
-    *pEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    *pEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (*pEvent == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -20470,7 +20472,7 @@ static ma_result ma_completion_handler_uwp_init(ma_completion_handler_uwp* pHand
 
     pHandler->lpVtbl = &g_maCompletionHandlerVtblInstance;
     pHandler->counter = 1;
-    pHandler->hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    pHandler->hEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (pHandler->hEvent == NULL) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -22361,7 +22363,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
         however, because we want to block until we actually have something for the first call to ma_device_read().
         */
-        pDevice->wasapi.hEventCapture = CreateEventW(NULL, FALSE, FALSE, NULL);  /* Auto reset, unsignaled by default. */
+        pDevice->wasapi.hEventCapture = CreateEventA(NULL, FALSE, FALSE, NULL);  /* Auto reset, unsignaled by default. */
         if (pDevice->wasapi.hEventCapture == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
@@ -22443,7 +22445,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         The playback event also needs to be initially set to a signaled state so that the first call to ma_device_write() is able
         to get passed WaitForMultipleObjects().
         */
-        pDevice->wasapi.hEventPlayback = CreateEventW(NULL, FALSE, TRUE, NULL);  /* Auto reset, signaled by default. */
+        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, FALSE, TRUE, NULL);  /* Auto reset, signaled by default. */
         if (pDevice->wasapi.hEventPlayback == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
@@ -25532,7 +25534,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
-        pDevice->winmm.hEventCapture = (ma_handle)CreateEventW(NULL, TRUE, TRUE, NULL);
+        pDevice->winmm.hEventCapture = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventCapture == NULL) {
             errorMsg = "[WinMM] Failed to create event for fragment enqueing for the capture device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
@@ -25570,7 +25572,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
-        pDevice->winmm.hEventPlayback = (ma_handle)CreateEventW(NULL, TRUE, TRUE, NULL);
+        pDevice->winmm.hEventPlayback = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventPlayback == NULL) {
             errorMsg = "[WinMM] Failed to create event for fragment enqueing for the playback device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
