@@ -25010,6 +25010,18 @@ static ma_result ma_context_init__dsound(ma_context* pContext, const ma_context_
     pContext->dsound.DirectSoundCaptureCreate     = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
     pContext->dsound.DirectSoundCaptureEnumerateA = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
 
+    /*
+    We need to support all functions or nothing. DirectSound with Windows 95 seems to not work too
+    well in my testing. For example, it's missing DirectSoundCaptureEnumerateA(). This is a convenient
+    place to just disable the DirectSound backend for Windows 95.
+    */
+    if (pContext->dsound.DirectSoundCreate            == NULL ||
+        pContext->dsound.DirectSoundEnumerateA        == NULL ||
+        pContext->dsound.DirectSoundCaptureCreate     == NULL ||
+        pContext->dsound.DirectSoundCaptureEnumerateA == NULL) {
+        return MA_API_NOT_FOUND;
+    }
+
     pCallbacks->onContextInit             = ma_context_init__dsound;
     pCallbacks->onContextUninit           = ma_context_uninit__dsound;
     pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__dsound;
