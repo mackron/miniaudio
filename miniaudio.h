@@ -7375,6 +7375,7 @@ struct ma_context
         struct
         {
             /*HMODULE*/ ma_handle hOle32DLL;
+            ma_proc CoInitialize;
             ma_proc CoInitializeEx;
             ma_proc CoUninitialize;
             ma_proc CoCreateInstance;
@@ -18097,6 +18098,7 @@ static ma_result ma_result_from_HRESULT(HRESULT hr)
     }
 }
 
+typedef HRESULT (WINAPI * MA_PFN_CoInitialize)(LPVOID pvReserved);
 typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
 typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
 typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
@@ -19611,7 +19613,7 @@ WIN32 COMMON
 *******************************************************************************/
 #if defined(MA_WIN32)
 #if defined(MA_WIN32_DESKTOP)
-    #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit)
+    #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
     #define ma_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MA_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
     #define ma_CoTaskMemFree(pContext, pv)                                             ((MA_PFN_CoTaskMemFree)pContext->win32.CoTaskMemFree)(pv)
@@ -40179,6 +40181,7 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
+    pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoInitialize");
     pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoInitializeEx");
     pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoUninitialize");
     pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoCreateInstance");
@@ -41258,7 +41261,6 @@ MA_API ma_result ma_device_init_ex(const ma_backend backends[], ma_uint32 backen
     } else {
         allocationCallbacks = ma_allocation_callbacks_init_default();
     }
-
 
     pContext = (ma_context*)ma_malloc(sizeof(*pContext), &allocationCallbacks);
     if (pContext == NULL) {
