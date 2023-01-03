@@ -9,6 +9,7 @@ v0.11.12 - TBD
 * Fix a bug where asynchronously loaded data sources via the resources manager would reset ranges and loop points.
 * Fix a bug with the Vorbis decoder where seeking would not seek to the correct location.
 * Fix some Wimplicit-fallthrough warnings.
+* Add support for Windows 95/98.
 * Optimizations to the high level API.
 * Remove the old runtime linking system for pthread. The `MA_USE_RUNTIME_LINKING_FOR_PTHREAD` option is no longer used.
 * WASAPI: Fix a crash when starting a device while it's in the process of rerouting.
