@@ -10569,6 +10569,9 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
 MA_API ma_uint64 ma_node_get_time(const ma_node* pNode);
 MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
+
+MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume);
 
 typedef struct
 {
@@ -42122,7 +42125,7 @@ static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 vol
     return (ma_int64)((x * volume) >> 8);
 }
 
-static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
+MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 {
     return x * volume;
 }
@@ -69627,7 +69630,7 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
 
 
 
-static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
