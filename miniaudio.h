@@ -9342,6 +9342,10 @@ MA_API void ma_apply_volume_factor_pcm_frames(void* pFrames, ma_uint64 frameCoun
 MA_API void ma_copy_and_apply_volume_factor_per_channel_f32(float* pFramesOut, const float* pFramesIn, ma_uint64 frameCount, ma_uint32 channels, float* pChannelGains);
 
 
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
+
+MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume);
+
 MA_API void ma_copy_and_apply_volume_and_clip_samples_u8(ma_uint8* pDst, const ma_int16* pSrc, ma_uint64 count, float volume);
 MA_API void ma_copy_and_apply_volume_and_clip_samples_s16(ma_int16* pDst, const ma_int32* pSrc, ma_uint64 count, float volume);
 MA_API void ma_copy_and_apply_volume_and_clip_samples_s24(ma_uint8* pDst, const ma_int64* pSrc, ma_uint64 count, float volume);
@@ -41512,7 +41516,7 @@ static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 vol
     return (ma_int64)((x * volume) >> 8);
 }
 
-static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
+MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 {
     return x * volume;
 }
@@ -68736,7 +68740,7 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
 
 
 
-static ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
 {
     ma_uint64 iSample;
     ma_uint64 sampleCount;
