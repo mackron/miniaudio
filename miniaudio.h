@@ -71565,8 +71565,7 @@ static void ma_splitter_node_process_pcm_frames(ma_node* pNode, const float** pp
     ma_uint32 channels;
 
     MA_ASSERT(pNodeBase != NULL);
-    MA_ASSERT(ma_node_get_input_bus_count(pNodeBase)  == 1);
-    MA_ASSERT(ma_node_get_output_bus_count(pNodeBase) >= 2);
+    MA_ASSERT(ma_node_get_input_bus_count(pNodeBase) == 1);
 
     /* We don't need to consider the input frame count - it'll be the same as the output frame count and we process everything. */
     (void)pFrameCountIn;
