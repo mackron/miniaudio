@@ -10571,8 +10571,6 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 
 MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
 
-MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume);
-
 typedef struct
 {
     ma_uint32 channels;
@@ -42125,7 +42123,7 @@ static MA_INLINE ma_int64 ma_apply_volume_unclipped_s32(ma_int64 x, ma_int16 vol
     return (ma_int64)((x * volume) >> 8);
 }
 
-MA_API MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
+static MA_INLINE float ma_apply_volume_unclipped_f32(float x, float volume)
 {
     return x * volume;
 }
