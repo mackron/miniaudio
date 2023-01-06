@@ -3567,7 +3567,7 @@ example, ALSA, which is specific to Linux, will not be included in the Windows b
     +-------------+-----------------------+--------------------------------------------------------+
     | WASAPI      | ma_backend_wasapi     | Windows Vista+                                         |
     | DirectSound | ma_backend_dsound     | Windows XP+                                            |
-    | WinMM       | ma_backend_winmm      | Windows XP+ (may work on older versions, but untested) |
+    | WinMM       | ma_backend_winmm      | Windows 95+                                            |
     | Core Audio  | ma_backend_coreaudio  | macOS, iOS                                             |
     | sndio       | ma_backend_sndio      | OpenBSD                                                |
     | audio(4)    | ma_backend_audio4     | NetBSD, OpenBSD                                        |
