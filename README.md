@@ -140,7 +140,7 @@ documentation is generated from this in-code documentation.
 
 Supported Platforms
 ===================
-- Windows (XP+), UWP
+- Windows, UWP
 - macOS, iOS
 - Linux
 - BSD
