@@ -751,7 +751,7 @@ To read data from a data source:
     ma_result result;
     ma_uint64 framesRead;
 
-    result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, &framesRead, loop);
+    result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, &framesRead);
     if (result != MA_SUCCESS) {
         return result;  // Failed to read data from the data source.
     }
