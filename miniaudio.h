@@ -9465,6 +9465,12 @@ Helper for converting gain in decibels to a linear factor.
 MA_API float ma_volume_db_to_linear(float gain);
 
 
+/*
+Mixes the specified number of frames in floating point format with a volume factor.
+
+This will run on an optimized path when the volume is equal to 1.
+*/
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
 
 
 /**************************************************************************************************
@@ -10569,7 +10575,6 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
 MA_API ma_uint64 ma_node_get_time(const ma_node* pNode);
 MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 
-MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
 
 typedef struct
 {
@@ -42246,6 +42251,35 @@ MA_API float ma_volume_db_to_linear(float gain)
 }
 
 
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
+{
+    ma_uint64 iSample;
+    ma_uint64 sampleCount;
+
+    if (pDst == NULL || pSrc == NULL || channels == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (volume == 0) {
+        return MA_SUCCESS;  /* No changes if the volume is 0. */
+    }
+
+    sampleCount = frameCount * channels;
+
+    if (volume == 1) {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += pSrc[iSample];
+        }
+    } else {
+        for (iSample = 0; iSample < sampleCount; iSample += 1) {
+            pDst[iSample] += ma_apply_volume_unclipped_f32(pSrc[iSample], volume);
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
+
 
 /**************************************************************************************************************************************************************
 
@@ -69626,35 +69660,6 @@ MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32
     #endif
 }
 
-
-
-MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume)
-{
-    ma_uint64 iSample;
-    ma_uint64 sampleCount;
-
-    if (pDst == NULL || pSrc == NULL || channels == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (volume == 0) {
-        return MA_SUCCESS;  /* No changes if the volume is 0. */
-    }
-
-    sampleCount = frameCount * channels;
-
-    if (volume == 1) {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += pSrc[iSample];
-        }
-    } else {
-        for (iSample = 0; iSample < sampleCount; iSample += 1) {
-            pDst[iSample] += ma_apply_volume_unclipped_f32(pSrc[iSample], volume);
-        }
-    }
-
-    return MA_SUCCESS;
-}
 
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
