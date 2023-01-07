@@ -845,7 +845,9 @@ read data within a certain range of the underlying data. To do this you can use 
     ```
 
 This is useful if you have a sound bank where many sounds are stored in the same file and you want
-the data source to only play one of those sub-sounds.
+the data source to only play one of those sub-sounds. Note that once the range is set, everything
+that takes a position, such as cursors and loop points, should always be relatvie to the start of
+the range. When the range is set, any previously defined loop point will be reset.
 
 Custom loop points can also be used with data sources. By default, data sources will loop after
 they reach the end of the data source, but if you need to loop at a specific location, you can do
@@ -874,7 +876,7 @@ To do this, you can use chaining:
         return result;  // Failed to set the next data source.
     }
 
-    result = ma_data_source_read_pcm_frames(&decoder1, pFramesOut, frameCount, pFramesRead, MA_FALSE);
+    result = ma_data_source_read_pcm_frames(&decoder1, pFramesOut, frameCount, pFramesRead);
     if (result != MA_SUCCESS) {
         return result;  // Failed to read from the decoder.
     }
@@ -885,8 +887,8 @@ the top level data source in the chain. In the example above, `decoder1` is the 
 source in the chain. When `decoder1` reaches the end, `decoder2` will start seamlessly without any
 gaps.
 
-Note that the `loop` parameter is set to false in the example above. When this is set to true, only
-the current data source will be looped. You can loop the entire chain by linking in a loop like so:
+Note that when looping is enabled, only the current data source will be looped. You can loop the
+entire chain by linking in a loop like so:
 
     ```c
     ma_data_source_set_next(&decoder1, &decoder2);  // decoder1 -> decoder2
@@ -897,9 +899,9 @@ Note that setting up chaining is not thread safe, so care needs to be taken if y
 changing links while the audio thread is in the middle of reading.
 
 Do not use `ma_decoder_seek_to_pcm_frame()` as a means to reuse a data source to play multiple
-instances of the same sound simultaneously. Instead, initialize multiple data sources for each
-instance. This can be extremely inefficient depending on the data source and can result in
-glitching due to subtle changes to the state of internal filters.
+instances of the same sound simultaneously. This can be extremely inefficient depending on the type
+of data source and can result in glitching due to subtle changes to the state of internal filters.
+Instead, initialize multiple data sources for each instance.
 
 
 4.1. Custom Data Sources
@@ -1064,7 +1066,7 @@ Note that when you're not using a device, you must set the channel count and sam
 config or else miniaudio won't know what to use (miniaudio will use the device to determine this
 normally). When not using a device, you need to use `ma_engine_read_pcm_frames()` to process audio
 data from the engine. This kind of setup is useful if you want to do something like offline
-processing.
+processing or want to use a different audio system for playback such as SDL.
 
 When a sound is loaded it goes through a resource manager. By default the engine will initialize a
 resource manager internally, but you can also specify a pre-initialized resource manager:
