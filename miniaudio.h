@@ -1025,7 +1025,7 @@ configure the engine with an engine config:
     ma_engine_config engineConfig;
 
     engineConfig = ma_engine_config_init();
-    engineConfig.pPlaybackDevice = &myDevice;
+    engineConfig.pDevice = &myDevice;
 
     result = ma_engine_init(&engineConfig, &engine);
     if (result != MA_SUCCESS) {
