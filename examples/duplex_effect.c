@@ -15,8 +15,8 @@ effect.
 #define DEVICE_FORMAT      ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
-static ma_waveform         g_sourceData;    /* The underlying data source of the excite node. */
-static ma_audio_buffer_ref g_exciteData;    /* The underlying data source of the source node. */
+static ma_waveform         g_sourceData;    /* The underlying data source of the source node. */
+static ma_audio_buffer_ref g_exciteData;    /* The underlying data source of the excite node. */
 static ma_data_source_node g_sourceNode;    /* A data source node containing the source data we'll be sending through to the vocoder. This will be routed into the first bus of the vocoder node. */
 static ma_data_source_node g_exciteNode;    /* A data source node containing the excite data we'll be sending through to the vocoder. This will be routed into the second bus of the vocoder node. */
 static ma_vocoder_node     g_vocoderNode;   /* The vocoder node. */
