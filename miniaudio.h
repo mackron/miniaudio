@@ -6681,6 +6681,13 @@ typedef enum
     ma_aaudio_input_preset_voice_performance        /* AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE */
 } ma_aaudio_input_preset;
 
+typedef enum
+{
+    ma_aaudio_allow_capture_default = 0,            /* Leaves the allowed capture policy unset. */
+    ma_aaudio_allow_capture_by_all,                 /* AAUDIO_ALLOW_CAPTURE_BY_ALL */
+    ma_aaudio_allow_capture_by_system,              /* AAUDIO_ALLOW_CAPTURE_BY_SYSTEM */
+    ma_aaudio_allow_capture_by_none                 /* AAUDIO_ALLOW_CAPTURE_BY_NONE */
+} ma_aaudio_allowed_capture_policy;
 
 typedef union
 {
@@ -6814,6 +6821,7 @@ struct ma_device_config
         ma_aaudio_usage usage;
         ma_aaudio_content_type contentType;
         ma_aaudio_input_preset inputPreset;
+        ma_aaudio_allowed_capture_policy allowedCapturePolicy;
         ma_bool32 noAutoStartAfterReroute;
     } aaudio;
 };
@@ -7328,6 +7336,7 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setUsage;
             ma_proc AAudioStreamBuilder_setContentType;
             ma_proc AAudioStreamBuilder_setInputPreset;
+            ma_proc AAudioStreamBuilder_setAllowedCapturePolicy;
             ma_proc AAudioStreamBuilder_openStream;
             ma_proc AAudioStream_close;
             ma_proc AAudioStream_getState;
@@ -36918,6 +36927,7 @@ typedef int32_t                                         ma_aaudio_performance_mo
 typedef int32_t                                         ma_aaudio_usage_t;
 typedef int32_t                                         ma_aaudio_content_type_t;
 typedef int32_t                                         ma_aaudio_input_preset_t;
+typedef int32_t                                         ma_aaudio_allowed_capture_policy_t;
 typedef int32_t                                         ma_aaudio_data_callback_result_t;
 typedef struct ma_AAudioStreamBuilder_t*                ma_AAudioStreamBuilder;
 typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
@@ -36992,6 +37002,11 @@ typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
 #define MA_AAUDIO_INPUT_PRESET_UNPROCESSED              9
 #define MA_AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE        10
 
+/* Allowed Capture Policies */
+#define MA_AAUDIO_ALLOW_CAPTURE_BY_ALL                  1
+#define MA_AAUDIO_ALLOW_CAPTURE_BY_SYSTEM               2
+#define MA_AAUDIO_ALLOW_CAPTURE_BY_NONE                 3
+
 /* Callback results. */
 #define MA_AAUDIO_CALLBACK_RESULT_CONTINUE              0
 #define MA_AAUDIO_CALLBACK_RESULT_STOP                  1
@@ -37016,6 +37031,7 @@ typedef void                     (* MA_PFN_AAudioStreamBuilder_setPerformanceMod
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setUsage)                 (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_usage_t contentType);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setContentType)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_content_type_t contentType);
 typedef void                     (* MA_PFN_AAudioStreamBuilder_setInputPreset)           (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_input_preset_t inputPreset);
+typedef void                     (* MA_PFN_AAudioStreamBuilder_setAllowedCapturePolicy)  (ma_AAudioStreamBuilder* pBuilder, ma_aaudio_allowed_capture_policy_t policy);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStreamBuilder_openStream)               (ma_AAudioStreamBuilder* pBuilder, ma_AAudioStream** ppStream);
 typedef ma_aaudio_result_t       (* MA_PFN_AAudioStream_close)                           (ma_AAudioStream* pStream);
 typedef ma_aaudio_stream_state_t (* MA_PFN_AAudioStream_getState)                        (ma_AAudioStream* pStream);
@@ -37091,6 +37107,18 @@ static ma_aaudio_input_preset_t ma_to_input_preset__aaudio(ma_aaudio_input_prese
     }
 
     return MA_AAUDIO_INPUT_PRESET_GENERIC;
+}
+
+static ma_aaudio_allowed_capture_policy_t ma_to_allowed_capture_policy__aaudio(ma_aaudio_allowed_capture_policy allowedCapturePolicy)
+{
+    switch (allowedCapturePolicy) {
+        case ma_aaudio_allow_capture_by_all:       return MA_AAUDIO_ALLOW_CAPTURE_BY_ALL;
+        case ma_aaudio_allow_capture_by_system:        return MA_AAUDIO_ALLOW_CAPTURE_BY_SYSTEM;
+        case ma_aaudio_allow_capture_by_none:        return MA_AAUDIO_ALLOW_CAPTURE_BY_NONE;
+        default: break;
+    }
+
+    return MA_AAUDIO_ALLOW_CAPTURE_BY_ALL;
 }
 
 static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
@@ -37219,6 +37247,10 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
 
             if (pConfig->aaudio.contentType != ma_aaudio_content_type_default && pContext->aaudio.AAudioStreamBuilder_setContentType != NULL) {
                 ((MA_PFN_AAudioStreamBuilder_setContentType)pContext->aaudio.AAudioStreamBuilder_setContentType)(pBuilder, ma_to_content_type__aaudio(pConfig->aaudio.contentType));
+            }
+
+            if (pConfig->aaudio.allowedCapturePolicy != ma_aaudio_allow_capture_default && pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy != NULL) {
+                ((MA_PFN_AAudioStreamBuilder_setAllowedCapturePolicy)pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy)(pBuilder, ma_to_allowed_capture_policy__aaudio(pConfig->aaudio.allowedCapturePolicy));
             }
 
             ((MA_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, ma_stream_data_callback_playback__aaudio, (void*)pDevice);
@@ -37783,6 +37815,14 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
+    int sdkVersion = -1;
+    {
+        char sdkVersionStr[PROP_VALUE_MAX + 1] = {0, };
+        if (__system_property_get("ro.build.version.sdk", sdkVersionStr)) {
+            sdkVersion = atoi(sdkVersionStr);
+        }
+    }
+
     pContext->aaudio.AAudio_createStreamBuilder                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudio_createStreamBuilder");
     pContext->aaudio.AAudioStreamBuilder_delete                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_delete");
     pContext->aaudio.AAudioStreamBuilder_setDeviceId               = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDeviceId");
@@ -37799,6 +37839,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setUsage");
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
+    pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (sdkVersion >= 29) ? (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy") : NULL;
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
     pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_close");
     pContext->aaudio.AAudioStream_getState                         = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getState");
