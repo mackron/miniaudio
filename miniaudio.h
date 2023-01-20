@@ -7654,6 +7654,7 @@ struct ma_device
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
+            ma_aaudio_allowed_capture_policy allowedCapturePolicy;
             ma_bool32 noAutoStartAfterReroute;
         } aaudio;
 #endif
@@ -37520,6 +37521,7 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
     pDevice->aaudio.usage                   = pConfig->aaudio.usage;
     pDevice->aaudio.contentType             = pConfig->aaudio.contentType;
     pDevice->aaudio.inputPreset             = pConfig->aaudio.inputPreset;
+    pDevice->aaudio.allowedCapturePolicy    = pConfig->aaudio.allowedCapturePolicy;
     pDevice->aaudio.noAutoStartAfterReroute = pConfig->aaudio.noAutoStartAfterReroute;
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
@@ -37696,6 +37698,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         deviceConfig.aaudio.usage                   = pDevice->aaudio.usage;
         deviceConfig.aaudio.contentType             = pDevice->aaudio.contentType;
         deviceConfig.aaudio.inputPreset             = pDevice->aaudio.inputPreset;
+        deviceConfig.aaudio.allowedCapturePolicy    = pDevice->aaudio.allowedCapturePolicy;
         deviceConfig.aaudio.noAutoStartAfterReroute = pDevice->aaudio.noAutoStartAfterReroute;
         deviceConfig.periods                        = 1;
 
@@ -37815,14 +37818,6 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    int sdkVersion = -1;
-    {
-        char sdkVersionStr[PROP_VALUE_MAX + 1] = {0, };
-        if (__system_property_get("ro.build.version.sdk", sdkVersionStr)) {
-            sdkVersion = atoi(sdkVersionStr);
-        }
-    }
-
     pContext->aaudio.AAudio_createStreamBuilder                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudio_createStreamBuilder");
     pContext->aaudio.AAudioStreamBuilder_delete                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_delete");
     pContext->aaudio.AAudioStreamBuilder_setDeviceId               = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDeviceId");
@@ -37839,7 +37834,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setUsage");
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
-    pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (sdkVersion >= 29) ? (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy") : NULL;
+    pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy");
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
     pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_close");
     pContext->aaudio.AAudioStream_getState                         = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getState");
