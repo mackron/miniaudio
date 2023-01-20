@@ -11,3 +11,4 @@ tests/_build/vc15/
 tools/_build/
 *.vcxproj.user
 .vs/
+.idea/
