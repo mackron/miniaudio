@@ -70462,8 +70462,8 @@ static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_
 
     /* Some special rules for passthrough nodes. */
     if ((pConfig->vtable->flags & MA_NODE_FLAG_PASSTHROUGH) != 0) {
-        if (pConfig->vtable->inputBusCount != 1 || pConfig->vtable->outputBusCount != 1) {
-            return MA_INVALID_ARGS; /* Passthrough nodes must have exactly 1 input bus and 1 output bus. */
+        if ((pConfig->vtable->inputBusCount != 0 && pConfig->vtable->inputBusCount != 1) || pConfig->vtable->outputBusCount != 1) {
+            return MA_INVALID_ARGS; /* Passthrough nodes must have exactly 1 output bus and either 0 or 1 input bus. */
         }
 
         if (pConfig->pInputChannels[0] != pConfig->pOutputChannels[0]) {
@@ -71152,6 +71152,15 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
         frameCountOut = frameCount;    /* Just read as much as we can. The callback will return what was actually read. */
 
         ppFramesOut[0] = pFramesOut;
+
+        /*
+        If it's a passthrough we won't be expecting the callback to output anything, so we'll
+        need to pre-silence the output buffer.
+        */
+        if ((pNodeBase->vtable->flags & MA_NODE_FLAG_PASSTHROUGH) != 0) {
+            ma_silence_pcm_frames(pFramesOut, frameCount, ma_format_f32, ma_node_get_output_channels(pNode, outputBusIndex));
+        }
+
         ma_node_process_pcm_frames_internal(pNode, NULL, &frameCountIn, ppFramesOut, &frameCountOut);
         totalFramesRead = frameCountOut;
     } else {
