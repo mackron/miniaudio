@@ -6815,6 +6815,7 @@ struct ma_device_config
     {
         ma_opensl_stream_type streamType;
         ma_opensl_recording_preset recordingPreset;
+        ma_bool32 enableCompatibilityWorkarounds;
     } opensl;
     struct
     {
@@ -6823,6 +6824,7 @@ struct ma_device_config
         ma_aaudio_input_preset inputPreset;
         ma_aaudio_allowed_capture_policy allowedCapturePolicy;
         ma_bool32 noAutoStartAfterReroute;
+        ma_bool32 enableCompatibilityWorkarounds;
     } aaudio;
 };
 
@@ -11822,6 +11824,20 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
     #endif
 }
 
+
+#ifdef MA_ANDROID
+#include <sys/system_properties.h>
+
+int ma_android_sdk_version()
+{
+    char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
+    if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
+        return atoi(sdkVersion);
+    }
+
+    return 0;
+}
+#endif
 
 
 #ifndef MA_COINIT_VALUE
@@ -17676,10 +17692,6 @@ DEVICE I/O
     #include <mach/mach_time.h> /* For mach_absolute_time() */
 #endif
 
-#ifdef MA_ANDROID
-    #include <sys/system_properties.h>
-#endif
-
 #ifdef MA_POSIX
     #include <sys/types.h>
     #include <unistd.h>
@@ -17836,16 +17848,7 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #if defined(MA_HAS_AAUDIO)
             #if defined(MA_ANDROID)
             {
-                char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
-                if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
-                    if (atoi(sdkVersion) >= 26) {
-                        return MA_TRUE;
-                    } else {
-                        return MA_FALSE;
-                    }
-                } else {
-                    return MA_FALSE;
-                }
+                return ma_android_sdk_version() >= 26;
             }
             #else
                 return MA_FALSE;
@@ -17857,16 +17860,7 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #if defined(MA_HAS_OPENSL)
             #if defined(MA_ANDROID)
             {
-                char sdkVersion[PROP_VALUE_MAX + 1] = {0, };
-                if (__system_property_get("ro.build.version.sdk", sdkVersion)) {
-                    if (atoi(sdkVersion) >= 9) {
-                        return MA_TRUE;
-                    } else {
-                        return MA_FALSE;
-                    }
-                } else {
-                    return MA_FALSE;
-                }
+                return ma_android_sdk_version() >= 9;
             }
             #else
                 return MA_TRUE;
@@ -36910,6 +36904,9 @@ static ma_result ma_context_init__oss(ma_context* pContext, const ma_context_con
 #endif  /* OSS */
 
 
+
+
+
 /******************************************************************************
 
 AAudio Backend
@@ -37181,7 +37178,6 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
 {
     ma_AAudioStreamBuilder* pBuilder;
     ma_aaudio_result_t resultAA;
-    ma_uint32 bufferCapacityInFrames;
 
     /* Safety. */
     *ppBuilder = NULL;
@@ -37223,17 +37219,26 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
             }
         }
 
+
         /*
-        AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
-        retrieve the actual sample rate until after you've opened the stream. But you need to configure
-        the buffer capacity before you open the stream... :/
-
-        To solve, we're just going to assume MA_DEFAULT_SAMPLE_RATE (48000) and move on.
+        There have been reports where setting the frames per data callback results in an error
+        later on from Android. To address this, I'm experimenting with simply not setting it on
+        anything from Android 11 and earlier. Suggestions welcome on how we might be able to make
+        this more targetted.
         */
-        bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile) * pDescriptor->periodCount;
+        if (pConfig->aaudio.enableCompatibilityWorkarounds && ma_android_sdk_version() > 30) {
+            /*
+            AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
+            retrieve the actual sample rate until after you've opened the stream. But you need to configure
+            the buffer capacity before you open the stream... :/
 
-        ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
-        ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
+            To solve, we're just going to assume MA_DEFAULT_SAMPLE_RATE (48000) and move on.
+            */
+            ma_uint32 bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, pConfig->performanceProfile) * pDescriptor->periodCount;
+
+            ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
+            ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
+        }
 
         if (deviceType == ma_device_type_capture) {
             if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default && pContext->aaudio.AAudioStreamBuilder_setInputPreset != NULL) {
