@@ -45506,7 +45506,7 @@ static MA_INLINE void ma_lpf_process_pcm_frame_f32(ma_lpf* pLPF, float* pY, cons
 
     MA_ASSERT(pLPF->format == ma_format_f32);
 
-    MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+    MA_MOVE_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
         ma_lpf1_process_pcm_frame_f32(&pLPF->pLPF1[ilpf1], pY, pY);
@@ -45524,7 +45524,7 @@ static MA_INLINE void ma_lpf_process_pcm_frame_s16(ma_lpf* pLPF, ma_int16* pY, c
 
     MA_ASSERT(pLPF->format == ma_format_s16);
 
-    MA_COPY_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
+    MA_MOVE_MEMORY(pY, pX, ma_get_bytes_per_frame(pLPF->format, pLPF->channels));
 
     for (ilpf1 = 0; ilpf1 < pLPF->lpf1Count; ilpf1 += 1) {
         ma_lpf1_process_pcm_frame_s16(&pLPF->pLPF1[ilpf1], pY, pY);
