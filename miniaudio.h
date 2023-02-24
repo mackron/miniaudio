@@ -39191,6 +39191,16 @@ static ma_bool32 ma_is_capture_supported__webaudio()
 #ifdef __cplusplus
 extern "C" {
 #endif
+void* EMSCRIPTEN_KEEPALIVE ma_malloc_emscripten(size_t sz, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_malloc(sz, pAllocationCallbacks);
+}
+
+void EMSCRIPTEN_KEEPALIVE ma_free_emscripten(void* p, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_free(p, pAllocationCallbacks);
+}
+
 void EMSCRIPTEN_KEEPALIVE ma_device_process_pcm_frames_capture__webaudio(ma_device* pDevice, int frameCount, float* pFrames)
 {
     ma_device_handle_backend_data_callback(pDevice, NULL, pFrames, (ma_uint32)frameCount);
@@ -39288,6 +39298,7 @@ static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_ty
 
     EM_ASM({
         var device = miniaudio.get_device_by_index($0);
+        var pAllocationCallbacks = $3;
 
         /* Make sure all nodes are disconnected and marked for collection. */
         if (device.scriptNode !== undefined) {
@@ -39309,7 +39320,7 @@ static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_ty
 
         /* Can't forget to free the intermediary buffer. This is the buffer that's shared between JavaScript and C. */
         if (device.intermediaryBuffer !== undefined) {
-            Module._free(device.intermediaryBuffer);
+            _ma_free_emscripten(device.intermediaryBuffer, pAllocationCallbacks);
             device.intermediaryBuffer = undefined;
             device.intermediaryBufferView = undefined;
             device.intermediaryBufferSizeInBytes = undefined;
@@ -39317,7 +39328,7 @@ static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_ty
 
         /* Make sure the device is untracked so the slot can be reused later. */
         miniaudio.untrack_device_by_index($0);
-    }, deviceIndex, deviceType);
+    }, deviceIndex, deviceType, &pDevice->pContext->allocationCallbacks);
 }
 
 static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
@@ -39394,11 +39405,12 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
 
     /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
     deviceIndex = EM_ASM_INT({
-        var channels   = $0;
-        var sampleRate = $1;
-        var bufferSize = $2;    /* In PCM frames. */
-        var isCapture  = $3;
-        var pDevice    = $4;
+        var channels             = $0;
+        var sampleRate           = $1;
+        var bufferSize           = $2;    /* In PCM frames. */
+        var isCapture            = $3;
+        var pDevice              = $4;
+        var pAllocationCallbacks = $5;
 
         if (typeof(window.miniaudio) === 'undefined') {
             return -1;  /* Context not initialized. */
@@ -39411,12 +39423,9 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         device.webaudio.suspend();
         device.state = 1; /* ma_device_state_stopped */
 
-        /*
-        We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. Because it's passed between
-        JavaScript and C it needs to be allocated and freed using Module._malloc() and Module._free().
-        */
+        /* We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. */
         device.intermediaryBufferSizeInBytes = channels * bufferSize * 4;
-        device.intermediaryBuffer = Module._malloc(device.intermediaryBufferSizeInBytes);
+        device.intermediaryBuffer = _ma_malloc_emscripten(device.intermediaryBufferSizeInBytes, pAllocationCallbacks);
         device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
 
         /*
@@ -39557,7 +39566,7 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         }
 
         return miniaudio.track_device(device);
-    }, channels, sampleRate, periodSizeInFrames, deviceType == ma_device_type_capture, pDevice);
+    }, channels, sampleRate, periodSizeInFrames, deviceType == ma_device_type_capture, pDevice, &pDevice->pContext->allocationCallbacks);
 
     if (deviceIndex < 0) {
         return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
