@@ -39328,7 +39328,7 @@ static ma_result ma_context_get_device_info__webaudio(ma_context* pContext, ma_d
     return MA_SUCCESS;
 }
 
-
+#if !defined(MA_USE_AUDIO_WORKLETS)
 static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_type deviceType, int deviceIndex)
 {
     MA_ASSERT(pDevice != NULL);
@@ -39367,32 +39367,43 @@ static void ma_device_uninit_by_index__webaudio(ma_device* pDevice, ma_device_ty
         miniaudio.untrack_device_by_index($0);
     }, deviceIndex, deviceType, &pDevice->pContext->allocationCallbacks);
 }
+#endif
 
-static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
+static void ma_device_uninit_by_type__webaudio(ma_device* pDevice, ma_device_type deviceType)
 {
     MA_ASSERT(pDevice != NULL);
+    MA_ASSERT(deviceType == ma_device_type_capture || deviceType == ma_device_type_playback);
 
 #if defined(MA_USE_AUDIO_WORKLETS)
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture) {
         ma_free(pDevice->webaudio.pIntermediaryBufferCapture, &pDevice->pContext->allocationCallbacks);
         ma_free(pDevice->webaudio.pStackBufferCapture, &pDevice->pContext->allocationCallbacks);
         emscripten_destroy_audio_context(pDevice->webaudio.audioContextCapture);
-    }
-
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    } else {
         ma_free(pDevice->webaudio.pIntermediaryBufferPlayback, &pDevice->pContext->allocationCallbacks);
         ma_free(pDevice->webaudio.pStackBufferPlayback, &pDevice->pContext->allocationCallbacks);
         emscripten_destroy_audio_context(pDevice->webaudio.audioContextPlayback);
     }
 #else
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture) {
         ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_capture, pDevice->webaudio.indexCapture);
-    }
-
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    } else {
         ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_playback, pDevice->webaudio.indexPlayback);
     }
 #endif
+}
+
+static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        ma_device_uninit_by_type__webaudio(pDevice, ma_device_type_capture);
+    }
+
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_device_uninit_by_type__webaudio(pDevice, ma_device_type_playback);
+    }
 
     return MA_SUCCESS;
 }
@@ -39972,7 +39983,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
         result = ma_device_init_by_type__webaudio(pDevice, pConfig, pDescriptorPlayback, ma_device_type_playback);
         if (result != MA_SUCCESS) {
             if (pConfig->deviceType == ma_device_type_duplex) {
-                ma_device_uninit_by_index__webaudio(pDevice, ma_device_type_capture, pDevice->webaudio.indexCapture);
+                ma_device_uninit_by_type__webaudio(pDevice, ma_device_type_capture);
             }
             return result;
         }
