@@ -15,3 +15,5 @@ If you output WASM it may not work when running the web page locally. To test yo
 like this:
 
     emrun ./bin/simple_playback_sine.html
+
+If you want to see stdout on the command line when running from emrun, add `--emrun` to your emcc command.
