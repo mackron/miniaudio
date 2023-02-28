@@ -39518,23 +39518,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
 }
 
 
-/* This is for testing and will be removed later. */
-#if 0
-static EM_BOOL ma_on_canvas_click_testing__webaudio(int eventType, const EmscriptenMouseEvent* pMouseEvent, void* pUserData)
-{
-    EMSCRIPTEN_WEBAUDIO_T audioContext = (EMSCRIPTEN_WEBAUDIO_T)pUserData;
-
-    if (emscripten_audio_context_state(audioContext) != AUDIO_CONTEXT_STATE_RUNNING) {
-        emscripten_resume_audio_context_sync(audioContext);
-    }
-
-    (void)eventType;
-    (void)pMouseEvent;
-
-    return EM_FALSE;
-}
-#endif
-
 static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T audioContext, EM_BOOL success, void* pUserData)
 {
     ma_audio_worklet_thread_initialized_data* pParameters = (ma_audio_worklet_thread_initialized_data*)pUserData;
@@ -39578,26 +39561,13 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 
             navigator.mediaDevices.getUserMedia({audio:true, video:false})
                 .then(function(stream) {
-                    var channelCount = 1;
-
-                    var audioTracks = stream.getAudioTracks();
-                    if (audioTracks.length > 0) {
-                        var audioTrackSettings = audioTracks[0].getSettings();
-
-                        if ('channelCount' in audioTrackSettings) {
-                            channelCount = audioTrackSettings.channelCount;
-                            console.log('Found channel count: ' + channelCount);
-                        } else {
-                            channelCount = 2;
-                        }
-                    } else {
-                        channelCount = 0;
-                    }
-
-                    /* TODO: We should probably reinitialize the data converter here in case the input has a different number of channels to the default which is 2. */
-
                     audioContext.streamNode = audioContext.createMediaStreamSource(stream);
                     audioContext.streamNode.connect(workletNode);
+
+                    /*
+                    Now that the worklet node has been connected, do we need to inspect workletNode.channelCount
+                    to check the actual channel count, or is it safe to assume it's always 2?
+                    */
                 })
                 .catch(function(error) {
 
@@ -39612,11 +39582,6 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     }
 
     pParameters->pDevice->webaudio.isInitialized = MA_TRUE;
-
-    /* For testing. Will be removed. */
-#if 0
-    emscripten_set_click_callback("canvas", (void*)audioContext, 0, ma_on_canvas_click_testing__webaudio);
-#endif
 
     ma_log_postf(ma_device_get_log(pParameters->pDevice), MA_LOG_LEVEL_DEBUG, "AudioWorklets: Created worklet node: %d\n", workletNode);
 
@@ -39742,6 +39707,10 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
         miniaudio can set up a data converter at a higher level.
         */
         if (deviceType == ma_device_type_capture) {
+            /*
+            For capture we won't actually know what the channel count is. Everything I've seen seems
+            to indicate that the default channel count is 2, so I'm sticking with that.
+            */
             channels = 2;
         } else {
             /* Get the channel count from the audio context. */
