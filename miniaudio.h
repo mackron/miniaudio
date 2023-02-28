@@ -10985,7 +10985,8 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     ma_bool32 isLooping;
-    ma_fence* pDoneFence;                       /* Released when the resource manager has finished decoding the entire sound. Not used with streams. */
+    ma_resource_manager_pipeline_notifications initNotifications;
+    ma_fence* pDoneFence;                       /* Deprecated. Use initNotifications instead. Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
@@ -74679,8 +74680,11 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         return MA_OUT_OF_MEMORY;
     }
 
-    notifications = ma_resource_manager_pipeline_notifications_init();
-    notifications.done.pFence = pConfig->pDoneFence;
+    /* Removed in 0.12. Set pDoneFence on the notifications. */
+    notifications = pConfig->initNotifications;
+    if (pConfig->pDoneFence != NULL && notifications.done.pFence == NULL) {
+        notifications.done.pFence = pConfig->pDoneFence;
+    }
 
     /*
     We must wrap everything around the fence if one was specified. This ensures ma_fence_wait() does
