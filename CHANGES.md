@@ -7,7 +7,6 @@ v0.11.12 - TBD
 * Fix a bug where sounds are not resampled when `MA_SOUND_NO_PITCH` is used.
 * Fix a bug where changing the range of a data source would result in no audio being read.
 * Fix a bug where asynchronously loaded data sources via the resources manager would reset ranges and loop points.
-* Fix a bug with the Vorbis decoder where seeking would not seek to the correct location.
 * Fix some Wimplicit-fallthrough warnings.
 * Add support for Windows 95/98.
 * Optimizations to the high level API.
