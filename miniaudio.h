@@ -17295,7 +17295,7 @@ MA_API ma_result ma_job_process(ma_job* pJob)
         return MA_INVALID_ARGS;
     }
 
-    if (pJob->toc.breakup.code > MA_JOB_TYPE_COUNT) {
+    if (pJob->toc.breakup.code >= MA_JOB_TYPE_COUNT) {
         return MA_INVALID_OPERATION;
     }
 
