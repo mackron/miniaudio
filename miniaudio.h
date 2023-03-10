@@ -20677,10 +20677,16 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     }
 
     /* We only care about devices with the same data flow and role as the current device. */
-    if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender) ||
-        (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture)) {
+    if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender)  ||
+        (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture) ||
+        (pThis->pDevice->type == ma_device_type_loopback && dataFlow != ma_eRender)) {
         ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting abandoned because dataFlow does match device type.\n");
         return S_OK;
+    }
+
+    /* We need to consider dataFlow as ma_eCapture if device is ma_device_type_loopback */
+    if (pThis->pDevice->type == ma_device_type_loopback) {
+        dataFlow = ma_eCapture;
     }
 
     /* Don't do automatic stream routing if we're not allowed. */
@@ -22528,7 +22534,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
     */
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     if (pConfig->wasapi.noAutoStreamRouting == MA_FALSE) {
-        if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) && pConfig->capture.pDeviceID == NULL) {
+        if ((pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) && pConfig->capture.pDeviceID == NULL) {
             pDevice->wasapi.allowCaptureAutoStreamRouting = MA_TRUE;
         }
         if ((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pConfig->playback.pDeviceID == NULL) {
