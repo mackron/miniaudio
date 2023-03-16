@@ -10314,6 +10314,7 @@ typedef struct
     ma_uint32 decodedChannels;      /* The decoded channel count to use. Set to 0 (default) to use the file's native channel count. */
     ma_uint32 decodedSampleRate;    /* the decoded sample rate to use. Set to 0 (default) to use the file's native sample rate. */
     ma_uint32 jobThreadCount;       /* Set to 0 if you want to self-manage your job threads. Defaults to 1. */
+    size_t jobThreadStackSize;
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
@@ -66771,7 +66772,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
             /* Create the job threads last to ensure the threads has access to valid data. */
             for (iJobThread = 0; iJobThread < pResourceManager->config.jobThreadCount; iJobThread += 1) {
-                result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, 0, ma_resource_manager_job_thread, pResourceManager, &pResourceManager->config.allocationCallbacks);
+                result = ma_thread_create(&pResourceManager->jobThreads[iJobThread], ma_thread_priority_normal, pResourceManager->config.jobThreadStackSize, ma_resource_manager_job_thread, pResourceManager, &pResourceManager->config.allocationCallbacks);
                 if (result != MA_SUCCESS) {
                     ma_mutex_uninit(&pResourceManager->dataBufferBSTLock);
                     ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
