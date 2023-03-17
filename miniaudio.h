@@ -12149,35 +12149,17 @@ Standard Library Stuff
 
 ******************************************************************************/
 #ifndef MA_ASSERT
-#ifdef MA_WIN32
-#define MA_ASSERT(condition) assert(condition)
-#else
-#define MA_ASSERT(condition) assert(condition)
-#endif
+#define MA_ASSERT(condition)            assert(condition)
 #endif
 
 #ifndef MA_MALLOC
-#ifdef MA_WIN32
-#define MA_MALLOC(sz) HeapAlloc(GetProcessHeap(), 0, (sz))
-#else
-#define MA_MALLOC(sz) malloc((sz))
+#define MA_MALLOC(sz)                   malloc((sz))
 #endif
-#endif
-
 #ifndef MA_REALLOC
-#ifdef MA_WIN32
-#define MA_REALLOC(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((void*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
-#else
-#define MA_REALLOC(p, sz) realloc((p), (sz))
+#define MA_REALLOC(p, sz)               realloc((p), (sz))
 #endif
-#endif
-
 #ifndef MA_FREE
-#ifdef MA_WIN32
-#define MA_FREE(p) HeapFree(GetProcessHeap(), 0, (p))
-#else
-#define MA_FREE(p) free((p))
-#endif
+#define MA_FREE(p)                      free((p))
 #endif
 
 static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
@@ -12187,45 +12169,32 @@ static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
         return;
     }
 
-#ifdef MA_WIN32
-    ZeroMemory(p, sz);
-#else
     if (sz > 0) {
         memset(p, 0, sz);
     }
-#endif
 }
 
+
 #ifndef MA_ZERO_MEMORY
-#define MA_ZERO_MEMORY(p, sz) ma_zero_memory_default((p), (sz))
+#define MA_ZERO_MEMORY(p, sz)           ma_zero_memory_default((p), (sz))
 #endif
-
 #ifndef MA_COPY_MEMORY
-#ifdef MA_WIN32
-#define MA_COPY_MEMORY(dst, src, sz) CopyMemory((dst), (src), (sz))
-#else
-#define MA_COPY_MEMORY(dst, src, sz) memcpy((dst), (src), (sz))
+#define MA_COPY_MEMORY(dst, src, sz)    memcpy((dst), (src), (sz))
 #endif
-#endif
-
 #ifndef MA_MOVE_MEMORY
-#ifdef MA_WIN32
-#define MA_MOVE_MEMORY(dst, src, sz) MoveMemory((dst), (src), (sz))
-#else
-#define MA_MOVE_MEMORY(dst, src, sz) memmove((dst), (src), (sz))
-#endif
+#define MA_MOVE_MEMORY(dst, src, sz)    memmove((dst), (src), (sz))
 #endif
 
-#define MA_ZERO_OBJECT(p) MA_ZERO_MEMORY((p), sizeof(*(p)))
+#define MA_ZERO_OBJECT(p)               MA_ZERO_MEMORY((p), sizeof(*(p)))
 
-#define ma_countof(x)               (sizeof(x) / sizeof(x[0]))
-#define ma_max(x, y)                (((x) > (y)) ? (x) : (y))
-#define ma_min(x, y)                (((x) < (y)) ? (x) : (y))
-#define ma_abs(x)                   (((x) > 0) ? (x) : -(x))
-#define ma_clamp(x, lo, hi)         (ma_max(lo, ma_min(x, hi)))
-#define ma_offset_ptr(p, offset)    (((ma_uint8*)(p)) + (offset))
-#define ma_align(x, a)              ((x + (a-1)) & ~(a-1))
-#define ma_align_64(x)              ma_align(x, 8)
+#define ma_countof(x)                   (sizeof(x) / sizeof(x[0]))
+#define ma_max(x, y)                    (((x) > (y)) ? (x) : (y))
+#define ma_min(x, y)                    (((x) < (y)) ? (x) : (y))
+#define ma_abs(x)                       (((x) > 0) ? (x) : -(x))
+#define ma_clamp(x, lo, hi)             (ma_max(lo, ma_min(x, hi)))
+#define ma_offset_ptr(p, offset)        (((ma_uint8*)(p)) + (offset))
+#define ma_align(x, a)                  ((x + (a-1)) & ~(a-1))
+#define ma_align_64(x)                  ma_align(x, 8)
 
 #define ma_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / ma_get_bytes_per_sample(format) / (channels))
 

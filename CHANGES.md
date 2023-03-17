@@ -14,6 +14,7 @@ v0.11.12 - TBD
 * Optimizations to the high level API.
 * Remove the old runtime linking system for pthread. The `MA_USE_RUNTIME_LINKING_FOR_PTHREAD` option is no longer used.
 * WASAPI: Fix a crash when starting a device while it's in the process of rerouting.
+* Windows: Remove the Windows-specific default memcpy(), malloc(), etc.
 
 
 v0.11.11 - 2022-11-04
