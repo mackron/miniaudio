@@ -11330,9 +11330,82 @@ IMPLEMENTATION
     #include <float.h>      /* For _controlfp_s constants */
 #endif
 
-#ifdef MA_WIN32
-#include <windows.h>
-#else
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+    #if !defined(__COSMOPOLITAN__)
+        #include <windows.h>
+    #endif
+
+    #if defined(__COSMOPOLITAN__)
+        typedef uint64_t        HWND;    
+        typedef uint64_t        HANDLE;
+        typedef uint32_t        HRESULT;
+        typedef uint8_t         BYTE;
+        typedef uint16_t        WORD;
+        typedef uint32_t        DWORD;
+        typedef int32_t         BOOL;
+        typedef int32_t         LONG;   /* `long` is always 32-bit on Windows. */
+        typedef uint32_t        ULONG;
+
+        #define TRUE            1
+        #define FALSE           0
+
+        #define WINAPI
+        #define S_OK            0
+        #define WAIT_OBJECT_0   0
+
+        #define FAILED(hr)      ((hr) < 0)
+        #define NOERROR         0
+        #define E_POINTER       ((HRESULT)0x80004003)
+        #define E_UNEXPECTED    ((HRESULT)0x8000FFFF)
+        #define E_NOTIMPL       ((HRESULT)0x80004001)
+        #define E_OUTOFMEMORY   ((HRESULT)0x8007000E)
+        #define E_INVALIDARG    ((HRESULT)0x80070057)
+        #define E_NOINTERFACE   ((HRESULT)0x80004002)
+        #define E_HANDLE        ((HRESULT)0x80070006)
+        #define E_ABORT         ((HRESULT)0x80004004)
+        #define E_FAIL          ((HRESULT)0x80004005)
+        #define E_ACCESSDENIED  ((HRESULT)0x80070005)
+
+        typedef struct
+        {
+            unsigned long Data1;
+            unsigned short Data2;
+            unsigned short Data3;
+            unsigned char Data4[8];
+        } GUID, IID;
+
+        static HANDLE CreateEventA(struct NtSecurityAttributes *lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
+        {
+            assert(lpName == NULL);  /* If this is ever triggered we'll need to do a ANSI-to-Unicode conversion. */
+            return (HANDLE)CreateEvent(lpEventAttributes, bManualReset, bInitialState, (const char16_t*)lpName);
+        }
+
+        static BOOL IsEqualGUID(const GUID* a, const GUID* b)
+        {
+            return memcmp(a, b, sizeof(GUID)) == 0;
+        }
+    #endif
+
+    typedef struct
+    {
+        WORD vt;
+        WORD wReserved1;
+        WORD wReserved2;
+        WORD wReserved3;
+        union
+        {
+            struct
+            {
+                ULONG cbSize;
+                BYTE* pBlobData;
+            } blob;
+            wchar_t* pwszVal;
+            char pad[16];   /* Just to ensure the size of the struct matches the official version. */
+        };
+    } MA_PROPVARIANT;
+#endif
+
+#ifdef MA_POSIX
 #include <stdlib.h>     /* For malloc(), free(), wcstombs(). */
 #include <string.h>     /* For memset() */
 #include <sched.h>
@@ -11350,54 +11423,6 @@ IMPLEMENTATION
 #include <emscripten/emscripten.h>
 #endif
 
-#ifdef __COSMOPOLITAN__
-    typedef uint64_t        HWND;    
-    typedef uint64_t        HANDLE;
-    typedef uint32_t        HRESULT;
-    typedef uint8_t         BYTE;
-    typedef uint16_t        WORD;
-    typedef uint32_t        DWORD;
-    typedef int32_t         BOOL;
-
-    #define TRUE            1
-    #define FALSE           0
-
-    #define WINAPI
-    #define S_OK            0
-    #define WAIT_OBJECT_0   0
-
-    #define FAILED(hr)      ((hr) < 0)
-    #define NOERROR         0
-    #define E_POINTER       ((HRESULT)0x80004003)
-    #define E_UNEXPECTED    ((HRESULT)0x8000FFFF)
-    #define E_NOTIMPL       ((HRESULT)0x80004001)
-    #define E_OUTOFMEMORY   ((HRESULT)0x8007000E)
-    #define E_INVALIDARG    ((HRESULT)0x80070057)
-    #define E_NOINTERFACE   ((HRESULT)0x80004002)
-    #define E_HANDLE        ((HRESULT)0x80070006)
-    #define E_ABORT         ((HRESULT)0x80004004)
-    #define E_FAIL          ((HRESULT)0x80004005)
-    #define E_ACCESSDENIED  ((HRESULT)0x80070005)
-
-    typedef struct
-    {
-        unsigned long Data1;
-        unsigned short Data2;
-        unsigned short Data3;
-        unsigned char Data4[8];
-    } GUID, IID;
-
-    static HANDLE CreateEventA(struct NtSecurityAttributes *lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
-    {
-        assert(lpName == NULL);  /* If this is ever triggered we'll need to do a ANSI-to-Unicode conversion. */
-        return (HANDLE)CreateEvent(lpEventAttributes, bManualReset, bInitialState, (const char16_t*)lpName);
-    }
-
-    static BOOL IsEqualGUID(const GUID* a, const GUID* b)
-    {
-        return memcmp(a, b, sizeof(GUID)) == 0;
-    }
-#endif
 
 #if !defined(MA_64BIT) && !defined(MA_32BIT)
 #ifdef _WIN32
@@ -18221,7 +18246,7 @@ typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(void* pvReserved, DWORD  dwCoIn
 typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
 typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(const IID* rclsid, void* pUnkOuter, DWORD dwClsContext, const IID* riid, void* ppv);
 typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(void* pv);
-typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(PROPVARIANT *pvar);
+typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(MA_PROPVARIANT *pvar);
 typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, wchar_t* lpsz, int cchMax);
 
 typedef HWND (WINAPI * MA_PFN_GetForegroundWindow)(void);
@@ -20064,7 +20089,7 @@ typedef struct
 #endif
 
 /* Some compilers don't define PropVariantInit(). We just do this ourselves since it's just a memset(). */
-static MA_INLINE void ma_PropVariantInit(PROPVARIANT* pProp)
+static MA_INLINE void ma_PropVariantInit(MA_PROPVARIANT* pProp)
 {
     MA_ZERO_OBJECT(pProp);
 }
@@ -20265,7 +20290,7 @@ static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                
         ULONG   (STDMETHODCALLTYPE * Release)       (ma_IMMDevice* pThis);
 
         /* IMMDevice */
-        HRESULT (STDMETHODCALLTYPE * Activate)         (ma_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, PROPVARIANT* pActivationParams, void** ppInterface);
+        HRESULT (STDMETHODCALLTYPE * Activate)         (ma_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, MA_PROPVARIANT* pActivationParams, void** ppInterface);
         HRESULT (STDMETHODCALLTYPE * OpenPropertyStore)(ma_IMMDevice* pThis, DWORD stgmAccess, ma_IPropertyStore** ppProperties);
         HRESULT (STDMETHODCALLTYPE * GetId)            (ma_IMMDevice* pThis, LPWSTR *pID);
         HRESULT (STDMETHODCALLTYPE * GetState)         (ma_IMMDevice* pThis, DWORD *pState);
@@ -20277,7 +20302,7 @@ static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                
     static MA_INLINE HRESULT ma_IMMDevice_QueryInterface(ma_IMMDevice* pThis, const IID* const riid, void** ppObject) { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
     static MA_INLINE ULONG   ma_IMMDevice_AddRef(ma_IMMDevice* pThis)                                                 { return pThis->lpVtbl->AddRef(pThis); }
     static MA_INLINE ULONG   ma_IMMDevice_Release(ma_IMMDevice* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
-    static MA_INLINE HRESULT ma_IMMDevice_Activate(ma_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, PROPVARIANT* pActivationParams, void** ppInterface) { return pThis->lpVtbl->Activate(pThis, iid, dwClsCtx, pActivationParams, ppInterface); }
+    static MA_INLINE HRESULT ma_IMMDevice_Activate(ma_IMMDevice* pThis, const IID* const iid, DWORD dwClsCtx, MA_PROPVARIANT* pActivationParams, void** ppInterface) { return pThis->lpVtbl->Activate(pThis, iid, dwClsCtx, pActivationParams, ppInterface); }
     static MA_INLINE HRESULT ma_IMMDevice_OpenPropertyStore(ma_IMMDevice* pThis, DWORD stgmAccess, ma_IPropertyStore** ppProperties) { return pThis->lpVtbl->OpenPropertyStore(pThis, stgmAccess, ppProperties); }
     static MA_INLINE HRESULT ma_IMMDevice_GetId(ma_IMMDevice* pThis, LPWSTR *pID)                                     { return pThis->lpVtbl->GetId(pThis, pID); }
     static MA_INLINE HRESULT ma_IMMDevice_GetState(ma_IMMDevice* pThis, DWORD *pState)                                { return pThis->lpVtbl->GetState(pThis, pState); }
@@ -20314,8 +20339,8 @@ typedef struct
     /* IPropertyStore */
     HRESULT (STDMETHODCALLTYPE * GetCount)(ma_IPropertyStore* pThis, DWORD* pPropCount);
     HRESULT (STDMETHODCALLTYPE * GetAt)   (ma_IPropertyStore* pThis, DWORD propIndex, PROPERTYKEY* pPropKey);
-    HRESULT (STDMETHODCALLTYPE * GetValue)(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, PROPVARIANT* pPropVar);
-    HRESULT (STDMETHODCALLTYPE * SetValue)(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const PROPVARIANT* const pPropVar);
+    HRESULT (STDMETHODCALLTYPE * GetValue)(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, MA_PROPVARIANT* pPropVar);
+    HRESULT (STDMETHODCALLTYPE * SetValue)(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const MA_PROPVARIANT* const pPropVar);
     HRESULT (STDMETHODCALLTYPE * Commit)  (ma_IPropertyStore* pThis);
 } ma_IPropertyStoreVtbl;
 struct ma_IPropertyStore
@@ -20327,8 +20352,8 @@ static MA_INLINE ULONG   ma_IPropertyStore_AddRef(ma_IPropertyStore* pThis)     
 static MA_INLINE ULONG   ma_IPropertyStore_Release(ma_IPropertyStore* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
 static MA_INLINE HRESULT ma_IPropertyStore_GetCount(ma_IPropertyStore* pThis, DWORD* pPropCount)                            { return pThis->lpVtbl->GetCount(pThis, pPropCount); }
 static MA_INLINE HRESULT ma_IPropertyStore_GetAt(ma_IPropertyStore* pThis, DWORD propIndex, PROPERTYKEY* pPropKey)          { return pThis->lpVtbl->GetAt(pThis, propIndex, pPropKey); }
-static MA_INLINE HRESULT ma_IPropertyStore_GetValue(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, PROPVARIANT* pPropVar) { return pThis->lpVtbl->GetValue(pThis, pKey, pPropVar); }
-static MA_INLINE HRESULT ma_IPropertyStore_SetValue(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const PROPVARIANT* const pPropVar) { return pThis->lpVtbl->SetValue(pThis, pKey, pPropVar); }
+static MA_INLINE HRESULT ma_IPropertyStore_GetValue(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, MA_PROPVARIANT* pPropVar) { return pThis->lpVtbl->GetValue(pThis, pKey, pPropVar); }
+static MA_INLINE HRESULT ma_IPropertyStore_SetValue(ma_IPropertyStore* pThis, const PROPERTYKEY* const pKey, const MA_PROPVARIANT* const pPropVar) { return pThis->lpVtbl->SetValue(pThis, pKey, pPropVar); }
 static MA_INLINE HRESULT ma_IPropertyStore_Commit(ma_IPropertyStore* pThis)                                                 { return pThis->lpVtbl->Commit(pThis); }
 
 
@@ -20533,7 +20558,7 @@ static MA_INLINE HRESULT ma_IAudioCaptureClient_GetNextPacketSize(ma_IAudioCaptu
 
 #if defined(MA_WIN32_UWP)
 /* mmdevapi Functions */
-typedef HRESULT (WINAPI * MA_PFN_ActivateAudioInterfaceAsync)(const wchar_t* deviceInterfacePath, const IID* riid, PROPVARIANT* activationParams, ma_IActivateAudioInterfaceCompletionHandler* completionHandler, ma_IActivateAudioInterfaceAsyncOperation** activationOperation);
+typedef HRESULT (WINAPI * MA_PFN_ActivateAudioInterfaceAsync)(const wchar_t* deviceInterfacePath, const IID* riid, MA_PROPVARIANT* activationParams, ma_IActivateAudioInterfaceCompletionHandler* completionHandler, ma_IActivateAudioInterfaceAsyncOperation** activationOperation);
 #endif
 
 /* Avrt Functions */
@@ -21159,7 +21184,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
         */
         hr = ma_IMMDevice_OpenPropertyStore((ma_IMMDevice*)pMMDevice, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
-            PROPVARIANT var;
+            MA_PROPVARIANT var;
             ma_PropVariantInit(&var);
 
             hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
@@ -21422,7 +21447,7 @@ static ma_result ma_context_get_device_info_from_MMDevice__wasapi(ma_context* pC
         ma_IPropertyStore *pProperties;
         hr = ma_IMMDevice_OpenPropertyStore(pMMDevice, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
-            PROPVARIANT var;
+            MA_PROPVARIANT var;
 
             ma_PropVariantInit(&var);
             hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_Device_FriendlyName, &var);
@@ -21513,7 +21538,7 @@ done:
     return result;
 }
 
-static ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, PROPVARIANT* pActivationParams, ma_IAudioClient** ppAudioClient, ma_IMMDevice** ppMMDevice)
+static ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, MA_PROPVARIANT* pActivationParams, ma_IAudioClient** ppAudioClient, ma_IMMDevice** ppMMDevice)
 {
     ma_result result;
     HRESULT hr;
@@ -21535,7 +21560,7 @@ static ma_result ma_context_get_IAudioClient_Desktop__wasapi(ma_context* pContex
     return MA_SUCCESS;
 }
 #else
-static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, PROPVARIANT* pActivationParams, ma_IAudioClient** ppAudioClient, ma_IUnknown** ppActivatedInterface)
+static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, MA_PROPVARIANT* pActivationParams, ma_IAudioClient** ppAudioClient, ma_IUnknown** ppActivatedInterface)
 {
     ma_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
     ma_completion_handler_uwp completionHandler;
@@ -21671,8 +21696,8 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
     ma_result result;
     ma_bool32 usingProcessLoopback = MA_FALSE;
     MA_AUDIOCLIENT_ACTIVATION_PARAMS audioclientActivationParams;
-    PROPVARIANT activationParams;
-    PROPVARIANT* pActivationParams = NULL;
+    MA_PROPVARIANT activationParams;
+    MA_PROPVARIANT* pActivationParams = NULL;
     ma_device_id virtualDeviceID;
 
     /* Activation parameters specific to loopback mode. Note that process-specific loopback will only work when a default device ID is specified. */
@@ -21977,7 +22002,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         ma_IPropertyStore* pStore = NULL;
         hr = ma_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pStore);
         if (SUCCEEDED(hr)) {
-            PROPVARIANT prop;
+            MA_PROPVARIANT prop;
             ma_PropVariantInit(&prop);
             hr = ma_IPropertyStore_GetValue(pStore, &MA_PKEY_AudioEngine_DeviceFormat, &prop);
             if (SUCCEEDED(hr)) {
@@ -22267,7 +22292,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         ma_IPropertyStore *pProperties;
         hr = ma_IMMDevice_OpenPropertyStore(pDeviceInterface, STGM_READ, &pProperties);
         if (SUCCEEDED(hr)) {
-            PROPVARIANT varName;
+            MA_PROPVARIANT varName;
             ma_PropVariantInit(&varName);
             hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_Device_FriendlyName, &varName);
             if (SUCCEEDED(hr)) {
