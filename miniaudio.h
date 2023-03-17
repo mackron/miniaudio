@@ -19735,7 +19735,11 @@ typedef size_t DWORD_PTR;
 #define SPEAKER_TOP_BACK_RIGHT        0x20000
 #endif
 
-/* Implement our own version of MA_WAVEFORMATEXTENSIBLE so we can avoid a header. */
+/*
+Implement our own version of MA_WAVEFORMATEXTENSIBLE so we can avoid a header. Be careful with this
+because MA_WAVEFORMATEX has an extra two bytes over standard WAVEFORMATEX due to padding. The
+standard version uses tight packing, but for compiler compatibility we're not doing that with ours.
+*/
 typedef struct
 {
     WORD wFormatTag;
@@ -19749,7 +19753,13 @@ typedef struct
 
 typedef struct
 {
-    MA_WAVEFORMATEX Format;
+    WORD wFormatTag;
+    WORD nChannels;
+    DWORD nSamplesPerSec;
+    DWORD nAvgBytesPerSec;
+    WORD nBlockAlign;
+    WORD wBitsPerSample;
+    WORD cbSize;
     union
     {
         WORD wValidBitsPerSample;
@@ -19890,10 +19900,10 @@ static ma_format ma_format_from_WAVEFORMATEX(const MA_WAVEFORMATEX* pWF)
                 return ma_format_s32;
             }
             if (pWFEX->Samples.wValidBitsPerSample == 24) {
-                if (pWFEX->Format.wBitsPerSample == 32) {
+                if (pWFEX->wBitsPerSample == 32) {
                     return ma_format_s32;
                 }
-                if (pWFEX->Format.wBitsPerSample == 24) {
+                if (pWFEX->wBitsPerSample == 24) {
                     return ma_format_s24;
                 }
             }
@@ -21130,9 +21140,9 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                     ma_channel_map_init_standard(ma_standard_channel_map_microsoft, defaultChannelMap, ma_countof(defaultChannelMap), channels);
 
                     MA_ZERO_OBJECT(&wf);
-                    wf.Format.cbSize     = sizeof(wf);
-                    wf.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-                    wf.Format.nChannels  = (WORD)channels;
+                    wf.cbSize     = sizeof(wf);
+                    wf.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+                    wf.nChannels  = (WORD)channels;
                     wf.dwChannelMask     = ma_channel_map_to_channel_mask__win32(defaultChannelMap, channels);
 
                     found = MA_FALSE;
@@ -21140,10 +21150,10 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         ma_format format = g_maFormatPriorities[iFormat];
                         ma_uint32 iSampleRate;
 
-                        wf.Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
-                        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
-                        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-                        wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.Format.wBitsPerSample;
+                        wf.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
+                        wf.nBlockAlign          = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
+                        wf.nAvgBytesPerSec      = wf.nBlockAlign * wf.nSamplesPerSec;
+                        wf.Samples.wValidBitsPerSample = /*(format == ma_format_s24_32) ? 24 :*/ wf.wBitsPerSample;
                         if (format == ma_format_f32) {
                             wf.SubFormat = MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
                         } else {
@@ -21151,7 +21161,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         }
 
                         for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
-                            wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
+                            wf.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
 
                             hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
@@ -21972,10 +21982,10 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     Override the native sample rate with the one requested by the caller, but only if we're not using the default sample rate. We'll use
     WASAPI to perform the sample rate conversion.
     */
-    nativeSampleRate = wf.Format.nSamplesPerSec;
+    nativeSampleRate = wf.nSamplesPerSec;
     if (streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) {
-        wf.Format.nSamplesPerSec = (pData->sampleRateIn != 0) ? pData->sampleRateIn : MA_DEFAULT_SAMPLE_RATE;
-        wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
+        wf.nSamplesPerSec = (pData->sampleRateIn != 0) ? pData->sampleRateIn : MA_DEFAULT_SAMPLE_RATE;
+        wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
     }
 
     pData->formatOut = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)&wf);
@@ -21995,8 +22005,8 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         goto done;
     }
 
-    pData->channelsOut = wf.Format.nChannels;
-    pData->sampleRateOut = wf.Format.nSamplesPerSec;
+    pData->channelsOut = wf.nChannels;
+    pData->sampleRateOut = wf.nSamplesPerSec;
 
     /* Get the internal channel map based on the channel mask. */
     ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pData->channelsOut, pData->channelMapOut);
@@ -22007,16 +22017,16 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     if (pData->periodSizeInFramesOut == 0) {
         if (pData->periodSizeInMillisecondsIn == 0) {
             if (pData->performanceProfile == ma_performance_profile_low_latency) {
-                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, wf.Format.nSamplesPerSec);
+                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, wf.nSamplesPerSec);
             } else {
-                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, wf.Format.nSamplesPerSec);
+                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, wf.nSamplesPerSec);
             }
         } else {
-            pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.Format.nSamplesPerSec);
+            pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.nSamplesPerSec);
         }
     }
 
-    periodDurationInMicroseconds = ((ma_uint64)pData->periodSizeInFramesOut * 1000 * 1000) / wf.Format.nSamplesPerSec;
+    periodDurationInMicroseconds = ((ma_uint64)pData->periodSizeInFramesOut * 1000 * 1000) / wf.nSamplesPerSec;
 
 
     /* Slightly different initialization for shared and exclusive modes. We try exclusive mode first, and if it fails, fall back to shared mode. */
@@ -22050,7 +22060,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             ma_uint32 bufferSizeInFrames;
             hr = ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pData->pAudioClient, &bufferSizeInFrames);
             if (SUCCEEDED(hr)) {
-                bufferDuration = (MA_REFERENCE_TIME)((10000.0 * 1000 / wf.Format.nSamplesPerSec * bufferSizeInFrames) + 0.5);
+                bufferDuration = (MA_REFERENCE_TIME)((10000.0 * 1000 / wf.nSamplesPerSec * bufferSizeInFrames) + 0.5);
 
                 /* Unfortunately we need to release and re-acquire the audio client according to MSDN. Seems silly - why not just call IAudioClient_Initialize() again?! */
                 ma_IAudioClient_Release((ma_IAudioClient*)pData->pAudioClient);
@@ -22093,7 +22103,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         */
         #ifndef MA_WASAPI_NO_LOW_LATENCY_SHARED_MODE
         {
-            if ((streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) == 0 || nativeSampleRate == wf.Format.nSamplesPerSec) {
+            if ((streamFlags & MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM) == 0 || nativeSampleRate == wf.nSamplesPerSec) {
                 ma_IAudioClient3* pAudioClient3 = NULL;
                 hr = ma_IAudioClient_QueryInterface(pData->pAudioClient, &MA_IID_IAudioClient3, (void**)&pAudioClient3);
                 if (SUCCEEDED(hr)) {
@@ -24247,14 +24257,14 @@ static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 c
     }
 
     MA_ZERO_OBJECT(pWF);
-    pWF->Format.cbSize               = sizeof(*pWF);
-    pWF->Format.wFormatTag           = WAVE_FORMAT_EXTENSIBLE;
-    pWF->Format.nChannels            = (WORD)channels;
-    pWF->Format.nSamplesPerSec       = (DWORD)sampleRate;
-    pWF->Format.wBitsPerSample       = (WORD)(ma_get_bytes_per_sample(format)*8);
-    pWF->Format.nBlockAlign          = (WORD)(pWF->Format.nChannels * pWF->Format.wBitsPerSample / 8);
-    pWF->Format.nAvgBytesPerSec      = pWF->Format.nBlockAlign * pWF->Format.nSamplesPerSec;
-    pWF->Samples.wValidBitsPerSample = pWF->Format.wBitsPerSample;
+    pWF->cbSize                      = sizeof(*pWF);
+    pWF->wFormatTag                  = WAVE_FORMAT_EXTENSIBLE;
+    pWF->nChannels                   = (WORD)channels;
+    pWF->nSamplesPerSec              = (DWORD)sampleRate;
+    pWF->wBitsPerSample              = (WORD)(ma_get_bytes_per_sample(format)*8);
+    pWF->nBlockAlign                 = (WORD)(pWF->nChannels * pWF->wBitsPerSample / 8);
+    pWF->nAvgBytesPerSec             = pWF->nBlockAlign * pWF->nSamplesPerSec;
+    pWF->Samples.wValidBitsPerSample = pWF->wBitsPerSample;
     pWF->dwChannelMask               = ma_channel_map_to_channel_mask__win32(pChannelMap, channels);
     pWF->SubFormat                   = subformat;
 
@@ -24315,25 +24325,25 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
             return result;
         }
 
-        result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(pDevice->pContext, (ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.Format.nChannels, &wf.Format.wBitsPerSample, &wf.Format.nSamplesPerSec);
+        result = ma_context_get_format_info_for_IDirectSoundCapture__dsound(pDevice->pContext, (ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &wf.nChannels, &wf.wBitsPerSample, &wf.nSamplesPerSec);
         if (result != MA_SUCCESS) {
             ma_device_uninit__dsound(pDevice);
             return result;
         }
 
-        wf.Format.nBlockAlign          = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
-        wf.Format.nAvgBytesPerSec      = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
-        wf.Samples.wValidBitsPerSample = wf.Format.wBitsPerSample;
+        wf.nBlockAlign                 = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
+        wf.nAvgBytesPerSec             = wf.nBlockAlign * wf.nSamplesPerSec;
+        wf.Samples.wValidBitsPerSample = wf.wBitsPerSample;
         wf.SubFormat                   = MA_GUID_KSDATAFORMAT_SUBTYPE_PCM;
 
         /* The size of the buffer must be a clean multiple of the period count. */
-        periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__dsound(pDescriptorCapture, wf.Format.nSamplesPerSec, pConfig->performanceProfile);
+        periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__dsound(pDescriptorCapture, wf.nSamplesPerSec, pConfig->performanceProfile);
         periodCount = (pDescriptorCapture->periodCount > 0) ? pDescriptorCapture->periodCount : MA_DEFAULT_PERIODS;
 
         MA_ZERO_OBJECT(&descDS);
         descDS.dwSize        = sizeof(descDS);
         descDS.dwFlags       = 0;
-        descDS.dwBufferBytes = periodSizeInFrames * periodCount * wf.Format.nBlockAlign;
+        descDS.dwBufferBytes = periodSizeInFrames * periodCount * wf.nBlockAlign;
         descDS.lpwfxFormat   = (MA_WAVEFORMATEX*)&wf;
         hr = ma_IDirectSoundCapture_CreateCaptureBuffer((ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (ma_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL);
         if (FAILED(hr)) {
@@ -24353,11 +24363,11 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
 
         /* We can now start setting the output data formats. */
         pDescriptorCapture->format     = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)pActualFormat);
-        pDescriptorCapture->channels   = pActualFormat->Format.nChannels;
-        pDescriptorCapture->sampleRate = pActualFormat->Format.nSamplesPerSec;
+        pDescriptorCapture->channels   = pActualFormat->nChannels;
+        pDescriptorCapture->sampleRate = pActualFormat->nSamplesPerSec;
 
         /* Get the native channel map based on the channel mask. */
-        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        if (pActualFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
         } else {
             ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDescriptorCapture->channels, pDescriptorCapture->channelMap);
@@ -24445,21 +24455,21 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         if (pDescriptorPlayback->channels == 0) {
-            wf.Format.nChannels = nativeChannelCount;
+            wf.nChannels = nativeChannelCount;
             wf.dwChannelMask    = nativeChannelMask;
         }
 
         if (pDescriptorPlayback->sampleRate == 0) {
             /* We base the sample rate on the values returned by GetCaps(). */
             if ((caps.dwFlags & MA_DSCAPS_CONTINUOUSRATE) != 0) {
-                wf.Format.nSamplesPerSec = ma_get_best_sample_rate_within_range(caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate);
+                wf.nSamplesPerSec = ma_get_best_sample_rate_within_range(caps.dwMinSecondarySampleRate, caps.dwMaxSecondarySampleRate);
             } else {
-                wf.Format.nSamplesPerSec = caps.dwMaxSecondarySampleRate;
+                wf.nSamplesPerSec = caps.dwMaxSecondarySampleRate;
             }
         }
 
-        wf.Format.nBlockAlign     = (WORD)(wf.Format.nChannels * wf.Format.wBitsPerSample / 8);
-        wf.Format.nAvgBytesPerSec = wf.Format.nBlockAlign * wf.Format.nSamplesPerSec;
+        wf.nBlockAlign     = (WORD)(wf.nChannels * wf.wBitsPerSample / 8);
+        wf.nAvgBytesPerSec = wf.nBlockAlign * wf.nSamplesPerSec;
 
         /*
         From MSDN:
@@ -24468,7 +24478,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         supported format. To determine whether this has happened, an application can call the GetFormat method for the primary buffer
         and compare the result with the format that was requested with the SetFormat method.
         */
-        hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, &wf.Format);
+        hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (MA_WAVEFORMATEX*)&wf);
         if (FAILED(hr)) {
             /*
             If setting of the format failed we'll try again with some fallback settings. On Windows 98 I have
@@ -24476,15 +24486,15 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
             sample rate of 48000 did not work correctly. Not sure if it was a driver issue or not, but will
             use 44100 for the sample rate.
             */
-            wf.Format.cbSize          = sizeof(wf.Format);
-            wf.Format.wFormatTag      = WAVE_FORMAT_PCM;
-            wf.Format.wBitsPerSample  = 16;
-            wf.Format.nChannels       = nativeChannelCount;
-            wf.Format.nSamplesPerSec  = 44100;
-            wf.Format.nBlockAlign     = wf.Format.nChannels * (wf.Format.wBitsPerSample / 8);
-            wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
+            wf.cbSize          = 18;    /* NOTE: Don't use sizeof(MA_WAVEFORMATEX) here because it's got an extra 2 bytes due to padding. */
+            wf.wFormatTag      = WAVE_FORMAT_PCM;
+            wf.wBitsPerSample  = 16;
+            wf.nChannels       = nativeChannelCount;
+            wf.nSamplesPerSec  = 44100;
+            wf.nBlockAlign     = wf.nChannels * (wf.wBitsPerSample / 8);
+            wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
 
-            hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, &wf.Format);
+            hr = ma_IDirectSoundBuffer_SetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (MA_WAVEFORMATEX*)&wf);
             if (FAILED(hr)) {
                 ma_device_uninit__dsound(pDevice);
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to set format of playback device's primary buffer.");
@@ -24503,11 +24513,11 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
 
         /* We now have enough information to start setting some output properties. */
         pDescriptorPlayback->format     = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)pActualFormat);
-        pDescriptorPlayback->channels   = pActualFormat->Format.nChannels;
-        pDescriptorPlayback->sampleRate = pActualFormat->Format.nSamplesPerSec;
+        pDescriptorPlayback->channels   = pActualFormat->nChannels;
+        pDescriptorPlayback->sampleRate = pActualFormat->nSamplesPerSec;
 
         /* Get the internal channel map based on the channel mask. */
-        if (pActualFormat->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        if (pActualFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             ma_channel_mask_to_channel_map__win32(pActualFormat->dwChannelMask, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
         } else {
             ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pDescriptorPlayback->channels, pDescriptorPlayback->channelMap);
@@ -24536,7 +24546,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MA_DSBCAPS_CTRLPOSITIONNOTIFY | MA_DSBCAPS_GLOBALFOCUS | MA_DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = periodSizeInFrames * periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
-        descDS.lpwfxFormat = &pActualFormat->Format;
+        descDS.lpwfxFormat = (MA_WAVEFORMATEX*)&pActualFormat;
         hr = ma_IDirectSound_CreateSoundBuffer((ma_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (ma_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
