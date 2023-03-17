@@ -6288,7 +6288,7 @@ This section contains the APIs for device playback and capture. Here is where yo
 #endif
 #if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
     #if defined(MA_LINUX)
-        #if !defined(MA_ANDROID)   /* ALSA is not supported on Android. */
+        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
             #define MA_SUPPORT_ALSA
         #endif
     #endif
@@ -11378,7 +11378,7 @@ IMPLEMENTATION
 #endif
 
 /* Intrinsics Support */
-#if defined(MA_X64) || defined(MA_X86)
+#if (defined(MA_X64) || defined(MA_X86)) && !defined(__COSMOPOLITAN__)
     #if defined(_MSC_VER) && !defined(__clang__)
         /* MSVC. */
         #if _MSC_VER >= 1400 && !defined(MA_NO_SSE2)   /* 2005 */
@@ -11815,7 +11815,7 @@ static MA_INLINE unsigned int ma_disable_denormals()
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__)) /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             prevState = _mm_getcsr();
             _mm_setcsr(prevState | MA_MM_DENORMALS_ZERO_MASK | MA_MM_FLUSH_ZERO_MASK);
@@ -11855,7 +11855,7 @@ static MA_INLINE void ma_restore_denormals(unsigned int prevState)
     }
     #elif defined(MA_X86) || defined(MA_X64)
     {
-        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
+        #if defined(__SSE2__) && !(defined(__TINYC__) || defined(__WATCOMC__) || defined(__COSMOPOLITAN__))   /* <-- Add compilers that lack support for _mm_getcsr() and _mm_setcsr() to this list. */
         {
             _mm_setcsr(prevState);
         }
@@ -12573,403 +12573,404 @@ MA_API wchar_t* ma_copy_string_w(const wchar_t* src, const ma_allocation_callbac
 #include <errno.h>
 static ma_result ma_result_from_errno(int e)
 {
-    switch (e)
-    {
-        case 0: return MA_SUCCESS;
-    #ifdef EPERM
-        case EPERM: return MA_INVALID_OPERATION;
-    #endif
-    #ifdef ENOENT
-        case ENOENT: return MA_DOES_NOT_EXIST;
-    #endif
-    #ifdef ESRCH
-        case ESRCH: return MA_DOES_NOT_EXIST;
-    #endif
-    #ifdef EINTR
-        case EINTR: return MA_INTERRUPT;
-    #endif
-    #ifdef EIO
-        case EIO: return MA_IO_ERROR;
-    #endif
-    #ifdef ENXIO
-        case ENXIO: return MA_DOES_NOT_EXIST;
-    #endif
-    #ifdef E2BIG
-        case E2BIG: return MA_INVALID_ARGS;
-    #endif
-    #ifdef ENOEXEC
-        case ENOEXEC: return MA_INVALID_FILE;
-    #endif
-    #ifdef EBADF
-        case EBADF: return MA_INVALID_FILE;
-    #endif
-    #ifdef ECHILD
-        case ECHILD: return MA_ERROR;
-    #endif
-    #ifdef EAGAIN
-        case EAGAIN: return MA_UNAVAILABLE;
-    #endif
-    #ifdef ENOMEM
-        case ENOMEM: return MA_OUT_OF_MEMORY;
-    #endif
-    #ifdef EACCES
-        case EACCES: return MA_ACCESS_DENIED;
-    #endif
-    #ifdef EFAULT
-        case EFAULT: return MA_BAD_ADDRESS;
-    #endif
-    #ifdef ENOTBLK
-        case ENOTBLK: return MA_ERROR;
-    #endif
-    #ifdef EBUSY
-        case EBUSY: return MA_BUSY;
-    #endif
-    #ifdef EEXIST
-        case EEXIST: return MA_ALREADY_EXISTS;
-    #endif
-    #ifdef EXDEV
-        case EXDEV: return MA_ERROR;
-    #endif
-    #ifdef ENODEV
-        case ENODEV: return MA_DOES_NOT_EXIST;
-    #endif
-    #ifdef ENOTDIR
-        case ENOTDIR: return MA_NOT_DIRECTORY;
-    #endif
-    #ifdef EISDIR
-        case EISDIR: return MA_IS_DIRECTORY;
-    #endif
-    #ifdef EINVAL
-        case EINVAL: return MA_INVALID_ARGS;
-    #endif
-    #ifdef ENFILE
-        case ENFILE: return MA_TOO_MANY_OPEN_FILES;
-    #endif
-    #ifdef EMFILE
-        case EMFILE: return MA_TOO_MANY_OPEN_FILES;
-    #endif
-    #ifdef ENOTTY
-        case ENOTTY: return MA_INVALID_OPERATION;
-    #endif
-    #ifdef ETXTBSY
-        case ETXTBSY: return MA_BUSY;
-    #endif
-    #ifdef EFBIG
-        case EFBIG: return MA_TOO_BIG;
-    #endif
-    #ifdef ENOSPC
-        case ENOSPC: return MA_NO_SPACE;
-    #endif
-    #ifdef ESPIPE
-        case ESPIPE: return MA_BAD_SEEK;
-    #endif
-    #ifdef EROFS
-        case EROFS: return MA_ACCESS_DENIED;
-    #endif
-    #ifdef EMLINK
-        case EMLINK: return MA_TOO_MANY_LINKS;
-    #endif
-    #ifdef EPIPE
-        case EPIPE: return MA_BAD_PIPE;
-    #endif
-    #ifdef EDOM
-        case EDOM: return MA_OUT_OF_RANGE;
-    #endif
-    #ifdef ERANGE
-        case ERANGE: return MA_OUT_OF_RANGE;
-    #endif
-    #ifdef EDEADLK
-        case EDEADLK: return MA_DEADLOCK;
-    #endif
-    #ifdef ENAMETOOLONG
-        case ENAMETOOLONG: return MA_PATH_TOO_LONG;
-    #endif
-    #ifdef ENOLCK
-        case ENOLCK: return MA_ERROR;
-    #endif
-    #ifdef ENOSYS
-        case ENOSYS: return MA_NOT_IMPLEMENTED;
-    #endif
-    #ifdef ENOTEMPTY
-        case ENOTEMPTY: return MA_DIRECTORY_NOT_EMPTY;
-    #endif
-    #ifdef ELOOP
-        case ELOOP: return MA_TOO_MANY_LINKS;
-    #endif
-    #ifdef ENOMSG
-        case ENOMSG: return MA_NO_MESSAGE;
-    #endif
-    #ifdef EIDRM
-        case EIDRM: return MA_ERROR;
-    #endif
-    #ifdef ECHRNG
-        case ECHRNG: return MA_ERROR;
-    #endif
-    #ifdef EL2NSYNC
-        case EL2NSYNC: return MA_ERROR;
-    #endif
-    #ifdef EL3HLT
-        case EL3HLT: return MA_ERROR;
-    #endif
-    #ifdef EL3RST
-        case EL3RST: return MA_ERROR;
-    #endif
-    #ifdef ELNRNG
-        case ELNRNG: return MA_OUT_OF_RANGE;
-    #endif
-    #ifdef EUNATCH
-        case EUNATCH: return MA_ERROR;
-    #endif
-    #ifdef ENOCSI
-        case ENOCSI: return MA_ERROR;
-    #endif
-    #ifdef EL2HLT
-        case EL2HLT: return MA_ERROR;
-    #endif
-    #ifdef EBADE
-        case EBADE: return MA_ERROR;
-    #endif
-    #ifdef EBADR
-        case EBADR: return MA_ERROR;
-    #endif
-    #ifdef EXFULL
-        case EXFULL: return MA_ERROR;
-    #endif
-    #ifdef ENOANO
-        case ENOANO: return MA_ERROR;
-    #endif
-    #ifdef EBADRQC
-        case EBADRQC: return MA_ERROR;
-    #endif
-    #ifdef EBADSLT
-        case EBADSLT: return MA_ERROR;
-    #endif
-    #ifdef EBFONT
-        case EBFONT: return MA_INVALID_FILE;
-    #endif
-    #ifdef ENOSTR
-        case ENOSTR: return MA_ERROR;
-    #endif
-    #ifdef ENODATA
-        case ENODATA: return MA_NO_DATA_AVAILABLE;
-    #endif
-    #ifdef ETIME
-        case ETIME: return MA_TIMEOUT;
-    #endif
-    #ifdef ENOSR
-        case ENOSR: return MA_NO_DATA_AVAILABLE;
-    #endif
-    #ifdef ENONET
-        case ENONET: return MA_NO_NETWORK;
-    #endif
-    #ifdef ENOPKG
-        case ENOPKG: return MA_ERROR;
-    #endif
-    #ifdef EREMOTE
-        case EREMOTE: return MA_ERROR;
-    #endif
-    #ifdef ENOLINK
-        case ENOLINK: return MA_ERROR;
-    #endif
-    #ifdef EADV
-        case EADV: return MA_ERROR;
-    #endif
-    #ifdef ESRMNT
-        case ESRMNT: return MA_ERROR;
-    #endif
-    #ifdef ECOMM
-        case ECOMM: return MA_ERROR;
-    #endif
-    #ifdef EPROTO
-        case EPROTO: return MA_ERROR;
-    #endif
-    #ifdef EMULTIHOP
-        case EMULTIHOP: return MA_ERROR;
-    #endif
-    #ifdef EDOTDOT
-        case EDOTDOT: return MA_ERROR;
-    #endif
-    #ifdef EBADMSG
-        case EBADMSG: return MA_BAD_MESSAGE;
-    #endif
-    #ifdef EOVERFLOW
-        case EOVERFLOW: return MA_TOO_BIG;
-    #endif
-    #ifdef ENOTUNIQ
-        case ENOTUNIQ: return MA_NOT_UNIQUE;
-    #endif
-    #ifdef EBADFD
-        case EBADFD: return MA_ERROR;
-    #endif
-    #ifdef EREMCHG
-        case EREMCHG: return MA_ERROR;
-    #endif
-    #ifdef ELIBACC
-        case ELIBACC: return MA_ACCESS_DENIED;
-    #endif
-    #ifdef ELIBBAD
-        case ELIBBAD: return MA_INVALID_FILE;
-    #endif
-    #ifdef ELIBSCN
-        case ELIBSCN: return MA_INVALID_FILE;
-    #endif
-    #ifdef ELIBMAX
-        case ELIBMAX: return MA_ERROR;
-    #endif
-    #ifdef ELIBEXEC
-        case ELIBEXEC: return MA_ERROR;
-    #endif
-    #ifdef EILSEQ
-        case EILSEQ: return MA_INVALID_DATA;
-    #endif
-    #ifdef ERESTART
-        case ERESTART: return MA_ERROR;
-    #endif
-    #ifdef ESTRPIPE
-        case ESTRPIPE: return MA_ERROR;
-    #endif
-    #ifdef EUSERS
-        case EUSERS: return MA_ERROR;
-    #endif
-    #ifdef ENOTSOCK
-        case ENOTSOCK: return MA_NOT_SOCKET;
-    #endif
-    #ifdef EDESTADDRREQ
-        case EDESTADDRREQ: return MA_NO_ADDRESS;
-    #endif
-    #ifdef EMSGSIZE
-        case EMSGSIZE: return MA_TOO_BIG;
-    #endif
-    #ifdef EPROTOTYPE
-        case EPROTOTYPE: return MA_BAD_PROTOCOL;
-    #endif
-    #ifdef ENOPROTOOPT
-        case ENOPROTOOPT: return MA_PROTOCOL_UNAVAILABLE;
-    #endif
-    #ifdef EPROTONOSUPPORT
-        case EPROTONOSUPPORT: return MA_PROTOCOL_NOT_SUPPORTED;
-    #endif
-    #ifdef ESOCKTNOSUPPORT
-        case ESOCKTNOSUPPORT: return MA_SOCKET_NOT_SUPPORTED;
-    #endif
-    #ifdef EOPNOTSUPP
-        case EOPNOTSUPP: return MA_INVALID_OPERATION;
-    #endif
-    #ifdef EPFNOSUPPORT
-        case EPFNOSUPPORT: return MA_PROTOCOL_FAMILY_NOT_SUPPORTED;
-    #endif
-    #ifdef EAFNOSUPPORT
-        case EAFNOSUPPORT: return MA_ADDRESS_FAMILY_NOT_SUPPORTED;
-    #endif
-    #ifdef EADDRINUSE
-        case EADDRINUSE: return MA_ALREADY_IN_USE;
-    #endif
-    #ifdef EADDRNOTAVAIL
-        case EADDRNOTAVAIL: return MA_ERROR;
-    #endif
-    #ifdef ENETDOWN
-        case ENETDOWN: return MA_NO_NETWORK;
-    #endif
-    #ifdef ENETUNREACH
-        case ENETUNREACH: return MA_NO_NETWORK;
-    #endif
-    #ifdef ENETRESET
-        case ENETRESET: return MA_NO_NETWORK;
-    #endif
-    #ifdef ECONNABORTED
-        case ECONNABORTED: return MA_NO_NETWORK;
-    #endif
-    #ifdef ECONNRESET
-        case ECONNRESET: return MA_CONNECTION_RESET;
-    #endif
-    #ifdef ENOBUFS
-        case ENOBUFS: return MA_NO_SPACE;
-    #endif
-    #ifdef EISCONN
-        case EISCONN: return MA_ALREADY_CONNECTED;
-    #endif
-    #ifdef ENOTCONN
-        case ENOTCONN: return MA_NOT_CONNECTED;
-    #endif
-    #ifdef ESHUTDOWN
-        case ESHUTDOWN: return MA_ERROR;
-    #endif
-    #ifdef ETOOMANYREFS
-        case ETOOMANYREFS: return MA_ERROR;
-    #endif
-    #ifdef ETIMEDOUT
-        case ETIMEDOUT: return MA_TIMEOUT;
-    #endif
-    #ifdef ECONNREFUSED
-        case ECONNREFUSED: return MA_CONNECTION_REFUSED;
-    #endif
-    #ifdef EHOSTDOWN
-        case EHOSTDOWN: return MA_NO_HOST;
-    #endif
-    #ifdef EHOSTUNREACH
-        case EHOSTUNREACH: return MA_NO_HOST;
-    #endif
-    #ifdef EALREADY
-        case EALREADY: return MA_IN_PROGRESS;
-    #endif
-    #ifdef EINPROGRESS
-        case EINPROGRESS: return MA_IN_PROGRESS;
-    #endif
-    #ifdef ESTALE
-        case ESTALE: return MA_INVALID_FILE;
-    #endif
-    #ifdef EUCLEAN
-        case EUCLEAN: return MA_ERROR;
-    #endif
-    #ifdef ENOTNAM
-        case ENOTNAM: return MA_ERROR;
-    #endif
-    #ifdef ENAVAIL
-        case ENAVAIL: return MA_ERROR;
-    #endif
-    #ifdef EISNAM
-        case EISNAM: return MA_ERROR;
-    #endif
-    #ifdef EREMOTEIO
-        case EREMOTEIO: return MA_IO_ERROR;
-    #endif
-    #ifdef EDQUOT
-        case EDQUOT: return MA_NO_SPACE;
-    #endif
-    #ifdef ENOMEDIUM
-        case ENOMEDIUM: return MA_DOES_NOT_EXIST;
-    #endif
-    #ifdef EMEDIUMTYPE
-        case EMEDIUMTYPE: return MA_ERROR;
-    #endif
-    #ifdef ECANCELED
-        case ECANCELED: return MA_CANCELLED;
-    #endif
-    #ifdef ENOKEY
-        case ENOKEY: return MA_ERROR;
-    #endif
-    #ifdef EKEYEXPIRED
-        case EKEYEXPIRED: return MA_ERROR;
-    #endif
-    #ifdef EKEYREVOKED
-        case EKEYREVOKED: return MA_ERROR;
-    #endif
-    #ifdef EKEYREJECTED
-        case EKEYREJECTED: return MA_ERROR;
-    #endif
-    #ifdef EOWNERDEAD
-        case EOWNERDEAD: return MA_ERROR;
-    #endif
-    #ifdef ENOTRECOVERABLE
-        case ENOTRECOVERABLE: return MA_ERROR;
-    #endif
-    #ifdef ERFKILL
-        case ERFKILL: return MA_ERROR;
-    #endif
-    #ifdef EHWPOISON
-        case EHWPOISON: return MA_ERROR;
-    #endif
-        default: return MA_ERROR;
+    if (e == 0) {
+        return MA_SUCCESS;
+    }
+#ifdef EPERM
+    else if (e == EPERM) { return MA_INVALID_OPERATION; }
+#endif
+#ifdef ENOENT
+    else if (e == ENOENT) { return MA_DOES_NOT_EXIST; }
+#endif
+#ifdef ESRCH
+    else if (e == ESRCH) { return MA_DOES_NOT_EXIST; }
+#endif
+#ifdef EINTR
+    else if (e == EINTR) { return MA_INTERRUPT; }
+#endif
+#ifdef EIO
+    else if (e == EIO) { return MA_IO_ERROR; }
+#endif
+#ifdef ENXIO
+    else if (e == ENXIO) { return MA_DOES_NOT_EXIST; }
+#endif
+#ifdef E2BIG
+    else if (e == E2BIG) { return MA_INVALID_ARGS; }
+#endif
+#ifdef ENOEXEC
+    else if (e == ENOEXEC) { return MA_INVALID_FILE; }
+#endif
+#ifdef EBADF
+    else if (e == EBADF) { return MA_INVALID_FILE; }
+#endif
+#ifdef ECHILD
+    else if (e == ECHILD) { return MA_ERROR; }
+#endif
+#ifdef EAGAIN
+    else if (e == EAGAIN) { return MA_UNAVAILABLE; }
+#endif
+#ifdef ENOMEM
+    else if (e == ENOMEM) { return MA_OUT_OF_MEMORY; }
+#endif
+#ifdef EACCES
+    else if (e == EACCES) { return MA_ACCESS_DENIED; }
+#endif
+#ifdef EFAULT
+    else if (e == EFAULT) { return MA_BAD_ADDRESS; }
+#endif
+#ifdef ENOTBLK
+    else if (e == ENOTBLK) { return MA_ERROR; }
+#endif
+#ifdef EBUSY
+    else if (e == EBUSY) { return MA_BUSY; }
+#endif
+#ifdef EEXIST
+    else if (e == EEXIST) { return MA_ALREADY_EXISTS; }
+#endif
+#ifdef EXDEV
+    else if (e == EXDEV) { return MA_ERROR; }
+#endif
+#ifdef ENODEV
+    else if (e == ENODEV) { return MA_DOES_NOT_EXIST; }
+#endif
+#ifdef ENOTDIR
+    else if (e == ENOTDIR) { return MA_NOT_DIRECTORY; }
+#endif
+#ifdef EISDIR
+    else if (e == EISDIR) { return MA_IS_DIRECTORY; }
+#endif
+#ifdef EINVAL
+    else if (e == EINVAL) { return MA_INVALID_ARGS; }
+#endif
+#ifdef ENFILE
+    else if (e == ENFILE) { return MA_TOO_MANY_OPEN_FILES; }
+#endif
+#ifdef EMFILE
+    else if (e == EMFILE) { return MA_TOO_MANY_OPEN_FILES; }
+#endif
+#ifdef ENOTTY
+    else if (e == ENOTTY) { return MA_INVALID_OPERATION; }
+#endif
+#ifdef ETXTBSY
+    else if (e == ETXTBSY) { return MA_BUSY; }
+#endif
+#ifdef EFBIG
+    else if (e == EFBIG) { return MA_TOO_BIG; }
+#endif
+#ifdef ENOSPC
+    else if (e == ENOSPC) { return MA_NO_SPACE; }
+#endif
+#ifdef ESPIPE
+    else if (e == ESPIPE) { return MA_BAD_SEEK; }
+#endif
+#ifdef EROFS
+    else if (e == EROFS) { return MA_ACCESS_DENIED; }
+#endif
+#ifdef EMLINK
+    else if (e == EMLINK) { return MA_TOO_MANY_LINKS; }
+#endif
+#ifdef EPIPE
+    else if (e == EPIPE) { return MA_BAD_PIPE; }
+#endif
+#ifdef EDOM
+    else if (e == EDOM) { return MA_OUT_OF_RANGE; }
+#endif
+#ifdef ERANGE
+    else if (e == ERANGE) { return MA_OUT_OF_RANGE; }
+#endif
+#ifdef EDEADLK
+    else if (e == EDEADLK) { return MA_DEADLOCK; }
+#endif
+#ifdef ENAMETOOLONG
+    else if (e == ENAMETOOLONG) { return MA_PATH_TOO_LONG; }
+#endif
+#ifdef ENOLCK
+    else if (e == ENOLCK) { return MA_ERROR; }
+#endif
+#ifdef ENOSYS
+    else if (e == ENOSYS) { return MA_NOT_IMPLEMENTED; }
+#endif
+#ifdef ENOTEMPTY
+    else if (e == ENOTEMPTY) { return MA_DIRECTORY_NOT_EMPTY; }
+#endif
+#ifdef ELOOP
+    else if (e == ELOOP) { return MA_TOO_MANY_LINKS; }
+#endif
+#ifdef ENOMSG
+    else if (e == ENOMSG) { return MA_NO_MESSAGE; }
+#endif
+#ifdef EIDRM
+    else if (e == EIDRM) { return MA_ERROR; }
+#endif
+#ifdef ECHRNG
+    else if (e == ECHRNG) { return MA_ERROR; }
+#endif
+#ifdef EL2NSYNC
+    else if (e == EL2NSYNC) { return MA_ERROR; }
+#endif
+#ifdef EL3HLT
+    else if (e == EL3HLT) { return MA_ERROR; }
+#endif
+#ifdef EL3RST
+    else if (e == EL3RST) { return MA_ERROR; }
+#endif
+#ifdef ELNRNG
+    else if (e == ELNRNG) { return MA_OUT_OF_RANGE; }
+#endif
+#ifdef EUNATCH
+    else if (e == EUNATCH) { return MA_ERROR; }
+#endif
+#ifdef ENOCSI
+    else if (e == ENOCSI) { return MA_ERROR; }
+#endif
+#ifdef EL2HLT
+    else if (e == EL2HLT) { return MA_ERROR; }
+#endif
+#ifdef EBADE
+    else if (e == EBADE) { return MA_ERROR; }
+#endif
+#ifdef EBADR
+    else if (e == EBADR) { return MA_ERROR; }
+#endif
+#ifdef EXFULL
+    else if (e == EXFULL) { return MA_ERROR; }
+#endif
+#ifdef ENOANO
+    else if (e == ENOANO) { return MA_ERROR; }
+#endif
+#ifdef EBADRQC
+    else if (e == EBADRQC) { return MA_ERROR; }
+#endif
+#ifdef EBADSLT
+    else if (e == EBADSLT) { return MA_ERROR; }
+#endif
+#ifdef EBFONT
+    else if (e == EBFONT) { return MA_INVALID_FILE; }
+#endif
+#ifdef ENOSTR
+    else if (e == ENOSTR) { return MA_ERROR; }
+#endif
+#ifdef ENODATA
+    else if (e == ENODATA) { return MA_NO_DATA_AVAILABLE; }
+#endif
+#ifdef ETIME
+    else if (e == ETIME) { return MA_TIMEOUT; }
+#endif
+#ifdef ENOSR
+    else if (e == ENOSR) { return MA_NO_DATA_AVAILABLE; }
+#endif
+#ifdef ENONET
+    else if (e == ENONET) { return MA_NO_NETWORK; }
+#endif
+#ifdef ENOPKG
+    else if (e == ENOPKG) { return MA_ERROR; }
+#endif
+#ifdef EREMOTE
+    else if (e == EREMOTE) { return MA_ERROR; }
+#endif
+#ifdef ENOLINK
+    else if (e == ENOLINK) { return MA_ERROR; }
+#endif
+#ifdef EADV
+    else if (e == EADV) { return MA_ERROR; }
+#endif
+#ifdef ESRMNT
+    else if (e == ESRMNT) { return MA_ERROR; }
+#endif
+#ifdef ECOMM
+    else if (e == ECOMM) { return MA_ERROR; }
+#endif
+#ifdef EPROTO
+    else if (e == EPROTO) { return MA_ERROR; }
+#endif
+#ifdef EMULTIHOP
+    else if (e == EMULTIHOP) { return MA_ERROR; }
+#endif
+#ifdef EDOTDOT
+    else if (e == EDOTDOT) { return MA_ERROR; }
+#endif
+#ifdef EBADMSG
+    else if (e == EBADMSG) { return MA_BAD_MESSAGE; }
+#endif
+#ifdef EOVERFLOW
+    else if (e == EOVERFLOW) { return MA_TOO_BIG; }
+#endif
+#ifdef ENOTUNIQ
+    else if (e == ENOTUNIQ) { return MA_NOT_UNIQUE; }
+#endif
+#ifdef EBADFD
+    else if (e == EBADFD) { return MA_ERROR; }
+#endif
+#ifdef EREMCHG
+    else if (e == EREMCHG) { return MA_ERROR; }
+#endif
+#ifdef ELIBACC
+    else if (e == ELIBACC) { return MA_ACCESS_DENIED; }
+#endif
+#ifdef ELIBBAD
+    else if (e == ELIBBAD) { return MA_INVALID_FILE; }
+#endif
+#ifdef ELIBSCN
+    else if (e == ELIBSCN) { return MA_INVALID_FILE; }
+#endif
+#ifdef ELIBMAX
+    else if (e == ELIBMAX) { return MA_ERROR; }
+#endif
+#ifdef ELIBEXEC
+    else if (e == ELIBEXEC) { return MA_ERROR; }
+#endif
+#ifdef EILSEQ
+    else if (e == EILSEQ) { return MA_INVALID_DATA; }
+#endif
+#ifdef ERESTART
+    else if (e == ERESTART) { return MA_ERROR; }
+#endif
+#ifdef ESTRPIPE
+    else if (e == ESTRPIPE) { return MA_ERROR; }
+#endif
+#ifdef EUSERS
+    else if (e == EUSERS) { return MA_ERROR; }
+#endif
+#ifdef ENOTSOCK
+    else if (e == ENOTSOCK) { return MA_NOT_SOCKET; }
+#endif
+#ifdef EDESTADDRREQ
+    else if (e == EDESTADDRREQ) { return MA_NO_ADDRESS; }
+#endif
+#ifdef EMSGSIZE
+    else if (e == EMSGSIZE) { return MA_TOO_BIG; }
+#endif
+#ifdef EPROTOTYPE
+    else if (e == EPROTOTYPE) { return MA_BAD_PROTOCOL; }
+#endif
+#ifdef ENOPROTOOPT
+    else if (e == ENOPROTOOPT) { return MA_PROTOCOL_UNAVAILABLE; }
+#endif
+#ifdef EPROTONOSUPPORT
+    else if (e == EPROTONOSUPPORT) { return MA_PROTOCOL_NOT_SUPPORTED; }
+#endif
+#ifdef ESOCKTNOSUPPORT
+    else if (e == ESOCKTNOSUPPORT) { return MA_SOCKET_NOT_SUPPORTED; }
+#endif
+#ifdef EOPNOTSUPP
+    else if (e == EOPNOTSUPP) { return MA_INVALID_OPERATION; }
+#endif
+#ifdef EPFNOSUPPORT
+    else if (e == EPFNOSUPPORT) { return MA_PROTOCOL_FAMILY_NOT_SUPPORTED; }
+#endif
+#ifdef EAFNOSUPPORT
+    else if (e == EAFNOSUPPORT) { return MA_ADDRESS_FAMILY_NOT_SUPPORTED; }
+#endif
+#ifdef EADDRINUSE
+    else if (e == EADDRINUSE) { return MA_ALREADY_IN_USE; }
+#endif
+#ifdef EADDRNOTAVAIL
+    else if (e == EADDRNOTAVAIL) { return MA_ERROR; }
+#endif
+#ifdef ENETDOWN
+    else if (e == ENETDOWN) { return MA_NO_NETWORK; }
+#endif
+#ifdef ENETUNREACH
+    else if (e == ENETUNREACH) { return MA_NO_NETWORK; }
+#endif
+#ifdef ENETRESET
+    else if (e == ENETRESET) { return MA_NO_NETWORK; }
+#endif
+#ifdef ECONNABORTED
+    else if (e == ECONNABORTED) { return MA_NO_NETWORK; }
+#endif
+#ifdef ECONNRESET
+    else if (e == ECONNRESET) { return MA_CONNECTION_RESET; }
+#endif
+#ifdef ENOBUFS
+    else if (e == ENOBUFS) { return MA_NO_SPACE; }
+#endif
+#ifdef EISCONN
+    else if (e == EISCONN) { return MA_ALREADY_CONNECTED; }
+#endif
+#ifdef ENOTCONN
+    else if (e == ENOTCONN) { return MA_NOT_CONNECTED; }
+#endif
+#ifdef ESHUTDOWN
+    else if (e == ESHUTDOWN) { return MA_ERROR; }
+#endif
+#ifdef ETOOMANYREFS
+    else if (e == ETOOMANYREFS) { return MA_ERROR; }
+#endif
+#ifdef ETIMEDOUT
+    else if (e == ETIMEDOUT) { return MA_TIMEOUT; }
+#endif
+#ifdef ECONNREFUSED
+    else if (e == ECONNREFUSED) { return MA_CONNECTION_REFUSED; }
+#endif
+#ifdef EHOSTDOWN
+    else if (e == EHOSTDOWN) { return MA_NO_HOST; }
+#endif
+#ifdef EHOSTUNREACH
+    else if (e == EHOSTUNREACH) { return MA_NO_HOST; }
+#endif
+#ifdef EALREADY
+    else if (e == EALREADY) { return MA_IN_PROGRESS; }
+#endif
+#ifdef EINPROGRESS
+    else if (e == EINPROGRESS) { return MA_IN_PROGRESS; }
+#endif
+#ifdef ESTALE
+    else if (e == ESTALE) { return MA_INVALID_FILE; }
+#endif
+#ifdef EUCLEAN
+    else if (e == EUCLEAN) { return MA_ERROR; }
+#endif
+#ifdef ENOTNAM
+    else if (e == ENOTNAM) { return MA_ERROR; }
+#endif
+#ifdef ENAVAIL
+    else if (e == ENAVAIL) { return MA_ERROR; }
+#endif
+#ifdef EISNAM
+    else if (e == EISNAM) { return MA_ERROR; }
+#endif
+#ifdef EREMOTEIO
+    else if (e == EREMOTEIO) { return MA_IO_ERROR; }
+#endif
+#ifdef EDQUOT
+    else if (e == EDQUOT) { return MA_NO_SPACE; }
+#endif
+#ifdef ENOMEDIUM
+    else if (e == ENOMEDIUM) { return MA_DOES_NOT_EXIST; }
+#endif
+#ifdef EMEDIUMTYPE
+    else if (e == EMEDIUMTYPE) { return MA_ERROR; }
+#endif
+#ifdef ECANCELED
+    else if (e == ECANCELED) { return MA_CANCELLED; }
+#endif
+#ifdef ENOKEY
+    else if (e == ENOKEY) { return MA_ERROR; }
+#endif
+#ifdef EKEYEXPIRED
+    else if (e == EKEYEXPIRED) { return MA_ERROR; }
+#endif
+#ifdef EKEYREVOKED
+    else if (e == EKEYREVOKED) { return MA_ERROR; }
+#endif
+#ifdef EKEYREJECTED
+    else if (e == EKEYREJECTED) { return MA_ERROR; }
+#endif
+#ifdef EOWNERDEAD
+    else if (e == EOWNERDEAD) { return MA_ERROR; }
+#endif
+#ifdef ENOTRECOVERABLE
+    else if (e == ENOTRECOVERABLE) { return MA_ERROR; }
+#endif
+#ifdef ERFKILL
+    else if (e == ERFKILL) { return MA_ERROR; }
+#endif
+#ifdef EHWPOISON
+    else if (e == EHWPOISON) { return MA_ERROR; }
+#endif
+    else {
+        return MA_ERROR;
     }
 }
 
