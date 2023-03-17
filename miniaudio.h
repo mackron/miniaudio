@@ -62675,6 +62675,81 @@ static ma_result ma_stbvorbis_post_init(ma_stbvorbis* pVorbis)
 
     return MA_SUCCESS;
 }
+
+static ma_result ma_stbvorbis_init_internal_decoder_push(ma_stbvorbis* pVorbis)
+{
+    ma_result result;
+    stb_vorbis* stb;
+    size_t dataSize = 0;
+    size_t dataCapacity = 0;
+    ma_uint8* pData = NULL; /* <-- Must be initialized to NULL. */
+
+    for (;;) {
+        int vorbisError;
+        int consumedDataSize;   /* <-- Fill by stb_vorbis_open_pushdata(). */
+        size_t bytesRead;
+        ma_uint8* pNewData;
+
+        /* Allocate memory for the new chunk. */
+        dataCapacity += MA_VORBIS_DATA_CHUNK_SIZE;
+        pNewData = (ma_uint8*)ma_realloc(pData, dataCapacity, &pVorbis->allocationCallbacks);
+        if (pNewData == NULL) {
+            ma_free(pData, &pVorbis->allocationCallbacks);
+            return MA_OUT_OF_MEMORY;
+        }
+
+        pData = pNewData;
+
+        /* Read in the next chunk. */
+        result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, ma_offset_ptr(pData, dataSize), (dataCapacity - dataSize), &bytesRead);
+        dataSize += bytesRead;
+
+        if (result != MA_SUCCESS) {
+            ma_free(pData, &pVorbis->allocationCallbacks);
+            return result;
+        }
+
+        /* We have a maximum of 31 bits with stb_vorbis. */
+        if (dataSize > INT_MAX) {
+            ma_free(pData, &pVorbis->allocationCallbacks);
+            return MA_TOO_BIG;
+        }
+
+        stb = stb_vorbis_open_pushdata(pData, (int)dataSize, &consumedDataSize, &vorbisError, NULL);
+        if (stb != NULL) {
+            /*
+            Successfully opened the Vorbis decoder. We might have some leftover unprocessed
+            data so we'll need to move that down to the front.
+            */
+            dataSize -= (size_t)consumedDataSize;   /* Consume the data. */
+            MA_MOVE_MEMORY(pData, ma_offset_ptr(pData, consumedDataSize), dataSize);
+
+            /*
+            We need to track the start point so we can seek back to the start of the audio
+            data when seeking.
+            */
+            pVorbis->push.audioStartOffsetInBytes = consumedDataSize;
+
+            break;
+        } else {
+            /* Failed to open the decoder. */
+            if (vorbisError == VORBIS_need_more_data) {
+                continue;
+            } else {
+                ma_free(pData, &pVorbis->allocationCallbacks);
+                return MA_ERROR;   /* Failed to open the stb_vorbis decoder. */
+            }
+        }
+    }
+
+    MA_ASSERT(stb != NULL);
+    pVorbis->stb = stb;
+    pVorbis->push.pData = pData;
+    pVorbis->push.dataSize = dataSize;
+    pVorbis->push.dataCapacity = dataCapacity;
+
+    return MA_SUCCESS;
+}
 #endif
 
 MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_stbvorbis* pVorbis)
@@ -62703,81 +62778,17 @@ MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
         pushing API. In order for us to be able to successfully initialize the decoder we need to
         supply it with enough data. We need to keep loading data until we have enough.
         */
-        stb_vorbis* stb;
-        size_t dataSize = 0;
-        size_t dataCapacity = 0;
-        ma_uint8* pData = NULL; /* <-- Must be initialized to NULL. */
-
-        for (;;) {
-            int vorbisError;
-            int consumedDataSize;   /* <-- Fill by stb_vorbis_open_pushdata(). */
-            size_t bytesRead;
-            ma_uint8* pNewData;
-
-            /* Allocate memory for the new chunk. */
-            dataCapacity += MA_VORBIS_DATA_CHUNK_SIZE;
-            pNewData = (ma_uint8*)ma_realloc(pData, dataCapacity, pAllocationCallbacks);
-            if (pNewData == NULL) {
-                ma_free(pData, pAllocationCallbacks);
-                return MA_OUT_OF_MEMORY;
-            }
-
-            pData = pNewData;
-
-            /* Read in the next chunk. */
-            result = pVorbis->onRead(pVorbis->pReadSeekTellUserData, ma_offset_ptr(pData, dataSize), (dataCapacity - dataSize), &bytesRead);
-            dataSize += bytesRead;
-
-            if (result != MA_SUCCESS) {
-                ma_free(pData, pAllocationCallbacks);
-                return result;
-            }
-
-            /* We have a maximum of 31 bits with stb_vorbis. */
-            if (dataSize > INT_MAX) {
-                ma_free(pData, pAllocationCallbacks);
-                return MA_TOO_BIG;
-            }
-
-            stb = stb_vorbis_open_pushdata(pData, (int)dataSize, &consumedDataSize, &vorbisError, NULL);
-            if (stb != NULL) {
-                /*
-                Successfully opened the Vorbis decoder. We might have some leftover unprocessed
-                data so we'll need to move that down to the front.
-                */
-                dataSize -= (size_t)consumedDataSize;   /* Consume the data. */
-                MA_MOVE_MEMORY(pData, ma_offset_ptr(pData, consumedDataSize), dataSize);
-
-                /*
-                We need to track the start point so we can seek back to the start of the audio
-                data when seeking.
-                */
-                pVorbis->push.audioStartOffsetInBytes = consumedDataSize;
-
-                break;
-            } else {
-                /* Failed to open the decoder. */
-                if (vorbisError == VORBIS_need_more_data) {
-                    continue;
-                } else {
-                    ma_free(pData, pAllocationCallbacks);
-                    return MA_ERROR;   /* Failed to open the stb_vorbis decoder. */
-                }
-            }
+        result = ma_stbvorbis_init_internal_decoder_push(pVorbis);
+        if (result != MA_SUCCESS) {
+            return result;
         }
-
-        MA_ASSERT(stb != NULL);
-        pVorbis->stb = stb;
-        pVorbis->push.pData = pData;
-        pVorbis->push.dataSize = dataSize;
-        pVorbis->push.dataCapacity = dataCapacity;
 
         pVorbis->usingPushMode = MA_TRUE;
 
         result = ma_stbvorbis_post_init(pVorbis);
         if (result != MA_SUCCESS) {
             stb_vorbis_close(pVorbis->stb);
-            ma_free(pData, pAllocationCallbacks);
+            ma_free(pVorbis->push.pData, pAllocationCallbacks);
             return result;
         }
 
@@ -63079,28 +63090,39 @@ MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64
             ma_result result;
             float buffer[4096];
 
-            /*
-            This is terribly inefficient because stb_vorbis does not have a good seeking solution with it's push API. Currently this just performs
-            a full decode right from the start of the stream. Later on I'll need to write a layer that goes through all of the Ogg pages until we
-            find the one containing the sample we need. Then we know exactly where to seek for stb_vorbis.
+            /* If we're seeking backwards, we need to seek back to the start and then brute-force forward. */
+            if (frameIndex < pVorbis->cursor) {
+                if (frameIndex > 0x7FFFFFFF) {
+                    return MA_INVALID_ARGS; /* Trying to seek beyond the 32-bit maximum of stb_vorbis. */
+                }
 
-            TODO: Use seeking logic documented for stb_vorbis_flush_pushdata().
-            */
+                /*
+                This is wildly inefficient due to me having trouble getting sample exact seeking working
+                robustly with stb_vorbis_flush_pushdata(). The only way I can think to make this work
+                perfectly is to reinitialize the decoder. Note that we only enter this path when seeking
+                backwards. This will hopefully be removed once we get our own Vorbis decoder implemented.
+                */
+                stb_vorbis_close(pVorbis->stb);
+                ma_free(pVorbis->push.pData, &pVorbis->allocationCallbacks);
 
-            /* Seek to the start of the audio data in the file to begin with. */
-            result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, pVorbis->push.audioStartOffsetInBytes, ma_seek_origin_start);
-            if (result != MA_SUCCESS) {
-                return result;
+                MA_ZERO_OBJECT(&pVorbis->push);
+
+                /* Seek to the start of the file. */
+                result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, 0, ma_seek_origin_start);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                result = ma_stbvorbis_init_internal_decoder_push(pVorbis);
+                if (result != MA_SUCCESS) {
+                    return result;
+                }
+
+                /* At this point we should be sitting on the first frame. */
+                pVorbis->cursor = 0;
             }
 
-            stb_vorbis_flush_pushdata(pVorbis->stb);
-            pVorbis->push.framesConsumed  = 0;
-            pVorbis->push.framesRemaining = 0;
-            pVorbis->push.dataSize        = 0;
-
-            /* Move the cursor back to the start. We'll increment this in the loop below. */
-            pVorbis->cursor = 0;
-
+            /* We're just brute-forcing this for now. */
             while (pVorbis->cursor < frameIndex) {
                 ma_uint64 framesRead;
                 ma_uint64 framesToRead = ma_countof(buffer)/pVorbis->channels;
@@ -68467,7 +68489,7 @@ static ma_data_source_vtable g_ma_resource_manager_data_stream_vtable =
     ma_resource_manager_data_stream_cb__get_cursor_in_pcm_frames,
     ma_resource_manager_data_stream_cb__get_length_in_pcm_frames,
     ma_resource_manager_data_stream_cb__set_looping,
-    MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT
+    0 /*MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT*/
 };
 
 static void ma_resource_manager_data_stream_set_absolute_cursor(ma_resource_manager_data_stream* pDataStream, ma_uint64 absoluteCursor)
