@@ -5096,6 +5096,7 @@ typedef struct
     float coneOuterGain;
     float dopplerFactor;                /* Set to 0 to disable doppler effect. */
     float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
+    float minSpatializationChannelGain; /* The minimal scaling factor to apply to channel gains when accounting for the direction of the sound relative to the listener. Must be in the range of 0..1. Smaller values means more aggressive directional panning, larger values means more subtle directional panning. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
@@ -5125,6 +5126,7 @@ typedef struct
     ma_atomic_vec3f direction;
     ma_atomic_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
+    float minSpatializationChannelGain;
     ma_gainer gainer;   /* For smooth gain transitions. */
     float* pNewChannelGainsOut; /* An offset of _pHeap. Used by ma_spatializer_process_pcm_frames() to store new channel gains. The number of elements in this array is equal to config.channelsOut. */
 
@@ -49655,6 +49657,7 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.coneOuterGain                = 0.0f;
     config.dopplerFactor                = 1;
     config.directionalAttenuationFactor = 1;
+    config.minSpatializationChannelGain = 0.2f;
     config.gainSmoothTimeInFrames       = 360;       /* 7.5ms @ 48K. */
 
     return config;
@@ -49795,6 +49798,7 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
     pSpatializer->coneOuterAngleInRadians      = pConfig->coneOuterAngleInRadians;
     pSpatializer->coneOuterGain                = pConfig->coneOuterGain;
     pSpatializer->dopplerFactor                = pConfig->dopplerFactor;
+    pSpatializer->minSpatializationChannelGain = pConfig->minSpatializationChannelGain;
     pSpatializer->directionalAttenuationFactor = pConfig->directionalAttenuationFactor;
     pSpatializer->gainSmoothTimeInFrames       = pConfig->gainSmoothTimeInFrames;
     ma_atomic_vec3f_init(&pSpatializer->position,  ma_vec3f_init_3f(0, 0,  0));
@@ -50146,7 +50150,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
 
                 Summary: 0 = more extreme panning; 1 = no panning.
                 */
-                dMin = 0.2f;  /* TODO: Consider making this configurable. */
+                dMin = pSpatializer->minSpatializationChannelGain;
 
                 /*
                 At this point, "d" will be positive if the sound is on the same side as the channel and negative if
