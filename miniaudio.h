@@ -58508,7 +58508,11 @@ MA_API ma_result ma_vfs_open_and_read_file_w(ma_vfs* pVFS, const wchar_t* pFileP
 }
 
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if !defined(MA_USE_WIN32_FILEIO) && (defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO) && !defined(MA_POSIX))
+    #define MA_USE_WIN32_FILEIO
+#endif
+
+#if defined(MA_USE_WIN32_FILEIO)
 static void ma_default_vfs__get_open_settings_win32(ma_uint32 openMode, DWORD* pDesiredAccess, DWORD* pShareMode, DWORD* pCreationDisposition)
 {
     *pDesiredAccess = 0;
@@ -58977,7 +58981,7 @@ static ma_result ma_default_vfs_open(ma_vfs* pVFS, const char* pFilePath, ma_uin
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_open__win32(pVFS, pFilePath, openMode, pFile);
 #else
     return ma_default_vfs_open__stdio(pVFS, pFilePath, openMode, pFile);
@@ -58996,7 +59000,7 @@ static ma_result ma_default_vfs_open_w(ma_vfs* pVFS, const wchar_t* pFilePath, m
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_open_w__win32(pVFS, pFilePath, openMode, pFile);
 #else
     return ma_default_vfs_open_w__stdio(pVFS, pFilePath, openMode, pFile);
@@ -59009,7 +59013,7 @@ static ma_result ma_default_vfs_close(ma_vfs* pVFS, ma_vfs_file file)
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_close__win32(pVFS, file);
 #else
     return ma_default_vfs_close__stdio(pVFS, file);
@@ -59026,7 +59030,7 @@ static ma_result ma_default_vfs_read(ma_vfs* pVFS, ma_vfs_file file, void* pDst,
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_read__win32(pVFS, file, pDst, sizeInBytes, pBytesRead);
 #else
     return ma_default_vfs_read__stdio(pVFS, file, pDst, sizeInBytes, pBytesRead);
@@ -59043,7 +59047,7 @@ static ma_result ma_default_vfs_write(ma_vfs* pVFS, ma_vfs_file file, const void
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_write__win32(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
 #else
     return ma_default_vfs_write__stdio(pVFS, file, pSrc, sizeInBytes, pBytesWritten);
@@ -59056,7 +59060,7 @@ static ma_result ma_default_vfs_seek(ma_vfs* pVFS, ma_vfs_file file, ma_int64 of
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_seek__win32(pVFS, file, offset, origin);
 #else
     return ma_default_vfs_seek__stdio(pVFS, file, offset, origin);
@@ -59075,7 +59079,7 @@ static ma_result ma_default_vfs_tell(ma_vfs* pVFS, ma_vfs_file file, ma_int64* p
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_tell__win32(pVFS, file, pCursor);
 #else
     return ma_default_vfs_tell__stdio(pVFS, file, pCursor);
@@ -59094,7 +59098,7 @@ static ma_result ma_default_vfs_info(ma_vfs* pVFS, ma_vfs_file file, ma_file_inf
         return MA_INVALID_ARGS;
     }
 
-#if defined(MA_WIN32) && defined(MA_WIN32_DESKTOP) && !defined(MA_NO_WIN32_FILEIO)
+#if defined(MA_USE_WIN32_FILEIO)
     return ma_default_vfs_info__win32(pVFS, file, pInfo);
 #else
     return ma_default_vfs_info__stdio(pVFS, file, pInfo);
