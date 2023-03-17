@@ -69898,7 +69898,7 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
         goto done;
     }
 
-    /* Retrieve the total length of the file before marking the decoder are loaded. */
+    /* Retrieve the total length of the file before marking the decoder as loaded. */
     if ((pDataStream->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH) == 0) {
         result = ma_decoder_get_length_in_pcm_frames(&pDataStream->decoder, &pDataStream->totalLengthInPCMFrames);
         if (result != MA_SUCCESS) {
