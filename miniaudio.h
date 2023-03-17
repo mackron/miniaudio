@@ -3818,7 +3818,7 @@ typedef ma_uint16 wchar_t;
 
 
 /* Platform/backend detection. */
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__COSMOPOLITAN__)
     #define MA_WIN32
     #if defined(MA_FORCE_UWP) || (defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PC_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PC_APP) || (defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
         #define MA_WIN32_UWP
@@ -3827,7 +3827,8 @@ typedef ma_uint16 wchar_t;
     #else
         #define MA_WIN32_DESKTOP
     #endif
-#else
+#endif
+#if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
     #define MA_POSIX
 
     /*
@@ -4326,61 +4327,57 @@ MA_ATOMIC_SAFE_TYPE_DECL(32,  4, bool32)
 typedef ma_uint32 ma_spinlock;
 
 #ifndef MA_NO_THREADING
-/* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
-typedef enum
-{
-    ma_thread_priority_idle     = -5,
-    ma_thread_priority_lowest   = -4,
-    ma_thread_priority_low      = -3,
-    ma_thread_priority_normal   = -2,
-    ma_thread_priority_high     = -1,
-    ma_thread_priority_highest  =  0,
-    ma_thread_priority_realtime =  1,
-    ma_thread_priority_default  =  0
-} ma_thread_priority;
+    /* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
+    typedef enum
+    {
+        ma_thread_priority_idle     = -5,
+        ma_thread_priority_lowest   = -4,
+        ma_thread_priority_low      = -3,
+        ma_thread_priority_normal   = -2,
+        ma_thread_priority_high     = -1,
+        ma_thread_priority_highest  =  0,
+        ma_thread_priority_realtime =  1,
+        ma_thread_priority_default  =  0
+    } ma_thread_priority;
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_thread;
-#endif
-#if defined(MA_POSIX)
-typedef ma_pthread_t ma_thread;
-#endif
+    #if defined(MA_POSIX)
+        typedef ma_pthread_t ma_thread;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_thread;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_mutex;
-#endif
-#if defined(MA_POSIX)
-typedef ma_pthread_mutex_t ma_mutex;
-#endif
+    #if defined(MA_POSIX)
+        typedef ma_pthread_mutex_t ma_mutex;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_mutex;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_event;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    ma_uint32 value;
-    ma_pthread_mutex_t lock;
-    ma_pthread_cond_t cond;
-} ma_event;
-#endif  /* MA_POSIX */
+    #if defined(MA_POSIX)
+        typedef struct
+        {
+            ma_uint32 value;
+            ma_pthread_mutex_t lock;
+            ma_pthread_cond_t cond;
+        } ma_event;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_event;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_semaphore;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    int value;
-    ma_pthread_mutex_t lock;
-    ma_pthread_cond_t cond;
-} ma_semaphore;
-#endif  /* MA_POSIX */
+    #if defined(MA_POSIX)
+        typedef struct
+        {
+            int value;
+            ma_pthread_mutex_t lock;
+            ma_pthread_cond_t cond;
+        } ma_semaphore;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_semaphore;
+    #endif
 #else
-/* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
-#ifndef MA_NO_DEVICE_IO
-#error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
-#endif
+    /* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
+    #ifndef MA_NO_DEVICE_IO
+        #error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
+    #endif
 #endif  /* MA_NO_THREADING */
 
 
@@ -6278,12 +6275,12 @@ This section contains the APIs for device playback and capture. Here is where yo
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
 /* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
     #if !defined(__COSMOPOLITAN__)
         #define MA_SUPPORT_WASAPI
     #endif
 
-    #if defined(MA_WIN32_DESKTOP) || defined(__COSMOPOLITAN__)  /* DirectSound and WinMM backends are only supported on desktops. */
+    #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
         #if !defined(__COSMOPOLITAN__)
             #define MA_SUPPORT_DSOUND
         #endif
@@ -7419,7 +7416,7 @@ struct ma_context
 
     union
     {
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
         struct
         {
             /*HMODULE*/ ma_handle hOle32DLL;
@@ -11330,7 +11327,7 @@ IMPLEMENTATION
     #include <float.h>      /* For _controlfp_s constants */
 #endif
 
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
     #if !defined(__COSMOPOLITAN__)
         #include <windows.h>
     #endif
@@ -12169,7 +12166,7 @@ Standard Library Stuff
 
 #ifndef MA_REALLOC
 #ifdef MA_WIN32
-#define MA_REALLOC(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((VOID*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
+#define MA_REALLOC(p, sz) (((sz) > 0) ? ((p) ? HeapReAlloc(GetProcessHeap(), 0, (p), (sz)) : HeapAlloc(GetProcessHeap(), 0, (sz))) : ((void*)(size_t)(HeapFree(GetProcessHeap(), 0, (p)) & 0)))
 #else
 #define MA_REALLOC(p, sz) realloc((p), (sz))
 #endif
@@ -16035,7 +16032,7 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
 
 
 
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
 static ma_result ma_result_from_GetLastError(DWORD error)
 {
     switch (error)
@@ -18105,7 +18102,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
 
 
 
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
 /* WASAPI error codes. */
 #define MA_AUDCLNT_E_NOT_INITIALIZED              ((HRESULT)0x88890001)
 #define MA_AUDCLNT_E_ALREADY_INITIALIZED          ((HRESULT)0x88890002)
@@ -19059,7 +19056,7 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state n
 }
 
 
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
     /*GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
@@ -19778,7 +19775,7 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
 WIN32 COMMON
 
 *******************************************************************************/
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
 #if defined(MA_WIN32_DESKTOP) || defined(__COSMOPOLITAN__)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
@@ -31432,7 +31429,7 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
 {
 #ifndef MA_NO_RUNTIME_LINKING
     const char* libjackNames[] = {
-#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32)
         "libjack.dll",
         "libjack64.dll"
 #endif
