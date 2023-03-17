@@ -6278,12 +6278,23 @@ This section contains the APIs for device playback and capture. Here is where yo
 ************************************************************************************************************************************************************/
 #ifndef MA_NO_DEVICE_IO
 /* Some backends are only supported on certain platforms. */
-#if defined(MA_WIN32)
-    #define MA_SUPPORT_WASAPI
-    #if defined(MA_WIN32_DESKTOP)  /* DirectSound and WinMM backends are only supported on desktops. */
-        #define MA_SUPPORT_DSOUND
-        #define MA_SUPPORT_WINMM
-        #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+    #if !defined(__COSMOPOLITAN__)
+        #define MA_SUPPORT_WASAPI
+    #endif
+
+    #if defined(MA_WIN32_DESKTOP) || defined(__COSMOPOLITAN__)  /* DirectSound and WinMM backends are only supported on desktops. */
+        #if !defined(__COSMOPOLITAN__)
+            #define MA_SUPPORT_DSOUND
+        #endif
+        #if !defined(__COSMOPOLITAN__)
+            #define MA_SUPPORT_WINMM
+        #endif
+
+        /* Don't enable JACK here if compiling with Cosmopolitan. */
+        #if !defined(__COSMOPOLITAN__)
+            #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+        #endif
     #endif
 #endif
 #if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
@@ -31309,10 +31320,11 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
 {
 #ifndef MA_NO_RUNTIME_LINKING
     const char* libjackNames[] = {
-#ifdef MA_WIN32
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
         "libjack.dll",
         "libjack64.dll"
-#else
+#endif
+#if defined(MA_UNIX)
         "libjack.so",
         "libjack.so.0"
 #endif
