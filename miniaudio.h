@@ -10971,6 +10971,9 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
 #define MA_SOUND_SOURCE_CHANNEL_COUNT   0xFFFFFFFF
 
+/* Callback for when a sound reaches the end. */
+typedef void (* ma_sound_end_proc)(void* pUserData, ma_sound* pSound);
+
 typedef struct
 {
     const char* pFilePath;                      /* Set this to load from the resource manager. */
@@ -10988,6 +10991,8 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     ma_bool32 isLooping;
+    ma_sound_end_proc endCallback;              /* Fired when the sound reaches the end. Will be fired from the audio thread. Do not restart, uninitialize or otherwise change the state of the sound from here. Instead fire an event or set a variable to indicate to a different thread to change the start of the sound. Will not be fired in response to a scheduled stop with ma_sound_set_stop_time_*(). */
+    void* pEndCallbackUserData;
 #ifndef MA_NO_RESOURCE_MANAGER
     ma_resource_manager_pipeline_notifications initNotifications;
 #endif
@@ -11003,6 +11008,8 @@ struct ma_sound
     ma_data_source* pDataSource;
     MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
+    ma_sound_end_proc endCallback;
+    void* pEndCallbackUserData;
     ma_bool8 ownsDataSource;
 
     /*
@@ -11192,6 +11199,7 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor);
 MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength);
+MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup);
@@ -72991,6 +72999,27 @@ Engine
 **************************************************************************************************************************************************************/
 #define MA_SEEK_TARGET_NONE         (~(ma_uint64)0)
 
+
+static void ma_sound_set_at_end(ma_sound* pSound, ma_bool32 atEnd)
+{
+    MA_ASSERT(pSound != NULL);
+    c89atomic_exchange_32(&pSound->atEnd, atEnd);
+
+    /* Fire any callbacks or events. */
+    if (atEnd) {
+        if (pSound->endCallback != NULL) {
+            pSound->endCallback(pSound->pEndCallbackUserData, pSound);
+        }
+    }
+}
+
+static ma_bool32 ma_sound_get_at_end(const ma_sound* pSound)
+{
+    MA_ASSERT(pSound != NULL);
+    return c89atomic_load_32(&pSound->atEnd);
+}
+
+
 MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_engine_node_type type, ma_uint32 flags)
 {
     ma_engine_node_config config;
@@ -73088,6 +73117,7 @@ static ma_result ma_engine_node_get_volume(const ma_engine_node* pEngineNode, fl
 
     return ma_spatializer_get_master_volume(&pEngineNode->spatializer, pVolume);
 }
+
 
 static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
@@ -73328,7 +73358,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
 
             /* If we reached the end of the sound we'll want to mark it as at the end and stop it. This should never be returned for looping sounds. */
             if (result == MA_AT_END) {
-                c89atomic_exchange_32(&pSound->atEnd, MA_TRUE); /* This will be set to false in ma_sound_start(). */
+                ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
             }
 
             pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(ma_sound_get_engine(pSound)));
@@ -74873,6 +74903,9 @@ MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pCo
         return MA_INVALID_ARGS;
     }
 
+    pSound->endCallback          = pConfig->endCallback;
+    pSound->pEndCallbackUserData = pConfig->pEndCallbackUserData;
+
     /* We need to load the sound differently depending on whether or not we're loading from a file. */
 #ifndef MA_NO_RESOURCE_MANAGER
     if (pConfig->pFilePath != NULL || pConfig->pFilePathW != NULL) {
@@ -75488,7 +75521,7 @@ MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound)
         return MA_FALSE;
     }
 
-    return c89atomic_load_32(&pSound->atEnd);
+    return ma_sound_get_at_end(pSound);
 }
 
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex)
@@ -75595,6 +75628,23 @@ MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength
     }
 
     return ma_data_source_get_length_in_seconds(pSound->pDataSource, pLength);
+}
+
+MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The notion of an end is only valid for sounds that are backed by a data source. */
+    if (pSound->pDataSource == NULL) {
+        return MA_INVALID_OPERATION;
+    }
+
+    pSound->endCallback          = callback;
+    pSound->pEndCallbackUserData = pUserData;
+
+    return MA_SUCCESS;
 }
 
 
