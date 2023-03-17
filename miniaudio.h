@@ -15978,157 +15978,15 @@ MA_API ma_result ma_spinlock_unlock(volatile ma_spinlock* pSpinlock)
 
 
 #ifndef MA_NO_THREADING
-#ifdef MA_WIN32
-    #define MA_THREADCALL WINAPI
-    typedef unsigned long ma_thread_result;
-#else
+#if defined(MA_POSIX)
     #define MA_THREADCALL
     typedef void* ma_thread_result;
+#elif defined(MA_WIN32)
+    #define MA_THREADCALL WINAPI
+    typedef unsigned long ma_thread_result;
 #endif
+
 typedef ma_thread_result (MA_THREADCALL * ma_thread_entry_proc)(void* pData);
-
-#ifdef MA_WIN32
-static int ma_thread_priority_to_win32(ma_thread_priority priority)
-{
-    switch (priority) {
-        case ma_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
-        case ma_thread_priority_lowest:   return THREAD_PRIORITY_LOWEST;
-        case ma_thread_priority_low:      return THREAD_PRIORITY_BELOW_NORMAL;
-        case ma_thread_priority_normal:   return THREAD_PRIORITY_NORMAL;
-        case ma_thread_priority_high:     return THREAD_PRIORITY_ABOVE_NORMAL;
-        case ma_thread_priority_highest:  return THREAD_PRIORITY_HIGHEST;
-        case ma_thread_priority_realtime: return THREAD_PRIORITY_TIME_CRITICAL;
-        default:                          return THREAD_PRIORITY_NORMAL;
-    }
-}
-
-static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
-{
-    DWORD threadID; /* Not used. Only used for passing into CreateThread() so it doesn't fail on Windows 98. */
-
-    *pThread = CreateThread(NULL, stackSize, entryProc, pData, 0, &threadID);
-    if (*pThread == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    SetThreadPriority((HANDLE)*pThread, ma_thread_priority_to_win32(priority));
-
-    return MA_SUCCESS;
-}
-
-static void ma_thread_wait__win32(ma_thread* pThread)
-{
-    WaitForSingleObject((HANDLE)*pThread, INFINITE);
-    CloseHandle((HANDLE)*pThread);
-}
-
-
-static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
-{
-    *pMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
-    if (*pMutex == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_mutex_uninit__win32(ma_mutex* pMutex)
-{
-    CloseHandle((HANDLE)*pMutex);
-}
-
-static void ma_mutex_lock__win32(ma_mutex* pMutex)
-{
-    WaitForSingleObject((HANDLE)*pMutex, INFINITE);
-}
-
-static void ma_mutex_unlock__win32(ma_mutex* pMutex)
-{
-    SetEvent((HANDLE)*pMutex);
-}
-
-
-static ma_result ma_event_init__win32(ma_event* pEvent)
-{
-    *pEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    if (*pEvent == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_event_uninit__win32(ma_event* pEvent)
-{
-    CloseHandle((HANDLE)*pEvent);
-}
-
-static ma_result ma_event_wait__win32(ma_event* pEvent)
-{
-    DWORD result = WaitForSingleObject((HANDLE)*pEvent, INFINITE);
-    if (result == WAIT_OBJECT_0) {
-        return MA_SUCCESS;
-    }
-
-    if (result == WAIT_TIMEOUT) {
-        return MA_TIMEOUT;
-    }
-
-    return ma_result_from_GetLastError(GetLastError());
-}
-
-static ma_result ma_event_signal__win32(ma_event* pEvent)
-{
-    BOOL result = SetEvent((HANDLE)*pEvent);
-    if (result == 0) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-
-static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemaphore)
-{
-    *pSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
-    if (*pSemaphore == NULL) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-
-static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
-{
-    CloseHandle((HANDLE)*pSemaphore);
-}
-
-static ma_result ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
-{
-    DWORD result = WaitForSingleObject((HANDLE)*pSemaphore, INFINITE);
-    if (result == WAIT_OBJECT_0) {
-        return MA_SUCCESS;
-    }
-
-    if (result == WAIT_TIMEOUT) {
-        return MA_TIMEOUT;
-    }
-
-    return ma_result_from_GetLastError(GetLastError());
-}
-
-static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
-{
-    BOOL result = ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL);
-    if (result == 0) {
-        return ma_result_from_GetLastError(GetLastError());
-    }
-
-    return MA_SUCCESS;
-}
-#endif
-
 
 #ifdef MA_POSIX
 static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
@@ -16366,6 +16224,146 @@ static ma_result ma_semaphore_release__posix(ma_semaphore* pSemaphore)
 
     return MA_SUCCESS;
 }
+#elif defined(MA_WIN32)
+static int ma_thread_priority_to_win32(ma_thread_priority priority)
+{
+    switch (priority) {
+        case ma_thread_priority_idle:     return THREAD_PRIORITY_IDLE;
+        case ma_thread_priority_lowest:   return THREAD_PRIORITY_LOWEST;
+        case ma_thread_priority_low:      return THREAD_PRIORITY_BELOW_NORMAL;
+        case ma_thread_priority_normal:   return THREAD_PRIORITY_NORMAL;
+        case ma_thread_priority_high:     return THREAD_PRIORITY_ABOVE_NORMAL;
+        case ma_thread_priority_highest:  return THREAD_PRIORITY_HIGHEST;
+        case ma_thread_priority_realtime: return THREAD_PRIORITY_TIME_CRITICAL;
+        default:                          return THREAD_PRIORITY_NORMAL;
+    }
+}
+
+static ma_result ma_thread_create__win32(ma_thread* pThread, ma_thread_priority priority, size_t stackSize, ma_thread_entry_proc entryProc, void* pData)
+{
+    DWORD threadID; /* Not used. Only used for passing into CreateThread() so it doesn't fail on Windows 98. */
+
+    *pThread = CreateThread(NULL, stackSize, entryProc, pData, 0, &threadID);
+    if (*pThread == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    SetThreadPriority((HANDLE)*pThread, ma_thread_priority_to_win32(priority));
+
+    return MA_SUCCESS;
+}
+
+static void ma_thread_wait__win32(ma_thread* pThread)
+{
+    WaitForSingleObject((HANDLE)*pThread, INFINITE);
+    CloseHandle((HANDLE)*pThread);
+}
+
+
+static ma_result ma_mutex_init__win32(ma_mutex* pMutex)
+{
+    *pMutex = CreateEventA(NULL, FALSE, TRUE, NULL);
+    if (*pMutex == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_mutex_uninit__win32(ma_mutex* pMutex)
+{
+    CloseHandle((HANDLE)*pMutex);
+}
+
+static void ma_mutex_lock__win32(ma_mutex* pMutex)
+{
+    WaitForSingleObject((HANDLE)*pMutex, INFINITE);
+}
+
+static void ma_mutex_unlock__win32(ma_mutex* pMutex)
+{
+    SetEvent((HANDLE)*pMutex);
+}
+
+
+static ma_result ma_event_init__win32(ma_event* pEvent)
+{
+    *pEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (*pEvent == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_event_uninit__win32(ma_event* pEvent)
+{
+    CloseHandle((HANDLE)*pEvent);
+}
+
+static ma_result ma_event_wait__win32(ma_event* pEvent)
+{
+    DWORD result = WaitForSingleObject((HANDLE)*pEvent, INFINITE);
+    if (result == WAIT_OBJECT_0) {
+        return MA_SUCCESS;
+    }
+
+    if (result == WAIT_TIMEOUT) {
+        return MA_TIMEOUT;
+    }
+
+    return ma_result_from_GetLastError(GetLastError());
+}
+
+static ma_result ma_event_signal__win32(ma_event* pEvent)
+{
+    BOOL result = SetEvent((HANDLE)*pEvent);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static ma_result ma_semaphore_init__win32(int initialValue, ma_semaphore* pSemaphore)
+{
+    *pSemaphore = CreateSemaphoreW(NULL, (LONG)initialValue, LONG_MAX, NULL);
+    if (*pSemaphore == NULL) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
+
+static void ma_semaphore_uninit__win32(ma_semaphore* pSemaphore)
+{
+    CloseHandle((HANDLE)*pSemaphore);
+}
+
+static ma_result ma_semaphore_wait__win32(ma_semaphore* pSemaphore)
+{
+    DWORD result = WaitForSingleObject((HANDLE)*pSemaphore, INFINITE);
+    if (result == WAIT_OBJECT_0) {
+        return MA_SUCCESS;
+    }
+
+    if (result == WAIT_TIMEOUT) {
+        return MA_TIMEOUT;
+    }
+
+    return ma_result_from_GetLastError(GetLastError());
+}
+
+static ma_result ma_semaphore_release__win32(ma_semaphore* pSemaphore)
+{
+    BOOL result = ReleaseSemaphore((HANDLE)*pSemaphore, 1, NULL);
+    if (result == 0) {
+        return ma_result_from_GetLastError(GetLastError());
+    }
+
+    return MA_SUCCESS;
+}
 #endif
 
 typedef struct
@@ -16419,11 +16417,10 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
     pProxyData->pData     = pData;
     ma_allocation_callbacks_init_copy(&pProxyData->allocationCallbacks, pAllocationCallbacks);
 
-#ifdef MA_WIN32
-    result = ma_thread_create__win32(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     result = ma_thread_create__posix(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
+#elif defined(MA_WIN32)
+    result = ma_thread_create__win32(pThread, priority, stackSize, ma_thread_entry_proxy, pProxyData);
 #endif
 
     if (result != MA_SUCCESS) {
@@ -16440,11 +16437,10 @@ static void ma_thread_wait(ma_thread* pThread)
         return;
     }
 
-#ifdef MA_WIN32
-    ma_thread_wait__win32(pThread);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_thread_wait__posix(pThread);
+#elif defined(MA_WIN32)
+    ma_thread_wait__win32(pThread);
 #endif
 }
 
@@ -16456,11 +16452,10 @@ MA_API ma_result ma_mutex_init(ma_mutex* pMutex)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_mutex_init__win32(pMutex);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_mutex_init__posix(pMutex);
+#elif defined(MA_WIN32)
+    return ma_mutex_init__win32(pMutex);
 #endif
 }
 
@@ -16470,11 +16465,10 @@ MA_API void ma_mutex_uninit(ma_mutex* pMutex)
         return;
     }
 
-#ifdef MA_WIN32
-    ma_mutex_uninit__win32(pMutex);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_mutex_uninit__posix(pMutex);
+#elif defined(MA_WIN32)
+    ma_mutex_uninit__win32(pMutex);
 #endif
 }
 
@@ -16485,11 +16479,10 @@ MA_API void ma_mutex_lock(ma_mutex* pMutex)
         return;
     }
 
-#ifdef MA_WIN32
-    ma_mutex_lock__win32(pMutex);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_mutex_lock__posix(pMutex);
+#elif defined(MA_WIN32)
+    ma_mutex_lock__win32(pMutex);
 #endif
 }
 
@@ -16498,13 +16491,12 @@ MA_API void ma_mutex_unlock(ma_mutex* pMutex)
     if (pMutex == NULL) {
         MA_ASSERT(MA_FALSE);    /* Fire an assert so the caller is aware of this bug. */
         return;
-}
+    }
 
-#ifdef MA_WIN32
-    ma_mutex_unlock__win32(pMutex);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_mutex_unlock__posix(pMutex);
+#elif defined(MA_WIN32)
+    ma_mutex_unlock__win32(pMutex);
 #endif
 }
 
@@ -16516,11 +16508,10 @@ MA_API ma_result ma_event_init(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_event_init__win32(pEvent);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_event_init__posix(pEvent);
+#elif defined(MA_WIN32)
+    return ma_event_init__win32(pEvent);
 #endif
 }
 
@@ -16558,11 +16549,10 @@ MA_API void ma_event_uninit(ma_event* pEvent)
         return;
     }
 
-#ifdef MA_WIN32
-    ma_event_uninit__win32(pEvent);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_event_uninit__posix(pEvent);
+#elif defined(MA_WIN32)
+    ma_event_uninit__win32(pEvent);
 #endif
 }
 
@@ -16585,11 +16575,10 @@ MA_API ma_result ma_event_wait(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_event_wait__win32(pEvent);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_event_wait__posix(pEvent);
+#elif defined(MA_WIN32)
+    return ma_event_wait__win32(pEvent);
 #endif
 }
 
@@ -16600,11 +16589,10 @@ MA_API ma_result ma_event_signal(ma_event* pEvent)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_event_signal__win32(pEvent);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_event_signal__posix(pEvent);
+#elif defined(MA_WIN32)
+    return ma_event_signal__win32(pEvent);
 #endif
 }
 
@@ -16616,11 +16604,10 @@ MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_semaphore_init__win32(initialValue, pSemaphore);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_semaphore_init__posix(initialValue, pSemaphore);
+#elif defined(MA_WIN32)
+    return ma_semaphore_init__win32(initialValue, pSemaphore);
 #endif
 }
 
@@ -16631,11 +16618,10 @@ MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore)
         return;
     }
 
-#ifdef MA_WIN32
-    ma_semaphore_uninit__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     ma_semaphore_uninit__posix(pSemaphore);
+#elif defined(MA_WIN32)
+    ma_semaphore_uninit__win32(pSemaphore);
 #endif
 }
 
@@ -16646,11 +16632,10 @@ MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_semaphore_wait__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_semaphore_wait__posix(pSemaphore);
+#elif defined(MA_WIN32)
+    return ma_semaphore_wait__win32(pSemaphore);
 #endif
 }
 
@@ -16661,11 +16646,10 @@ MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore)
         return MA_INVALID_ARGS;
     }
 
-#ifdef MA_WIN32
-    return ma_semaphore_release__win32(pSemaphore);
-#endif
-#ifdef MA_POSIX
+#if defined(MA_POSIX)
     return ma_semaphore_release__posix(pSemaphore);
+#elif defined(MA_WIN32)
+    return ma_semaphore_release__win32(pSemaphore);
 #endif
 }
 #else
