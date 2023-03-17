@@ -7419,7 +7419,7 @@ struct ma_context
 
     union
     {
-#ifdef MA_WIN32
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
         struct
         {
             /*HMODULE*/ ma_handle hOle32DLL;
@@ -11336,35 +11336,56 @@ IMPLEMENTATION
     #endif
 
     #if defined(__COSMOPOLITAN__)
-        typedef uint64_t        HWND;    
-        typedef uint64_t        HANDLE;
-        typedef uint32_t        HRESULT;
-        typedef uint8_t         BYTE;
-        typedef uint16_t        WORD;
-        typedef uint32_t        DWORD;
-        typedef int32_t         BOOL;
-        typedef int32_t         LONG;   /* `long` is always 32-bit on Windows. */
-        typedef uint32_t        ULONG;
-
-        #define TRUE            1
-        #define FALSE           0
-
         #define WINAPI
-        #define S_OK            0
-        #define WAIT_OBJECT_0   0
+        #define STDMETHODCALLTYPE
 
-        #define FAILED(hr)      ((hr) < 0)
-        #define NOERROR         0
-        #define E_POINTER       ((HRESULT)0x80004003)
-        #define E_UNEXPECTED    ((HRESULT)0x8000FFFF)
-        #define E_NOTIMPL       ((HRESULT)0x80004001)
-        #define E_OUTOFMEMORY   ((HRESULT)0x8007000E)
-        #define E_INVALIDARG    ((HRESULT)0x80070057)
-        #define E_NOINTERFACE   ((HRESULT)0x80004002)
-        #define E_HANDLE        ((HRESULT)0x80070006)
-        #define E_ABORT         ((HRESULT)0x80004004)
-        #define E_FAIL          ((HRESULT)0x80004005)
-        #define E_ACCESSDENIED  ((HRESULT)0x80070005)
+        typedef uint64_t                    HWND;
+        typedef uint64_t                    HANDLE;
+        typedef uint32_t                    HRESULT;
+        typedef uint8_t                     BYTE;
+        typedef uint16_t                    WORD;
+        typedef uint32_t                    DWORD;
+        typedef uint64_t                    DWORDLONG;
+        typedef int32_t                     BOOL;
+        typedef int32_t                     LONG;   /* `long` is always 32-bit on Windows. */
+        typedef uint32_t                    ULONG;
+        typedef uint64_t                    ULONGLONG;
+        typedef char16_t                    WCHAR;
+
+        #define TRUE                        1
+        #define FALSE                       0
+
+        #define WAIT_OBJECT_0               0
+        #define INFINITE                    0xFFFFFFFF
+
+        #define FAILED(hr)                  ((hr) <  0)
+        #define SUCCEEDED(hr)               ((hr) >= 0)
+
+        #define NOERROR                     0
+        #define S_OK                        0
+        #define S_FALSE                     1
+        #define E_POINTER                   ((HRESULT)0x80004003)
+        #define E_UNEXPECTED                ((HRESULT)0x8000FFFF)
+        #define E_NOTIMPL                   ((HRESULT)0x80004001)
+        #define E_OUTOFMEMORY               ((HRESULT)0x8007000E)
+        #define E_INVALIDARG                ((HRESULT)0x80070057)
+        #define E_NOINTERFACE               ((HRESULT)0x80004002)
+        #define E_HANDLE                    ((HRESULT)0x80070006)
+        #define E_ABORT                     ((HRESULT)0x80004004)
+        #define E_FAIL                      ((HRESULT)0x80004005)
+        #define E_ACCESSDENIED              ((HRESULT)0x80070005)
+
+        #define ERROR_SUCCESS               0
+        #define ERROR_FILE_NOT_FOUND        2        
+        #define ERROR_PATH_NOT_FOUND        3
+        #define ERROR_TOO_MANY_OPEN_FILES   4
+        #define ERROR_ACCESS_DENIED         5        
+        #define ERROR_NOT_ENOUGH_MEMORY     8
+        #define ERROR_HANDLE_EOF            38
+        #define ERROR_INVALID_PARAMETER     87         
+        #define ERROR_DISK_FULL             112
+        #define ERROR_SEM_TIMEOUT           121
+        #define ERROR_NEGATIVE_SEEK         131
 
         typedef struct
         {
@@ -11374,7 +11395,7 @@ IMPLEMENTATION
             unsigned char Data4[8];
         } GUID, IID;
 
-        static HANDLE CreateEventA(struct NtSecurityAttributes *lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
+        static HANDLE CreateEventA(struct NtSecurityAttributes* lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
         {
             assert(lpName == NULL);  /* If this is ever triggered we'll need to do a ANSI-to-Unicode conversion. */
             return (HANDLE)CreateEvent(lpEventAttributes, bManualReset, bInitialState, (const char16_t*)lpName);
@@ -11385,6 +11406,9 @@ IMPLEMENTATION
             return memcmp(a, b, sizeof(GUID)) == 0;
         }
     #endif
+
+    #define MA_VT_LPWSTR    31
+    #define MA_VT_BLOB      65
 
     typedef struct
     {
@@ -11399,13 +11423,13 @@ IMPLEMENTATION
                 ULONG cbSize;
                 BYTE* pBlobData;
             } blob;
-            wchar_t* pwszVal;
+            WCHAR* pwszVal;
             char pad[16];   /* Just to ensure the size of the struct matches the official version. */
         };
     } MA_PROPVARIANT;
 #endif
 
-#ifdef MA_POSIX
+#if !defined(MA_WIN32)
 #include <stdlib.h>     /* For malloc(), free(), wcstombs(). */
 #include <string.h>     /* For memset() */
 #include <sched.h>
@@ -11414,7 +11438,7 @@ IMPLEMENTATION
 #endif
 
 #ifdef MA_NX
-#include <time.h> /* For nanosleep() */
+#include <time.h>       /* For nanosleep() */
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
@@ -16011,7 +16035,7 @@ MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateO
 
 
 
-#if defined(MA_WIN32)
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
 static ma_result ma_result_from_GetLastError(DWORD error)
 {
     switch (error)
@@ -21316,7 +21340,7 @@ static LPWSTR ma_context_get_default_device_id_from_IMMDeviceEnumerator__wasapi(
 {
     HRESULT hr;
     ma_IMMDevice* pMMDefaultDevice = NULL;
-    LPWSTR pDefaultDeviceID = NULL;
+    WCHAR* pDefaultDeviceID = NULL;
     ma_EDataFlow dataFlow;
     ma_ERole role;
 
@@ -21352,7 +21376,7 @@ static LPWSTR ma_context_get_default_device_id__wasapi(ma_context* pContext, ma_
 {
     ma_result result;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
-    LPWSTR pDefaultDeviceID = NULL;
+    WCHAR* pDefaultDeviceID = NULL;
 
     MA_ASSERT(pContext != NULL);
 
@@ -21398,7 +21422,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 
 static ma_result ma_context_get_device_id_from_MMDevice__wasapi(ma_context* pContext, ma_IMMDevice* pMMDevice, ma_device_id* pDeviceID)
 {
-    LPWSTR pDeviceIDString;
+    WCHAR* pDeviceIDString;
     HRESULT hr;
 
     MA_ASSERT(pDeviceID != NULL);
@@ -21484,7 +21508,7 @@ static ma_result ma_context_enumerate_devices_by_type__wasapi(ma_context* pConte
     UINT deviceCount;
     HRESULT hr;
     ma_uint32 iDevice;
-    LPWSTR pDefaultDeviceID = NULL;
+    WCHAR* pDefaultDeviceID = NULL;
     ma_IMMDeviceCollection* pDeviceCollection = NULL;
 
     MA_ASSERT(pContext != NULL);
@@ -21565,7 +21589,7 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     ma_IActivateAudioInterfaceAsyncOperation *pAsyncOp = NULL;
     ma_completion_handler_uwp completionHandler;
     IID iid;
-    LPOLESTR iidStr;
+    WCHAR* iidStr;
     HRESULT hr;
     ma_result result;
     HRESULT activateResult;
@@ -21575,7 +21599,7 @@ static ma_result ma_context_get_IAudioClient_UWP__wasapi(ma_context* pContext, m
     MA_ASSERT(ppAudioClient != NULL);
 
     if (pDeviceID != NULL) {
-        iidStr = (LPOLESTR)pDeviceID->wasapi;
+        iidStr = (WCHAR*)pDeviceID->wasapi;
     } else {
         if (deviceType == ma_device_type_capture) {
             iid = MA_IID_DEVINTERFACE_AUDIO_CAPTURE;
@@ -21712,7 +21736,7 @@ static ma_result ma_context_get_IAudioClient__wasapi(ma_context* pContext, ma_de
         audioclientActivationParams.ProcessLoopbackParams.TargetProcessId     = (DWORD)loopbackProcessID;
 
         ma_PropVariantInit(&activationParams);
-        activationParams.vt             = VT_BLOB;
+        activationParams.vt             = MA_VT_BLOB;
         activationParams.blob.cbSize    = sizeof(audioclientActivationParams);
         activationParams.blob.pBlobData = (BYTE*)&audioclientActivationParams;
         pActivationParams = &activationParams;
