@@ -1286,6 +1286,10 @@ file paths which means there's a small chance you might encounter a name collisi
 issue, you'll need to use a different name for one of the colliding file paths, or just not load
 from files and instead load from a data source.
 
+You can use `ma_sound_init_copy()` to initialize a copy of another sound. Note, however, that this
+only works for sounds that were initialized with `ma_sound_init_from_file()` and without the
+`MA_SOUND_FLAG_STREAM` flag.
+
 When you initialize a sound, if you specify a sound group the sound will be attached to that group
 automatically. If you set it to NULL, it will be automatically attached to the engine's endpoint.
 If you would instead rather leave the sound unattached by default, you can can specify the
@@ -1446,7 +1450,25 @@ Whether or not a sound should loop can be controlled with `ma_sound_set_looping(
 be looping by default. Use `ma_sound_is_looping()` to determine whether or not a sound is looping.
 
 Use `ma_sound_at_end()` to determine whether or not a sound is currently at the end. For a looping
-sound this should never return true.
+sound this should never return true. Alternatively, you can configure a callback that will be fired
+when the sound reaches the end. Note that the callback is fired from the audio thread which means
+you cannot be uninitializing sound from the callback. To set the callback you can use
+`ma_sound_set_end_callback()`. Alternatively, if you're using `ma_sound_init_ex()`, you can pass it
+into the config like so:
+
+    ```c
+    soundConfig.endCallback = my_end_callback;
+    soundConfig.pEndCallbackUserData = pMyEndCallbackUserData;
+    ```
+
+The end callback is declared like so:
+
+    ```c
+    void my_end_callback(void* pUserData, ma_sound* pSound)
+    {
+        ...
+    }
+    ```
 
 Internally a sound wraps around a data source. Some APIs exist to control the underlying data
 source, mainly for convenience:
