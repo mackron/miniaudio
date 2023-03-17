@@ -3995,7 +3995,7 @@ versions of Visual Studio, which I've confirmed with at least VC6.
 */
 #if !defined(_MSC_VER) && defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #include <stdalign.h>
-    #define MA_ATOMIC(alignment, type)            alignas(alignment) type
+    #define MA_ATOMIC(alignment, type)            _Alignas(alignment) type
 #else
     #if defined(__GNUC__)
         /* GCC-style compilers. */
@@ -17732,11 +17732,6 @@ DEVICE I/O
 #endif
 
 #ifndef MA_NO_DEVICE_IO
-#ifdef MA_WIN32
-    #include <objbase.h>
-    #include <mmreg.h>
-    #include <mmsystem.h>
-#endif
 
 #if defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
     #include <mach/mach_time.h> /* For mach_absolute_time() */
@@ -19728,14 +19723,21 @@ typedef size_t DWORD_PTR;
 #define SPEAKER_TOP_BACK_RIGHT        0x20000
 #endif
 
-/*
-The SDK that comes with old versions of MSVC (VC6, for example) does not appear to define WAVEFORMATEXTENSIBLE. We
-define our own implementation in this case.
-*/
-#if (defined(_MSC_VER) && !defined(_WAVEFORMATEXTENSIBLE_)) || defined(__DMC__)
+/* Implement our own version of MA_WAVEFORMATEXTENSIBLE so we can avoid a header. */
 typedef struct
 {
-    WAVEFORMATEX Format;
+    WORD wFormatTag;
+    WORD nChannels;
+    DWORD nSamplesPerSec;
+    DWORD nAvgBytesPerSec;
+    WORD nBlockAlign;
+    WORD wBitsPerSample;
+    WORD cbSize;
+} MA_WAVEFORMATEX;
+
+typedef struct
+{
+    MA_WAVEFORMATEX Format;
     union
     {
         WORD wValidBitsPerSample;
@@ -19744,8 +19746,9 @@ typedef struct
     } Samples;
     DWORD dwChannelMask;
     GUID SubFormat;
-} WAVEFORMATEXTENSIBLE;
-#endif
+} MA_WAVEFORMATEXTENSIBLE;
+
+
 
 #ifndef WAVE_FORMAT_EXTENSIBLE
 #define WAVE_FORMAT_EXTENSIBLE  0xFFFE
@@ -19864,12 +19867,12 @@ static MA_INLINE ma_bool32 ma_is_guid_null(const void* guid)
     return ma_is_guid_equal(guid, &nullguid);
 }
 
-static ma_format ma_format_from_WAVEFORMATEX(const WAVEFORMATEX* pWF)
+static ma_format ma_format_from_WAVEFORMATEX(const MA_WAVEFORMATEX* pWF)
 {
     MA_ASSERT(pWF != NULL);
 
     if (pWF->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-        const WAVEFORMATEXTENSIBLE* pWFEX = (const WAVEFORMATEXTENSIBLE*)pWF;
+        const MA_WAVEFORMATEXTENSIBLE* pWFEX = (const MA_WAVEFORMATEXTENSIBLE*)pWF;
         if (ma_is_guid_equal(&pWFEX->SubFormat, &MA_GUID_KSDATAFORMAT_SUBTYPE_PCM)) {
             if (pWFEX->Samples.wValidBitsPerSample == 32) {
                 return ma_format_s32;
@@ -20263,12 +20266,12 @@ typedef struct
     ULONG   (STDMETHODCALLTYPE * Release)       (ma_IAudioClient* pThis);
 
     /* IAudioClient */
-    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
     HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (ma_IAudioClient* pThis, ma_uint32* pNumBufferFrames);
     HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (ma_IAudioClient* pThis, MA_REFERENCE_TIME* pLatency);
     HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(ma_IAudioClient* pThis, ma_uint32* pNumPaddingFrames);
-    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
-    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient* pThis, MA_WAVEFORMATEX** ppDeviceFormat);
     HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (ma_IAudioClient* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod);
     HRESULT (STDMETHODCALLTYPE * Start)            (ma_IAudioClient* pThis);
     HRESULT (STDMETHODCALLTYPE * Stop)             (ma_IAudioClient* pThis);
@@ -20283,12 +20286,12 @@ struct ma_IAudioClient
 static MA_INLINE HRESULT ma_IAudioClient_QueryInterface(ma_IAudioClient* pThis, const IID* const riid, void** ppObject)    { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
 static MA_INLINE ULONG   ma_IAudioClient_AddRef(ma_IAudioClient* pThis)                                                    { return pThis->lpVtbl->AddRef(pThis); }
 static MA_INLINE ULONG   ma_IAudioClient_Release(ma_IAudioClient* pThis)                                                   { return pThis->lpVtbl->Release(pThis); }
-static MA_INLINE HRESULT ma_IAudioClient_Initialize(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+static MA_INLINE HRESULT ma_IAudioClient_Initialize(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
 static MA_INLINE HRESULT ma_IAudioClient_GetBufferSize(ma_IAudioClient* pThis, ma_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
 static MA_INLINE HRESULT ma_IAudioClient_GetStreamLatency(ma_IAudioClient* pThis, MA_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
 static MA_INLINE HRESULT ma_IAudioClient_GetCurrentPadding(ma_IAudioClient* pThis, ma_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
-static MA_INLINE HRESULT ma_IAudioClient_IsFormatSupported(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
-static MA_INLINE HRESULT ma_IAudioClient_GetMixFormat(ma_IAudioClient* pThis, WAVEFORMATEX** ppDeviceFormat)               { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+static MA_INLINE HRESULT ma_IAudioClient_IsFormatSupported(ma_IAudioClient* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+static MA_INLINE HRESULT ma_IAudioClient_GetMixFormat(ma_IAudioClient* pThis, MA_WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
 static MA_INLINE HRESULT ma_IAudioClient_GetDevicePeriod(ma_IAudioClient* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
 static MA_INLINE HRESULT ma_IAudioClient_Start(ma_IAudioClient* pThis)                                                     { return pThis->lpVtbl->Start(pThis); }
 static MA_INLINE HRESULT ma_IAudioClient_Stop(ma_IAudioClient* pThis)                                                      { return pThis->lpVtbl->Stop(pThis); }
@@ -20305,12 +20308,12 @@ typedef struct
     ULONG   (STDMETHODCALLTYPE * Release)       (ma_IAudioClient2* pThis);
 
     /* IAudioClient */
-    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
     HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (ma_IAudioClient2* pThis, ma_uint32* pNumBufferFrames);
     HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (ma_IAudioClient2* pThis, MA_REFERENCE_TIME* pLatency);
     HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(ma_IAudioClient2* pThis, ma_uint32* pNumPaddingFrames);
-    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
-    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient2* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient2* pThis, MA_WAVEFORMATEX** ppDeviceFormat);
     HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (ma_IAudioClient2* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod);
     HRESULT (STDMETHODCALLTYPE * Start)            (ma_IAudioClient2* pThis);
     HRESULT (STDMETHODCALLTYPE * Stop)             (ma_IAudioClient2* pThis);
@@ -20321,7 +20324,7 @@ typedef struct
     /* IAudioClient2 */
     HRESULT (STDMETHODCALLTYPE * IsOffloadCapable)   (ma_IAudioClient2* pThis, MA_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable);
     HRESULT (STDMETHODCALLTYPE * SetClientProperties)(ma_IAudioClient2* pThis, const ma_AudioClientProperties* pProperties);
-    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(ma_IAudioClient2* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(ma_IAudioClient2* pThis, const MA_WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration);
 } ma_IAudioClient2Vtbl;
 struct ma_IAudioClient2
 {
@@ -20330,12 +20333,12 @@ struct ma_IAudioClient2
 static MA_INLINE HRESULT ma_IAudioClient2_QueryInterface(ma_IAudioClient2* pThis, const IID* const riid, void** ppObject)    { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
 static MA_INLINE ULONG   ma_IAudioClient2_AddRef(ma_IAudioClient2* pThis)                                                    { return pThis->lpVtbl->AddRef(pThis); }
 static MA_INLINE ULONG   ma_IAudioClient2_Release(ma_IAudioClient2* pThis)                                                   { return pThis->lpVtbl->Release(pThis); }
-static MA_INLINE HRESULT ma_IAudioClient2_Initialize(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+static MA_INLINE HRESULT ma_IAudioClient2_Initialize(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
 static MA_INLINE HRESULT ma_IAudioClient2_GetBufferSize(ma_IAudioClient2* pThis, ma_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
 static MA_INLINE HRESULT ma_IAudioClient2_GetStreamLatency(ma_IAudioClient2* pThis, MA_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
 static MA_INLINE HRESULT ma_IAudioClient2_GetCurrentPadding(ma_IAudioClient2* pThis, ma_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
-static MA_INLINE HRESULT ma_IAudioClient2_IsFormatSupported(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
-static MA_INLINE HRESULT ma_IAudioClient2_GetMixFormat(ma_IAudioClient2* pThis, WAVEFORMATEX** ppDeviceFormat)               { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+static MA_INLINE HRESULT ma_IAudioClient2_IsFormatSupported(ma_IAudioClient2* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+static MA_INLINE HRESULT ma_IAudioClient2_GetMixFormat(ma_IAudioClient2* pThis, MA_WAVEFORMATEX** ppDeviceFormat)            { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
 static MA_INLINE HRESULT ma_IAudioClient2_GetDevicePeriod(ma_IAudioClient2* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
 static MA_INLINE HRESULT ma_IAudioClient2_Start(ma_IAudioClient2* pThis)                                                     { return pThis->lpVtbl->Start(pThis); }
 static MA_INLINE HRESULT ma_IAudioClient2_Stop(ma_IAudioClient2* pThis)                                                      { return pThis->lpVtbl->Stop(pThis); }
@@ -20344,7 +20347,7 @@ static MA_INLINE HRESULT ma_IAudioClient2_SetEventHandle(ma_IAudioClient2* pThis
 static MA_INLINE HRESULT ma_IAudioClient2_GetService(ma_IAudioClient2* pThis, const IID* const riid, void** pp)              { return pThis->lpVtbl->GetService(pThis, riid, pp); }
 static MA_INLINE HRESULT ma_IAudioClient2_IsOffloadCapable(ma_IAudioClient2* pThis, MA_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable) { return pThis->lpVtbl->IsOffloadCapable(pThis, category, pOffloadCapable); }
 static MA_INLINE HRESULT ma_IAudioClient2_SetClientProperties(ma_IAudioClient2* pThis, const ma_AudioClientProperties* pProperties)           { return pThis->lpVtbl->SetClientProperties(pThis, pProperties); }
-static MA_INLINE HRESULT ma_IAudioClient2_GetBufferSizeLimits(ma_IAudioClient2* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
+static MA_INLINE HRESULT ma_IAudioClient2_GetBufferSizeLimits(ma_IAudioClient2* pThis, const MA_WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
 
 
 /* IAudioClient3 */
@@ -20356,12 +20359,12 @@ typedef struct
     ULONG   (STDMETHODCALLTYPE * Release)       (ma_IAudioClient3* pThis);
 
     /* IAudioClient */
-    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * Initialize)       (ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
     HRESULT (STDMETHODCALLTYPE * GetBufferSize)    (ma_IAudioClient3* pThis, ma_uint32* pNumBufferFrames);
     HRESULT (STDMETHODCALLTYPE * GetStreamLatency) (ma_IAudioClient3* pThis, MA_REFERENCE_TIME* pLatency);
     HRESULT (STDMETHODCALLTYPE * GetCurrentPadding)(ma_IAudioClient3* pThis, ma_uint32* pNumPaddingFrames);
-    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch);
-    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient3* pThis, WAVEFORMATEX** ppDeviceFormat);
+    HRESULT (STDMETHODCALLTYPE * IsFormatSupported)(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch);
+    HRESULT (STDMETHODCALLTYPE * GetMixFormat)     (ma_IAudioClient3* pThis, MA_WAVEFORMATEX** ppDeviceFormat);
     HRESULT (STDMETHODCALLTYPE * GetDevicePeriod)  (ma_IAudioClient3* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod);
     HRESULT (STDMETHODCALLTYPE * Start)            (ma_IAudioClient3* pThis);
     HRESULT (STDMETHODCALLTYPE * Stop)             (ma_IAudioClient3* pThis);
@@ -20372,12 +20375,12 @@ typedef struct
     /* IAudioClient2 */
     HRESULT (STDMETHODCALLTYPE * IsOffloadCapable)   (ma_IAudioClient3* pThis, MA_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable);
     HRESULT (STDMETHODCALLTYPE * SetClientProperties)(ma_IAudioClient3* pThis, const ma_AudioClientProperties* pProperties);
-    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration);
+    HRESULT (STDMETHODCALLTYPE * GetBufferSizeLimits)(ma_IAudioClient3* pThis, const MA_WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration);
 
     /* IAudioClient3 */
-    HRESULT (STDMETHODCALLTYPE * GetSharedModeEnginePeriod)       (ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames);
-    HRESULT (STDMETHODCALLTYPE * GetCurrentSharedModeEnginePeriod)(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames);
-    HRESULT (STDMETHODCALLTYPE * InitializeSharedAudioStream)     (ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
+    HRESULT (STDMETHODCALLTYPE * GetSharedModeEnginePeriod)       (ma_IAudioClient3* pThis, const MA_WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * GetCurrentSharedModeEnginePeriod)(ma_IAudioClient3* pThis, MA_WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames);
+    HRESULT (STDMETHODCALLTYPE * InitializeSharedAudioStream)     (ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid);
 } ma_IAudioClient3Vtbl;
 struct ma_IAudioClient3
 {
@@ -20386,12 +20389,12 @@ struct ma_IAudioClient3
 static MA_INLINE HRESULT ma_IAudioClient3_QueryInterface(ma_IAudioClient3* pThis, const IID* const riid, void** ppObject)    { return pThis->lpVtbl->QueryInterface(pThis, riid, ppObject); }
 static MA_INLINE ULONG   ma_IAudioClient3_AddRef(ma_IAudioClient3* pThis)                                                    { return pThis->lpVtbl->AddRef(pThis); }
 static MA_INLINE ULONG   ma_IAudioClient3_Release(ma_IAudioClient3* pThis)                                                   { return pThis->lpVtbl->Release(pThis); }
-static MA_INLINE HRESULT ma_IAudioClient3_Initialize(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
+static MA_INLINE HRESULT ma_IAudioClient3_Initialize(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, DWORD streamFlags, MA_REFERENCE_TIME bufferDuration, MA_REFERENCE_TIME periodicity, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGuid) { return pThis->lpVtbl->Initialize(pThis, shareMode, streamFlags, bufferDuration, periodicity, pFormat, pAudioSessionGuid); }
 static MA_INLINE HRESULT ma_IAudioClient3_GetBufferSize(ma_IAudioClient3* pThis, ma_uint32* pNumBufferFrames)                { return pThis->lpVtbl->GetBufferSize(pThis, pNumBufferFrames); }
 static MA_INLINE HRESULT ma_IAudioClient3_GetStreamLatency(ma_IAudioClient3* pThis, MA_REFERENCE_TIME* pLatency)             { return pThis->lpVtbl->GetStreamLatency(pThis, pLatency); }
 static MA_INLINE HRESULT ma_IAudioClient3_GetCurrentPadding(ma_IAudioClient3* pThis, ma_uint32* pNumPaddingFrames)           { return pThis->lpVtbl->GetCurrentPadding(pThis, pNumPaddingFrames); }
-static MA_INLINE HRESULT ma_IAudioClient3_IsFormatSupported(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, const WAVEFORMATEX* pFormat, WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetMixFormat(ma_IAudioClient3* pThis, WAVEFORMATEX** ppDeviceFormat)               { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
+static MA_INLINE HRESULT ma_IAudioClient3_IsFormatSupported(ma_IAudioClient3* pThis, MA_AUDCLNT_SHAREMODE shareMode, const MA_WAVEFORMATEX* pFormat, MA_WAVEFORMATEX** ppClosestMatch) { return pThis->lpVtbl->IsFormatSupported(pThis, shareMode, pFormat, ppClosestMatch); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetMixFormat(ma_IAudioClient3* pThis, MA_WAVEFORMATEX** ppDeviceFormat)               { return pThis->lpVtbl->GetMixFormat(pThis, ppDeviceFormat); }
 static MA_INLINE HRESULT ma_IAudioClient3_GetDevicePeriod(ma_IAudioClient3* pThis, MA_REFERENCE_TIME* pDefaultDevicePeriod, MA_REFERENCE_TIME* pMinimumDevicePeriod) { return pThis->lpVtbl->GetDevicePeriod(pThis, pDefaultDevicePeriod, pMinimumDevicePeriod); }
 static MA_INLINE HRESULT ma_IAudioClient3_Start(ma_IAudioClient3* pThis)                                                     { return pThis->lpVtbl->Start(pThis); }
 static MA_INLINE HRESULT ma_IAudioClient3_Stop(ma_IAudioClient3* pThis)                                                      { return pThis->lpVtbl->Stop(pThis); }
@@ -20400,10 +20403,10 @@ static MA_INLINE HRESULT ma_IAudioClient3_SetEventHandle(ma_IAudioClient3* pThis
 static MA_INLINE HRESULT ma_IAudioClient3_GetService(ma_IAudioClient3* pThis, const IID* const riid, void** pp)              { return pThis->lpVtbl->GetService(pThis, riid, pp); }
 static MA_INLINE HRESULT ma_IAudioClient3_IsOffloadCapable(ma_IAudioClient3* pThis, MA_AUDIO_STREAM_CATEGORY category, BOOL* pOffloadCapable) { return pThis->lpVtbl->IsOffloadCapable(pThis, category, pOffloadCapable); }
 static MA_INLINE HRESULT ma_IAudioClient3_SetClientProperties(ma_IAudioClient3* pThis, const ma_AudioClientProperties* pProperties)           { return pThis->lpVtbl->SetClientProperties(pThis, pProperties); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetBufferSizeLimits(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetSharedModeEnginePeriod(ma_IAudioClient3* pThis, const WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames) { return pThis->lpVtbl->GetSharedModeEnginePeriod(pThis, pFormat, pDefaultPeriodInFrames, pFundamentalPeriodInFrames, pMinPeriodInFrames, pMaxPeriodInFrames); }
-static MA_INLINE HRESULT ma_IAudioClient3_GetCurrentSharedModeEnginePeriod(ma_IAudioClient3* pThis, WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames) { return pThis->lpVtbl->GetCurrentSharedModeEnginePeriod(pThis, ppFormat, pCurrentPeriodInFrames); }
-static MA_INLINE HRESULT ma_IAudioClient3_InitializeSharedAudioStream(ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const WAVEFORMATEX* pFormat, const GUID* pAudioSessionGUID) { return pThis->lpVtbl->InitializeSharedAudioStream(pThis, streamFlags, periodInFrames, pFormat, pAudioSessionGUID); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetBufferSizeLimits(ma_IAudioClient3* pThis, const MA_WAVEFORMATEX* pFormat, BOOL eventDriven, MA_REFERENCE_TIME* pMinBufferDuration, MA_REFERENCE_TIME* pMaxBufferDuration) { return pThis->lpVtbl->GetBufferSizeLimits(pThis, pFormat, eventDriven, pMinBufferDuration, pMaxBufferDuration); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetSharedModeEnginePeriod(ma_IAudioClient3* pThis, const MA_WAVEFORMATEX* pFormat, ma_uint32* pDefaultPeriodInFrames, ma_uint32* pFundamentalPeriodInFrames, ma_uint32* pMinPeriodInFrames, ma_uint32* pMaxPeriodInFrames) { return pThis->lpVtbl->GetSharedModeEnginePeriod(pThis, pFormat, pDefaultPeriodInFrames, pFundamentalPeriodInFrames, pMinPeriodInFrames, pMaxPeriodInFrames); }
+static MA_INLINE HRESULT ma_IAudioClient3_GetCurrentSharedModeEnginePeriod(ma_IAudioClient3* pThis, MA_WAVEFORMATEX** ppFormat, ma_uint32* pCurrentPeriodInFrames) { return pThis->lpVtbl->GetCurrentSharedModeEnginePeriod(pThis, ppFormat, pCurrentPeriodInFrames); }
+static MA_INLINE HRESULT ma_IAudioClient3_InitializeSharedAudioStream(ma_IAudioClient3* pThis, DWORD streamFlags, ma_uint32 periodInFrames, const MA_WAVEFORMATEX* pFormat, const GUID* pAudioSessionGUID) { return pThis->lpVtbl->InitializeSharedAudioStream(pThis, streamFlags, periodInFrames, pFormat, pAudioSessionGUID); }
 
 
 /* IAudioRenderClient */
@@ -21033,7 +21036,7 @@ static ma_result ma_device_release_IAudioClient_service__wasapi(ma_device* pDevi
 #endif
 
 
-static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
+static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const MA_WAVEFORMATEX* pWF, ma_share_mode shareMode, ma_device_info* pInfo)
 {
     MA_ASSERT(pWF != NULL);
     MA_ASSERT(pInfo != NULL);
@@ -21052,13 +21055,13 @@ static void ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(const WAV
 static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context* pContext, /*ma_IMMDevice**/void* pMMDevice, ma_IAudioClient* pAudioClient, ma_device_info* pInfo)
 {
     HRESULT hr;
-    WAVEFORMATEX* pWF = NULL;
+    MA_WAVEFORMATEX* pWF = NULL;
 
     MA_ASSERT(pAudioClient != NULL);
     MA_ASSERT(pInfo != NULL);
 
     /* Shared Mode. We use GetMixFormat() here. */
-    hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pAudioClient, (WAVEFORMATEX**)&pWF);
+    hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pAudioClient, (MA_WAVEFORMATEX**)&pWF);
     if (SUCCEEDED(hr)) {
         ma_add_native_data_format_to_device_info_from_WAVEFORMATEX(pWF, ma_share_mode_shared, pInfo);
     } else {
@@ -21086,7 +21089,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
 
             hr = ma_IPropertyStore_GetValue(pProperties, &MA_PKEY_AudioEngine_DeviceFormat, &var);
             if (SUCCEEDED(hr)) {
-                pWF = (WAVEFORMATEX*)var.blob.pBlobData;
+                pWF = (MA_WAVEFORMATEX*)var.blob.pBlobData;
 
                 /*
                 In my testing, the format returned by PKEY_AudioEngine_DeviceFormat is suitable for exclusive mode so we check this format
@@ -21103,7 +21106,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                     */
                     ma_uint32 channels = pWF->nChannels;
                     ma_channel defaultChannelMap[MA_MAX_CHANNELS];
-                    WAVEFORMATEXTENSIBLE wf;
+                    MA_WAVEFORMATEXTENSIBLE wf;
                     ma_bool32 found;
                     ma_uint32 iFormat;
 
@@ -21138,9 +21141,9 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
                         for (iSampleRate = 0; iSampleRate < ma_countof(g_maStandardSampleRatePriorities); ++iSampleRate) {
                             wf.Format.nSamplesPerSec = g_maStandardSampleRatePriorities[iSampleRate];
 
-                            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (WAVEFORMATEX*)&wf, NULL);
+                            hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
-                                ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
+                                ma_add_native_data_format_to_device_info_from_WAVEFORMATEX((MA_WAVEFORMATEX*)&wf, ma_share_mode_exclusive, pInfo);
                                 found = MA_TRUE;
                                 break;
                             }
@@ -21837,7 +21840,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     DWORD streamFlags = 0;
     MA_REFERENCE_TIME periodDurationInMicroseconds;
     ma_bool32 wasInitializedUsingIAudioClient3 = MA_FALSE;
-    WAVEFORMATEXTENSIBLE wf;
+    MA_WAVEFORMATEXTENSIBLE wf;
     ma_WASAPIDeviceInterface* pDeviceInterface = NULL;
     ma_IAudioClient2* pAudioClient2;
     ma_uint32 nativeSampleRate;
@@ -21903,10 +21906,10 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             ma_PropVariantInit(&prop);
             hr = ma_IPropertyStore_GetValue(pStore, &MA_PKEY_AudioEngine_DeviceFormat, &prop);
             if (SUCCEEDED(hr)) {
-                WAVEFORMATEX* pActualFormat = (WAVEFORMATEX*)prop.blob.pBlobData;
+                MA_WAVEFORMATEX* pActualFormat = (MA_WAVEFORMATEX*)prop.blob.pBlobData;
                 hr = ma_IAudioClient_IsFormatSupported((ma_IAudioClient*)pData->pAudioClient, MA_AUDCLNT_SHAREMODE_EXCLUSIVE, pActualFormat, NULL);
                 if (SUCCEEDED(hr)) {
-                    MA_COPY_MEMORY(&wf, pActualFormat, sizeof(WAVEFORMATEXTENSIBLE));
+                    MA_COPY_MEMORY(&wf, pActualFormat, sizeof(MA_WAVEFORMATEXTENSIBLE));
                 }
 
                 ma_PropVariantClear(pContext, &prop);
@@ -21933,8 +21936,8 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         }
     } else {
         /* In shared mode we are always using the format reported by the operating system. */
-        WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
-        hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pData->pAudioClient, (WAVEFORMATEX**)&pNativeFormat);
+        MA_WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
+        hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pData->pAudioClient, (MA_WAVEFORMATEX**)&pNativeFormat);
         if (hr != S_OK) {
             result = MA_FORMAT_NOT_SUPPORTED;
         } else {
@@ -21963,7 +21966,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         wf.Format.nAvgBytesPerSec = wf.Format.nSamplesPerSec * wf.Format.nBlockAlign;
     }
 
-    pData->formatOut = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)&wf);
+    pData->formatOut = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)&wf);
     if (pData->formatOut == ma_format_unknown) {
         /*
         The format isn't supported. This is almost certainly because the exclusive mode format isn't supported by miniaudio. We need to return MA_SHARE_MODE_NOT_SUPPORTED
@@ -22014,7 +22017,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         */
         hr = E_FAIL;
         for (;;) {
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (MA_WAVEFORMATEX*)&wf, NULL);
             if (hr == MA_AUDCLNT_E_INVALID_DEVICE_PERIOD) {
                 if (bufferDuration > 500*10000) {
                     break;
@@ -22047,7 +22050,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             #endif
 
                 if (SUCCEEDED(hr)) {
-                    hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (WAVEFORMATEX*)&wf, NULL);
+                    hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, bufferDuration, (MA_WAVEFORMATEX*)&wf, NULL);
                 }
             }
         }
@@ -22086,7 +22089,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                     ma_uint32 fundamentalPeriodInFrames;
                     ma_uint32 minPeriodInFrames;
                     ma_uint32 maxPeriodInFrames;
-                    hr = ma_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
+                    hr = ma_IAudioClient3_GetSharedModeEnginePeriod(pAudioClient3, (MA_WAVEFORMATEX*)&wf, &defaultPeriodInFrames, &fundamentalPeriodInFrames, &minPeriodInFrames, &maxPeriodInFrames);
                     if (SUCCEEDED(hr)) {
                         ma_uint32 desiredPeriodInFrames = pData->periodSizeInFramesOut;
                         ma_uint32 actualPeriodInFrames  = desiredPeriodInFrames;
@@ -22110,7 +22113,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                             MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY must not be in the stream flags. If either of these are specified,
                             IAudioClient3_InitializeSharedAudioStream() will fail.
                             */
-                            hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags & ~(MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY), actualPeriodInFrames, (WAVEFORMATEX*)&wf, NULL);
+                            hr = ma_IAudioClient3_InitializeSharedAudioStream(pAudioClient3, streamFlags & ~(MA_AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | MA_AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY), actualPeriodInFrames, (MA_WAVEFORMATEX*)&wf, NULL);
                             if (SUCCEEDED(hr)) {
                                 wasInitializedUsingIAudioClient3 = MA_TRUE;
                                 pData->periodSizeInFramesOut = actualPeriodInFrames;
@@ -22141,7 +22144,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         /* If we don't have an IAudioClient3 then we need to use the normal initialization routine. */
         if (!wasInitializedUsingIAudioClient3) {
             MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;   /* <-- Multiply by 10 for microseconds to 100-nanoseconds. */
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (MA_WAVEFORMATEX*)&wf, NULL);
             if (FAILED(hr)) {
                 if (hr == E_ACCESSDENIED) {
                     errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MA_ACCESS_DENIED;
@@ -23410,7 +23413,7 @@ typedef struct
     DWORD dwFlags;
     DWORD dwBufferBytes;
     DWORD dwReserved;
-    WAVEFORMATEX* lpwfxFormat;
+    MA_WAVEFORMATEX* lpwfxFormat;
     GUID guid3DAlgorithm;
 } MA_DSBUFFERDESC;
 
@@ -23420,7 +23423,7 @@ typedef struct
     DWORD dwFlags;
     DWORD dwBufferBytes;
     DWORD dwReserved;
-    WAVEFORMATEX* lpwfxFormat;
+    MA_WAVEFORMATEX* lpwfxFormat;
     DWORD dwFXCount;
     void* lpDSCFXDesc;  /* <-- miniaudio doesn't use this, so set to void*. */
 } MA_DSCBUFFERDESC;
@@ -23544,7 +23547,7 @@ typedef struct
     /* IDirectSoundBuffer */
     HRESULT (STDMETHODCALLTYPE * GetCaps)           (ma_IDirectSoundBuffer* pThis, MA_DSBCAPS* pDSBufferCaps);
     HRESULT (STDMETHODCALLTYPE * GetCurrentPosition)(ma_IDirectSoundBuffer* pThis, DWORD* pCurrentPlayCursor, DWORD* pCurrentWriteCursor);
-    HRESULT (STDMETHODCALLTYPE * GetFormat)         (ma_IDirectSoundBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
+    HRESULT (STDMETHODCALLTYPE * GetFormat)         (ma_IDirectSoundBuffer* pThis, MA_WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
     HRESULT (STDMETHODCALLTYPE * GetVolume)         (ma_IDirectSoundBuffer* pThis, LONG* pVolume);
     HRESULT (STDMETHODCALLTYPE * GetPan)            (ma_IDirectSoundBuffer* pThis, LONG* pPan);
     HRESULT (STDMETHODCALLTYPE * GetFrequency)      (ma_IDirectSoundBuffer* pThis, DWORD* pFrequency);
@@ -23553,7 +23556,7 @@ typedef struct
     HRESULT (STDMETHODCALLTYPE * Lock)              (ma_IDirectSoundBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags);
     HRESULT (STDMETHODCALLTYPE * Play)              (ma_IDirectSoundBuffer* pThis, DWORD dwReserved1, DWORD dwPriority, DWORD dwFlags);
     HRESULT (STDMETHODCALLTYPE * SetCurrentPosition)(ma_IDirectSoundBuffer* pThis, DWORD dwNewPosition);
-    HRESULT (STDMETHODCALLTYPE * SetFormat)         (ma_IDirectSoundBuffer* pThis, const WAVEFORMATEX* pFormat);
+    HRESULT (STDMETHODCALLTYPE * SetFormat)         (ma_IDirectSoundBuffer* pThis, const MA_WAVEFORMATEX* pFormat);
     HRESULT (STDMETHODCALLTYPE * SetVolume)         (ma_IDirectSoundBuffer* pThis, LONG volume);
     HRESULT (STDMETHODCALLTYPE * SetPan)            (ma_IDirectSoundBuffer* pThis, LONG pan);
     HRESULT (STDMETHODCALLTYPE * SetFrequency)      (ma_IDirectSoundBuffer* pThis, DWORD dwFrequency);
@@ -23570,7 +23573,7 @@ static MA_INLINE ULONG   ma_IDirectSoundBuffer_AddRef(ma_IDirectSoundBuffer* pTh
 static MA_INLINE ULONG   ma_IDirectSoundBuffer_Release(ma_IDirectSoundBuffer* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetCaps(ma_IDirectSoundBuffer* pThis, MA_DSBCAPS* pDSBufferCaps)                     { return pThis->lpVtbl->GetCaps(pThis, pDSBufferCaps); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetCurrentPosition(ma_IDirectSoundBuffer* pThis, DWORD* pCurrentPlayCursor, DWORD* pCurrentWriteCursor) { return pThis->lpVtbl->GetCurrentPosition(pThis, pCurrentPlayCursor, pCurrentWriteCursor); }
-static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetFormat(ma_IDirectSoundBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
+static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetFormat(ma_IDirectSoundBuffer* pThis, MA_WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetVolume(ma_IDirectSoundBuffer* pThis, LONG* pVolume)                               { return pThis->lpVtbl->GetVolume(pThis, pVolume); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetPan(ma_IDirectSoundBuffer* pThis, LONG* pPan)                                     { return pThis->lpVtbl->GetPan(pThis, pPan); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_GetFrequency(ma_IDirectSoundBuffer* pThis, DWORD* pFrequency)                        { return pThis->lpVtbl->GetFrequency(pThis, pFrequency); }
@@ -23579,7 +23582,7 @@ static MA_INLINE HRESULT ma_IDirectSoundBuffer_Initialize(ma_IDirectSoundBuffer*
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_Lock(ma_IDirectSoundBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags) { return pThis->lpVtbl->Lock(pThis, dwOffset, dwBytes, ppAudioPtr1, pAudioBytes1, ppAudioPtr2, pAudioBytes2, dwFlags); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_Play(ma_IDirectSoundBuffer* pThis, DWORD dwReserved1, DWORD dwPriority, DWORD dwFlags) { return pThis->lpVtbl->Play(pThis, dwReserved1, dwPriority, dwFlags); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetCurrentPosition(ma_IDirectSoundBuffer* pThis, DWORD dwNewPosition)                { return pThis->lpVtbl->SetCurrentPosition(pThis, dwNewPosition); }
-static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetFormat(ma_IDirectSoundBuffer* pThis, const WAVEFORMATEX* pFormat)                 { return pThis->lpVtbl->SetFormat(pThis, pFormat); }
+static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetFormat(ma_IDirectSoundBuffer* pThis, const MA_WAVEFORMATEX* pFormat)              { return pThis->lpVtbl->SetFormat(pThis, pFormat); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetVolume(ma_IDirectSoundBuffer* pThis, LONG volume)                                 { return pThis->lpVtbl->SetVolume(pThis, volume); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetPan(ma_IDirectSoundBuffer* pThis, LONG pan)                                       { return pThis->lpVtbl->SetPan(pThis, pan); }
 static MA_INLINE HRESULT ma_IDirectSoundBuffer_SetFrequency(ma_IDirectSoundBuffer* pThis, DWORD dwFrequency)                        { return pThis->lpVtbl->SetFrequency(pThis, dwFrequency); }
@@ -23624,7 +23627,7 @@ typedef struct
     /* IDirectSoundCaptureBuffer */
     HRESULT (STDMETHODCALLTYPE * GetCaps)           (ma_IDirectSoundCaptureBuffer* pThis, MA_DSCBCAPS* pDSCBCaps);
     HRESULT (STDMETHODCALLTYPE * GetCurrentPosition)(ma_IDirectSoundCaptureBuffer* pThis, DWORD* pCapturePosition, DWORD* pReadPosition);
-    HRESULT (STDMETHODCALLTYPE * GetFormat)         (ma_IDirectSoundCaptureBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
+    HRESULT (STDMETHODCALLTYPE * GetFormat)         (ma_IDirectSoundCaptureBuffer* pThis, MA_WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten);
     HRESULT (STDMETHODCALLTYPE * GetStatus)         (ma_IDirectSoundCaptureBuffer* pThis, DWORD* pStatus);
     HRESULT (STDMETHODCALLTYPE * Initialize)        (ma_IDirectSoundCaptureBuffer* pThis, ma_IDirectSoundCapture* pDirectSoundCapture, const MA_DSCBUFFERDESC* pDSCBufferDesc);
     HRESULT (STDMETHODCALLTYPE * Lock)              (ma_IDirectSoundCaptureBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags);
@@ -23641,7 +23644,7 @@ static MA_INLINE ULONG   ma_IDirectSoundCaptureBuffer_AddRef(ma_IDirectSoundCapt
 static MA_INLINE ULONG   ma_IDirectSoundCaptureBuffer_Release(ma_IDirectSoundCaptureBuffer* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
 static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_GetCaps(ma_IDirectSoundCaptureBuffer* pThis, MA_DSCBCAPS* pDSCBCaps)                        { return pThis->lpVtbl->GetCaps(pThis, pDSCBCaps); }
 static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_GetCurrentPosition(ma_IDirectSoundCaptureBuffer* pThis, DWORD* pCapturePosition, DWORD* pReadPosition) { return pThis->lpVtbl->GetCurrentPosition(pThis, pCapturePosition, pReadPosition); }
-static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_GetFormat(ma_IDirectSoundCaptureBuffer* pThis, WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
+static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_GetFormat(ma_IDirectSoundCaptureBuffer* pThis, MA_WAVEFORMATEX* pFormat, DWORD dwSizeAllocated, DWORD* pSizeWritten) { return pThis->lpVtbl->GetFormat(pThis, pFormat, dwSizeAllocated, pSizeWritten); }
 static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_GetStatus(ma_IDirectSoundCaptureBuffer* pThis, DWORD* pStatus)                              { return pThis->lpVtbl->GetStatus(pThis, pStatus); }
 static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_Initialize(ma_IDirectSoundCaptureBuffer* pThis, ma_IDirectSoundCapture* pDirectSoundCapture, const MA_DSCBUFFERDESC* pDSCBufferDesc) { return pThis->lpVtbl->Initialize(pThis, pDirectSoundCapture, pDSCBufferDesc); }
 static MA_INLINE HRESULT ma_IDirectSoundCaptureBuffer_Lock(ma_IDirectSoundCaptureBuffer* pThis, DWORD dwOffset, DWORD dwBytes, void** ppAudioPtr1, DWORD* pAudioBytes1, void** ppAudioPtr2, DWORD* pAudioBytes2, DWORD dwFlags) { return pThis->lpVtbl->Lock(pThis, dwOffset, dwBytes, ppAudioPtr1, pAudioBytes1, ppAudioPtr2, pAudioBytes2, dwFlags); }
@@ -24195,7 +24198,7 @@ static ma_result ma_device_uninit__dsound(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const ma_channel* pChannelMap, WAVEFORMATEXTENSIBLE* pWF)
+static ma_result ma_config_to_WAVEFORMATEXTENSIBLE(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const ma_channel* pChannelMap, MA_WAVEFORMATEXTENSIBLE* pWF)
 {
     GUID subformat;
 
@@ -24282,12 +24285,12 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
     full-duplex mode.
     */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        WAVEFORMATEXTENSIBLE wf;
+        MA_WAVEFORMATEXTENSIBLE wf;
         MA_DSCBUFFERDESC descDS;
         ma_uint32 periodSizeInFrames;
         ma_uint32 periodCount;
         char rawdata[1024]; /* <-- Ugly hack to avoid a malloc() due to a crappy DirectSound API. */
-        WAVEFORMATEXTENSIBLE* pActualFormat;
+        MA_WAVEFORMATEXTENSIBLE* pActualFormat;
 
         result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorCapture->format, pDescriptorCapture->channels, pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, &wf);
         if (result != MA_SUCCESS) {
@@ -24319,7 +24322,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         descDS.dwSize        = sizeof(descDS);
         descDS.dwFlags       = 0;
         descDS.dwBufferBytes = periodSizeInFrames * periodCount * wf.Format.nBlockAlign;
-        descDS.lpwfxFormat   = (WAVEFORMATEX*)&wf;
+        descDS.lpwfxFormat   = (MA_WAVEFORMATEX*)&wf;
         hr = ma_IDirectSoundCapture_CreateCaptureBuffer((ma_IDirectSoundCapture*)pDevice->dsound.pCapture, &descDS, (ma_IDirectSoundCaptureBuffer**)&pDevice->dsound.pCaptureBuffer, NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
@@ -24328,8 +24331,8 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* Get the _actual_ properties of the buffer. */
-        pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        hr = ma_IDirectSoundCaptureBuffer_GetFormat((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
+        pActualFormat = (MA_WAVEFORMATEXTENSIBLE*)rawdata;
+        hr = ma_IDirectSoundCaptureBuffer_GetFormat((ma_IDirectSoundCaptureBuffer*)pDevice->dsound.pCaptureBuffer, (MA_WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the capture device's buffer.");
@@ -24337,7 +24340,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* We can now start setting the output data formats. */
-        pDescriptorCapture->format     = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDescriptorCapture->format     = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)pActualFormat);
         pDescriptorCapture->channels   = pActualFormat->Format.nChannels;
         pDescriptorCapture->sampleRate = pActualFormat->Format.nSamplesPerSec;
 
@@ -24370,11 +24373,11 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        WAVEFORMATEXTENSIBLE wf;
+        MA_WAVEFORMATEXTENSIBLE wf;
         MA_DSBUFFERDESC descDSPrimary;
         MA_DSCAPS caps;
         char rawdata[1024]; /* <-- Ugly hack to avoid a malloc() due to a crappy DirectSound API. */
-        WAVEFORMATEXTENSIBLE* pActualFormat;
+        MA_WAVEFORMATEXTENSIBLE* pActualFormat;
         ma_uint32 periodSizeInFrames;
         ma_uint32 periodCount;
         MA_DSBUFFERDESC descDS;
@@ -24478,8 +24481,8 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* Get the _actual_ properties of the buffer. */
-        pActualFormat = (WAVEFORMATEXTENSIBLE*)rawdata;
-        hr = ma_IDirectSoundBuffer_GetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
+        pActualFormat = (MA_WAVEFORMATEXTENSIBLE*)rawdata;
+        hr = ma_IDirectSoundBuffer_GetFormat((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackPrimaryBuffer, (MA_WAVEFORMATEX*)pActualFormat, sizeof(rawdata), NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] Failed to retrieve the actual format of the playback device's primary buffer.");
@@ -24487,7 +24490,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         }
 
         /* We now have enough information to start setting some output properties. */
-        pDescriptorPlayback->format     = ma_format_from_WAVEFORMATEX((WAVEFORMATEX*)pActualFormat);
+        pDescriptorPlayback->format     = ma_format_from_WAVEFORMATEX((MA_WAVEFORMATEX*)pActualFormat);
         pDescriptorPlayback->channels   = pActualFormat->Format.nChannels;
         pDescriptorPlayback->sampleRate = pActualFormat->Format.nSamplesPerSec;
 
@@ -25150,7 +25153,7 @@ typedef struct
 
 typedef UINT     (WINAPI * MA_PFN_waveOutGetNumDevs)(void);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutGetDevCapsA)(ma_uintptr uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutClose)(HWAVEOUT hwo);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
@@ -25158,7 +25161,7 @@ typedef MMRESULT (WINAPI * MA_PFN_waveOutWrite)(HWAVEOUT hwo, LPWAVEHDR pwh, UIN
 typedef MMRESULT (WINAPI * MA_PFN_waveOutReset)(HWAVEOUT hwo);
 typedef UINT     (WINAPI * MA_PFN_waveInGetNumDevs)(void);
 typedef MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA)(ma_uintptr uDeviceID, LPWAVEINCAPSA pwic, UINT cbwic);
-typedef MMRESULT (WINAPI * MA_PFN_waveInOpen)(LPHWAVEIN phwi, UINT uDeviceID, LPCWAVEFORMATEX pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MA_PFN_waveInOpen)(LPHWAVEIN phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MA_PFN_waveInClose)(HWAVEIN hwi);
 typedef MMRESULT (WINAPI * MA_PFN_waveInPrepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
 typedef MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
@@ -25299,7 +25302,7 @@ static ma_result ma_get_best_info_from_formats_flags__winmm(DWORD dwFormats, WOR
     return MA_SUCCESS;
 }
 
-static ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD channels, WAVEFORMATEX* pWF)
+static ma_result ma_formats_flags_to_WAVEFORMATEX__winmm(DWORD dwFormats, WORD channels, MA_WAVEFORMATEX* pWF)
 {
     ma_result result;
 
@@ -25635,7 +25638,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
     /* The capture device needs to be initialized first. */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         WAVEINCAPSA caps;
-        WAVEFORMATEX wf;
+        MA_WAVEFORMATEX wf;
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
@@ -25673,7 +25676,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         WAVEOUTCAPSA caps;
-        WAVEFORMATEX wf;
+        MA_WAVEFORMATEX wf;
         MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
