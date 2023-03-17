@@ -11314,8 +11314,10 @@ IMPLEMENTATION
 #define miniaudio_c
 
 #include <assert.h>
-#include <limits.h> /* For INT_MAX */
-#include <math.h>   /* sin(), etc. */
+#include <limits.h>         /* For INT_MAX */
+#include <math.h>           /* sin(), etc. */
+#include <stdlib.h>         /* For malloc(), free(), wcstombs(). */
+#include <string.h>         /* For memset() */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -11328,107 +11330,10 @@ IMPLEMENTATION
 #endif
 
 #if defined(MA_WIN32)
-    #if !defined(__COSMOPOLITAN__)
-        #include <windows.h>
-    #endif
-
-    #if defined(__COSMOPOLITAN__)
-        #define WINAPI
-        #define STDMETHODCALLTYPE
-
-        typedef uint64_t                    HWND;
-        typedef uint64_t                    HANDLE;
-        typedef uint32_t                    HRESULT;
-        typedef uint8_t                     BYTE;
-        typedef uint16_t                    WORD;
-        typedef uint32_t                    DWORD;
-        typedef uint64_t                    DWORDLONG;
-        typedef int32_t                     BOOL;
-        typedef int32_t                     LONG;   /* `long` is always 32-bit on Windows. */
-        typedef uint32_t                    ULONG;
-        typedef uint64_t                    ULONGLONG;
-        typedef char16_t                    WCHAR;
-
-        #define TRUE                        1
-        #define FALSE                       0
-
-        #define WAIT_OBJECT_0               0
-        #define INFINITE                    0xFFFFFFFF
-
-        #define FAILED(hr)                  ((hr) <  0)
-        #define SUCCEEDED(hr)               ((hr) >= 0)
-
-        #define NOERROR                     0
-        #define S_OK                        0
-        #define S_FALSE                     1
-        #define E_POINTER                   ((HRESULT)0x80004003)
-        #define E_UNEXPECTED                ((HRESULT)0x8000FFFF)
-        #define E_NOTIMPL                   ((HRESULT)0x80004001)
-        #define E_OUTOFMEMORY               ((HRESULT)0x8007000E)
-        #define E_INVALIDARG                ((HRESULT)0x80070057)
-        #define E_NOINTERFACE               ((HRESULT)0x80004002)
-        #define E_HANDLE                    ((HRESULT)0x80070006)
-        #define E_ABORT                     ((HRESULT)0x80004004)
-        #define E_FAIL                      ((HRESULT)0x80004005)
-        #define E_ACCESSDENIED              ((HRESULT)0x80070005)
-
-        #define ERROR_SUCCESS               0
-        #define ERROR_FILE_NOT_FOUND        2        
-        #define ERROR_PATH_NOT_FOUND        3
-        #define ERROR_TOO_MANY_OPEN_FILES   4
-        #define ERROR_ACCESS_DENIED         5        
-        #define ERROR_NOT_ENOUGH_MEMORY     8
-        #define ERROR_HANDLE_EOF            38
-        #define ERROR_INVALID_PARAMETER     87         
-        #define ERROR_DISK_FULL             112
-        #define ERROR_SEM_TIMEOUT           121
-        #define ERROR_NEGATIVE_SEEK         131
-
-        typedef struct
-        {
-            unsigned long Data1;
-            unsigned short Data2;
-            unsigned short Data3;
-            unsigned char Data4[8];
-        } GUID, IID;
-
-        static HANDLE CreateEventA(struct NtSecurityAttributes* lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
-        {
-            assert(lpName == NULL);  /* If this is ever triggered we'll need to do a ANSI-to-Unicode conversion. */
-            return (HANDLE)CreateEvent(lpEventAttributes, bManualReset, bInitialState, (const char16_t*)lpName);
-        }
-
-        static BOOL IsEqualGUID(const GUID* a, const GUID* b)
-        {
-            return memcmp(a, b, sizeof(GUID)) == 0;
-        }
-    #endif
-
-    #define MA_VT_LPWSTR    31
-    #define MA_VT_BLOB      65
-
-    typedef struct
-    {
-        WORD vt;
-        WORD wReserved1;
-        WORD wReserved2;
-        WORD wReserved3;
-        union
-        {
-            struct
-            {
-                ULONG cbSize;
-                BYTE* pBlobData;
-            } blob;
-            WCHAR* pwszVal;
-            char pad[16];   /* Just to ensure the size of the struct matches the official version. */
-        };
-    } MA_PROPVARIANT;
+    #include <windows.h>
 #endif
 
 #if !defined(MA_WIN32)
-#include <stdlib.h>     /* For malloc(), free(), wcstombs(). */
-#include <string.h>     /* For memset() */
 #include <sched.h>
 #include <sys/time.h>   /* select() (used for ma_sleep()). */
 #include <pthread.h>
@@ -18231,6 +18136,43 @@ static ma_result ma_result_from_HRESULT(HRESULT hr)
     }
 }
 
+/* PROPVARIANT */
+#define MA_VT_LPWSTR    31
+#define MA_VT_BLOB      65
+
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(push)
+    #pragma warning(disable:4201)   /* nonstandard extension used: nameless struct/union */
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wpedantic" /* For ISO C99 doesn't support unnamed structs/unions [-Wpedantic] */
+    #if defined(__clang__)
+        #pragma GCC diagnostic ignored "-Wc11-extensions"   /* anonymous unions are a C11 extension */
+    #endif
+#endif
+typedef struct
+{
+    WORD vt;
+    WORD wReserved1;
+    WORD wReserved2;
+    WORD wReserved3;
+    union
+    {
+        struct
+        {
+            ULONG cbSize;
+            BYTE* pBlobData;
+        } blob;
+        WCHAR* pwszVal;
+        char pad[16];   /* Just to ensure the size of the struct matches the official version. */
+    };
+} MA_PROPVARIANT;
+#if defined(_MSC_VER) && !defined(__clang__)
+    #pragma warning(pop)
+#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
+    #pragma GCC diagnostic pop
+#endif
+
 typedef HRESULT (WINAPI * MA_PFN_CoInitialize)(void* pvReserved);
 typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(void* pvReserved, DWORD  dwCoInit);
 typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
@@ -18239,14 +18181,14 @@ typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(void* pv);
 typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(MA_PROPVARIANT *pvar);
 typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, wchar_t* lpsz, int cchMax);
 
-typedef HWND (WINAPI * MA_PFN_GetForegroundWindow)(void);
-typedef HWND (WINAPI * MA_PFN_GetDesktopWindow)(void);
+typedef HWND    (WINAPI * MA_PFN_GetForegroundWindow)(void);
+typedef HWND    (WINAPI * MA_PFN_GetDesktopWindow)(void);
 
 #if defined(MA_WIN32_DESKTOP)
 /* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
-typedef LONG (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey, DWORD ulOptions, DWORD samDesired, HKEY* phkResult);
-typedef LONG (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
-typedef LONG (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
+typedef LONG    (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey, DWORD ulOptions, DWORD samDesired, HKEY* phkResult);
+typedef LONG    (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
+typedef LONG    (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
 #endif  /* MA_WIN32_DESKTOP */
 #endif  /* MA_WIN32 */
 
