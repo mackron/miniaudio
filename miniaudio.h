@@ -11350,6 +11350,55 @@ IMPLEMENTATION
 #include <emscripten/emscripten.h>
 #endif
 
+#ifdef __COSMOPOLITAN__
+    typedef uint64_t        HWND;    
+    typedef uint64_t        HANDLE;
+    typedef uint32_t        HRESULT;
+    typedef uint8_t         BYTE;
+    typedef uint16_t        WORD;
+    typedef uint32_t        DWORD;
+    typedef int32_t         BOOL;
+
+    #define TRUE            1
+    #define FALSE           0
+
+    #define WINAPI
+    #define S_OK            0
+    #define WAIT_OBJECT_0   0
+
+    #define FAILED(hr)      ((hr) < 0)
+    #define NOERROR         0
+    #define E_POINTER       ((HRESULT)0x80004003)
+    #define E_UNEXPECTED    ((HRESULT)0x8000FFFF)
+    #define E_NOTIMPL       ((HRESULT)0x80004001)
+    #define E_OUTOFMEMORY   ((HRESULT)0x8007000E)
+    #define E_INVALIDARG    ((HRESULT)0x80070057)
+    #define E_NOINTERFACE   ((HRESULT)0x80004002)
+    #define E_HANDLE        ((HRESULT)0x80070006)
+    #define E_ABORT         ((HRESULT)0x80004004)
+    #define E_FAIL          ((HRESULT)0x80004005)
+    #define E_ACCESSDENIED  ((HRESULT)0x80070005)
+
+    typedef struct
+    {
+        unsigned long Data1;
+        unsigned short Data2;
+        unsigned short Data3;
+        unsigned char Data4[8];
+    } GUID, IID;
+
+    static HANDLE CreateEventA(struct NtSecurityAttributes *lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
+    {
+        assert(lpName == NULL);  /* If this is ever triggered we'll need to do a ANSI-to-Unicode conversion. */
+        return (HANDLE)CreateEvent(lpEventAttributes, bManualReset, bInitialState, (const char16_t*)lpName);
+    }
+
+    static BOOL IsEqualGUID(const GUID* a, const GUID* b)
+    {
+        return memcmp(a, b, sizeof(GUID)) == 0;
+    }
+#endif
+
 #if !defined(MA_64BIT) && !defined(MA_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -18007,7 +18056,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
 
 
 
-#ifdef MA_WIN32
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
 /* WASAPI error codes. */
 #define MA_AUDCLNT_E_NOT_INITIALIZED              ((HRESULT)0x88890001)
 #define MA_AUDCLNT_E_ALREADY_INITIALIZED          ((HRESULT)0x88890002)
@@ -18167,22 +18216,22 @@ static ma_result ma_result_from_HRESULT(HRESULT hr)
     }
 }
 
-typedef HRESULT (WINAPI * MA_PFN_CoInitialize)(LPVOID pvReserved);
-typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(LPVOID pvReserved, DWORD  dwCoInit);
+typedef HRESULT (WINAPI * MA_PFN_CoInitialize)(void* pvReserved);
+typedef HRESULT (WINAPI * MA_PFN_CoInitializeEx)(void* pvReserved, DWORD  dwCoInit);
 typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
-typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWORD dwClsContext, REFIID riid, LPVOID *ppv);
-typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(LPVOID pv);
+typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(const IID* rclsid, void* pUnkOuter, DWORD dwClsContext, const IID* riid, void* ppv);
+typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(void* pv);
 typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(PROPVARIANT *pvar);
-typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, LPOLESTR lpsz, int cchMax);
+typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, wchar_t* lpsz, int cchMax);
 
 typedef HWND (WINAPI * MA_PFN_GetForegroundWindow)(void);
 typedef HWND (WINAPI * MA_PFN_GetDesktopWindow)(void);
 
 #if defined(MA_WIN32_DESKTOP)
 /* Microsoft documents these APIs as returning LSTATUS, but the Win32 API shipping with some compilers do not define it. It's just a LONG. */
-typedef LONG (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, LPCSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult);
+typedef LONG (WINAPI * MA_PFN_RegOpenKeyExA)(HKEY hKey, const char* lpSubKey, DWORD ulOptions, DWORD samDesired, HKEY* phkResult);
 typedef LONG (WINAPI * MA_PFN_RegCloseKey)(HKEY hKey);
-typedef LONG (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
+typedef LONG (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValueName, DWORD* lpReserved, DWORD* lpType, BYTE* lpData, DWORD* lpcbData);
 #endif  /* MA_WIN32_DESKTOP */
 #endif  /* MA_WIN32 */
 
@@ -18961,7 +19010,7 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state n
 }
 
 
-#ifdef MA_WIN32
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
     GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
     /*GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
@@ -19680,8 +19729,8 @@ static ma_result ma_context_init__null(ma_context* pContext, const ma_context_co
 WIN32 COMMON
 
 *******************************************************************************/
-#if defined(MA_WIN32)
-#if defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32_DESKTOP) || defined(__COSMOPOLITAN__)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
     #define ma_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MA_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
@@ -19774,6 +19823,10 @@ typedef struct
 
 #ifndef WAVE_FORMAT_EXTENSIBLE
 #define WAVE_FORMAT_EXTENSIBLE  0xFFFE
+#endif
+
+#ifndef WAVE_FORMAT_PCM
+#define WAVE_FORMAT_PCM         1
 #endif
 
 #ifndef WAVE_FORMAT_IEEE_FLOAT
@@ -20144,11 +20197,11 @@ static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                
         ULONG   (STDMETHODCALLTYPE * Release)       (ma_IMMNotificationClient* pThis);
 
         /* IMMNotificationClient */
-        HRESULT (STDMETHODCALLTYPE * OnDeviceStateChanged)  (ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState);
-        HRESULT (STDMETHODCALLTYPE * OnDeviceAdded)         (ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID);
-        HRESULT (STDMETHODCALLTYPE * OnDeviceRemoved)       (ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID);
-        HRESULT (STDMETHODCALLTYPE * OnDefaultDeviceChanged)(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, LPCWSTR pDefaultDeviceID);
-        HRESULT (STDMETHODCALLTYPE * OnPropertyValueChanged)(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key);
+        HRESULT (STDMETHODCALLTYPE * OnDeviceStateChanged)  (ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID, DWORD dwNewState);
+        HRESULT (STDMETHODCALLTYPE * OnDeviceAdded)         (ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID);
+        HRESULT (STDMETHODCALLTYPE * OnDeviceRemoved)       (ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID);
+        HRESULT (STDMETHODCALLTYPE * OnDefaultDeviceChanged)(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, const wchar_t* pDefaultDeviceID);
+        HRESULT (STDMETHODCALLTYPE * OnPropertyValueChanged)(ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID, const PROPERTYKEY key);
     } ma_IMMNotificationClientVtbl;
 
     /* IMMDeviceEnumerator */
@@ -20162,7 +20215,7 @@ static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                
         /* IMMDeviceEnumerator */
         HRESULT (STDMETHODCALLTYPE * EnumAudioEndpoints)                    (ma_IMMDeviceEnumerator* pThis, ma_EDataFlow dataFlow, DWORD dwStateMask, ma_IMMDeviceCollection** ppDevices);
         HRESULT (STDMETHODCALLTYPE * GetDefaultAudioEndpoint)               (ma_IMMDeviceEnumerator* pThis, ma_EDataFlow dataFlow, ma_ERole role, ma_IMMDevice** ppEndpoint);
-        HRESULT (STDMETHODCALLTYPE * GetDevice)                             (ma_IMMDeviceEnumerator* pThis, LPCWSTR pID, ma_IMMDevice** ppDevice);
+        HRESULT (STDMETHODCALLTYPE * GetDevice)                             (ma_IMMDeviceEnumerator* pThis, const wchar_t* pID, ma_IMMDevice** ppDevice);
         HRESULT (STDMETHODCALLTYPE * RegisterEndpointNotificationCallback)  (ma_IMMDeviceEnumerator* pThis, ma_IMMNotificationClient* pClient);
         HRESULT (STDMETHODCALLTYPE * UnregisterEndpointNotificationCallback)(ma_IMMDeviceEnumerator* pThis, ma_IMMNotificationClient* pClient);
     } ma_IMMDeviceEnumeratorVtbl;
@@ -20175,7 +20228,7 @@ static MA_INLINE ULONG   ma_IUnknown_Release(ma_IUnknown* pThis)                
     static MA_INLINE ULONG   ma_IMMDeviceEnumerator_Release(ma_IMMDeviceEnumerator* pThis)                                                { return pThis->lpVtbl->Release(pThis); }
     static MA_INLINE HRESULT ma_IMMDeviceEnumerator_EnumAudioEndpoints(ma_IMMDeviceEnumerator* pThis, ma_EDataFlow dataFlow, DWORD dwStateMask, ma_IMMDeviceCollection** ppDevices) { return pThis->lpVtbl->EnumAudioEndpoints(pThis, dataFlow, dwStateMask, ppDevices); }
     static MA_INLINE HRESULT ma_IMMDeviceEnumerator_GetDefaultAudioEndpoint(ma_IMMDeviceEnumerator* pThis, ma_EDataFlow dataFlow, ma_ERole role, ma_IMMDevice** ppEndpoint) { return pThis->lpVtbl->GetDefaultAudioEndpoint(pThis, dataFlow, role, ppEndpoint); }
-    static MA_INLINE HRESULT ma_IMMDeviceEnumerator_GetDevice(ma_IMMDeviceEnumerator* pThis, LPCWSTR pID, ma_IMMDevice** ppDevice)        { return pThis->lpVtbl->GetDevice(pThis, pID, ppDevice); }
+    static MA_INLINE HRESULT ma_IMMDeviceEnumerator_GetDevice(ma_IMMDeviceEnumerator* pThis, const wchar_t* pID, ma_IMMDevice** ppDevice) { return pThis->lpVtbl->GetDevice(pThis, pID, ppDevice); }
     static MA_INLINE HRESULT ma_IMMDeviceEnumerator_RegisterEndpointNotificationCallback(ma_IMMDeviceEnumerator* pThis, ma_IMMNotificationClient* pClient) { return pThis->lpVtbl->RegisterEndpointNotificationCallback(pThis, pClient); }
     static MA_INLINE HRESULT ma_IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(ma_IMMDeviceEnumerator* pThis, ma_IMMNotificationClient* pClient) { return pThis->lpVtbl->UnregisterEndpointNotificationCallback(pThis, pClient); }
 
@@ -20480,11 +20533,11 @@ static MA_INLINE HRESULT ma_IAudioCaptureClient_GetNextPacketSize(ma_IAudioCaptu
 
 #if defined(MA_WIN32_UWP)
 /* mmdevapi Functions */
-typedef HRESULT (WINAPI * MA_PFN_ActivateAudioInterfaceAsync)(LPCWSTR deviceInterfacePath, const IID* riid, PROPVARIANT *activationParams, ma_IActivateAudioInterfaceCompletionHandler *completionHandler, ma_IActivateAudioInterfaceAsyncOperation **activationOperation);
+typedef HRESULT (WINAPI * MA_PFN_ActivateAudioInterfaceAsync)(const wchar_t* deviceInterfacePath, const IID* riid, PROPVARIANT* activationParams, ma_IActivateAudioInterfaceCompletionHandler* completionHandler, ma_IActivateAudioInterfaceAsyncOperation** activationOperation);
 #endif
 
 /* Avrt Functions */
-typedef HANDLE (WINAPI * MA_PFN_AvSetMmThreadCharacteristicsW)(LPCWSTR TaskName, LPDWORD TaskIndex);
+typedef HANDLE (WINAPI * MA_PFN_AvSetMmThreadCharacteristicsW)(const wchar_t* TaskName, DWORD* TaskIndex);
 typedef BOOL   (WINAPI * MA_PFN_AvRevertMmThreadCharacteristics)(HANDLE AvrtHandle);
 
 #if !defined(MA_WIN32_DESKTOP) && !defined(MA_WIN32_GDK)
@@ -20578,7 +20631,7 @@ static void ma_completion_handler_uwp_uninit(ma_completion_handler_uwp* pHandler
 
 static void ma_completion_handler_uwp_wait(ma_completion_handler_uwp* pHandler)
 {
-    WaitForSingleObject(pHandler->hEvent, INFINITE);
+    WaitForSingleObject((HANDLE)pHandler->hEvent, INFINITE);
 }
 #endif  /* !MA_WIN32_DESKTOP */
 
@@ -20616,7 +20669,7 @@ static ULONG STDMETHODCALLTYPE ma_IMMNotificationClient_Release(ma_IMMNotificati
     return (ULONG)newRefCount;
 }
 
-static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, DWORD dwNewState)
+static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID, DWORD dwNewState)
 {
     ma_bool32 isThisDevice = MA_FALSE;
     ma_bool32 isCapture    = MA_FALSE;
@@ -20700,7 +20753,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceStateChanged(m
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
+static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnDeviceAdded(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
@@ -20712,7 +20765,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceAdded(ma_IMMNo
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID)
+static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnDeviceRemoved(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
@@ -20724,7 +20777,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDeviceRemoved(ma_IMM
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, LPCWSTR pDefaultDeviceID)
+static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged(ma_IMMNotificationClient* pThis, ma_EDataFlow dataFlow, ma_ERole role, const wchar_t* pDefaultDeviceID)
 {
 #ifdef MA_DEBUG_OUTPUT
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");*/
@@ -20831,7 +20884,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnPropertyValueChanged(ma_IMMNotificationClient* pThis, LPCWSTR pDeviceID, const PROPERTYKEY key)
+static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnPropertyValueChanged(ma_IMMNotificationClient* pThis, const wchar_t* pDeviceID, const PROPERTYKEY key)
 {
 #ifdef MA_DEBUG_OUTPUT
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnPropertyValueChanged(pDeviceID=%S)\n", (pDeviceID != NULL) ? pDeviceID : L"(NULL)");*/
@@ -20855,7 +20908,7 @@ static ma_IMMNotificationClientVtbl g_maNotificationCientVtbl = {
 };
 #endif  /* MA_WIN32_DESKTOP */
 
-static LPCWSTR ma_to_usage_string__wasapi(ma_wasapi_usage usage)
+static const wchar_t* ma_to_usage_string__wasapi(ma_wasapi_usage usage)
 {
     switch (usage) {
         case ma_wasapi_usage_default:   return NULL;
@@ -21810,10 +21863,10 @@ static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
     }
 
     if (pDevice->wasapi.hEventPlayback) {
-        CloseHandle(pDevice->wasapi.hEventPlayback);
+        CloseHandle((HANDLE)pDevice->wasapi.hEventPlayback);
     }
     if (pDevice->wasapi.hEventCapture) {
-        CloseHandle(pDevice->wasapi.hEventCapture);
+        CloseHandle((HANDLE)pDevice->wasapi.hEventCapture);
     }
 
     return MA_SUCCESS;
@@ -22166,7 +22219,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         /* If we don't have an IAudioClient3 then we need to use the normal initialization routine. */
         if (!wasInitializedUsingIAudioClient3) {
             MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;   /* <-- Multiply by 10 for microseconds to 100-nanoseconds. */
-            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (MA_WAVEFORMATEX*)&wf, NULL);
+            hr = ma_IAudioClient_Initialize((ma_IAudioClient*)pData->pAudioClient, shareMode, streamFlags, bufferDuration, 0, (const MA_WAVEFORMATEX*)&wf, NULL);
             if (FAILED(hr)) {
                 if (hr == E_ACCESSDENIED) {
                     errorMsg = "[WASAPI] Failed to initialize device. Access denied.", result = MA_ACCESS_DENIED;
@@ -22368,7 +22421,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDevice->capture.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
 
-        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture,  pDevice->wasapi.hEventCapture);
+        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, (HANDLE)pDevice->wasapi.hEventCapture);
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
@@ -22389,7 +22442,7 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         pDevice->playback.internalPeriods            = data.periodsOut;
         ma_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
 
-        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, (HANDLE)pDevice->wasapi.hEventPlayback);
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
@@ -22458,7 +22511,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
         however, because we want to block until we actually have something for the first call to ma_device_read().
         */
-        pDevice->wasapi.hEventCapture = CreateEventA(NULL, FALSE, FALSE, NULL);  /* Auto reset, unsignaled by default. */
+        pDevice->wasapi.hEventCapture = (ma_handle)CreateEventA(NULL, FALSE, FALSE, NULL);  /* Auto reset, unsignaled by default. */
         if (pDevice->wasapi.hEventCapture == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
@@ -22474,7 +22527,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for capture.");
             return result;
         }
-        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, pDevice->wasapi.hEventCapture);
+        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, (HANDLE)pDevice->wasapi.hEventCapture);
 
         pDevice->wasapi.periodSizeInFramesCapture = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, &pDevice->wasapi.actualBufferSizeInFramesCapture);
@@ -22520,7 +22573,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
                     pDevice->wasapi.pAudioClientCapture = NULL;
                 }
 
-                CloseHandle(pDevice->wasapi.hEventCapture);
+                CloseHandle((HANDLE)pDevice->wasapi.hEventCapture);
                 pDevice->wasapi.hEventCapture = NULL;
             }
             return result;
@@ -22540,7 +22593,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
         The playback event also needs to be initially set to a signaled state so that the first call to ma_device_write() is able
         to get passed WaitForMultipleObjects().
         */
-        pDevice->wasapi.hEventPlayback = CreateEventA(NULL, FALSE, TRUE, NULL);  /* Auto reset, signaled by default. */
+        pDevice->wasapi.hEventPlayback = (ma_handle)CreateEventA(NULL, FALSE, TRUE, NULL);  /* Auto reset, signaled by default. */
         if (pDevice->wasapi.hEventPlayback == NULL) {
             result = ma_result_from_GetLastError(GetLastError());
 
@@ -22554,7 +22607,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
                     pDevice->wasapi.pAudioClientCapture = NULL;
                 }
 
-                CloseHandle(pDevice->wasapi.hEventCapture);
+                CloseHandle((HANDLE)pDevice->wasapi.hEventCapture);
                 pDevice->wasapi.hEventCapture = NULL;
             }
 
@@ -22570,7 +22623,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create event for playback.");
             return result;
         }
-        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, pDevice->wasapi.hEventPlayback);
+        ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, (HANDLE)pDevice->wasapi.hEventPlayback);
 
         pDevice->wasapi.periodSizeInFramesPlayback = data.periodSizeInFramesOut;
         ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &pDevice->wasapi.actualBufferSizeInFramesPlayback);
@@ -22715,10 +22768,10 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     HRESULT hr;
 
     if (pDevice->pContext->wasapi.hAvrt) {
-        LPCWSTR pTaskName = ma_to_usage_string__wasapi(pDevice->wasapi.usage);
+        const wchar_t* pTaskName = ma_to_usage_string__wasapi(pDevice->wasapi.usage);
         if (pTaskName) {
             DWORD idx = 0;
-            pDevice->wasapi.hAvrtHandle = ((MA_PFN_AvSetMmThreadCharacteristicsW)pDevice->pContext->wasapi.AvSetMmThreadCharacteristicsW)(pTaskName, &idx);
+            pDevice->wasapi.hAvrtHandle = (ma_handle)((MA_PFN_AvSetMmThreadCharacteristicsW)pDevice->pContext->wasapi.AvSetMmThreadCharacteristicsW)(pTaskName, &idx);
         }
     }
 
@@ -22808,7 +22861,7 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             DWORD waitTime = pDevice->wasapi.actualBufferSizeInFramesPlayback / pDevice->playback.internalSampleRate;
 
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime);
+                WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime);
             }
             else {
                 ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
@@ -22832,8 +22885,8 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
                     }
                     prevFramesAvaialablePlayback = framesAvailablePlayback;
 
-                    WaitForSingleObject(pDevice->wasapi.hEventPlayback, waitTime * 1000);
-                    ResetEvent(pDevice->wasapi.hEventPlayback); /* Manual reset. */
+                    WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime * 1000);
+                    ResetEvent((HANDLE)pDevice->wasapi.hEventPlayback); /* Manual reset. */
                 }
             }
         }
@@ -23043,7 +23096,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                         timeoutInMilliseconds = 10;
                     }
 
-                    if (WaitForSingleObject(pDevice->wasapi.hEventCapture, timeoutInMilliseconds) != WAIT_OBJECT_0) {
+                    if (WaitForSingleObject((HANDLE)pDevice->wasapi.hEventCapture, timeoutInMilliseconds) != WAIT_OBJECT_0) {
                         if (pDevice->type == ma_device_type_loopback) {
                             continue;   /* Keep waiting in loopback mode. */
                         } else {
@@ -23128,7 +23181,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 whether or not we need to wait for more data.
                 */
                 if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
-                    if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                    if (WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                         result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
@@ -23154,7 +23207,7 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
             } else {
                 if (hr == MA_AUDCLNT_E_BUFFER_TOO_LARGE || hr == MA_AUDCLNT_E_BUFFER_ERROR) {
                     /* Not enough data available. We need to wait for more. */
-                    if (WaitForSingleObject(pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
+                    if (WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                         result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
