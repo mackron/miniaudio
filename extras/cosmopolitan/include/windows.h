@@ -29,12 +29,17 @@ typedef int64_t                     LONGLONG;
 typedef uint32_t                    ULONG;  /* `long` is always 32-bit on Windows. */
 typedef uint64_t                    ULONGLONG;
 typedef char16_t                    WCHAR;
+typedef unsigned int                UINT;
 
 #define TRUE                        1
 #define FALSE                       0
 
 #define WAIT_OBJECT_0               0
 #define INFINITE                    0xFFFFFFFF
+
+#define STGM_READ                   0
+#define CLSCTX_ALL                  23
+#define CP_UTF8                     65001
 
 #define FAILED(hr)                  ((hr) <  0)
 #define SUCCEEDED(hr)               ((hr) >= 0)
