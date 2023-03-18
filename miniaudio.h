@@ -18188,7 +18188,7 @@ typedef LONG    (WINAPI * MA_PFN_RegQueryValueExA)(HKEY hKey, const char* lpValu
 Timing
 
 *******************************************************************************/
-#ifdef MA_WIN32
+#if defined(MA_WIN32) && !defined(MA_POSIX)
     static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
     void ma_timer_init(ma_timer* pTimer)
     {

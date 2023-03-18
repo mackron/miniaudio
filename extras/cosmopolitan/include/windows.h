@@ -17,6 +17,7 @@ eliminate all of the content in this file.
 
 typedef uint64_t                    HWND;
 typedef uint64_t                    HANDLE;
+typedef uint64_t                    HKEY;
 typedef uint32_t                    HRESULT;
 typedef uint8_t                     BYTE;
 typedef uint16_t                    WORD;
@@ -24,7 +25,8 @@ typedef uint32_t                    DWORD;
 typedef uint64_t                    DWORDLONG;
 typedef int32_t                     BOOL;
 typedef int32_t                     LONG;   /* `long` is always 32-bit on Windows. */
-typedef uint32_t                    ULONG;
+typedef int64_t                     LONGLONG;
+typedef uint32_t                    ULONG;  /* `long` is always 32-bit on Windows. */
 typedef uint64_t                    ULONGLONG;
 typedef char16_t                    WCHAR;
 
@@ -70,6 +72,8 @@ typedef struct
     unsigned short Data3;
     unsigned char Data4[8];
 } GUID, IID;
+
+typedef int64_t LARGE_INTEGER;
 
 static HANDLE CreateEventA(struct NtSecurityAttributes* lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
 {
