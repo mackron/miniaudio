@@ -24614,7 +24614,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
         descDS.dwSize = sizeof(descDS);
         descDS.dwFlags = MA_DSBCAPS_CTRLPOSITIONNOTIFY | MA_DSBCAPS_GLOBALFOCUS | MA_DSBCAPS_GETCURRENTPOSITION2;
         descDS.dwBufferBytes = periodSizeInFrames * periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels);
-        descDS.lpwfxFormat = (MA_WAVEFORMATEX*)&pActualFormat;
+        descDS.lpwfxFormat = (MA_WAVEFORMATEX*)pActualFormat;
         hr = ma_IDirectSound_CreateSoundBuffer((ma_IDirectSound*)pDevice->dsound.pPlayback, &descDS, (ma_IDirectSoundBuffer**)&pDevice->dsound.pPlaybackBuffer, NULL);
         if (FAILED(hr)) {
             ma_device_uninit__dsound(pDevice);
