@@ -6294,12 +6294,8 @@ This section contains the APIs for device playback and capture. Here is where yo
     #define MA_SUPPORT_WASAPI
 
     #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
-        #if !defined(__COSMOPOLITAN__)
-            #define MA_SUPPORT_DSOUND
-        #endif
-        #if !defined(__COSMOPOLITAN__)
-            #define MA_SUPPORT_WINMM
-        #endif
+        #define MA_SUPPORT_DSOUND
+        #define MA_SUPPORT_WINMM
 
         /* Don't enable JACK here if compiling with Cosmopolitan. It'll be enabled in the Linux section below. */
         #if !defined(__COSMOPOLITAN__)
@@ -18177,7 +18173,7 @@ typedef void    (WINAPI * MA_PFN_CoUninitialize)(void);
 typedef HRESULT (WINAPI * MA_PFN_CoCreateInstance)(const IID* rclsid, void* pUnkOuter, DWORD dwClsContext, const IID* riid, void* ppv);
 typedef void    (WINAPI * MA_PFN_CoTaskMemFree)(void* pv);
 typedef HRESULT (WINAPI * MA_PFN_PropVariantClear)(MA_PROPVARIANT *pvar);
-typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, wchar_t* lpsz, int cchMax);
+typedef int     (WINAPI * MA_PFN_StringFromGUID2)(const GUID* const rguid, WCHAR* lpsz, int cchMax);
 
 typedef HWND    (WINAPI * MA_PFN_GetForegroundWindow)(void);
 typedef HWND    (WINAPI * MA_PFN_GetDesktopWindow)(void);
@@ -19734,7 +19730,7 @@ WIN32 COMMON
 
 *******************************************************************************/
 #if defined(MA_WIN32)
-#if defined(MA_WIN32_DESKTOP) || defined(__COSMOPOLITAN__)
+#if defined(MA_WIN32_DESKTOP)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
     #define ma_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MA_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
@@ -19752,19 +19748,34 @@ WIN32 COMMON
 typedef size_t DWORD_PTR;
 #endif
 
+#if !defined(WAVE_FORMAT_1M08)
+#define WAVE_FORMAT_1M08    0x00000001
+#define WAVE_FORMAT_1S08    0x00000002
+#define WAVE_FORMAT_1M16    0x00000004
+#define WAVE_FORMAT_1S16    0x00000008
+#define WAVE_FORMAT_2M08    0x00000010
+#define WAVE_FORMAT_2S08    0x00000020
+#define WAVE_FORMAT_2M16    0x00000040
+#define WAVE_FORMAT_2S16    0x00000080
+#define WAVE_FORMAT_4M08    0x00000100
+#define WAVE_FORMAT_4S08    0x00000200
+#define WAVE_FORMAT_4M16    0x00000400
+#define WAVE_FORMAT_4S16    0x00000800
+#endif
+
 #if !defined(WAVE_FORMAT_44M08)
-#define WAVE_FORMAT_44M08 0x00000100
-#define WAVE_FORMAT_44S08 0x00000200
-#define WAVE_FORMAT_44M16 0x00000400
-#define WAVE_FORMAT_44S16 0x00000800
-#define WAVE_FORMAT_48M08 0x00001000
-#define WAVE_FORMAT_48S08 0x00002000
-#define WAVE_FORMAT_48M16 0x00004000
-#define WAVE_FORMAT_48S16 0x00008000
-#define WAVE_FORMAT_96M08 0x00010000
-#define WAVE_FORMAT_96S08 0x00020000
-#define WAVE_FORMAT_96M16 0x00040000
-#define WAVE_FORMAT_96S16 0x00080000
+#define WAVE_FORMAT_44M08   0x00000100
+#define WAVE_FORMAT_44S08   0x00000200
+#define WAVE_FORMAT_44M16   0x00000400
+#define WAVE_FORMAT_44S16   0x00000800
+#define WAVE_FORMAT_48M08   0x00001000
+#define WAVE_FORMAT_48S08   0x00002000
+#define WAVE_FORMAT_48M16   0x00004000
+#define WAVE_FORMAT_48S16   0x00008000
+#define WAVE_FORMAT_96M08   0x00010000
+#define WAVE_FORMAT_96S08   0x00020000
+#define WAVE_FORMAT_96M16   0x00040000
+#define WAVE_FORMAT_96S16   0x00080000
 #endif
 
 #ifndef SPEAKER_FRONT_LEFT
@@ -23753,11 +23764,11 @@ static MA_INLINE ULONG   ma_IDirectSoundNotify_Release(ma_IDirectSoundNotify* pT
 static MA_INLINE HRESULT ma_IDirectSoundNotify_SetNotificationPositions(ma_IDirectSoundNotify* pThis, DWORD dwPositionNotifies, const MA_DSBPOSITIONNOTIFY* pPositionNotifies) { return pThis->lpVtbl->SetNotificationPositions(pThis, dwPositionNotifies, pPositionNotifies); }
 
 
-typedef BOOL    (CALLBACK * ma_DSEnumCallbackAProc)             (LPGUID pDeviceGUID, LPCSTR pDeviceDescription, LPCSTR pModule, LPVOID pContext);
-typedef HRESULT (WINAPI   * ma_DirectSoundCreateProc)           (const GUID* pcGuidDevice, ma_IDirectSound** ppDS8, LPUNKNOWN pUnkOuter);
-typedef HRESULT (WINAPI   * ma_DirectSoundEnumerateAProc)       (ma_DSEnumCallbackAProc pDSEnumCallback, LPVOID pContext);
-typedef HRESULT (WINAPI   * ma_DirectSoundCaptureCreateProc)    (const GUID* pcGuidDevice, ma_IDirectSoundCapture** ppDSC8, LPUNKNOWN pUnkOuter);
-typedef HRESULT (WINAPI   * ma_DirectSoundCaptureEnumerateAProc)(ma_DSEnumCallbackAProc pDSEnumCallback, LPVOID pContext);
+typedef BOOL    (CALLBACK * ma_DSEnumCallbackAProc)             (GUID* pDeviceGUID, const char* pDeviceDescription, const char* pModule, void* pContext);
+typedef HRESULT (WINAPI   * ma_DirectSoundCreateProc)           (const GUID* pcGuidDevice, ma_IDirectSound** ppDS8, ma_IUnknown* pUnkOuter);
+typedef HRESULT (WINAPI   * ma_DirectSoundEnumerateAProc)       (ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
+typedef HRESULT (WINAPI   * ma_DirectSoundCaptureCreateProc)    (const GUID* pcGuidDevice, ma_IDirectSoundCapture** ppDSC8, ma_IUnknown* pUnkOuter);
+typedef HRESULT (WINAPI   * ma_DirectSoundCaptureEnumerateAProc)(ma_DSEnumCallbackAProc pDSEnumCallback, void* pContext);
 
 static ma_uint32 ma_get_best_sample_rate_within_range(ma_uint32 sampleRateMin, ma_uint32 sampleRateMax)
 {
@@ -23854,7 +23865,7 @@ static ma_result ma_context_create_IDirectSound__dsound(ma_context* pContext, ma
 
     /* The cooperative level must be set before doing anything else. */
     hWnd = ((MA_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
-    if (hWnd == NULL) {
+    if (hWnd == 0) {
         hWnd = ((MA_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
     }
 
@@ -24006,7 +24017,7 @@ typedef struct
     ma_bool32 terminated;
 } ma_context_enumerate_devices_callback_data__dsound;
 
-static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+static BOOL CALLBACK ma_context_enumerate_devices_callback__dsound(GUID* lpGuid, const char* lpcstrDescription, const char* lpcstrModule, void* lpContext)
 {
     ma_context_enumerate_devices_callback_data__dsound* pData = (ma_context_enumerate_devices_callback_data__dsound*)lpContext;
     ma_device_info deviceInfo;
@@ -24072,7 +24083,7 @@ typedef struct
     ma_bool32 found;
 } ma_context_get_device_info_callback_data__dsound;
 
-static BOOL CALLBACK ma_context_get_device_info_callback__dsound(LPGUID lpGuid, LPCSTR lpcstrDescription, LPCSTR lpcstrModule, LPVOID lpContext)
+static BOOL CALLBACK ma_context_get_device_info_callback__dsound(GUID* lpGuid, const char* lpcstrDescription, const char* lpcstrModule, void* lpContext)
 {
     ma_context_get_device_info_callback_data__dsound* pData = (ma_context_get_device_info_callback_data__dsound*)lpContext;
     MA_ASSERT(pData != NULL);
@@ -25231,26 +25242,27 @@ typedef struct
 } MA_WAVEINCAPS2A;
 
 typedef UINT     (WINAPI * MA_PFN_waveOutGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutGetDevCapsA)(ma_uintptr uDeviceID, LPWAVEOUTCAPSA pwoc, UINT cbwoc);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutOpen)(LPHWAVEOUT phwo, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutGetDevCapsA)(ma_uintptr uDeviceID, WAVEOUTCAPSA* pwoc, UINT cbwoc);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutOpen)(HWAVEOUT* phwo, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutClose)(HWAVEOUT hwo);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutWrite)(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveOutWrite)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
 typedef MMRESULT (WINAPI * MA_PFN_waveOutReset)(HWAVEOUT hwo);
 typedef UINT     (WINAPI * MA_PFN_waveInGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA)(ma_uintptr uDeviceID, LPWAVEINCAPSA pwic, UINT cbwic);
-typedef MMRESULT (WINAPI * MA_PFN_waveInOpen)(LPHWAVEIN phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA)(ma_uintptr uDeviceID, WAVEINCAPSA* pwic, UINT cbwic);
+typedef MMRESULT (WINAPI * MA_PFN_waveInOpen)(HWAVEIN* phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
 typedef MMRESULT (WINAPI * MA_PFN_waveInClose)(HWAVEIN hwi);
-typedef MMRESULT (WINAPI * MA_PFN_waveInPrepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveInAddBuffer)(HWAVEIN hwi, LPWAVEHDR pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveInPrepareHeader)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
+typedef MMRESULT (WINAPI * MA_PFN_waveInAddBuffer)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
 typedef MMRESULT (WINAPI * MA_PFN_waveInStart)(HWAVEIN hwi);
 typedef MMRESULT (WINAPI * MA_PFN_waveInReset)(HWAVEIN hwi);
 
 static ma_result ma_result_from_MMRESULT(MMRESULT resultMM)
 {
-    switch (resultMM) {
+    switch (resultMM)
+    {
         case MMSYSERR_NOERROR:      return MA_SUCCESS;
         case MMSYSERR_BADDEVICEID:  return MA_INVALID_ARGS;
         case MMSYSERR_INVALHANDLE:  return MA_INVALID_ARGS;
@@ -25438,7 +25450,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
       name, and then concatenate the name from the registry.
     */
     if (!ma_is_guid_null(&pCaps->NameGuid)) {
-        wchar_t guidStrW[256];
+        WCHAR guidStrW[256];
         if (((MA_PFN_StringFromGUID2)pContext->win32.StringFromGUID2)(&pCaps->NameGuid, guidStrW, ma_countof(guidStrW)) > 0) {
             char guidStr[256];
             char keyStr[1024];
@@ -25452,7 +25464,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
             if (((MA_PFN_RegOpenKeyExA)pContext->win32.RegOpenKeyExA)(HKEY_LOCAL_MACHINE, keyStr, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
                 BYTE nameFromReg[512];
                 DWORD nameFromRegSize = sizeof(nameFromReg);
-                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (LPBYTE)nameFromReg, (LPDWORD)&nameFromRegSize);
+                LONG resultWin32 = ((MA_PFN_RegQueryValueExA)pContext->win32.RegQueryValueExA)(hKey, "Name", 0, NULL, (BYTE*)nameFromReg, (DWORD*)&nameFromRegSize);
                 ((MA_PFN_RegCloseKey)pContext->win32.RegCloseKey)(hKey);
 
                 if (resultWin32 == ERROR_SUCCESS) {
@@ -25739,7 +25751,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
             goto on_error;
         }
 
-        resultMM = ((MA_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((LPHWAVEIN)&pDevice->winmm.hDeviceCapture, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEventCapture, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        resultMM = ((MA_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((HWAVEIN*)&pDevice->winmm.hDeviceCapture, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEventCapture, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open capture device.", errorCode = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
@@ -25777,7 +25789,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
             goto on_error;
         }
 
-        resultMM = ((MA_PFN_waveOutOpen)pDevice->pContext->winmm.waveOutOpen)((LPHWAVEOUT)&pDevice->winmm.hDevicePlayback, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEventPlayback, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
+        resultMM = ((MA_PFN_waveOutOpen)pDevice->pContext->winmm.waveOutOpen)((HWAVEOUT*)&pDevice->winmm.hDevicePlayback, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEventPlayback, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
         if (resultMM != MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open playback device.", errorCode = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
@@ -25827,7 +25839,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         for (iPeriod = 0; iPeriod < pDescriptorCapture->periodCount; ++iPeriod) {
             ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->format, pDescriptorCapture->channels);
 
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBufferCapture + (periodSizeInBytes*iPeriod));
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferCapture + (periodSizeInBytes*iPeriod));
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwBufferLength = periodSizeInBytes;
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwFlags        = 0L;
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwLoops        = 0L;
@@ -25856,7 +25868,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         for (iPeriod = 0; iPeriod < pDescriptorPlayback->periodCount; ++iPeriod) {
             ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->format, pDescriptorPlayback->channels);
 
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].lpData         = (LPSTR)(pDevice->winmm.pIntermediaryBufferPlayback + (periodSizeInBytes*iPeriod));
+            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferPlayback + (periodSizeInBytes*iPeriod));
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwBufferLength = periodSizeInBytes;
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwFlags        = 0L;
             ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwLoops        = 0L;
@@ -25920,7 +25932,7 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
 
         /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
         for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
-            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
+            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
             if (resultMM != MMSYSERR_NOERROR) {
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.");
                 return ma_result_from_MMRESULT(resultMM);
@@ -26125,7 +26137,7 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
                 ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
                 /* The device will be started here. */
-                resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((LPWAVEHDR)pDevice->winmm.pWAVEHDRCapture)[pDevice->winmm.iNextHeaderCapture], sizeof(WAVEHDR));
+                resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[pDevice->winmm.iNextHeaderCapture], sizeof(WAVEHDR));
                 if (resultMM != MMSYSERR_NOERROR) {
                     result = ma_result_from_MMRESULT(resultMM);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveInAddBuffer() failed.");
