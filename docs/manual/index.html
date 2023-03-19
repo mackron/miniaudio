@@ -290,7 +290,7 @@ A config/init pattern is used throughout the entire library. The idea is that yo
 object and pass that into the initialization routine. The advantage to this system is that the
 config object can be initialized with logical defaults and new properties added to it without
 breaking the API. The config object can be allocated on the stack and does not need to be
-maintained after initialization of the corresponding object. 
+maintained after initialization of the corresponding object.
 </p>
 <p>
 
@@ -791,7 +791,7 @@ ma_engine_play_sound(&amp;engine, <span style="color:#cc3300">&quot;my_sound.wav
 This plays what miniaudio calls an &quot;inline&quot; sound. It plays the sound once, and then puts the
 internal sound up for recycling. The last parameter is used to specify which sound group the sound
 should be associated with which will be explained later. This particular way of playing a sound is
-simple, but lacks flexibility and features. A more flexible way of playing a sound is to first 
+simple, but lacks flexibility and features. A more flexible way of playing a sound is to first
 initialize a sound:
 </p>
 <p>
@@ -930,6 +930,10 @@ dependencies. See below for platform-specific details.
 </p>
 <p>
 
+Note that GCC and Clang require <span style="font-family:monospace;">-msse2</span>, <span style="font-family:monospace;">-mavx2</span>, etc. for SIMD optimizations.
+</p>
+<p>
+
 </p>
 <p>
 
@@ -974,9 +978,10 @@ notarization process. To fix this there are two options. The first is to use the
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 </pre></div><p>
 
-This will require linking with <span style="font-family:monospace;">-framework CoreFoundation -framework CoreAudio -framework AudioUnit</span>.
-Alternatively, if you would rather keep using runtime linking you can add the following to your
-entitlements.xcent file:
+This will require linking with <span style="font-family:monospace;">-framework CoreFoundation -framework CoreAudio -framework AudioToolbox</span>.
+If you get errors about AudioToolbox, try with <span style="font-family:monospace;">-framework AudioUnit</span> instead. You may get this when
+using older versions of iOS. Alternatively, if you would rather keep using runtime linking you can
+add the following to your entitlements.xcent file:
 </p>
 <p>
 
@@ -1711,7 +1716,7 @@ To read data from a data source:
 <span style="color:#0099cc">ma_result</span> result;
 <span style="color:#0099cc">ma_uint64</span> framesRead;
 
-result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, &amp;framesRead, loop);
+result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, &amp;framesRead);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#0033ff">return</span> result;  <span style="color:#009900">// Failed to read data from the data source.</span>
 }
@@ -1736,7 +1741,7 @@ you could plug in a decoder like so:
 <span style="color:#0099cc">ma_uint64</span> framesRead;
 <span style="color:#0099cc">ma_decoder</span> decoder;   <span style="color:#009900">// &lt;-- This would be initialized with <span style="font-family:monospace;">ma_decoder_init_*()</span>.</span>
 
-result = ma_data_source_read_pcm_frames(&amp;decoder, pFramesOut, frameCount, &amp;framesRead, loop);
+result = ma_data_source_read_pcm_frames(&amp;decoder, pFramesOut, frameCount, &amp;framesRead);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#0033ff">return</span> result;  <span style="color:#009900">// Failed to read data from the decoder.</span>
 }
@@ -1831,7 +1836,9 @@ result = ma_data_source_set_range_in_pcm_frames(pDataSource, rangeBegInFrames, r
 </pre></div><p>
 
 This is useful if you have a sound bank where many sounds are stored in the same file and you want
-the data source to only play one of those sub-sounds.
+the data source to only play one of those sub-sounds. Note that once the range is set, everything
+that takes a position, such as cursors and loop points, should always be relatvie to the start of
+the range. When the range is set, any previously defined loop point will be reset.
 </p>
 <p>
 
@@ -1870,21 +1877,21 @@ result = ma_data_source_set_next(&amp;decoder1, &amp;decoder2);
     <span style="color:#0033ff">return</span> result;  <span style="color:#009900">// Failed to set the next data source.</span>
 }
 
-result = ma_data_source_read_pcm_frames(&amp;decoder1, pFramesOut, frameCount, pFramesRead, MA_FALSE);
+result = ma_data_source_read_pcm_frames(&amp;decoder1, pFramesOut, frameCount, pFramesRead);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#0033ff">return</span> result;  <span style="color:#009900">// Failed to read from the decoder.</span>
 }
 </pre></div><p>
 
 In the example above we&#39;re using decoders. When reading from a chain, you always want to read from
-the top level data source in the chain. In the example above, <span style="font-family:monospace;">decoder1</span> is the top level data 
+the top level data source in the chain. In the example above, <span style="font-family:monospace;">decoder1</span> is the top level data
 source in the chain. When <span style="font-family:monospace;">decoder1</span> reaches the end, <span style="font-family:monospace;">decoder2</span> will start seamlessly without any
 gaps.
 </p>
 <p>
 
-Note that the <span style="font-family:monospace;">loop</span> parameter is set to false in the example above. When this is set to true, only
-the current data source will be looped. You can loop the entire chain by linking in a loop like so:
+Note that when looping is enabled, only the current data source will be looped. You can loop the
+entire chain by linking in a loop like so:
 </p>
 <p>
 
@@ -1900,9 +1907,9 @@ changing links while the audio thread is in the middle of reading.
 <p>
 
 Do not use <span style="font-family:monospace;">ma_decoder_seek_to_pcm_frame()</span> as a means to reuse a data source to play multiple
-instances of the same sound simultaneously. Instead, initialize multiple data sources for each
-instance. This can be extremely inefficient depending on the data source and can result in
-glitching due to subtle changes to the state of internal filters.
+instances of the same sound simultaneously. This can be extremely inefficient depending on the type
+of data source and can result in glitching due to subtle changes to the state of internal filters.
+Instead, initialize multiple data sources for each instance.
 </p>
 <p>
 
@@ -1988,7 +1995,7 @@ base object (<span style="font-family:monospace;">ma_data_source_base</span>):
 <span style="color:#0033ff">void</span> my_data_source_uninit(my_data_source* pMyDataSource)
 {
     <span style="color:#009900">// ... do the uninitialization of your custom data source here ...</span>
-    
+
     <span style="color:#009900">// You must uninitialize the base data source.</span>
     ma_data_source_uninit(&amp;pMyDataSource-&gt;base);
 }
@@ -2056,7 +2063,7 @@ ma_engine engine;
 ma_engine_config engineConfig;
 
 engineConfig = ma_engine_config_init();
-engineConfig.pPlaybackDevice = &amp;myDevice;
+engineConfig.pDevice = &amp;myDevice;
 
 result = ma_engine_init(&amp;engineConfig, &amp;engine);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
@@ -2103,7 +2110,7 @@ Note that when you&#39;re not using a device, you must set the channel count and
 config or else miniaudio won&#39;t know what to use (miniaudio will use the device to determine this
 normally). When not using a device, you need to use <span style="font-family:monospace;">ma_engine_read_pcm_frames()</span> to process audio
 data from the engine. This kind of setup is useful if you want to do something like offline
-processing.
+processing or want to use a different audio system for playback such as SDL.
 </p>
 <p>
 
@@ -2319,7 +2326,7 @@ ma_sound_init_from_file(&amp;engine, <span style="color:#cc3300">&quot;my_sound.
 
 By default, sounds will be loaded synchronously, meaning <span style="font-family:monospace;">ma_sound_init_*()</span> will not return until
 the sound has been fully loaded. If this is prohibitive you can instead load sounds asynchronously
-by specificying the <span style="font-family:monospace;">MA_SOUND_FLAG_ASYNC</span> flag:
+by specifying the <span style="font-family:monospace;">MA_SOUND_FLAG_ASYNC</span> flag:
 </p>
 <p>
 
@@ -2348,7 +2355,7 @@ ma_fence fence;
 ma_sound sounds[4];
 
 result = ma_fence_init(&amp;fence);
-<span style="color:#0033ff">if</span> (result != MA_SUCCES) {
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#0033ff">return</span> result;
 }
 
@@ -2386,6 +2393,12 @@ system is not used for streams. The engine will use a 64-bit hash of the file na
 file paths which means there&#39;s a small chance you might encounter a name collision. If this is an
 issue, you&#39;ll need to use a different name for one of the colliding file paths, or just not load
 from files and instead load from a data source.
+</p>
+<p>
+
+You can use <span style="font-family:monospace;">ma_sound_init_copy()</span> to initialize a copy of another sound. Note, however, that this
+only works for sounds that were initialized with <span style="font-family:monospace;">ma_sound_init_from_file()</span> and without the
+<span style="font-family:monospace;">MA_SOUND_FLAG_STREAM</span> flag.
 </p>
 <p>
 
@@ -2633,9 +2646,31 @@ be looping by default. Use <span style="font-family:monospace;">ma_sound_is_loop
 <p>
 
 Use <span style="font-family:monospace;">ma_sound_at_end()</span> to determine whether or not a sound is currently at the end. For a looping
-sound this should never return true.
+sound this should never return true. Alternatively, you can configure a callback that will be fired
+when the sound reaches the end. Note that the callback is fired from the audio thread which means
+you cannot be uninitializing sound from the callback. To set the callback you can use
+<span style="font-family:monospace;">ma_sound_set_end_callback()</span>. Alternatively, if you&#39;re using <span style="font-family:monospace;">ma_sound_init_ex()</span>, you can pass it
+into the config like so:
 </p>
 <p>
+
+</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+soundConfig.endCallback = my_end_callback;
+soundConfig.pEndCallbackUserData = pMyEndCallbackUserData;
+</pre></div><p>
+
+The end callback is declared like so:
+</p>
+<p>
+
+</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#0033ff">void</span> my_end_callback(<span style="color:#0033ff">void</span>* pUserData, ma_sound* pSound)
+{
+    ...
+}
+</pre></div><p>
 
 Internally a sound wraps around a data source. Some APIs exist to control the underlying data
 source, mainly for convenience:
@@ -3383,14 +3418,14 @@ result = ma_node_graph_read_pcm_frames(&amp;nodeGraph, pFramesOut, frameCount, &
 </pre></div><p>
 
 When you read audio data, miniaudio starts at the node graph&#39;s endpoint node which then pulls in
-data from it&#39;s input attachments, which in turn recusively pull in data from their inputs, and so
+data from it&#39;s input attachments, which in turn recursively pull in data from their inputs, and so
 on. At the start of the graph there will be some kind of data source node which will have zero
 inputs and will instead read directly from a data source. The base nodes don&#39;t literally need to
 read from a <span style="font-family:monospace;">ma_data_source</span> object, but they will always have some kind of underlying object that
 sources some kind of audio. The <span style="font-family:monospace;">ma_data_source_node</span> node can be used to read from a
 <span style="font-family:monospace;">ma_data_source</span>. Data is always in floating-point format and in the number of channels you
 specified when the graph was initialized. The sample rate is defined by the underlying data sources.
-It&#39;s up to you to ensure they use a consistent and appropraite sample rate.
+It&#39;s up to you to ensure they use a consistent and appropriate sample rate.
 </p>
 <p>
 
@@ -3445,7 +3480,7 @@ deal with it for you.
 <p>
 
 Less frequently you may want to create a specialized node. This will be a node where you implement
-your own processing callback to apply a custom effect of some kind. This is similar to initalizing
+your own processing callback to apply a custom effect of some kind. This is similar to initializing
 one of the stock node types, only this time you need to specify a pointer to a vtable containing a
 pointer to the processing function and the number of input and output buses. Example:
 </p>
@@ -3487,7 +3522,7 @@ pointer to the processing function and the number of input and output buses. Exa
 <span style="color:#009900">// Each bus needs to have a channel count specified. To do this you need to specify the channel</span>
 <span style="color:#009900">// counts in an array and then pass that into the node config.</span>
 <span style="color:#0099cc">ma_uint32</span> inputChannels[2];     <span style="color:#009900">// Equal in size to the number of input channels specified in the vtable.</span>
-<span style="color:#0099cc">ma_uint32</span> outputChannels[1];    <span style="color:#009900">// Equal in size to the number of output channels specicied in the vtable.</span>
+<span style="color:#0099cc">ma_uint32</span> outputChannels[1];    <span style="color:#009900">// Equal in size to the number of output channels specified in the vtable.</span>
 
 inputChannels[0]  = channelsIn;
 inputChannels[1]  = channelsIn;
@@ -3619,15 +3654,41 @@ MA_NODE_FLAG_CONTINUOUS_PROCESSING
 </p>
 <p>
 
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
+</p>
+<p>
+
+
 </p>
 </td>
 <td class="doc" valign="top"><p>
 Causes the processing callback to be called even
 when no data is available to be read from input
-attachments. This is useful for effects like
+attachments. When a node has at least one input
+bus, but there are no inputs attached or the
+inputs do not deliver any data, the node&#39;s
+processing callback will not get fired. This flag
+will make it so the callback is always fired
+regardless of whether or not any input data is
+received. This is useful for effects like
 echos where there will be a tail of audio data
 that still needs to be processed even when the
-original data sources have reached their ends.</p>
+original data sources have reached their ends. It
+may also be useful for nodes that must always
+have their processing callback fired when there
+are no inputs attached.</p>
 </td>
 </tr>
 <tr>
@@ -3921,7 +3982,7 @@ bus and input bus is locked. This locking is specifically for attaching and deta
 different threads and does not affect <span style="font-family:monospace;">ma_node_graph_read_pcm_frames()</span> in any way. The locking and
 unlocking is mostly self-explanatory, but a slightly less intuitive aspect comes into it when
 considering that iterating over attachments must not break as a result of attaching or detaching a
-node while iteration is occuring.
+node while iteration is occurring.
 </p>
 <p>
 
@@ -4056,7 +4117,7 @@ implementation:
 <span style="color:#666666">#define</span> MA_NO_FLAC
 </pre></div><p>
 
-Disabling built-in decoding libraries is useful if you use these libraries independantly of the
+Disabling built-in decoding libraries is useful if you use these libraries independently of the
 <span style="font-family:monospace;">ma_decoder</span> API.
 </p>
 <p>
@@ -4195,7 +4256,7 @@ The <span style="font-family:monospace;">ma_decoding_backend_vtable</span> vtabl
 </p>
 <div style="font-family:monospace; margin:1em 0em;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 onInit
-onInitFile 
+onInitFile
 onInitFileW
 onInitMemory
 onUninit
@@ -4209,13 +4270,13 @@ these are not specified, miniaudio will deal with it for you via a generic imple
 
 When you initialize a custom data source (by implementing the <span style="font-family:monospace;">onInit</span> function in the vtable) you
 will need to output a pointer to a <span style="font-family:monospace;">ma_data_source</span> which implements your custom decoder. See the
-section about data sources for details on how to implemen this. Alternatively, see the
+section about data sources for details on how to implement this. Alternatively, see the
 &quot;custom_decoders&quot; example in the miniaudio repository.
 </p>
 <p>
 
 The <span style="font-family:monospace;">onInit</span> function takes a pointer to some callbacks for the purpose of reading raw audio data
-from some abitrary source. You&#39;ll use these functions to read from the raw data and perform the
+from some arbitrary source. You&#39;ll use these functions to read from the raw data and perform the
 decoding. When you call them, you will pass in the <span style="font-family:monospace;">pReadSeekTellUserData</span> pointer to the relevant
 parameter.
 </p>
@@ -4467,7 +4528,7 @@ To perform the conversion simply call <span style="font-family:monospace;">ma_ch
 }
 </pre></div><p>
 
-It is up to the caller to ensure the output buffer is large enough to accomodate the new PCM
+It is up to the caller to ensure the output buffer is large enough to accommodate the new PCM
 frames.
 </p>
 <p>
@@ -5284,7 +5345,7 @@ you can chain first and second order filters together.
 
 If you need to change the configuration of the filter, but need to maintain the state of internal
 registers you can do so with <span style="font-family:monospace;">ma_lpf_reinit()</span>. This may be useful if you need to change the sample
-rate and/or cutoff frequency dynamically while maintaing smooth transitions. Note that changing the
+rate and/or cutoff frequency dynamically while maintaining smooth transitions. Note that changing the
 format or channel count after initialization is invalid and will result in an error.
 </p>
 <p>
@@ -5633,8 +5694,8 @@ to <span style="font-family:monospace;">MA_DEFAULT_LCG_SEED</span>.
 </p>
 <p>
 
-The amplitude, seed, and type can be changed dynamically with <span style="font-family:monospace;">ma_noise_set_amplitude()</span>,
-<span style="font-family:monospace;">ma_noise_set_seed()</span>, and <span style="font-family:monospace;">ma_noise_set_type()</span> respectively.
+The amplitude and seed can be changed dynamically with <span style="font-family:monospace;">ma_noise_set_amplitude()</span> and
+<span style="font-family:monospace;">ma_noise_set_seed()</span> respectively.
 </p>
 <p>
 
@@ -5838,7 +5899,7 @@ you will want to use. To initialize a ring buffer, do something like the followi
 </pre></div><p>
 
 The <span style="font-family:monospace;">ma_pcm_rb_init()</span> function takes the sample format and channel count as parameters because
-it&#39;s the PCM varient of the ring buffer API. For the regular ring buffer that operates on bytes you
+it&#39;s the PCM variant of the ring buffer API. For the regular ring buffer that operates on bytes you
 would call <span style="font-family:monospace;">ma_rb_init()</span> which leaves these out and just takes the size of the buffer in bytes
 instead of frames. The fourth parameter is an optional pre-allocated buffer and the fifth parameter
 is a pointer to a <span style="font-family:monospace;">ma_allocation_callbacks</span> structure for custom memory allocation routines.
@@ -5959,7 +6020,7 @@ WinMM</p>
 ma_backend_winmm</p>
 </td>
 <td class="doc" valign="top"><p>
-Windows XP+ (may work on older versions, but untested)</p>
+Windows 95+</p>
 </td>
 </tr>
 <tr>
@@ -6144,6 +6205,17 @@ The backend API will perform resampling where possible. The reason for this as o
 <p>
 
 </p>
+<h2 id="BSD" class="man">BSD</h2>
+<ul style="overflow:hidden;">
+<li>
+The sndio backend is currently only enabled on OpenBSD builds.</li>
+<li>
+The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can
+  use it.</li>
+</ul>
+<p>
+
+</p>
 <h2 id="UWP" class="man">15.4. UWP</h2>
 <ul style="overflow:hidden;">
 <li>
@@ -6191,17 +6263,39 @@ Google has implemented a policy in their browsers that prevent automatic media o
 </p>
 <h1 id="OptimizationTips" class="man">16. Optimization Tips</h1>
 <p>
+See below for some tips on improving performance.
+</p>
+<p>
 
 </p>
-<h2 id="HighLevelAPI" class="man">16.1. High Level API</h2>
+<h2 id="LowLevelAPI" class="man">16.1. Low Level API</h2>
+<ul style="overflow:hidden;">
+<li>
+In the data callback, if your data is already clipped prior to copying it into the output buffer,
+  set the <span style="font-family:monospace;">noClip</span> config option in the device config to true. This will disable miniaudio&#39;s built
+  in clipping function.</li>
+<li>
+By default, miniaudio will pre-silence the data callback&#39;s output buffer. If you know that you
+  will always write valid data to the output buffer you can disable pre-silencing by setting the
+  <span style="font-family:monospace;">noPreSilence</span> config option in the device config to true.</li>
+</ul>
+<p>
+
+</p>
+<h2 id="HighLevelAPI" class="man">16.2. High Level API</h2>
 <ul style="overflow:hidden;">
 <li>
 If a sound does not require doppler or pitch shifting, consider disabling pitching by
   initializing the sound with the <span style="font-family:monospace;">MA_SOUND_FLAG_NO_PITCH</span> flag.</li>
 <li>
-If a sound does not require spatialization, disable it by initialzing the sound with the
-  <span style="font-family:monospace;">MA_SOUND_FLAG_NO_SPATIALIZATION</span> flag. It can be renabled again post-initialization with
+If a sound does not require spatialization, disable it by initializing the sound with the
+  <span style="font-family:monospace;">MA_SOUND_FLAG_NO_SPATIALIZATION</span> flag. It can be re-enabled again post-initialization with
   <span style="font-family:monospace;">ma_sound_set_spatialization_enabled()</span>.</li>
+<li>
+If you know all of your sounds will always be the same sample rate, set the engine&#39;s sample
+  rate to match that of the sounds. Likewise, if you&#39;re using a self-managed resource manager,
+  consider setting the decoded sample rate to match your sounds. By configuring everything to
+  use a consistent sample rate, sample rate conversion can be avoided.</li>
 </ul>
 <p>
 
@@ -6219,22 +6313,6 @@ Automatic stream routing is enabled on a per-backend basis. Support is explicitl
   WASAPI and Core Audio, however other backends such as PulseAudio may naturally support it, though
   not all have been tested.</li>
 <li>
-The contents of the output buffer passed into the data callback will always be pre-initialized to
-  silence unless the <span style="font-family:monospace;">noPreSilencedOutputBuffer</span> config variable in <span style="font-family:monospace;">ma_device_config</span> is set to
-  true, in which case it&#39;ll be undefined which will require you to write something to the entire
-  buffer.</li>
-<li>
-By default miniaudio will automatically clip samples. This only applies when the playback sample
-  format is configured as <span style="font-family:monospace;">ma_format_f32</span>. If you are doing clipping yourself, you can disable this
-  overhead by setting <span style="font-family:monospace;">noClip</span> to true in the device config.</li>
-<li>
-Note that GCC and Clang requires <span style="font-family:monospace;">-msse2</span>, <span style="font-family:monospace;">-mavx2</span>, etc. for SIMD optimizations.</li>
-<li>
-The sndio backend is currently only enabled on OpenBSD builds.</li>
-<li>
-The audio(4) backend is supported on OpenBSD, but you may need to disable sndiod before you can
-  use it.</li>
-<li>
 When compiling with VC6 and earlier, decoding is restricted to files less than 2GB in size. This
   is due to 64-bit file APIs not being available.</li>
 </ul>
@@ -6251,7 +6329,7 @@ When compiling with VC6 and earlier, decoding is restricted to files less than 2
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2022 David Reid<br/>
+        Copyright &copy; 2023 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>
