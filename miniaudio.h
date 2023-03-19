@@ -36007,8 +36007,13 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
         "/dev/audio",
         "/dev/audio0"
     };
+    const char* pDefaultDeviceCtlNames[] = {
+        "/dev/audioctl",
+        "/dev/audioctl0"
+    };
     int fd;
     int fdFlags = 0;
+    size_t iDefaultDevice = (size_t)-1;
     ma_format internalFormat;
     ma_uint32 internalChannels;
     ma_uint32 internalSampleRate;
@@ -36027,11 +36032,11 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
     }
     /*fdFlags |= O_NONBLOCK;*/
 
+    /* Find the index of the default device as a start. We'll use this index later. Set it to (size_t)-1 otherwise. */
     if (pDescriptor->pDeviceID == NULL) {
         /* Default device. */
-        size_t iDevice;
-        for (iDevice = 0; iDevice < ma_countof(pDefaultDeviceNames); ++iDevice) {
-            fd = open(pDefaultDeviceNames[iDevice], fdFlags, 0);
+        for (iDefaultDevice = 0; iDefaultDevice < ma_countof(pDefaultDeviceNames); ++iDefaultDevice) {
+            fd = open(pDefaultDeviceNames[iDefaultDevice], fdFlags, 0);
             if (fd != -1) {
                 break;
             }
@@ -36039,6 +36044,16 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
     } else {
         /* Specific device. */
         fd = open(pDescriptor->pDeviceID->audio4, fdFlags, 0);
+
+        for (iDefaultDevice = 0; iDefaultDevice < ma_countof(pDefaultDeviceNames); iDefaultDevice += 1) {
+            if (ma_strcmp(pDefaultDeviceNames[iDefaultDevice], pDescriptor->pDeviceID->audio4) == 0) {
+                break;
+            }
+        }
+
+        if (iDefaultDevice == ma_countof(pDefaultDeviceNames)) {
+            iDefaultDevice = (size_t)-1;
+        }
     }
 
     if (fd == -1) {
@@ -36049,6 +36064,7 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
     #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
     {
         audio_info_t fdInfo;
+        int fdInfoResult = -1;
 
         /*
         The documentation is a little bit unclear to me as to how it handles formats. It says the
@@ -36067,6 +36083,28 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
         appropriate one.
         */
         AUDIO_INITINFO(&fdInfo);
+
+        /*
+        Get the default format from the audioctl file if we're asking for a default device. If we
+        retrieve it from /dev/audio it'll default to mono 8000Hz.
+        */
+        if (iDefaultDevice != (size_t)-1) {
+            /* We're using a default device. Get the info from the /dev/audioctl file instead of /dev/audio. */
+            int fdctl = open(pDefaultDeviceCtlNames[iDefaultDevice], fdFlags, 0);
+            if (fdctl != -1) {
+                fdInfoResult = ioctl(fdctl, AUDIO_GETINFO, &fdInfo);
+                close(fdctl);
+            }
+        }
+
+        if (fdInfoResult == -1) {
+            /* We still don't have the default device info so just retrieve it from the main audio device. */
+            if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
+                close(fd);
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[audio4] AUDIO_GETINFO failed.");
+                return ma_result_from_errno(errno);
+            }
+        }
 
         /* We get the driver to do as much of the data conversion as possible. */
         if (deviceType == ma_device_type_capture) {
