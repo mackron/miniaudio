@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.11 - 2022-11-04
+miniaudio - v0.11.12 - 2023-03-19
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 11
+#define MA_VERSION_REVISION 12
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -35,7 +35,7 @@ extern "C" {
         #pragma GCC diagnostic ignored "-Wc11-extensions"   /* anonymous unions are a C11 extension */
     #endif
 #endif
-  
+
 
 
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
@@ -94,6 +94,10 @@ typedef ma_uint32   ma_bool32;
 #define MA_TRUE     1
 #define MA_FALSE    0
 
+/* These float types are not used universally by miniaudio. It's to simplify some macro expansion for atomic types. */
+typedef float       ma_float;
+typedef double      ma_double;
+
 typedef void* ma_handle;
 typedef void* ma_ptr;
 typedef void (* ma_proc)(void);
@@ -115,7 +119,7 @@ typedef ma_uint16 wchar_t;
 
 
 /* Platform/backend detection. */
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__COSMOPOLITAN__)
     #define MA_WIN32
     #if defined(MA_FORCE_UWP) || (defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PC_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PC_APP) || (defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
         #define MA_WIN32_UWP
@@ -124,7 +128,8 @@ typedef ma_uint16 wchar_t;
     #else
         #define MA_WIN32_DESKTOP
     #endif
-#else
+#endif
+#if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
     #define MA_POSIX
 
     /*
@@ -147,7 +152,11 @@ typedef ma_uint16 wchar_t;
 
     #ifdef __unix__
         #define MA_UNIX
-        #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        #ifdef __ORBIS__
+            #define MA_ORBIS
+        #elif defined(__PROSPERO__)
+            #define MA_PROSPERO
+        #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
             #define MA_BSD
         #endif
     #endif
@@ -163,8 +172,24 @@ typedef ma_uint16 wchar_t;
     #ifdef __EMSCRIPTEN__
         #define MA_EMSCRIPTEN
     #endif
+    #if defined(__NX__)
+        #define MA_NX
+    #endif
 #endif
 
+#if defined(__has_c_attribute)
+    #if __has_c_attribute(fallthrough)
+        #define MA_FALLTHROUGH [[fallthrough]]
+    #endif
+#endif
+#if !defined(MA_FALLTHROUGH) && defined(__has_attribute) && (defined(__clang__) || defined(__GNUC__))
+    #if __has_attribute(fallthrough)
+        #define MA_FALLTHROUGH __attribute__((fallthrough))
+    #endif
+#endif
+#if !defined(MA_FALLTHROUGH)
+    #define MA_FALLTHROUGH ((void)0)
+#endif
 
 #ifdef _MSC_VER
     #define MA_INLINE __forceinline
@@ -226,6 +251,21 @@ typedef ma_uint16 wchar_t;
 /* SIMD alignment in bytes. Currently set to 32 bytes in preparation for future AVX optimizations. */
 #define MA_SIMD_ALIGNMENT  32
 
+/*
+Special wchar_t type to ensure any structures in the public sections that reference it have a
+consistent size across all platforms.
+
+On Windows, wchar_t is 2 bytes, whereas everywhere else it's 4 bytes. Since Windows likes to use
+wchar_t for it's IDs, we need a special explicitly sized wchar type that is always 2 bytes on all
+platforms.
+*/
+#if !defined(MA_POSIX) && defined(MA_WIN32)
+typedef wchar_t     ma_wchar_win32;
+#else
+typedef ma_uint16   ma_wchar_win32;
+#endif
+
+
 
 /*
 Logging Levels
@@ -272,7 +312,7 @@ versions of Visual Studio, which I've confirmed with at least VC6.
 */
 #if !defined(_MSC_VER) && defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
     #include <stdalign.h>
-    #define MA_ATOMIC(alignment, type)            alignas(alignment) type
+    #define MA_ATOMIC(alignment, type)            _Alignas(alignment) type
 #else
     #if defined(__GNUC__)
         /* GCC-style compilers. */
@@ -414,6 +454,7 @@ typedef enum
     MA_API_NOT_FOUND                  = -105,
     MA_INVALID_DEVICE_CONFIG          = -106,
     MA_LOOP                           = -107,
+    MA_BACKEND_NOT_ENABLED            = -108,
 
     /* State errors. */
     MA_DEVICE_NOT_INITIALIZED         = -200,
@@ -430,7 +471,7 @@ typedef enum
 
 
 #define MA_MIN_CHANNELS                 1
-#ifndef MA_MAX_CHANNELS                 
+#ifndef MA_MAX_CHANNELS
 #define MA_MAX_CHANNELS                 254
 #endif
 
@@ -541,65 +582,118 @@ typedef struct
 } ma_lcg;
 
 
+/*
+Atomics.
+
+These are typesafe structures to prevent errors as a result of forgetting to reference variables atomically. It's too
+easy to introduce subtle bugs where you accidentally do a regular assignment instead of an atomic load/store, etc. By
+using a struct we can enforce the use of atomics at compile time.
+
+These types are declared in the header section because we need to reference them in structs below, but functions for
+using them are only exposed in the implementation section. I do not want these to be part of the public API.
+
+There's a few downsides to this system. The first is that you need to declare a new struct for each type. Below are
+some macros to help with the declarations. They will be named like so:
+
+    ma_atomic_uint32 - atomic ma_uint32
+    ma_atomic_int32  - atomic ma_int32
+    ma_atomic_uint64 - atomic ma_uint64
+    ma_atomic_float  - atomic float
+    ma_atomic_bool32 - atomic ma_bool32
+
+The other downside is that atomic pointers are extremely messy. You need to declare a new struct for each specific
+type of pointer you need to make atomic. For example, an atomic ma_node* will look like this:
+
+    MA_ATOMIC_SAFE_TYPE_IMPL_PTR(node)
+
+Which will declare a type struct that's named like so:
+
+    ma_atomic_ptr_node
+
+Functions to use the atomic types are declared in the implementation section. All atomic functions are prefixed with
+the name of the struct. For example:
+
+    ma_atomic_uint32_set() - Atomic store of ma_uint32
+    ma_atomic_uint32_get() - Atomic load of ma_uint32
+    etc.
+
+For pointer types it's the same, which makes them a bit messy to use due to the length of each function name, but in
+return you get type safety and enforcement of atomic operations.
+*/
+#define MA_ATOMIC_SAFE_TYPE_DECL(c89TypeExtension, typeSize, type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(typeSize, ma_##type) value; \
+    } ma_atomic_##type; \
+
+#define MA_ATOMIC_SAFE_TYPE_DECL_PTR(type) \
+    typedef struct \
+    { \
+        MA_ATOMIC(MA_SIZEOF_PTR, ma_##type*) value; \
+    } ma_atomic_ptr_##type; \
+
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, uint32)
+MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, int32)
+MA_ATOMIC_SAFE_TYPE_DECL(64,  8, uint64)
+MA_ATOMIC_SAFE_TYPE_DECL(f32, 4, float)
+MA_ATOMIC_SAFE_TYPE_DECL(32,  4, bool32)
+
+
 /* Spinlocks are 32-bit for compatibility reasons. */
 typedef ma_uint32 ma_spinlock;
 
 #ifndef MA_NO_THREADING
-/* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
-typedef enum
-{
-    ma_thread_priority_idle     = -5,
-    ma_thread_priority_lowest   = -4,
-    ma_thread_priority_low      = -3,
-    ma_thread_priority_normal   = -2,
-    ma_thread_priority_high     = -1,
-    ma_thread_priority_highest  =  0,
-    ma_thread_priority_realtime =  1,
-    ma_thread_priority_default  =  0
-} ma_thread_priority;
+    /* Thread priorities should be ordered such that the default priority of the worker thread is 0. */
+    typedef enum
+    {
+        ma_thread_priority_idle     = -5,
+        ma_thread_priority_lowest   = -4,
+        ma_thread_priority_low      = -3,
+        ma_thread_priority_normal   = -2,
+        ma_thread_priority_high     = -1,
+        ma_thread_priority_highest  =  0,
+        ma_thread_priority_realtime =  1,
+        ma_thread_priority_default  =  0
+    } ma_thread_priority;
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_thread;
-#endif
-#if defined(MA_POSIX)
-typedef ma_pthread_t ma_thread;
-#endif
+    #if defined(MA_POSIX)
+        typedef ma_pthread_t ma_thread;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_thread;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_mutex;
-#endif
-#if defined(MA_POSIX)
-typedef ma_pthread_mutex_t ma_mutex;
-#endif
+    #if defined(MA_POSIX)
+        typedef ma_pthread_mutex_t ma_mutex;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_mutex;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_event;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    ma_uint32 value;
-    ma_pthread_mutex_t lock;
-    ma_pthread_cond_t cond;
-} ma_event;
-#endif  /* MA_POSIX */
+    #if defined(MA_POSIX)
+        typedef struct
+        {
+            ma_uint32 value;
+            ma_pthread_mutex_t lock;
+            ma_pthread_cond_t cond;
+        } ma_event;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_event;
+    #endif
 
-#if defined(MA_WIN32)
-typedef ma_handle ma_semaphore;
-#endif
-#if defined(MA_POSIX)
-typedef struct
-{
-    int value;
-    ma_pthread_mutex_t lock;
-    ma_pthread_cond_t cond;
-} ma_semaphore;
-#endif  /* MA_POSIX */
+    #if defined(MA_POSIX)
+        typedef struct
+        {
+            int value;
+            ma_pthread_mutex_t lock;
+            ma_pthread_cond_t cond;
+        } ma_semaphore;
+    #elif defined(MA_WIN32)
+        typedef ma_handle ma_semaphore;
+    #endif
 #else
-/* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
-#ifndef MA_NO_DEVICE_IO
-#error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
-#endif
+    /* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
+    #ifndef MA_NO_DEVICE_IO
+        #error "MA_NO_THREADING cannot be used without MA_NO_DEVICE_IO";
+    #endif
 #endif  /* MA_NO_THREADING */
 
 
@@ -627,7 +721,7 @@ Logging
     #endif
 #endif
 #ifndef MA_ATTRIBUTE_FORMAT
-#define MA_ATTRIBUTE_FORMAT(fmt,va)
+#define MA_ATTRIBUTE_FORMAT(fmt, va)
 #endif
 
 #ifndef MA_MAX_LOG_CALLBACKS
@@ -658,11 +752,6 @@ logLevel (in)
 
 pMessage (in)
     The log message.
-
-
-Remarks
--------
-Do not modify the state of the device from inside the callback.
 */
 typedef void (* ma_log_callback_proc)(void* pUserData, ma_uint32 level, const char* pMessage);
 
@@ -1157,6 +1246,7 @@ typedef struct
 {
     ma_gainer_config config;
     ma_uint32 t;
+    float masterVolume;
     float* pOldGains;
     float* pNewGains;
 
@@ -1172,6 +1262,8 @@ MA_API void ma_gainer_uninit(ma_gainer* pGainer, const ma_allocation_callbacks* 
 MA_API ma_result ma_gainer_process_pcm_frames(ma_gainer* pGainer, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API ma_result ma_gainer_set_gain(ma_gainer* pGainer, float newGain);
 MA_API ma_result ma_gainer_set_gains(ma_gainer* pGainer, float* pNewGains);
+MA_API ma_result ma_gainer_set_master_volume(ma_gainer* pGainer, float volume);
+MA_API ma_result ma_gainer_get_master_volume(const ma_gainer* pGainer, float* pVolume);
 
 
 
@@ -1233,7 +1325,7 @@ MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader)
 MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API void ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames);
-MA_API float ma_fader_get_current_volume(ma_fader* pFader);
+MA_API float ma_fader_get_current_volume(const ma_fader* pFader);
 
 
 
@@ -1244,6 +1336,12 @@ typedef struct
     float y;
     float z;
 } ma_vec3f;
+
+typedef struct
+{
+    ma_vec3f v;
+    ma_spinlock lock;
+} ma_atomic_vec3f;
 
 typedef enum
 {
@@ -1284,9 +1382,9 @@ MA_API ma_spatializer_listener_config ma_spatializer_listener_config_init(ma_uin
 typedef struct
 {
     ma_spatializer_listener_config config;
-    ma_vec3f position;  /* The absolute position of the listener. */
-    ma_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
-    ma_vec3f velocity;
+    ma_atomic_vec3f position;  /* The absolute position of the listener. */
+    ma_atomic_vec3f direction; /* The direction the listener is facing. The world up vector is config.worldUp. */
+    ma_atomic_vec3f velocity;
     ma_bool32 isEnabled;
 
     /* Memory management. */
@@ -1333,6 +1431,7 @@ typedef struct
     float coneOuterGain;
     float dopplerFactor;                /* Set to 0 to disable doppler effect. */
     float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
+    float minSpatializationChannelGain; /* The minimal scaling factor to apply to channel gains when accounting for the direction of the sound relative to the listener. Must be in the range of 0..1. Smaller values means more aggressive directional panning, larger values means more subtle directional panning. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
 } ma_spatializer_config;
 
@@ -1358,10 +1457,11 @@ typedef struct
     float dopplerFactor;                /* Set to 0 to disable doppler effect. */
     float directionalAttenuationFactor; /* Set to 0 to disable directional attenuation. */
     ma_uint32 gainSmoothTimeInFrames;   /* When the gain of a channel changes during spatialization, the transition will be linearly interpolated over this number of frames. */
-    ma_vec3f position;
-    ma_vec3f direction;
-    ma_vec3f velocity;  /* For doppler effect. */
+    ma_atomic_vec3f position;
+    ma_atomic_vec3f direction;
+    ma_atomic_vec3f velocity;  /* For doppler effect. */
     float dopplerPitch; /* Will be updated by ma_spatializer_process_pcm_frames() and can be used by higher level functions to apply a pitch shift for doppler effect. */
+    float minSpatializationChannelGain;
     ma_gainer gainer;   /* For smooth gain transitions. */
     float* pNewChannelGainsOut; /* An offset of _pHeap. Used by ma_spatializer_process_pcm_frames() to store new channel gains. The number of elements in this array is equal to config.channelsOut. */
 
@@ -1375,6 +1475,8 @@ MA_API ma_result ma_spatializer_init_preallocated(const ma_spatializer_config* p
 MA_API ma_result ma_spatializer_init(const ma_spatializer_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_uninit(ma_spatializer* pSpatializer, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer, ma_spatializer_listener* pListener, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
+MA_API ma_result ma_spatializer_set_master_volume(ma_spatializer* pSpatializer, float volume);
+MA_API ma_result ma_spatializer_get_master_volume(const ma_spatializer* pSpatializer, float* pVolume);
 MA_API ma_uint32 ma_spatializer_get_input_channels(const ma_spatializer* pSpatializer);
 MA_API ma_uint32 ma_spatializer_get_output_channels(const ma_spatializer* pSpatializer);
 MA_API void ma_spatializer_set_attenuation_model(ma_spatializer* pSpatializer, ma_attenuation_model attenuationModel);
@@ -1571,7 +1673,7 @@ MA_API ma_result ma_resampler_process_pcm_frames(ma_resampler* pResampler, const
 
 
 /*
-Sets the input and output sample sample rate.
+Sets the input and output sample rate.
 */
 MA_API ma_result ma_resampler_set_rate(ma_resampler* pResampler, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut);
 
@@ -2491,15 +2593,20 @@ This section contains the APIs for device playback and capture. Here is where yo
 /* Some backends are only supported on certain platforms. */
 #if defined(MA_WIN32)
     #define MA_SUPPORT_WASAPI
-    #if defined(MA_WIN32_DESKTOP)  /* DirectSound and WinMM backends are only supported on desktops. */
+
+    #if defined(MA_WIN32_DESKTOP)   /* DirectSound and WinMM backends are only supported on desktops. */
         #define MA_SUPPORT_DSOUND
         #define MA_SUPPORT_WINMM
-        #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+
+        /* Don't enable JACK here if compiling with Cosmopolitan. It'll be enabled in the Linux section below. */
+        #if !defined(__COSMOPOLITAN__)
+            #define MA_SUPPORT_JACK    /* JACK is technically supported on Windows, but I don't know how many people use it in practice... */
+        #endif
     #endif
 #endif
-#if defined(MA_UNIX)
+#if defined(MA_UNIX) && !defined(MA_ORBIS) && !defined(MA_PROSPERO)
     #if defined(MA_LINUX)
-        #if !defined(MA_ANDROID)   /* ALSA is not supported on Android. */
+        #if !defined(MA_ANDROID) && !defined(__COSMOPOLITAN__)   /* ALSA is not supported on Android. */
             #define MA_SUPPORT_ALSA
         #endif
     #endif
@@ -2591,6 +2698,9 @@ typedef enum
     ma_device_state_starting      = 3,  /* Transitioning from a stopped state to started. */
     ma_device_state_stopping      = 4   /* Transitioning from a started state to stopped. */
 } ma_device_state;
+
+MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, device_state)
+
 
 #ifdef MA_SUPPORT_WASAPI
 /* We need a IMMNotificationClient object for WASAPI. */
@@ -2784,7 +2894,7 @@ DEPRECATED. Use ma_device_notification_proc instead.
 The callback for when the device has been stopped.
 
 This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
-such as being unplugged or an internal error occuring.
+such as being unplugged or an internal error occurring.
 
 
 Parameters
@@ -2913,6 +3023,13 @@ typedef enum
     ma_aaudio_input_preset_voice_performance        /* AAUDIO_INPUT_PRESET_VOICE_PERFORMANCE */
 } ma_aaudio_input_preset;
 
+typedef enum
+{
+    ma_aaudio_allow_capture_default = 0,            /* Leaves the allowed capture policy unset. */
+    ma_aaudio_allow_capture_by_all,                 /* AAUDIO_ALLOW_CAPTURE_BY_ALL */
+    ma_aaudio_allow_capture_by_system,              /* AAUDIO_ALLOW_CAPTURE_BY_SYSTEM */
+    ma_aaudio_allow_capture_by_none                 /* AAUDIO_ALLOW_CAPTURE_BY_NONE */
+} ma_aaudio_allowed_capture_policy;
 
 typedef union
 {
@@ -2922,7 +3039,7 @@ typedef union
 
 typedef union
 {
-    wchar_t wasapi[64];             /* WASAPI uses a wchar_t string for identification. */
+    ma_wchar_win32 wasapi[64];      /* WASAPI uses a wchar_t string for identification. */
     ma_uint8 dsound[16];            /* DirectSound uses a GUID for identification. */
     /*UINT_PTR*/ ma_uint32 winmm;   /* When creating a device, WinMM expects a Win32 UINT_PTR for device identification. In practice it's actually just a UINT. */
     char alsa[256];                 /* ALSA uses a name string for identification. */
@@ -3040,13 +3157,16 @@ struct ma_device_config
     {
         ma_opensl_stream_type streamType;
         ma_opensl_recording_preset recordingPreset;
+        ma_bool32 enableCompatibilityWorkarounds;
     } opensl;
     struct
     {
         ma_aaudio_usage usage;
         ma_aaudio_content_type contentType;
         ma_aaudio_input_preset inputPreset;
+        ma_aaudio_allowed_capture_policy allowedCapturePolicy;
         ma_bool32 noAutoStartAfterReroute;
+        ma_bool32 enableCompatibilityWorkarounds;
     } aaudio;
 };
 
@@ -3147,7 +3267,7 @@ If the backend requires absolute flexibility with it's data delivery, it can opt
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == ma_device_state_started` and no errors have been
-encounted. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
+encountered. Do not start or stop the device here. That will be handled from outside the `onDeviceDataLoop()` callback.
 
 The invocation of the `onDeviceDataLoop()` callback will be handled by miniaudio. When you start the device, miniaudio will fire this
 callback. When the device is stopped, the `ma_device_get_state() == ma_device_state_started` condition will fail and the loop will be terminated
@@ -3262,7 +3382,7 @@ struct ma_context
             ma_uint32 commandCount;
             ma_context_command__wasapi commands[4];
             ma_handle hAvrt;
-            ma_proc AvSetMmThreadCharacteristicsW;
+            ma_proc AvSetMmThreadCharacteristicsA;
             ma_proc AvRevertMmThreadcharacteristics;
             ma_handle hMMDevapi;
             ma_proc ActivateAudioInterfaceAsync;
@@ -3560,6 +3680,7 @@ struct ma_context
             ma_proc AAudioStreamBuilder_setUsage;
             ma_proc AAudioStreamBuilder_setContentType;
             ma_proc AAudioStreamBuilder_setInputPreset;
+            ma_proc AAudioStreamBuilder_setAllowedCapturePolicy;
             ma_proc AAudioStreamBuilder_openStream;
             ma_proc AAudioStream_close;
             ma_proc AAudioStream_getState;
@@ -3605,10 +3726,11 @@ struct ma_context
 
     union
     {
-#ifdef MA_WIN32
+#if defined(MA_WIN32)
         struct
         {
             /*HMODULE*/ ma_handle hOle32DLL;
+            ma_proc CoInitialize;
             ma_proc CoInitializeEx;
             ma_proc CoUninitialize;
             ma_proc CoCreateInstance;
@@ -3629,22 +3751,7 @@ struct ma_context
 #ifdef MA_POSIX
         struct
         {
-            ma_handle pthreadSO;
-            ma_proc pthread_create;
-            ma_proc pthread_join;
-            ma_proc pthread_mutex_init;
-            ma_proc pthread_mutex_destroy;
-            ma_proc pthread_mutex_lock;
-            ma_proc pthread_mutex_unlock;
-            ma_proc pthread_cond_init;
-            ma_proc pthread_cond_destroy;
-            ma_proc pthread_cond_wait;
-            ma_proc pthread_cond_signal;
-            ma_proc pthread_attr_init;
-            ma_proc pthread_attr_destroy;
-            ma_proc pthread_attr_setschedpolicy;
-            ma_proc pthread_attr_getschedparam;
-            ma_proc pthread_attr_setschedparam;
+            int _unused;
         } posix;
 #endif
         int _unused;
@@ -3656,7 +3763,7 @@ struct ma_device
     ma_context* pContext;
     ma_device_type type;
     ma_uint32 sampleRate;
-    MA_ATOMIC(4, ma_device_state) state;        /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
+    ma_atomic_device_state state;               /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     ma_stop_proc onStop;                        /* DEPRECATED. Use the notification callback instead. Set once at initialization time and should not be changed after. */
@@ -3672,7 +3779,7 @@ struct ma_device
     ma_bool8 noClip;
     ma_bool8 noDisableDenormals;
     ma_bool8 noFixedSizedCallback;
-    MA_ATOMIC(4, float) masterVolumeFactor;     /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
+    ma_atomic_float masterVolumeFactor;         /* Linear 0..1. Can be read and written simultaneously by different threads. Must be used atomically. */
     ma_duplex_rb duplexRB;                      /* Intermediary buffer for duplex device on asynchronous backends. */
     struct
     {
@@ -3760,8 +3867,8 @@ struct ma_device
             void* pMappedBufferPlayback;
             ma_uint32 mappedBufferPlaybackCap;
             ma_uint32 mappedBufferPlaybackLen;
-            MA_ATOMIC(4, ma_bool32) isStartedCapture;               /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
-            MA_ATOMIC(4, ma_bool32) isStartedPlayback;              /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            ma_atomic_bool32 isStartedCapture;                      /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
+            ma_atomic_bool32 isStartedPlayback;                     /* Can be read and written simultaneously across different threads. Must be used atomically, and must be 32-bit. */
             ma_uint32 loopbackProcessID;
             ma_bool8 loopbackProcessExclude;
             ma_bool8 noAutoConvertSRC;                              /* When set to true, disables the use of AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM. */
@@ -3772,7 +3879,8 @@ struct ma_device
             ma_bool8 isDetachedPlayback;
             ma_bool8 isDetachedCapture;
             ma_wasapi_usage usage;
-            void *hAvrtHandle;
+            void* hAvrtHandle;
+            ma_mutex rerouteLock;
         } wasapi;
 #endif
 #ifdef MA_SUPPORT_DSOUND
@@ -3890,6 +3998,7 @@ struct ma_device
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
+            ma_aaudio_allowed_capture_policy allowedCapturePolicy;
             ma_bool32 noAutoStartAfterReroute;
         } aaudio;
 #endif
@@ -3915,6 +4024,20 @@ struct ma_device
 #ifdef MA_SUPPORT_WEBAUDIO
         struct
         {
+            /* AudioWorklets path. */
+            /* EMSCRIPTEN_WEBAUDIO_T */ int audioContextPlayback;
+            /* EMSCRIPTEN_WEBAUDIO_T */ int audioContextCapture;
+            /* EMSCRIPTEN_AUDIO_WORKLET_NODE_T */ int workletNodePlayback;
+            /* EMSCRIPTEN_AUDIO_WORKLET_NODE_T */ int workletNodeCapture;
+            size_t intermediaryBufferSizeInFramesPlayback;
+            size_t intermediaryBufferSizeInFramesCapture;
+            float* pIntermediaryBufferPlayback;
+            float* pIntermediaryBufferCapture;
+            void* pStackBufferPlayback;
+            void* pStackBufferCapture;
+            ma_bool32 isInitialized;
+
+            /* ScriptProcessorNode path. */
             int indexPlayback;              /* We use a factory on the JavaScript side to manage devices and use an index for JS/C interop. */
             int indexCapture;
         } webaudio;
@@ -3934,7 +4057,7 @@ struct ma_device
             ma_uint32 currentPeriodFramesRemainingCapture;
             ma_uint64 lastProcessedFramePlayback;
             ma_uint64 lastProcessedFrameCapture;
-            MA_ATOMIC(4, ma_bool32) isStarted;  /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
+            ma_atomic_bool32 isStarted; /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
 #endif
     };
@@ -4598,7 +4721,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         A pointer that will passed to callbacks in pBackendVTable.
 
     resampling.linear.lpfOrder
-        The linear resampler applies a low-pass filter as part of it's procesing for anti-aliasing. This setting controls the order of the filter. The higher
+        The linear resampler applies a low-pass filter as part of it's processing for anti-aliasing. This setting controls the order of the filter. The higher
         the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
         `MA_MAX_FILTER_ORDER`. The default value is `min(4, MA_MAX_FILTER_ORDER)`.
 
@@ -5517,6 +5640,11 @@ Retrieves a friendly name for a backend.
 MA_API const char* ma_get_backend_name(ma_backend backend);
 
 /*
+Retrieves the backend enum from the given name.
+*/
+MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend);
+
+/*
 Determines whether or not the given backend is available by the compilation environment.
 */
 MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend);
@@ -5605,7 +5733,7 @@ MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
 
 /************************************************************************************************************************************************************
 
-Utiltities
+Utilities
 
 ************************************************************************************************************************************************************/
 
@@ -5707,6 +5835,12 @@ Helper for converting gain in decibels to a linear factor.
 MA_API float ma_volume_db_to_linear(float gain);
 
 
+/*
+Mixes the specified number of frames in floating point format with a volume factor.
+
+This will run on an optimized path when the volume is equal to 1.
+*/
+MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
 
 
 /**************************************************************************************************
@@ -6464,7 +6598,7 @@ struct ma_resource_manager_data_buffer
     ma_bool32 seekToCursorOnNextRead;               /* On the next read we need to seek to the frame cursor. */
     MA_ATOMIC(4, ma_result) result;                 /* Keeps track of a result of decoding. Set to MA_BUSY while the buffer is still loading. Set to MA_SUCCESS when loading is finished successfully. Otherwise set to some other code. */
     MA_ATOMIC(4, ma_bool32) isLooping;              /* Can be read and written by different threads at the same time. Must be used atomically. */
-    ma_bool32 isConnectorInitialized;               /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
+    ma_atomic_bool32 isConnectorInitialized;        /* Used for asynchronous loading to ensure we don't try to initialize the connector multiple times while waiting for the node to fully load. */
     union
     {
         ma_decoder decoder;                 /* Supply type is ma_resource_manager_data_supply_type_encoded */
@@ -6522,6 +6656,7 @@ typedef struct
     ma_uint32 decodedChannels;      /* The decoded channel count to use. Set to 0 (default) to use the file's native channel count. */
     ma_uint32 decodedSampleRate;    /* the decoded sample rate to use. Set to 0 (default) to use the file's native sample rate. */
     ma_uint32 jobThreadCount;       /* Set to 0 if you want to self-manage your job threads. Defaults to 1. */
+    size_t jobThreadStackSize;
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
@@ -6730,7 +6865,7 @@ struct ma_node_output_bus
     ma_uint8 channels;                                      /* The number of channels in the audio stream for this bus. */
 
     /* Mutable via multiple threads. Must be used atomically. The weird ordering here is for packing reasons. */
-    MA_ATOMIC(1, ma_uint8) inputNodeInputBusIndex;          /* The index of the input bus on the input. Required for detaching. */
+    ma_uint8 inputNodeInputBusIndex;                        /* The index of the input bus on the input. Required for detaching. Will only be used within the spinlock so does not need to be atomic. */
     MA_ATOMIC(4, ma_uint32) flags;                          /* Some state flags for tracking the read state of the output buffer. A combination of MA_NODE_OUTPUT_BUS_FLAG_*. */
     MA_ATOMIC(4, ma_uint32) refCount;                       /* Reference count for some thread-safety when detaching. */
     MA_ATOMIC(4, ma_bool32) isAttached;                     /* This is used to prevent iteration of nodes that are in the middle of being detached. Used for thread safety. */
@@ -6754,7 +6889,7 @@ struct ma_node_input_bus
     MA_ATOMIC(4, ma_spinlock) lock;         /* Unfortunate lock, but significantly simplifies the implementation. Required for thread-safe attaching and detaching. */
 
     /* Set once at startup. */
-    ma_uint8 channels;                  /* The number of channels in the audio stream for this bus. */
+    ma_uint8 channels;                      /* The number of channels in the audio stream for this bus. */
 };
 
 
@@ -6762,7 +6897,7 @@ typedef struct ma_node_base ma_node_base;
 struct ma_node_base
 {
     /* These variables are set once at startup. */
-    ma_node_graph* pNodeGraph;  /* The graph this node belongs to. */
+    ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
     float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
     ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
@@ -6864,7 +6999,7 @@ MA_API ma_result ma_data_source_node_set_looping(ma_data_source_node* pDataSourc
 MA_API ma_bool32 ma_data_source_node_is_looping(ma_data_source_node* pDataSourceNode);
 
 
-/* Splitter Node. 1 input, 2 outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
+/* Splitter Node. 1 input, many outputs. Used for splitting/copying a stream so it can be as input into two separate output nodes. */
 typedef struct
 {
     ma_node_config nodeConfig;
@@ -7137,7 +7272,7 @@ typedef struct
     ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
     ma_mono_expansion_mode monoExpansionMode;
-    ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disable with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
+    ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disabled with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
     ma_uint8 pinnedListenerIndex;       /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 } ma_engine_node_config;
@@ -7176,6 +7311,9 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
 #define MA_SOUND_SOURCE_CHANNEL_COUNT   0xFFFFFFFF
 
+/* Callback for when a sound reaches the end. */
+typedef void (* ma_sound_end_proc)(void* pUserData, ma_sound* pSound);
+
 typedef struct
 {
     const char* pFilePath;                      /* Set this to load from the resource manager. */
@@ -7193,7 +7331,12 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     ma_bool32 isLooping;
-    ma_fence* pDoneFence;                       /* Released when the resource manager has finished decoding the entire sound. Not used with streams. */
+    ma_sound_end_proc endCallback;              /* Fired when the sound reaches the end. Will be fired from the audio thread. Do not restart, uninitialize or otherwise change the state of the sound from here. Instead fire an event or set a variable to indicate to a different thread to change the start of the sound. Will not be fired in response to a scheduled stop with ma_sound_set_stop_time_*(). */
+    void* pEndCallbackUserData;
+#ifndef MA_NO_RESOURCE_MANAGER
+    ma_resource_manager_pipeline_notifications initNotifications;
+#endif
+    ma_fence* pDoneFence;                       /* Deprecated. Use initNotifications instead. Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
@@ -7205,6 +7348,8 @@ struct ma_sound
     ma_data_source* pDataSource;
     MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
+    ma_sound_end_proc endCallback;
+    void* pEndCallbackUserData;
     ma_bool8 ownsDataSource;
 
     /*
@@ -7378,7 +7523,7 @@ MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float 
 MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound);
 MA_API void ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
-MA_API float ma_sound_get_current_fade_volume(ma_sound* pSound);
+MA_API float ma_sound_get_current_fade_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_start_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API void ma_sound_set_start_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
@@ -7394,6 +7539,7 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor);
 MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength);
+MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup);
@@ -7490,7 +7636,7 @@ For more information, please refer to <http://unlicense.org/>
 ===============================================================================
 ALTERNATIVE 2 - MIT No Attribution
 ===============================================================================
-Copyright 2020 David Reid
+Copyright 2023 David Reid
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
