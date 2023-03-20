@@ -1,3 +1,8 @@
+v0.11.12 - TBD
+=====================
+* Fix compilation errors when WIN32_LEAN_AND_MEAN is defined.
+
+
 v0.11.12 - 2023-03-19
 =====================
 * Fix a bug with data source ranges which resulted in data being read from outside the range.
