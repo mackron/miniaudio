@@ -11340,6 +11340,25 @@ IMPLEMENTATION
 
 #if defined(MA_WIN32)
     #include <windows.h>
+
+    /*
+    There's a possibility that WIN32_LEAN_AND_MEAN has been defined which will exclude some symbols
+    such as STGM_READ and CLSCTL_ALL. We need to check these and define them ourselves if they're
+    unavailable.
+    */
+    #ifndef STGM_READ
+    #define STGM_READ   0x00000000L
+    #endif
+    #ifndef CLSCTX_ALL
+    #define CLSCTX_ALL  23
+    #endif
+
+    #ifndef MAXPNAMELEN
+    #define MAXPNAMELEN 32
+    #endif
+
+    typedef UINT MA_MMRESULT;
+    typedef UINT MA_MMVERSION;
 #endif
 
 #if !defined(MA_WIN32)
@@ -25209,15 +25228,70 @@ WinMM Backend
 #ifdef MA_HAS_WINMM
 
 /*
-Some older compilers don't have WAVEOUTCAPS2A and WAVEINCAPS2A, so we'll need to write this ourselves. These structures
-are exactly the same as the older ones but they have a few GUIDs for manufacturer/product/name identification. I'm keeping
-the names the same as the Win32 library for consistency, but namespaced to avoid naming conflicts with the Win32 version.
+Some build configurations will exclude the WinMM API. An example is when WIN32_LEAN_AND_MEAN
+is defined. We need to define the types and functions we need manually.
 */
+#define MA_MMSYSERR_NOERROR     0
+#define MA_MMSYSERR_ERROR       1
+#define MA_MMSYSERR_BADDEVICEID 2
+#define MA_MMSYSERR_INVALHANDLE 5
+#define MA_MMSYSERR_NOMEM       7
+#define MA_MMSYSERR_INVALFLAG   10
+#define MA_MMSYSERR_INVALPARAM  11
+#define MA_MMSYSERR_HANDLEBUSY  12
+
+#define MA_CALLBACK_EVENT       0x00050000
+#define MA_WAVE_ALLOWSYNC       0x0002
+
+#define MA_WHDR_DONE            0x00000001
+#define MA_WHDR_PREPARED        0x00000002
+#define MA_WHDR_BEGINLOOP       0x00000004
+#define MA_WHDR_ENDLOOP         0x00000008
+#define MA_WHDR_INQUEUE         0x00000010
+
+typedef void* MA_HWAVEIN;
+typedef void* MA_HWAVEOUT;
+
 typedef struct
 {
     WORD wMid;
     WORD wPid;
-    MMVERSION vDriverVersion;
+    MA_MMVERSION vDriverVersion;
+    CHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD wChannels;
+    WORD wReserved1;
+} MA_WAVEINCAPSA;
+
+typedef struct
+{
+    WORD wMid;
+    WORD wPid;
+    MA_MMVERSION vDriverVersion;
+    CHAR szPname[MAXPNAMELEN];
+    DWORD dwFormats;
+    WORD wChannels;
+    WORD wReserved1;
+    DWORD dwSupport;
+} MA_WAVEOUTCAPSA;
+
+typedef struct tagWAVEHDR
+{
+    char* lpData;
+    DWORD dwBufferLength;
+    DWORD dwBytesRecorded;
+    DWORD_PTR dwUser;
+    DWORD dwFlags;
+    DWORD dwLoops;
+    struct tagWAVEHDR* lpNext;
+    DWORD_PTR reserved;
+} MA_WAVEHDR;
+
+typedef struct
+{
+    WORD wMid;
+    WORD wPid;
+    MA_MMVERSION vDriverVersion;
     CHAR szPname[MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
@@ -25227,11 +25301,12 @@ typedef struct
     GUID ProductGuid;
     GUID NameGuid;
 } MA_WAVEOUTCAPS2A;
+
 typedef struct
 {
     WORD wMid;
     WORD wPid;
-    MMVERSION vDriverVersion;
+    MA_MMVERSION vDriverVersion;
     CHAR szPname[MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
@@ -25241,37 +25316,37 @@ typedef struct
     GUID NameGuid;
 } MA_WAVEINCAPS2A;
 
-typedef UINT     (WINAPI * MA_PFN_waveOutGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutGetDevCapsA)(ma_uintptr uDeviceID, WAVEOUTCAPSA* pwoc, UINT cbwoc);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutOpen)(HWAVEOUT* phwo, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutClose)(HWAVEOUT hwo);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutWrite)(HWAVEOUT hwo, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveOutReset)(HWAVEOUT hwo);
-typedef UINT     (WINAPI * MA_PFN_waveInGetNumDevs)(void);
-typedef MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA)(ma_uintptr uDeviceID, WAVEINCAPSA* pwic, UINT cbwic);
-typedef MMRESULT (WINAPI * MA_PFN_waveInOpen)(HWAVEIN* phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
-typedef MMRESULT (WINAPI * MA_PFN_waveInClose)(HWAVEIN hwi);
-typedef MMRESULT (WINAPI * MA_PFN_waveInPrepareHeader)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveInAddBuffer)(HWAVEIN hwi, WAVEHDR* pwh, UINT cbwh);
-typedef MMRESULT (WINAPI * MA_PFN_waveInStart)(HWAVEIN hwi);
-typedef MMRESULT (WINAPI * MA_PFN_waveInReset)(HWAVEIN hwi);
+typedef UINT        (WINAPI * MA_PFN_waveOutGetNumDevs)(void);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutGetDevCapsA)(ma_uintptr uDeviceID, MA_WAVEOUTCAPSA* pwoc, UINT cbwoc);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutOpen)(MA_HWAVEOUT* phwo, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutClose)(MA_HWAVEOUT hwo);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutPrepareHeader)(MA_HWAVEOUT hwo, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutUnprepareHeader)(MA_HWAVEOUT hwo, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutWrite)(MA_HWAVEOUT hwo, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveOutReset)(MA_HWAVEOUT hwo);
+typedef UINT        (WINAPI * MA_PFN_waveInGetNumDevs)(void);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInGetDevCapsA)(ma_uintptr uDeviceID, MA_WAVEINCAPSA* pwic, UINT cbwic);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInOpen)(MA_HWAVEIN* phwi, UINT uDeviceID, const MA_WAVEFORMATEX* pwfx, DWORD_PTR dwCallback, DWORD_PTR dwInstance, DWORD fdwOpen);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInClose)(MA_HWAVEIN hwi);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInPrepareHeader)(MA_HWAVEIN hwi, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInUnprepareHeader)(MA_HWAVEIN hwi, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInAddBuffer)(MA_HWAVEIN hwi, MA_WAVEHDR* pwh, UINT cbwh);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInStart)(MA_HWAVEIN hwi);
+typedef MA_MMRESULT (WINAPI * MA_PFN_waveInReset)(MA_HWAVEIN hwi);
 
-static ma_result ma_result_from_MMRESULT(MMRESULT resultMM)
+static ma_result ma_result_from_MMRESULT(MA_MMRESULT resultMM)
 {
     switch (resultMM)
     {
-        case MMSYSERR_NOERROR:      return MA_SUCCESS;
-        case MMSYSERR_BADDEVICEID:  return MA_INVALID_ARGS;
-        case MMSYSERR_INVALHANDLE:  return MA_INVALID_ARGS;
-        case MMSYSERR_NOMEM:        return MA_OUT_OF_MEMORY;
-        case MMSYSERR_INVALFLAG:    return MA_INVALID_ARGS;
-        case MMSYSERR_INVALPARAM:   return MA_INVALID_ARGS;
-        case MMSYSERR_HANDLEBUSY:   return MA_BUSY;
-        case MMSYSERR_ERROR:        return MA_ERROR;
-        default:                    return MA_ERROR;
+        case MA_MMSYSERR_NOERROR:       return MA_SUCCESS;
+        case MA_MMSYSERR_BADDEVICEID:   return MA_INVALID_ARGS;
+        case MA_MMSYSERR_INVALHANDLE:   return MA_INVALID_ARGS;
+        case MA_MMSYSERR_NOMEM:         return MA_OUT_OF_MEMORY;
+        case MA_MMSYSERR_INVALFLAG:     return MA_INVALID_ARGS;
+        case MA_MMSYSERR_INVALPARAM:    return MA_INVALID_ARGS;
+        case MA_MMSYSERR_HANDLEBUSY:    return MA_BUSY;
+        case MA_MMSYSERR_ERROR:         return MA_ERROR;
+        default:                        return MA_ERROR;
     }
 }
 
@@ -25558,13 +25633,13 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
     /* Playback. */
     playbackDeviceCount = ((MA_PFN_waveOutGetNumDevs)pContext->winmm.waveOutGetNumDevs)();
     for (iPlaybackDevice = 0; iPlaybackDevice < playbackDeviceCount; ++iPlaybackDevice) {
-        MMRESULT result;
+        MA_MMRESULT result;
         MA_WAVEOUTCAPS2A caps;
 
         MA_ZERO_OBJECT(&caps);
 
-        result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iPlaybackDevice, (WAVEOUTCAPSA*)&caps, sizeof(caps));
-        if (result == MMSYSERR_NOERROR) {
+        result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(iPlaybackDevice, (MA_WAVEOUTCAPSA*)&caps, sizeof(caps));
+        if (result == MA_MMSYSERR_NOERROR) {
             ma_device_info deviceInfo;
 
             MA_ZERO_OBJECT(&deviceInfo);
@@ -25587,13 +25662,13 @@ static ma_result ma_context_enumerate_devices__winmm(ma_context* pContext, ma_en
     /* Capture. */
     captureDeviceCount = ((MA_PFN_waveInGetNumDevs)pContext->winmm.waveInGetNumDevs)();
     for (iCaptureDevice = 0; iCaptureDevice < captureDeviceCount; ++iCaptureDevice) {
-        MMRESULT result;
+        MA_MMRESULT result;
         MA_WAVEINCAPS2A caps;
 
         MA_ZERO_OBJECT(&caps);
 
-        result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iCaptureDevice, (WAVEINCAPSA*)&caps, sizeof(caps));
-        if (result == MMSYSERR_NOERROR) {
+        result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(iCaptureDevice, (MA_WAVEINCAPSA*)&caps, sizeof(caps));
+        if (result == MA_MMSYSERR_NOERROR) {
             ma_device_info deviceInfo;
 
             MA_ZERO_OBJECT(&deviceInfo);
@@ -25635,23 +25710,23 @@ static ma_result ma_context_get_device_info__winmm(ma_context* pContext, ma_devi
     }
 
     if (deviceType == ma_device_type_playback) {
-        MMRESULT result;
+        MA_MMRESULT result;
         MA_WAVEOUTCAPS2A caps;
 
         MA_ZERO_OBJECT(&caps);
 
-        result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, (WAVEOUTCAPSA*)&caps, sizeof(caps));
-        if (result == MMSYSERR_NOERROR) {
+        result = ((MA_PFN_waveOutGetDevCapsA)pContext->winmm.waveOutGetDevCapsA)(winMMDeviceID, (MA_WAVEOUTCAPSA*)&caps, sizeof(caps));
+        if (result == MA_MMSYSERR_NOERROR) {
             return ma_context_get_device_info_from_WAVEOUTCAPS2(pContext, &caps, pDeviceInfo);
         }
     } else {
-        MMRESULT result;
+        MA_MMRESULT result;
         MA_WAVEINCAPS2A caps;
 
         MA_ZERO_OBJECT(&caps);
 
-        result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, (WAVEINCAPSA*)&caps, sizeof(caps));
-        if (result == MMSYSERR_NOERROR) {
+        result = ((MA_PFN_waveInGetDevCapsA)pContext->winmm.waveInGetDevCapsA)(winMMDeviceID, (MA_WAVEINCAPSA*)&caps, sizeof(caps));
+        if (result == MA_MMSYSERR_NOERROR) {
             return ma_context_get_device_info_from_WAVEINCAPS2(pContext, &caps, pDeviceInfo);
         }
     }
@@ -25665,13 +25740,13 @@ static ma_result ma_device_uninit__winmm(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
+        ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture);
         CloseHandle((HANDLE)pDevice->winmm.hEventCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
-        ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback);
         CloseHandle((HANDLE)pDevice->winmm.hEventPlayback);
     }
 
@@ -25728,9 +25803,9 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
 
     /* The capture device needs to be initialized first. */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        WAVEINCAPSA caps;
+        MA_WAVEINCAPSA caps;
         MA_WAVEFORMATEX wf;
-        MMRESULT resultMM;
+        MA_MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
         pDevice->winmm.hEventCapture = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
@@ -25740,7 +25815,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         }
 
         /* The format should be based on the device's actual format. */
-        if (((MA_PFN_waveInGetDevCapsA)pDevice->pContext->winmm.waveInGetDevCapsA)(winMMDeviceIDCapture, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
+        if (((MA_PFN_waveInGetDevCapsA)pDevice->pContext->winmm.waveInGetDevCapsA)(winMMDeviceIDCapture, &caps, sizeof(caps)) != MA_MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MA_FORMAT_NOT_SUPPORTED;
             goto on_error;
         }
@@ -25751,8 +25826,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
             goto on_error;
         }
 
-        resultMM = ((MA_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((HWAVEIN*)&pDevice->winmm.hDeviceCapture, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEventCapture, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
-        if (resultMM != MMSYSERR_NOERROR) {
+        resultMM = ((MA_PFN_waveInOpen)pDevice->pContext->winmm.waveInOpen)((MA_HWAVEIN*)&pDevice->winmm.hDeviceCapture, winMMDeviceIDCapture, &wf, (DWORD_PTR)pDevice->winmm.hEventCapture, (DWORD_PTR)pDevice, MA_CALLBACK_EVENT | MA_WAVE_ALLOWSYNC);
+        if (resultMM != MA_MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open capture device.", errorCode = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
@@ -25766,9 +25841,9 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
     }
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        WAVEOUTCAPSA caps;
+        MA_WAVEOUTCAPSA caps;
         MA_WAVEFORMATEX wf;
-        MMRESULT resultMM;
+        MA_MMRESULT resultMM;
 
         /* We use an event to know when a new fragment needs to be enqueued. */
         pDevice->winmm.hEventPlayback = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
@@ -25778,7 +25853,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         }
 
         /* The format should be based on the device's actual format. */
-        if (((MA_PFN_waveOutGetDevCapsA)pDevice->pContext->winmm.waveOutGetDevCapsA)(winMMDeviceIDPlayback, &caps, sizeof(caps)) != MMSYSERR_NOERROR) {
+        if (((MA_PFN_waveOutGetDevCapsA)pDevice->pContext->winmm.waveOutGetDevCapsA)(winMMDeviceIDPlayback, &caps, sizeof(caps)) != MA_MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to retrieve internal device caps.", errorCode = MA_FORMAT_NOT_SUPPORTED;
             goto on_error;
         }
@@ -25789,8 +25864,8 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
             goto on_error;
         }
 
-        resultMM = ((MA_PFN_waveOutOpen)pDevice->pContext->winmm.waveOutOpen)((HWAVEOUT*)&pDevice->winmm.hDevicePlayback, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEventPlayback, (DWORD_PTR)pDevice, CALLBACK_EVENT | WAVE_ALLOWSYNC);
-        if (resultMM != MMSYSERR_NOERROR) {
+        resultMM = ((MA_PFN_waveOutOpen)pDevice->pContext->winmm.waveOutOpen)((MA_HWAVEOUT*)&pDevice->winmm.hDevicePlayback, winMMDeviceIDPlayback, &wf, (DWORD_PTR)pDevice->winmm.hEventPlayback, (DWORD_PTR)pDevice, MA_CALLBACK_EVENT | MA_WAVE_ALLOWSYNC);
+        if (resultMM != MA_MMSYSERR_NOERROR) {
             errorMsg = "[WinMM] Failed to open playback device.", errorCode = MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             goto on_error;
         }
@@ -25810,10 +25885,10 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
     */
     heapSize = 0;
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
-        heapSize += sizeof(WAVEHDR)*pDescriptorCapture->periodCount + (pDescriptorCapture->periodSizeInFrames * pDescriptorCapture->periodCount * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
+        heapSize += sizeof(MA_WAVEHDR)*pDescriptorCapture->periodCount + (pDescriptorCapture->periodSizeInFrames * pDescriptorCapture->periodCount * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
     }
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        heapSize += sizeof(WAVEHDR)*pDescriptorPlayback->periodCount + (pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels));
+        heapSize += sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount + (pDescriptorPlayback->periodSizeInFrames * pDescriptorPlayback->periodCount * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels));
     }
 
     pDevice->winmm._pHeapData = (ma_uint8*)ma_calloc(heapSize, &pDevice->pContext->allocationCallbacks);
@@ -25829,27 +25904,27 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
 
         if (pConfig->deviceType == ma_device_type_capture) {
             pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
-            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDescriptorCapture->periodCount));
+            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount));
         } else {
             pDevice->winmm.pWAVEHDRCapture            = pDevice->winmm._pHeapData;
-            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount));
+            pDevice->winmm.pIntermediaryBufferCapture = pDevice->winmm._pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount));
         }
 
         /* Prepare headers. */
         for (iPeriod = 0; iPeriod < pDescriptorCapture->periodCount; ++iPeriod) {
             ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->format, pDescriptorCapture->channels);
 
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferCapture + (periodSizeInBytes*iPeriod));
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwBufferLength = periodSizeInBytes;
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwFlags        = 0L;
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwLoops        = 0L;
-            ((MA_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferCapture + (periodSizeInBytes*iPeriod));
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwBufferLength = periodSizeInBytes;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwFlags        = 0L;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwLoops        = 0L;
+            ((MA_PFN_waveInPrepareHeader)pDevice->pContext->winmm.waveInPrepareHeader)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(MA_WAVEHDR));
 
             /*
-            The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
+            The user data of the MA_WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
             it's unlocked and available for writing. A value of 1 means it's locked.
             */
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwUser = 0;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod].dwUser = 0;
         }
     }
 
@@ -25858,27 +25933,27 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
 
         if (pConfig->deviceType == ma_device_type_playback) {
             pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData;
-            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*pDescriptorPlayback->periodCount);
+            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(MA_WAVEHDR)*pDescriptorPlayback->periodCount);
         } else {
-            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDescriptorCapture->periodCount));
-            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount)) + (pDescriptorCapture->periodSizeInFrames*pDescriptorCapture->periodCount*ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
+            pDevice->winmm.pWAVEHDRPlayback            = pDevice->winmm._pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount));
+            pDevice->winmm.pIntermediaryBufferPlayback = pDevice->winmm._pHeapData + (sizeof(MA_WAVEHDR)*(pDescriptorCapture->periodCount + pDescriptorPlayback->periodCount)) + (pDescriptorCapture->periodSizeInFrames*pDescriptorCapture->periodCount*ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels));
         }
 
         /* Prepare headers. */
         for (iPeriod = 0; iPeriod < pDescriptorPlayback->periodCount; ++iPeriod) {
             ma_uint32 periodSizeInBytes = ma_get_period_size_in_bytes(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->format, pDescriptorPlayback->channels);
 
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferPlayback + (periodSizeInBytes*iPeriod));
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwBufferLength = periodSizeInBytes;
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwFlags        = 0L;
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwLoops        = 0L;
-            ((MA_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(WAVEHDR));
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].lpData         = (char*)(pDevice->winmm.pIntermediaryBufferPlayback + (periodSizeInBytes*iPeriod));
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwBufferLength = periodSizeInBytes;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwFlags        = 0L;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwLoops        = 0L;
+            ((MA_PFN_waveOutPrepareHeader)pDevice->pContext->winmm.waveOutPrepareHeader)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(MA_WAVEHDR));
 
             /*
-            The user data of the WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
+            The user data of the MA_WAVEHDR structure is a single flag the controls whether or not it is ready for writing. Consider it to be named "isLocked". A value of 0 means
             it's unlocked and available for writing. A value of 1 means it's locked.
             */
-            ((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwUser = 0;
+            ((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod].dwUser = 0;
         }
     }
 
@@ -25889,22 +25964,22 @@ on_error:
         if (pDevice->winmm.pWAVEHDRCapture != NULL) {
             ma_uint32 iPeriod;
             for (iPeriod = 0; iPeriod < pDescriptorCapture->periodCount; ++iPeriod) {
-                ((MA_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
+                ((MA_PFN_waveInUnprepareHeader)pDevice->pContext->winmm.waveInUnprepareHeader)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(MA_WAVEHDR));
             }
         }
 
-        ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((HWAVEIN)pDevice->winmm.hDeviceCapture);
+        ((MA_PFN_waveInClose)pDevice->pContext->winmm.waveInClose)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         if (pDevice->winmm.pWAVEHDRCapture != NULL) {
             ma_uint32 iPeriod;
             for (iPeriod = 0; iPeriod < pDescriptorPlayback->periodCount; ++iPeriod) {
-                ((MA_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &((WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(WAVEHDR));
+                ((MA_PFN_waveOutUnprepareHeader)pDevice->pContext->winmm.waveOutUnprepareHeader)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback)[iPeriod], sizeof(MA_WAVEHDR));
             }
         }
 
-        ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        ((MA_PFN_waveOutClose)pDevice->pContext->winmm.waveOutClose)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback);
     }
 
     ma_free(pDevice->winmm._pHeapData, &pDevice->pContext->allocationCallbacks);
@@ -25921,19 +25996,19 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
     MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        MMRESULT resultMM;
-        WAVEHDR* pWAVEHDR;
+        MA_MMRESULT resultMM;
+        MA_WAVEHDR* pWAVEHDR;
         ma_uint32 iPeriod;
 
-        pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
+        pWAVEHDR = (MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
 
         /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
         ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
         /* To start the device we attach all of the buffers and then start it. As the buffers are filled with data we will get notifications. */
         for (iPeriod = 0; iPeriod < pDevice->capture.internalPeriods; ++iPeriod) {
-            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(WAVEHDR));
-            if (resultMM != MMSYSERR_NOERROR) {
+            resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[iPeriod], sizeof(MA_WAVEHDR));
+            if (resultMM != MA_MMSYSERR_NOERROR) {
                 ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] Failed to attach input buffers to capture device in preparation for capture.");
                 return ma_result_from_MMRESULT(resultMM);
             }
@@ -25943,8 +26018,8 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
         }
 
         /* Capture devices need to be explicitly started, unlike playback devices. */
-        resultMM = ((MA_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((HWAVEIN)pDevice->winmm.hDeviceCapture);
-        if (resultMM != MMSYSERR_NOERROR) {
+        resultMM = ((MA_PFN_waveInStart)pDevice->pContext->winmm.waveInStart)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture);
+        if (resultMM != MA_MMSYSERR_NOERROR) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] Failed to start backend device.");
             return ma_result_from_MMRESULT(resultMM);
         }
@@ -25959,7 +26034,7 @@ static ma_result ma_device_start__winmm(ma_device* pDevice)
 
 static ma_result ma_device_stop__winmm(ma_device* pDevice)
 {
-    MMRESULT resultMM;
+    MA_MMRESULT resultMM;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -25968,22 +26043,22 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
             return MA_INVALID_ARGS;
         }
 
-        resultMM = ((MA_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((HWAVEIN)pDevice->winmm.hDeviceCapture);
-        if (resultMM != MMSYSERR_NOERROR) {
+        resultMM = ((MA_PFN_waveInReset)pDevice->pContext->winmm.waveInReset)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture);
+        if (resultMM != MA_MMSYSERR_NOERROR) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WinMM] WARNING: Failed to reset capture device.");
         }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         ma_uint32 iPeriod;
-        WAVEHDR* pWAVEHDR;
+        MA_WAVEHDR* pWAVEHDR;
 
         if (pDevice->winmm.hDevicePlayback == NULL) {
             return MA_INVALID_ARGS;
         }
 
         /* We need to drain the device. To do this we just loop over each header and if it's locked just wait for the event. */
-        pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
+        pWAVEHDR = (MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
         for (iPeriod = 0; iPeriod < pDevice->playback.internalPeriods; iPeriod += 1) {
             if (pWAVEHDR[iPeriod].dwUser == 1) { /* 1 = locked. */
                 if (WaitForSingleObject((HANDLE)pDevice->winmm.hEventPlayback, INFINITE) != WAIT_OBJECT_0) {
@@ -25994,8 +26069,8 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
             }
         }
 
-        resultMM = ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((HWAVEOUT)pDevice->winmm.hDevicePlayback);
-        if (resultMM != MMSYSERR_NOERROR) {
+        resultMM = ((MA_PFN_waveOutReset)pDevice->pContext->winmm.waveOutReset)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback);
+        if (resultMM != MA_MMSYSERR_NOERROR) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[WinMM] WARNING: Failed to reset playback device.");
         }
     }
@@ -26006,9 +26081,9 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
 static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
 {
     ma_result result = MA_SUCCESS;
-    MMRESULT resultMM;
+    MA_MMRESULT resultMM;
     ma_uint32 totalFramesWritten;
-    WAVEHDR* pWAVEHDR;
+    MA_WAVEHDR* pWAVEHDR;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pPCMFrames != NULL);
@@ -26017,7 +26092,7 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
         *pFramesWritten = 0;
     }
 
-    pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
+    pWAVEHDR = (MA_WAVEHDR*)pDevice->winmm.pWAVEHDRPlayback;
 
     /* Keep processing as much data as possible. */
     totalFramesWritten = 0;
@@ -26042,14 +26117,14 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
             /* If we've consumed the buffer entirely we need to write it out to the device. */
             if (pDevice->winmm.headerFramesConsumedPlayback == (pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwBufferLength/bpf)) {
                 pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
+                pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags &= ~MA_WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
 
                 /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
                 ResetEvent((HANDLE)pDevice->winmm.hEventPlayback);
 
                 /* The device will be started here. */
-                resultMM = ((MA_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((HWAVEOUT)pDevice->winmm.hDevicePlayback, &pWAVEHDR[pDevice->winmm.iNextHeaderPlayback], sizeof(WAVEHDR));
-                if (resultMM != MMSYSERR_NOERROR) {
+                resultMM = ((MA_PFN_waveOutWrite)pDevice->pContext->winmm.waveOutWrite)((MA_HWAVEOUT)pDevice->winmm.hDevicePlayback, &pWAVEHDR[pDevice->winmm.iNextHeaderPlayback], sizeof(MA_WAVEHDR));
+                if (resultMM != MA_MMSYSERR_NOERROR) {
                     result = ma_result_from_MMRESULT(resultMM);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveOutWrite() failed.");
                     break;
@@ -26077,7 +26152,7 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
         }
 
         /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags & WHDR_DONE) != 0) {
+        if ((pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwFlags & MA_WHDR_DONE) != 0) {
             pWAVEHDR[pDevice->winmm.iNextHeaderPlayback].dwUser = 0;    /* 0 = unlocked (make it available for writing). */
             pDevice->winmm.headerFramesConsumedPlayback = 0;
         }
@@ -26098,9 +26173,9 @@ static ma_result ma_device_write__winmm(ma_device* pDevice, const void* pPCMFram
 static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
 {
     ma_result result = MA_SUCCESS;
-    MMRESULT resultMM;
+    MA_MMRESULT resultMM;
     ma_uint32 totalFramesRead;
-    WAVEHDR* pWAVEHDR;
+    MA_WAVEHDR* pWAVEHDR;
 
     MA_ASSERT(pDevice != NULL);
     MA_ASSERT(pPCMFrames != NULL);
@@ -26109,7 +26184,7 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
         *pFramesRead = 0;
     }
 
-    pWAVEHDR = (WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
+    pWAVEHDR = (MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture;
 
     /* Keep processing as much data as possible. */
     totalFramesRead = 0;
@@ -26131,14 +26206,14 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
             /* If we've consumed the buffer entirely we need to add it back to the device. */
             if (pDevice->winmm.headerFramesConsumedCapture == (pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwBufferLength/bpf)) {
                 pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser = 1;            /* 1 = locked. */
-                pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags &= ~WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
+                pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags &= ~MA_WHDR_DONE; /* <-- Need to make sure the WHDR_DONE flag is unset. */
 
                 /* Make sure the event is reset to a non-signaled state to ensure we don't prematurely return from WaitForSingleObject(). */
                 ResetEvent((HANDLE)pDevice->winmm.hEventCapture);
 
                 /* The device will be started here. */
-                resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((HWAVEIN)pDevice->winmm.hDeviceCapture, &((WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[pDevice->winmm.iNextHeaderCapture], sizeof(WAVEHDR));
-                if (resultMM != MMSYSERR_NOERROR) {
+                resultMM = ((MA_PFN_waveInAddBuffer)pDevice->pContext->winmm.waveInAddBuffer)((MA_HWAVEIN)pDevice->winmm.hDeviceCapture, &((MA_WAVEHDR*)pDevice->winmm.pWAVEHDRCapture)[pDevice->winmm.iNextHeaderCapture], sizeof(MA_WAVEHDR));
+                if (resultMM != MA_MMSYSERR_NOERROR) {
                     result = ma_result_from_MMRESULT(resultMM);
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WinMM] waveInAddBuffer() failed.");
                     break;
@@ -26166,7 +26241,7 @@ static ma_result ma_device_read__winmm(ma_device* pDevice, void* pPCMFrames, ma_
         }
 
         /* Something happened. If the next buffer has been marked as done we need to reset a bit of state. */
-        if ((pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags & WHDR_DONE) != 0) {
+        if ((pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwFlags & MA_WHDR_DONE) != 0) {
             pWAVEHDR[pDevice->winmm.iNextHeaderCapture].dwUser = 0;    /* 0 = unlocked (make it available for reading). */
             pDevice->winmm.headerFramesConsumedCapture = 0;
         }

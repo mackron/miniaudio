@@ -43,8 +43,6 @@ typedef ULONG_PTR                   DWORD_PTR;
 #define WAIT_OBJECT_0               0
 #define INFINITE                    0xFFFFFFFF
 
-#define STGM_READ                   0
-#define CLSCTX_ALL                  23
 #define CP_UTF8                     65001
 
 #define FAILED(hr)                  ((hr) <  0)
@@ -90,66 +88,6 @@ typedef int64_t LARGE_INTEGER;
 
 #define HKEY_LOCAL_MACHINE      ((HKEY)(ULONG_PTR)(0x80000002))
 #define KEY_READ                0x00020019
-
-
-#define MMSYSERR_NOERROR        0
-#define MMSYSERR_ERROR          1
-#define MMSYSERR_BADDEVICEID    2
-#define MMSYSERR_INVALHANDLE    5
-#define MMSYSERR_NOMEM          7
-#define MMSYSERR_INVALFLAG      10
-#define MMSYSERR_INVALPARAM     11
-#define MMSYSERR_HANDLEBUSY     12
-
-#define CALLBACK_EVENT          0x00050000
-#define WAVE_ALLOWSYNC          0x0002
-
-#define WHDR_DONE               0x00000001
-#define WHDR_PREPARED           0x00000002
-#define WHDR_BEGINLOOP          0x00000004
-#define WHDR_ENDLOOP            0x00000008
-#define WHDR_INQUEUE            0x00000010
-
-#define MAXPNAMELEN             32
-
-typedef UINT                    MMRESULT;
-typedef UINT                    MMVERSION;
-
-typedef struct
-{
-    WORD wMid;
-    WORD wPid;
-    MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
-    DWORD dwFormats;
-    WORD wChannels;
-    WORD wReserved1;
-} WAVEINCAPSA;
-
-typedef struct
-{
-    WORD wMid;
-    WORD wPid;
-    MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
-    DWORD dwFormats;
-    WORD wChannels;
-    WORD wReserved1;
-    DWORD dwSupport;
-} WAVEOUTCAPSA;
-
-typedef struct tagWAVEHDR
-{
-    char* lpData;
-    DWORD dwBufferLength;
-    DWORD dwBytesRecorded;
-    DWORD_PTR dwUser;
-    DWORD dwFlags;
-    DWORD dwLoops;
-    struct tagWAVEHDR* lpNext;
-    DWORD_PTR reserved;
-} WAVEHDR;
-
 
 
 static HANDLE CreateEventA(struct NtSecurityAttributes* lpEventAttributes, bool32 bManualReset, bool32 bInitialState, const char* lpName)
