@@ -11359,6 +11359,9 @@ IMPLEMENTATION
 
     typedef UINT MA_MMRESULT;
     typedef UINT MA_MMVERSION;
+
+    /* IUnknown is used by both the WASAPI and DirectSound backends. It easier to just declare our version here. */
+    typedef struct ma_IUnknown  ma_IUnknown;
 #endif
 
 #if !defined(MA_WIN32)
@@ -20134,7 +20137,6 @@ static const IID MA_IID_IMMDeviceEnumerator_Instance             = {0xA95664D2, 
 #define MA_IID_IMMDeviceEnumerator  &MA_IID_IMMDeviceEnumerator_Instance
 #endif
 
-typedef struct ma_IUnknown                                 ma_IUnknown;
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 #define MA_MM_DEVICE_STATE_ACTIVE                          1
 #define MA_MM_DEVICE_STATE_DISABLED                        2
