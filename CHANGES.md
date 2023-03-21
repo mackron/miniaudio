@@ -1,5 +1,6 @@
 v0.11.12 - TBD
 =====================
+* Fix compilation errors with the C++ build.
 * Fix compilation errors when WIN32_LEAN_AND_MEAN is defined.
 
 
