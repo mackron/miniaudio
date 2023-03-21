@@ -11353,13 +11353,6 @@ IMPLEMENTATION
     #define CLSCTX_ALL  23
     #endif
 
-    #ifndef MAXPNAMELEN
-    #define MAXPNAMELEN 32
-    #endif
-
-    typedef UINT MA_MMRESULT;
-    typedef UINT MA_MMVERSION;
-
     /* IUnknown is used by both the WASAPI and DirectSound backends. It easier to just declare our version here. */
     typedef struct ma_IUnknown  ma_IUnknown;
 #endif
@@ -20127,15 +20120,8 @@ static const IID MA_IID_DEVINTERFACE_AUDIO_CAPTURE               = {0x2EEF81BE, 
 static const IID MA_IID_IActivateAudioInterfaceCompletionHandler = {0x41D949AB, 0x9862, 0x444A, {0x80, 0xF6, 0xC2, 0x61, 0x33, 0x4D, 0xA5, 0xEB}}; /* 41D949AB-9862-444A-80F6-C261334DA5EB */
 #endif
 
-static const IID MA_CLSID_MMDeviceEnumerator_Instance            = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; /* BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator) */
-static const IID MA_IID_IMMDeviceEnumerator_Instance             = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; /* A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator) */
-#ifdef __cplusplus
-#define MA_CLSID_MMDeviceEnumerator MA_CLSID_MMDeviceEnumerator_Instance
-#define MA_IID_IMMDeviceEnumerator  MA_IID_IMMDeviceEnumerator_Instance
-#else
-#define MA_CLSID_MMDeviceEnumerator &MA_CLSID_MMDeviceEnumerator_Instance
-#define MA_IID_IMMDeviceEnumerator  &MA_IID_IMMDeviceEnumerator_Instance
-#endif
+static const IID MA_CLSID_MMDeviceEnumerator                     = {0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}}; /* BCDE0395-E52F-467C-8E3D-C4579291692E = __uuidof(MMDeviceEnumerator) */
+static const IID MA_IID_IMMDeviceEnumerator                      = {0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}}; /* A95664D2-9614-4F35-A746-DE8DB63617E6 = __uuidof(IMMDeviceEnumerator) */
 
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
 #define MA_MM_DEVICE_STATE_ACTIVE                          1
@@ -21313,7 +21299,7 @@ static ma_result ma_context_create_IMMDeviceEnumerator__wasapi(ma_context* pCont
 
     *ppDeviceEnumerator = NULL; /* Safety. */
 
-    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
         return ma_result_from_HRESULT(hr);
@@ -21387,7 +21373,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
 
-    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
         return ma_result_from_HRESULT(hr);
@@ -21765,7 +21751,7 @@ static ma_result ma_context_enumerate_devices__wasapi(ma_context* pContext, ma_e
     HRESULT hr;
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
 
-    hr = ma_CoCreateInstance(pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
         return ma_result_from_HRESULT(hr);
@@ -22694,7 +22680,7 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const ma_device_conf
 
     ma_mutex_init(&pDevice->wasapi.rerouteLock);
 
-    hr = ma_CoCreateInstance(pDevice->pContext, MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    hr = ma_CoCreateInstance(pDevice->pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     if (FAILED(hr)) {
         ma_device_uninit__wasapi(pDevice);
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create device enumerator.");
@@ -25251,15 +25237,19 @@ is defined. We need to define the types and functions we need manually.
 #define MA_WHDR_ENDLOOP         0x00000008
 #define MA_WHDR_INQUEUE         0x00000010
 
+#define MA_MAXPNAMELEN          32
+
 typedef void* MA_HWAVEIN;
 typedef void* MA_HWAVEOUT;
+typedef UINT MA_MMRESULT;
+typedef UINT MA_MMVERSION;
 
 typedef struct
 {
     WORD wMid;
     WORD wPid;
     MA_MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
+    CHAR szPname[MA_MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
     WORD wReserved1;
@@ -25270,7 +25260,7 @@ typedef struct
     WORD wMid;
     WORD wPid;
     MA_MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
+    CHAR szPname[MA_MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
     WORD wReserved1;
@@ -25294,7 +25284,7 @@ typedef struct
     WORD wMid;
     WORD wPid;
     MA_MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
+    CHAR szPname[MA_MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
     WORD wReserved1;
@@ -25309,7 +25299,7 @@ typedef struct
     WORD wMid;
     WORD wPid;
     MA_MMVERSION vDriverVersion;
-    CHAR szPname[MAXPNAMELEN];
+    CHAR szPname[MA_MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
     WORD wReserved1;
@@ -25384,7 +25374,7 @@ we can do things generically and typesafely. Names are being kept the same for c
 */
 typedef struct
 {
-    CHAR szPname[MAXPNAMELEN];
+    CHAR szPname[MA_MAXPNAMELEN];
     DWORD dwFormats;
     WORD wChannels;
     GUID NameGuid;
