@@ -1,4 +1,4 @@
-v0.11.12 - TBD
+v0.11.12 - 2023-03-23
 =====================
 * Fix compilation errors with the C++ build.
 * Fix compilation errors when WIN32_LEAN_AND_MEAN is defined.
