@@ -1,3 +1,8 @@
+v0.11.12 - TBD
+=====================
+* A safety change for custom VFS implementations. The `pBytesRead` parameter on the onRead callback is not pre-initialized to zero.
+
+
 v0.11.12 - 2023-03-23
 =====================
 * Fix compilation errors with the C++ build.
