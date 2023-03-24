@@ -16442,6 +16442,12 @@ static ma_result ma_thread_create(ma_thread* pThread, ma_thread_priority priorit
         return MA_OUT_OF_MEMORY;
     }
 
+#if defined(MA_THREAD_DEFAULT_STACK_SIZE)
+    if (stackSize == 0) {
+        stackSize = MA_THREAD_DEFAULT_STACK_SIZE;
+    }
+#endif
+
     pProxyData->entryProc = entryProc;
     pProxyData->pData     = pData;
     ma_allocation_callbacks_init_copy(&pProxyData->allocationCallbacks, pAllocationCallbacks);
