@@ -1,5 +1,6 @@
 v0.11.12 - TBD
 =====================
+* Fix some pedantic warnings when compiling with GCC.
 * A safety change for custom VFS implementations. The `pBytesRead` parameter on the onRead callback is now pre-initialized to zero.
 
 
