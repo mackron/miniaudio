@@ -1,7 +1,9 @@
 v0.11.12 - TBD
 =====================
 * Fix some pedantic warnings when compiling with GCC.
-* A safety change for custom VFS implementations. The `pBytesRead` parameter on the onRead callback is now pre-initialized to zero.
+* Fix some crashes with the WAV decoder when loading an invalid file.
+* Silence some C89 compatibility warnings with Clang.
+* The `pBytesRead` parameter of the VFS onRead callback is now pre-initialized to zero.
 
 
 v0.11.12 - 2023-03-23

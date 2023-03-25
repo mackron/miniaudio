@@ -13920,6 +13920,13 @@ Atomics
 #if defined(__cplusplus)
 extern "C" {
 #endif
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wlong-long"
+    #if defined(__clang__)
+        #pragma GCC diagnostic ignored "-Wc++11-long-long"
+    #endif
+#endif
 typedef   signed char           c89atomic_int8;
 typedef unsigned char           c89atomic_uint8;
 typedef   signed short          c89atomic_int16;
@@ -13930,18 +13937,8 @@ typedef unsigned int            c89atomic_uint32;
     typedef   signed __int64    c89atomic_int64;
     typedef unsigned __int64    c89atomic_uint64;
 #else
-    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wlong-long"
-        #if defined(__clang__)
-            #pragma GCC diagnostic ignored "-Wc++11-long-long"
-        #endif
-    #endif
     typedef   signed long long  c89atomic_int64;
     typedef unsigned long long  c89atomic_uint64;
-    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
-        #pragma GCC diagnostic pop
-    #endif
 #endif
 typedef int                     c89atomic_memory_order;
 typedef unsigned char           c89atomic_bool;
@@ -15306,7 +15303,7 @@ typedef unsigned char           c89atomic_bool;
 #endif
 #if !defined(C89ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE)
     #if defined(C89ATOMIC_HAS_8)
-        c89atomic_bool c89atomic_compare_exchange_strong_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8* expected, c89atomic_uint8 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+        static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_8(volatile c89atomic_uint8* dst, c89atomic_uint8* expected, c89atomic_uint8 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
         {
             c89atomic_uint8 expectedValue;
             c89atomic_uint8 result;
@@ -15323,7 +15320,7 @@ typedef unsigned char           c89atomic_bool;
         }
     #endif
     #if defined(C89ATOMIC_HAS_16)
-        c89atomic_bool c89atomic_compare_exchange_strong_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16* expected, c89atomic_uint16 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+        static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_16(volatile c89atomic_uint16* dst, c89atomic_uint16* expected, c89atomic_uint16 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
         {
             c89atomic_uint16 expectedValue;
             c89atomic_uint16 result;
@@ -15340,7 +15337,7 @@ typedef unsigned char           c89atomic_bool;
         }
     #endif
     #if defined(C89ATOMIC_HAS_32)
-        c89atomic_bool c89atomic_compare_exchange_strong_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32* expected, c89atomic_uint32 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+        static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_32(volatile c89atomic_uint32* dst, c89atomic_uint32* expected, c89atomic_uint32 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
         {
             c89atomic_uint32 expectedValue;
             c89atomic_uint32 result;
@@ -15357,7 +15354,7 @@ typedef unsigned char           c89atomic_bool;
         }
     #endif
     #if defined(C89ATOMIC_HAS_64)
-        c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_uint64* dst, volatile c89atomic_uint64* expected, c89atomic_uint64 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
+        static C89ATOMIC_INLINE c89atomic_bool c89atomic_compare_exchange_strong_explicit_64(volatile c89atomic_uint64* dst, volatile c89atomic_uint64* expected, c89atomic_uint64 desired, c89atomic_memory_order successOrder, c89atomic_memory_order failureOrder)
         {
             c89atomic_uint64 expectedValue;
             c89atomic_uint64 result;
@@ -15835,6 +15832,9 @@ static C89ATOMIC_INLINE void c89atomic_spinlock_unlock(volatile c89atomic_spinlo
 {
     c89atomic_flag_clear_explicit(pSpinlock, c89atomic_memory_order_release);
 }
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
+    #pragma GCC diagnostic pop
+#endif
 #if defined(__cplusplus)
 }
 #endif
@@ -76943,10 +76943,14 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_smpl_to_metadata_obj(drwav__metadata_pars
 {
     drwav_uint8 smplHeaderData[DRWAV_SMPL_BYTES];
     drwav_uint64 totalBytesRead = 0;
-    size_t bytesJustRead = drwav__metadata_parser_read(pParser, smplHeaderData, sizeof(smplHeaderData), &totalBytesRead);
+    size_t bytesJustRead;
+    if (pMetadata == NULL) {
+        return 0;
+    }
+    bytesJustRead = drwav__metadata_parser_read(pParser, smplHeaderData, sizeof(smplHeaderData), &totalBytesRead);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
     DRWAV_ASSERT(pChunkHeader != NULL);
-    if (bytesJustRead == sizeof(smplHeaderData)) {
+    if (pMetadata != NULL && bytesJustRead == sizeof(smplHeaderData)) {
         drwav_uint32 iSampleLoop;
         pMetadata->type                                     = drwav_metadata_type_smpl;
         pMetadata->data.smpl.manufacturerId                 = drwav_bytes_to_u32(smplHeaderData + 0);
@@ -76987,7 +76991,11 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_cue_to_metadata_obj(drwav__metadata_parse
 {
     drwav_uint8 cueHeaderSectionData[DRWAV_CUE_BYTES];
     drwav_uint64 totalBytesRead = 0;
-    size_t bytesJustRead = drwav__metadata_parser_read(pParser, cueHeaderSectionData, sizeof(cueHeaderSectionData), &totalBytesRead);
+    size_t bytesJustRead;
+    if (pMetadata == NULL) {
+        return 0;
+    }
+    bytesJustRead = drwav__metadata_parser_read(pParser, cueHeaderSectionData, sizeof(cueHeaderSectionData), &totalBytesRead);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
     if (bytesJustRead == sizeof(cueHeaderSectionData)) {
         pMetadata->type                   = drwav_metadata_type_cue;
@@ -77022,7 +77030,11 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_cue_to_metadata_obj(drwav__metadata_parse
 DRWAV_PRIVATE drwav_uint64 drwav__read_inst_to_metadata_obj(drwav__metadata_parser* pParser, drwav_metadata* pMetadata)
 {
     drwav_uint8 instData[DRWAV_INST_BYTES];
-    drwav_uint64 bytesRead = drwav__metadata_parser_read(pParser, instData, sizeof(instData), NULL);
+    drwav_uint64 bytesRead;
+    if (pMetadata == NULL) {
+        return 0;
+    }
+    bytesRead = drwav__metadata_parser_read(pParser, instData, sizeof(instData), NULL);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
     if (bytesRead == sizeof(instData)) {
         pMetadata->type                    = drwav_metadata_type_inst;
@@ -77039,7 +77051,11 @@ DRWAV_PRIVATE drwav_uint64 drwav__read_inst_to_metadata_obj(drwav__metadata_pars
 DRWAV_PRIVATE drwav_uint64 drwav__read_acid_to_metadata_obj(drwav__metadata_parser* pParser, drwav_metadata* pMetadata)
 {
     drwav_uint8 acidData[DRWAV_ACID_BYTES];
-    drwav_uint64 bytesRead = drwav__metadata_parser_read(pParser, acidData, sizeof(acidData), NULL);
+    drwav_uint64 bytesRead;
+    if (pMetadata == NULL) {
+        return 0;
+    }
+    bytesRead = drwav__metadata_parser_read(pParser, acidData, sizeof(acidData), NULL);
     DRWAV_ASSERT(pParser->stage == drwav__metadata_parser_stage_read);
     if (bytesRead == sizeof(acidData)) {
         pMetadata->type                       = drwav_metadata_type_acid;
