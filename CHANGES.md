@@ -2,6 +2,7 @@ v0.11.12 - TBD
 =====================
 * Fix some pedantic warnings when compiling with GCC.
 * Fix some crashes with the WAV decoder when loading an invalid file.
+* Add support for using `ma_pcm_rb` as a data source.
 * Silence some C89 compatibility warnings with Clang.
 * The `pBytesRead` parameter of the VFS onRead callback is now pre-initialized to zero.
 
