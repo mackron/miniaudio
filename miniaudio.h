@@ -15918,7 +15918,10 @@ MA_ATOMIC_SAFE_TYPE_IMPL(i32, int32)
 MA_ATOMIC_SAFE_TYPE_IMPL(64,  uint64)
 MA_ATOMIC_SAFE_TYPE_IMPL(f32, float)
 MA_ATOMIC_SAFE_TYPE_IMPL(32,  bool32)
+
+#if !defined(MA_NO_DEVICE_IO)
 MA_ATOMIC_SAFE_TYPE_IMPL(i32, device_state)
+#endif
 
 
 MA_API ma_uint64 ma_calculate_frame_count_after_resampling(ma_uint32 sampleRateOut, ma_uint32 sampleRateIn, ma_uint64 frameCountIn)
