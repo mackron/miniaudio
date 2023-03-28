@@ -946,7 +946,7 @@ base object (`ma_data_source_base`):
         // Retrieve the length in PCM frames here. Return MA_NOT_IMPLEMENTED and set *pLength to 0 if there is no notion of a length or if the length is unknown.
     }
 
-    static g_my_data_source_vtable =
+    static ma_data_source_vtable g_my_data_source_vtable =
     {
         my_data_source_read,
         my_data_source_seek,
@@ -3884,6 +3884,12 @@ typedef ma_uint16 wchar_t;
     #endif
     #if defined(__NX__)
         #define MA_NX
+    #endif
+    #if defined(__BEOS__) || defined(__HAIKU__)
+        #define MA_BEOS
+    #endif
+    #if defined(__HAIKU__)
+        #define MA_HAIKU
     #endif
 #endif
 
@@ -16058,23 +16064,28 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
         /* We successfully initialized our attributes object so we can assign the pointer so it's passed into pthread_create(). */
         pAttr = &attr;
 
-        if (priority == ma_thread_priority_idle) {
-#ifdef SCHED_IDLE
-            if (pthread_attr_setschedpolicy(&attr, SCHED_IDLE) == 0) {
-                scheduler = SCHED_IDLE;
+        /* We need to set the scheduler policy. Only do this if the OS supports pthread_attr_setschedpolicy() */
+        #if !defined(MA_BEOS)
+        {
+            if (priority == ma_thread_priority_idle) {
+            #ifdef SCHED_IDLE
+                if (pthread_attr_setschedpolicy(&attr, SCHED_IDLE) == 0) {
+                    scheduler = SCHED_IDLE;
+                }
+            #endif
+            } else if (priority == ma_thread_priority_realtime) {
+            #ifdef SCHED_FIFO
+                if (pthread_attr_setschedpolicy(&attr, SCHED_FIFO) == 0) {
+                    scheduler = SCHED_FIFO;
+                }
+            #endif
+            #ifdef MA_LINUX
+            } else {
+                scheduler = sched_getscheduler(0);
+            #endif
             }
-#endif
-        } else if (priority == ma_thread_priority_realtime) {
-#ifdef SCHED_FIFO
-            if (pthread_attr_setschedpolicy(&attr, SCHED_FIFO) == 0) {
-                scheduler = SCHED_FIFO;
-            }
-#endif
-#ifdef MA_LINUX
-        } else {
-            scheduler = sched_getscheduler(0);
-#endif
         }
+        #endif
 
         if (stackSize > 0) {
             pthread_attr_setstacksize(&attr, stackSize);
