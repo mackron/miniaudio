@@ -1,13 +1,14 @@
-v0.11.12 - TBD
+v0.11.14 - 2023-03-29
 =====================
 * Fix some pedantic warnings when compiling with GCC.
 * Fix some crashes with the WAV decoder when loading an invalid file.
+* Fix a channel mapping error with PipeWire which results in no audio being output.
 * Add support for using `ma_pcm_rb` as a data source.
 * Silence some C89 compatibility warnings with Clang.
 * The `pBytesRead` parameter of the VFS onRead callback is now pre-initialized to zero.
 
 
-v0.11.12 - 2023-03-23
+v0.11.13 - 2023-03-23
 =====================
 * Fix compilation errors with the C++ build.
 * Fix compilation errors when WIN32_LEAN_AND_MEAN is defined.

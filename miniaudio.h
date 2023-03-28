@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.13 - 2023-03-23
+miniaudio - v0.11.14 - 2023-03-29
 
 David Reid - mackron@gmail.com
 
@@ -3719,7 +3719,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 13
+#define MA_VERSION_REVISION 14
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -56429,7 +56429,6 @@ MA_API void* ma_rb_get_subbuffer_ptr(ma_rb* pRB, size_t subbufferIndex, void* pB
 
 
 
-/* Add stubs for each of the functions in ma_data_source_vtable. Named ma_pcm_rb_data_source__on_read, etc. */
 static ma_result ma_pcm_rb_data_source__on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     /* Since there's no notion of an end, we don't ever want to return MA_AT_END here. But it is possible to return 0. */

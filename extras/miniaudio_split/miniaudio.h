@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.13 - 2023-03-23
+miniaudio - v0.11.14 - 2023-03-29
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 13
+#define MA_VERSION_REVISION 14
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -100,7 +100,18 @@ typedef double      ma_double;
 
 typedef void* ma_handle;
 typedef void* ma_ptr;
+
+/*
+ma_proc is annoying because when compiling with GCC we get pendantic warnings about converting
+between `void*` and `void (*)()`. We can't use `void (*)()` with MSVC however, because we'll get
+warning C4191 about "type cast between incompatible function types". To work around this I'm going
+to use a different data type depending on the compiler.
+*/
+#if defined(__GNUC__)
+typedef void (*ma_proc)(void);
+#else
 typedef void* ma_proc;
+#endif
 
 #if defined(_MSC_VER) && !defined(_WCHAR_T_DEFINED)
 typedef ma_uint16 wchar_t;
@@ -150,30 +161,38 @@ typedef ma_uint16 wchar_t;
         typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
     #endif
 
-    #ifdef __unix__
+    #if defined(__unix__)
         #define MA_UNIX
-        #ifdef __ORBIS__
-            #define MA_ORBIS
-        #elif defined(__PROSPERO__)
-            #define MA_PROSPERO
-        #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-            #define MA_BSD
-        #endif
     #endif
-    #ifdef __linux__
+    #if defined(__linux__)
         #define MA_LINUX
     #endif
-    #ifdef __APPLE__
+    #if defined(__APPLE__)
         #define MA_APPLE
     #endif
-    #ifdef __ANDROID__
+    #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        #define MA_BSD
+    #endif
+    #if defined(__ANDROID__)
         #define MA_ANDROID
     #endif
-    #ifdef __EMSCRIPTEN__
+    #if defined(__EMSCRIPTEN__)
         #define MA_EMSCRIPTEN
+    #endif
+    #if defined(__ORBIS__)
+        #define MA_ORBIS
+    #endif
+    #if defined(__PROSPERO__)
+        #define MA_PROSPERO
     #endif
     #if defined(__NX__)
         #define MA_NX
+    #endif
+    #if defined(__BEOS__) || defined(__HAIKU__)
+        #define MA_BEOS
+    #endif
+    #if defined(__HAIKU__)
+        #define MA_HAIKU
     #endif
 #endif
 
@@ -2024,6 +2043,197 @@ MA_API ma_uint64 ma_convert_frames_ex(void* pOut, ma_uint64 frameCountOut, const
 
 /************************************************************************************************************************************************************
 
+Data Source
+
+************************************************************************************************************************************************************/
+typedef void ma_data_source;
+
+#define MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT    0x00000001
+
+typedef struct
+{
+    ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+    ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
+    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+    ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
+    ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
+    ma_result (* onSetLooping)(ma_data_source* pDataSource, ma_bool32 isLooping);
+    ma_uint32 flags;
+} ma_data_source_vtable;
+
+typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSource);
+
+typedef struct
+{
+    const ma_data_source_vtable* vtable;
+} ma_data_source_config;
+
+MA_API ma_data_source_config ma_data_source_config_init(void);
+
+
+typedef struct
+{
+    const ma_data_source_vtable* vtable;
+    ma_uint64 rangeBegInFrames;
+    ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
+    ma_uint64 loopBegInFrames;              /* Relative to rangeBegInFrames. */
+    ma_uint64 loopEndInFrames;              /* Relative to rangeBegInFrames. Set to -1 for the end of the range. */
+    ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
+    ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
+    ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
+    MA_ATOMIC(4, ma_bool32) isLooping;
+} ma_data_source_base;
+
+MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
+MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
+MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
+MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
+MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
+MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
+MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSource, float* pCursor);
+MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSource, float* pLength);
+MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping);
+MA_API ma_bool32 ma_data_source_is_looping(const ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
+MA_API void ma_data_source_get_range_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
+MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
+MA_API void ma_data_source_get_loop_point_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
+MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource);
+MA_API ma_data_source* ma_data_source_get_current(const ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource);
+MA_API ma_data_source* ma_data_source_get_next(const ma_data_source* pDataSource);
+MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext);
+MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_data_source* pDataSource);
+
+
+typedef struct
+{
+    ma_data_source_base ds;
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_uint64 cursor;
+    ma_uint64 sizeInFrames;
+    const void* pData;
+} ma_audio_buffer_ref;
+
+MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
+MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
+MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
+MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
+MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
+MA_API ma_bool32 ma_audio_buffer_ref_at_end(const ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_get_cursor_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_ref_get_length_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
+
+
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    ma_uint64 sizeInFrames;
+    const void* pData;  /* If set to NULL, will allocate a block of memory for you. */
+    ma_allocation_callbacks allocationCallbacks;
+} ma_audio_buffer_config;
+
+MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
+
+typedef struct
+{
+    ma_audio_buffer_ref ref;
+    ma_allocation_callbacks allocationCallbacks;
+    ma_bool32 ownsData;             /* Used to control whether or not miniaudio owns the data buffer. If set to true, pData will be freed in ma_audio_buffer_uninit(). */
+    ma_uint8 _pExtraData[1];        /* For allocating a buffer with the memory located directly after the other memory of the structure. */
+} ma_audio_buffer;
+
+MA_API ma_result ma_audio_buffer_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_init_copy(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer** ppAudioBuffer);  /* Always copies the data. Doesn't make sense to use this otherwise. Use ma_audio_buffer_uninit_and_free() to uninit. */
+MA_API void ma_audio_buffer_uninit(ma_audio_buffer* pAudioBuffer);
+MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
+MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
+MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
+MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
+MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
+MA_API ma_bool32 ma_audio_buffer_at_end(const ma_audio_buffer* pAudioBuffer);
+MA_API ma_result ma_audio_buffer_get_cursor_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_audio_buffer_get_length_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pLength);
+MA_API ma_result ma_audio_buffer_get_available_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
+
+
+/*
+Paged Audio Buffer
+==================
+A paged audio buffer is made up of a linked list of pages. It's expandable, but not shrinkable. It
+can be used for cases where audio data is streamed in asynchronously while allowing data to be read
+at the same time.
+
+This is lock-free, but not 100% thread safe. You can append a page and read from the buffer across
+simultaneously across different threads, however only one thread at a time can append, and only one
+thread at a time can read and seek.
+*/
+typedef struct ma_paged_audio_buffer_page ma_paged_audio_buffer_page;
+struct ma_paged_audio_buffer_page
+{
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pNext;
+    ma_uint64 sizeInFrames;
+    ma_uint8 pAudioData[1];
+};
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_paged_audio_buffer_page head;                                /* Dummy head for the lock-free algorithm. Always has a size of 0. */
+    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pTail;    /* Never null. Initially set to &head. */
+} ma_paged_audio_buffer_data;
+
+MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData);
+MA_API void ma_paged_audio_buffer_data_uninit(ma_paged_audio_buffer_data* pData, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_head(ma_paged_audio_buffer_data* pData);
+MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_tail(ma_paged_audio_buffer_data* pData);
+MA_API ma_result ma_paged_audio_buffer_data_get_length_in_pcm_frames(ma_paged_audio_buffer_data* pData, ma_uint64* pLength);
+MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_data* pData, ma_uint64 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks, ma_paged_audio_buffer_page** ppPage);
+MA_API ma_result ma_paged_audio_buffer_data_free_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_result ma_paged_audio_buffer_data_append_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage);
+MA_API ma_result ma_paged_audio_buffer_data_allocate_and_append_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks);
+
+
+typedef struct
+{
+    ma_paged_audio_buffer_data* pData;  /* Must not be null. */
+} ma_paged_audio_buffer_config;
+
+MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_audio_buffer_data* pData);
+
+
+typedef struct
+{
+    ma_data_source_base ds;
+    ma_paged_audio_buffer_data* pData;              /* Audio data is read from here. Cannot be null. */
+    ma_paged_audio_buffer_page* pCurrent;
+    ma_uint64 relativeCursor;                       /* Relative to the current page. */
+    ma_uint64 absoluteCursor;
+} ma_paged_audio_buffer;
+
+MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer);
+MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer);
+MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Returns MA_AT_END if no more pages available. */
+MA_API ma_result ma_paged_audio_buffer_seek_to_pcm_frame(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64 frameIndex);
+MA_API ma_result ma_paged_audio_buffer_get_cursor_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pCursor);
+MA_API ma_result ma_paged_audio_buffer_get_length_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pLength);
+
+
+
+/************************************************************************************************************************************************************
+
 Ring Buffer
 
 ************************************************************************************************************************************************************/
@@ -2061,9 +2271,11 @@ MA_API void* ma_rb_get_subbuffer_ptr(ma_rb* pRB, size_t subbufferIndex, void* pB
 
 typedef struct
 {
+    ma_data_source_base ds;
     ma_rb rb;
     ma_format format;
     ma_uint32 channels;
+    ma_uint32 sampleRate; /* Not required for the ring buffer itself, but useful for associating the data with some sample rate, particularly for data sources. */
 } ma_pcm_rb;
 
 MA_API ma_result ma_pcm_rb_init_ex(ma_format format, ma_uint32 channels, ma_uint32 subbufferSizeInFrames, ma_uint32 subbufferCount, ma_uint32 subbufferStrideInFrames, void* pOptionalPreallocatedBuffer, const ma_allocation_callbacks* pAllocationCallbacks, ma_pcm_rb* pRB);
@@ -2083,6 +2295,10 @@ MA_API ma_uint32 ma_pcm_rb_get_subbuffer_size(ma_pcm_rb* pRB);
 MA_API ma_uint32 ma_pcm_rb_get_subbuffer_stride(ma_pcm_rb* pRB);
 MA_API ma_uint32 ma_pcm_rb_get_subbuffer_offset(ma_pcm_rb* pRB, ma_uint32 subbufferIndex);
 MA_API void* ma_pcm_rb_get_subbuffer_ptr(ma_pcm_rb* pRB, ma_uint32 subbufferIndex, void* pBuffer);
+MA_API ma_format ma_pcm_rb_get_format(const ma_pcm_rb* pRB);
+MA_API ma_uint32 ma_pcm_rb_get_channels(const ma_pcm_rb* pRB);
+MA_API ma_uint32 ma_pcm_rb_get_sample_rate(const ma_pcm_rb* pRB);
+MA_API void ma_pcm_rb_set_sample_rate(ma_pcm_rb* pRB, ma_uint32 sampleRate);
 
 
 /*
@@ -5843,195 +6059,6 @@ This will run on an optimized path when the volume is equal to 1.
 MA_API ma_result ma_mix_pcm_frames_f32(float* pDst, const float* pSrc, ma_uint64 frameCount, ma_uint32 channels, float volume);
 
 
-/**************************************************************************************************
-
-Data Source
-
-**************************************************************************************************/
-typedef void ma_data_source;
-
-#define MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT    0x00000001
-
-typedef struct
-{
-    ma_result (* onRead)(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
-    ma_result (* onSeek)(ma_data_source* pDataSource, ma_uint64 frameIndex);
-    ma_result (* onGetDataFormat)(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
-    ma_result (* onGetCursor)(ma_data_source* pDataSource, ma_uint64* pCursor);
-    ma_result (* onGetLength)(ma_data_source* pDataSource, ma_uint64* pLength);
-    ma_result (* onSetLooping)(ma_data_source* pDataSource, ma_bool32 isLooping);
-    ma_uint32 flags;
-} ma_data_source_vtable;
-
-typedef ma_data_source* (* ma_data_source_get_next_proc)(ma_data_source* pDataSource);
-
-typedef struct
-{
-    const ma_data_source_vtable* vtable;
-} ma_data_source_config;
-
-MA_API ma_data_source_config ma_data_source_config_init(void);
-
-
-typedef struct
-{
-    const ma_data_source_vtable* vtable;
-    ma_uint64 rangeBegInFrames;
-    ma_uint64 rangeEndInFrames;             /* Set to -1 for unranged (default). */
-    ma_uint64 loopBegInFrames;              /* Relative to rangeBegInFrames. */
-    ma_uint64 loopEndInFrames;              /* Relative to rangeBegInFrames. Set to -1 for the end of the range. */
-    ma_data_source* pCurrent;               /* When non-NULL, the data source being initialized will act as a proxy and will route all operations to pCurrent. Used in conjunction with pNext/onGetNext for seamless chaining. */
-    ma_data_source* pNext;                  /* When set to NULL, onGetNext will be used. */
-    ma_data_source_get_next_proc onGetNext; /* Will be used when pNext is NULL. If both are NULL, no next will be used. */
-    MA_ATOMIC(4, ma_bool32) isLooping;
-} ma_data_source_base;
-
-MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_data_source* pDataSource);
-MA_API void ma_data_source_uninit(ma_data_source* pDataSource);
-MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Must support pFramesOut = NULL in which case a forward seek should be performed. */
-MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
-MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
-MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
-MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
-MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
-MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSource, float* pCursor);
-MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSource, float* pLength);
-MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool32 isLooping);
-MA_API ma_bool32 ma_data_source_is_looping(const ma_data_source* pDataSource);
-MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 rangeBegInFrames, ma_uint64 rangeEndInFrames);
-MA_API void ma_data_source_get_range_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pRangeBegInFrames, ma_uint64* pRangeEndInFrames);
-MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDataSource, ma_uint64 loopBegInFrames, ma_uint64 loopEndInFrames);
-MA_API void ma_data_source_get_loop_point_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames);
-MA_API ma_result ma_data_source_set_current(ma_data_source* pDataSource, ma_data_source* pCurrentDataSource);
-MA_API ma_data_source* ma_data_source_get_current(const ma_data_source* pDataSource);
-MA_API ma_result ma_data_source_set_next(ma_data_source* pDataSource, ma_data_source* pNextDataSource);
-MA_API ma_data_source* ma_data_source_get_next(const ma_data_source* pDataSource);
-MA_API ma_result ma_data_source_set_next_callback(ma_data_source* pDataSource, ma_data_source_get_next_proc onGetNext);
-MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_data_source* pDataSource);
-
-
-typedef struct
-{
-    ma_data_source_base ds;
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    ma_uint64 cursor;
-    ma_uint64 sizeInFrames;
-    const void* pData;
-} ma_audio_buffer_ref;
-
-MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
-MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef);
-MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
-MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
-MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
-MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_bool32 ma_audio_buffer_ref_at_end(const ma_audio_buffer_ref* pAudioBufferRef);
-MA_API ma_result ma_audio_buffer_ref_get_cursor_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pCursor);
-MA_API ma_result ma_audio_buffer_ref_get_length_in_pcm_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pLength);
-MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_ref* pAudioBufferRef, ma_uint64* pAvailableFrames);
-
-
-
-typedef struct
-{
-    ma_format format;
-    ma_uint32 channels;
-    ma_uint32 sampleRate;
-    ma_uint64 sizeInFrames;
-    const void* pData;  /* If set to NULL, will allocate a block of memory for you. */
-    ma_allocation_callbacks allocationCallbacks;
-} ma_audio_buffer_config;
-
-MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
-
-typedef struct
-{
-    ma_audio_buffer_ref ref;
-    ma_allocation_callbacks allocationCallbacks;
-    ma_bool32 ownsData;             /* Used to control whether or not miniaudio owns the data buffer. If set to true, pData will be freed in ma_audio_buffer_uninit(). */
-    ma_uint8 _pExtraData[1];        /* For allocating a buffer with the memory located directly after the other memory of the structure. */
-} ma_audio_buffer;
-
-MA_API ma_result ma_audio_buffer_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_init_copy(const ma_audio_buffer_config* pConfig, ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer** ppAudioBuffer);  /* Always copies the data. Doesn't make sense to use this otherwise. Use ma_audio_buffer_uninit_and_free() to uninit. */
-MA_API void ma_audio_buffer_uninit(ma_audio_buffer* pAudioBuffer);
-MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
-MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
-MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
-MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
-MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
-MA_API ma_bool32 ma_audio_buffer_at_end(const ma_audio_buffer* pAudioBuffer);
-MA_API ma_result ma_audio_buffer_get_cursor_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pCursor);
-MA_API ma_result ma_audio_buffer_get_length_in_pcm_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pLength);
-MA_API ma_result ma_audio_buffer_get_available_frames(const ma_audio_buffer* pAudioBuffer, ma_uint64* pAvailableFrames);
-
-
-/*
-Paged Audio Buffer
-==================
-A paged audio buffer is made up of a linked list of pages. It's expandable, but not shrinkable. It
-can be used for cases where audio data is streamed in asynchronously while allowing data to be read
-at the same time.
-
-This is lock-free, but not 100% thread safe. You can append a page and read from the buffer across
-simultaneously across different threads, however only one thread at a time can append, and only one
-thread at a time can read and seek.
-*/
-typedef struct ma_paged_audio_buffer_page ma_paged_audio_buffer_page;
-struct ma_paged_audio_buffer_page
-{
-    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pNext;
-    ma_uint64 sizeInFrames;
-    ma_uint8 pAudioData[1];
-};
-
-typedef struct
-{
-    ma_format format;
-    ma_uint32 channels;
-    ma_paged_audio_buffer_page head;                                /* Dummy head for the lock-free algorithm. Always has a size of 0. */
-    MA_ATOMIC(MA_SIZEOF_PTR, ma_paged_audio_buffer_page*) pTail;    /* Never null. Initially set to &head. */
-} ma_paged_audio_buffer_data;
-
-MA_API ma_result ma_paged_audio_buffer_data_init(ma_format format, ma_uint32 channels, ma_paged_audio_buffer_data* pData);
-MA_API void ma_paged_audio_buffer_data_uninit(ma_paged_audio_buffer_data* pData, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_head(ma_paged_audio_buffer_data* pData);
-MA_API ma_paged_audio_buffer_page* ma_paged_audio_buffer_data_get_tail(ma_paged_audio_buffer_data* pData);
-MA_API ma_result ma_paged_audio_buffer_data_get_length_in_pcm_frames(ma_paged_audio_buffer_data* pData, ma_uint64* pLength);
-MA_API ma_result ma_paged_audio_buffer_data_allocate_page(ma_paged_audio_buffer_data* pData, ma_uint64 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks, ma_paged_audio_buffer_page** ppPage);
-MA_API ma_result ma_paged_audio_buffer_data_free_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_result ma_paged_audio_buffer_data_append_page(ma_paged_audio_buffer_data* pData, ma_paged_audio_buffer_page* pPage);
-MA_API ma_result ma_paged_audio_buffer_data_allocate_and_append_page(ma_paged_audio_buffer_data* pData, ma_uint32 pageSizeInFrames, const void* pInitialData, const ma_allocation_callbacks* pAllocationCallbacks);
-
-
-typedef struct
-{
-    ma_paged_audio_buffer_data* pData;  /* Must not be null. */
-} ma_paged_audio_buffer_config;
-
-MA_API ma_paged_audio_buffer_config ma_paged_audio_buffer_config_init(ma_paged_audio_buffer_data* pData);
-
-
-typedef struct
-{
-    ma_data_source_base ds;
-    ma_paged_audio_buffer_data* pData;              /* Audio data is read from here. Cannot be null. */
-    ma_paged_audio_buffer_page* pCurrent;
-    ma_uint64 relativeCursor;                       /* Relative to the current page. */
-    ma_uint64 absoluteCursor;
-} ma_paged_audio_buffer;
-
-MA_API ma_result ma_paged_audio_buffer_init(const ma_paged_audio_buffer_config* pConfig, ma_paged_audio_buffer* pPagedAudioBuffer);
-MA_API void ma_paged_audio_buffer_uninit(ma_paged_audio_buffer* pPagedAudioBuffer);
-MA_API ma_result ma_paged_audio_buffer_read_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);   /* Returns MA_AT_END if no more pages available. */
-MA_API ma_result ma_paged_audio_buffer_seek_to_pcm_frame(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64 frameIndex);
-MA_API ma_result ma_paged_audio_buffer_get_cursor_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pCursor);
-MA_API ma_result ma_paged_audio_buffer_get_length_in_pcm_frames(ma_paged_audio_buffer* pPagedAudioBuffer, ma_uint64* pLength);
-
 
 
 /************************************************************************************************************************************************************
@@ -7243,13 +7270,17 @@ typedef struct ma_sound  ma_sound;
 /* Sound flags. */
 typedef enum
 {
+    /* Resource manager flags. */
     MA_SOUND_FLAG_STREAM                = 0x00000001,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM */
     MA_SOUND_FLAG_DECODE                = 0x00000002,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE */
     MA_SOUND_FLAG_ASYNC                 = 0x00000004,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC */
     MA_SOUND_FLAG_WAIT_INIT             = 0x00000008,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT */
-    MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00000010,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
-    MA_SOUND_FLAG_NO_PITCH              = 0x00000020,   /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
-    MA_SOUND_FLAG_NO_SPATIALIZATION     = 0x00000040    /* Disable spatialization. */
+    MA_SOUND_FLAG_UNKNOWN_LENGTH        = 0x00000010,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH */
+
+    /* ma_sound specific flags. */
+    MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00001000,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
+    MA_SOUND_FLAG_NO_PITCH              = 0x00002000,   /* Disable pitch shifting with ma_sound_set_pitch() and ma_sound_group_set_pitch(). This is an optimization. */
+    MA_SOUND_FLAG_NO_SPATIALIZATION     = 0x00004000    /* Disable spatialization. */
 } ma_sound_flags;
 
 #ifndef MA_ENGINE_MAX_LISTENERS
@@ -7439,8 +7470,12 @@ MA_API ma_resource_manager* ma_engine_get_resource_manager(ma_engine* pEngine);
 MA_API ma_device* ma_engine_get_device(ma_engine* pEngine);
 MA_API ma_log* ma_engine_get_log(ma_engine* pEngine);
 MA_API ma_node* ma_engine_get_endpoint(ma_engine* pEngine);
-MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);
-MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);
+MA_API ma_uint64 ma_engine_get_time_in_pcm_frames(const ma_engine* pEngine);
+MA_API ma_uint64 ma_engine_get_time_in_milliseconds(const ma_engine* pEngine);
+MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 globalTime);
+MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime);
+MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);                  /* Deprecated. Use ma_engine_get_time_in_pcm_frames(). Will be removed in version 0.12. */
+MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);  /* Deprecated. Use ma_engine_set_time_in_pcm_frames(). Will be removed in version 0.12. */
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine);
 MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 
