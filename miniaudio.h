@@ -3860,27 +3860,29 @@ typedef ma_uint16 wchar_t;
         typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
     #endif
 
-    #ifdef __unix__
+    #if defined(__unix__)
         #define MA_UNIX
-        #ifdef __ORBIS__
-            #define MA_ORBIS
-        #elif defined(__PROSPERO__)
-            #define MA_PROSPERO
-        #elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-            #define MA_BSD
-        #endif
     #endif
-    #ifdef __linux__
+    #if defined(__linux__)
         #define MA_LINUX
     #endif
-    #ifdef __APPLE__
+    #if defined(__APPLE__)
         #define MA_APPLE
     #endif
-    #ifdef __ANDROID__
+    #if defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+        #define MA_BSD
+    #endif
+    #if defined(__ANDROID__)
         #define MA_ANDROID
     #endif
-    #ifdef __EMSCRIPTEN__
+    #if defined(__EMSCRIPTEN__)
         #define MA_EMSCRIPTEN
+    #endif
+    #if defined(__ORBIS__)
+        #define MA_ORBIS
+    #endif
+    #if defined(__PROSPERO__)
+        #define MA_PROSPERO
     #endif
     #if defined(__NX__)
         #define MA_NX
