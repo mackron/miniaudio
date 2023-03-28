@@ -30233,6 +30233,14 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         ss   = sourceInfo.sample_spec;
         cmap = sourceInfo.channel_map;
 
+        /* Use the requested channel count if we have one. */
+        if (pDescriptorCapture->channels != 0) {
+            ss.channels = pDescriptorCapture->channels;
+        }
+
+        /* Use a default channel map. */
+        ((ma_pa_channel_map_init_extend_proc)pDevice->pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MA_PA_CHANNEL_MAP_DEFAULT);
+
         /* Use the requested sample rate if one was specified. */
         if (pDescriptorCapture->sampleRate != 0) {
             ss.rate = pDescriptorCapture->sampleRate;
@@ -30373,6 +30381,15 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
         ss   = sinkInfo.sample_spec;
         cmap = sinkInfo.channel_map;
+
+        /* Use the requested channel count if we have one. */
+        if (pDescriptorPlayback->channels != 0) {
+            ss.channels = pDescriptorPlayback->channels;
+        }
+
+        /* Use a default channel map. */
+        ((ma_pa_channel_map_init_extend_proc)pDevice->pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, MA_PA_CHANNEL_MAP_DEFAULT);
+
 
         /* Use the requested sample rate if one was specified. */
         if (pDescriptorPlayback->sampleRate != 0) {
