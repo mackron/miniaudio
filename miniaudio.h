@@ -6796,28 +6796,6 @@ typedef void (* ma_device_data_proc)(ma_device* pDevice, void* pOutput, const vo
 
 
 
-
-/*
-DEPRECATED. Use ma_device_notification_proc instead.
-
-The callback for when the device has been stopped.
-
-This will be called when the device is stopped explicitly with `ma_device_stop()` and also called implicitly when the device is stopped through external forces
-such as being unplugged or an internal error occurring.
-
-
-Parameters
-----------
-pDevice (in)
-    A pointer to the device that has just stopped.
-
-
-Remarks
--------
-Do not restart or uninitialize the device from the callback.
-*/
-typedef void (* ma_stop_proc)(ma_device* pDevice);  /* DEPRECATED. Use ma_device_notification_proc instead. */
-
 typedef enum
 {
     ma_device_type_playback = 1,
@@ -7012,7 +6990,6 @@ struct ma_device_config
     ma_bool8 noFixedSizedCallback;      /* Disables strict fixed-sized data callbacks. Setting this to true will result in the period size being treated only as a hint to the backend. This is an optimization for those who don't need fixed sized callbacks. */
     ma_device_data_proc dataCallback;
     ma_device_notification_proc notificationCallback;
-    ma_stop_proc stopCallback;
     void* pUserData;
     ma_resampler_config resampling;
     struct
@@ -7675,7 +7652,6 @@ struct ma_device
     ma_atomic_device_state state;               /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
-    ma_stop_proc onStop;                        /* DEPRECATED. Use the notification callback instead. Set once at initialization time and should not be changed after. */
     void* pUserData;                            /* Application defined data. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
@@ -18554,11 +18530,6 @@ static void ma_device__on_notification(ma_device_notification notification)
 
     if (notification.pDevice->onNotification != NULL) {
         notification.pDevice->onNotification(&notification);
-    }
-
-    /* TEMP FOR COMPATIBILITY: If it's a stopped notification, fire the onStop callback as well. This is only for backwards compatibility and will be removed. */
-    if (notification.pDevice->onStop != NULL && notification.type == ma_device_notification_type_stopped) {
-        notification.pDevice->onStop(notification.pDevice);
     }
 }
 
@@ -41578,7 +41549,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     pDevice->pUserData      = pConfig->pUserData;
     pDevice->onData         = pConfig->dataCallback;
     pDevice->onNotification = pConfig->notificationCallback;
-    pDevice->onStop         = pConfig->stopCallback;
 
     if (pConfig->playback.pDeviceID != NULL) {
         MA_COPY_MEMORY(&pDevice->playback.id, pConfig->playback.pDeviceID, sizeof(pDevice->playback.id));
