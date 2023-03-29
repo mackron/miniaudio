@@ -10158,7 +10158,6 @@ MA_API void ma_noise_uninit(ma_noise* pNoise, const ma_allocation_callbacks* pAl
 MA_API ma_result ma_noise_read_pcm_frames(ma_noise* pNoise, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_noise_set_amplitude(ma_noise* pNoise, double amplitude);
 MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed);
-MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type);
 
 #endif  /* MA_NO_GENERATION */
 
@@ -66099,23 +66098,6 @@ MA_API ma_result ma_noise_set_seed(ma_noise* pNoise, ma_int32 seed)
     return MA_SUCCESS;
 }
 
-
-MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type)
-{
-    if (pNoise == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /*
-    This function should never have been implemented in the first place. Changing the type dynamically is not
-    supported. Instead you need to uninitialize and reinitiailize a fresh `ma_noise` object. This function
-    will be removed in version 0.12.
-    */
-    MA_ASSERT(MA_FALSE);
-    (void)type;
-
-    return MA_INVALID_OPERATION;
-}
 
 static MA_INLINE float ma_noise_f32_white(ma_noise* pNoise)
 {
