@@ -7680,7 +7680,6 @@ struct ma_device
     {
         ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -7706,7 +7705,6 @@ struct ma_device
     {
         ma_device_id* pID;                  /* Set to NULL if using default ID, otherwise set to the address of "id". */
         ma_device_id id;                    /* If using an explicit device, will be set to a copy of the ID used for initialization. Otherwise cleared to 0. */
-        char name[MA_MAX_DEVICE_NAME_LENGTH + 1];                     /* Maybe temporary. Likely to be replaced with a query API. */
         ma_share_mode shareMode;            /* Set to whatever was passed in when the device was initialized. */
         ma_format format;
         ma_uint32 channels;
@@ -22427,7 +22425,6 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         MA_COPY_MEMORY(pDevice->capture.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->capture.internalPeriodSizeInFrames = data.periodSizeInFramesOut;
         pDevice->capture.internalPeriods            = data.periodsOut;
-        ma_strcpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), data.deviceName);
 
         ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture, (HANDLE)pDevice->wasapi.hEventCapture);
 
@@ -22448,7 +22445,6 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
         MA_COPY_MEMORY(pDevice->playback.internalChannelMap, data.channelMapOut, sizeof(data.channelMapOut));
         pDevice->playback.internalPeriodSizeInFrames = data.periodSizeInFramesOut;
         pDevice->playback.internalPeriods            = data.periodsOut;
-        ma_strcpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), data.deviceName);
 
         ma_IAudioClient_SetEventHandle((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, (HANDLE)pDevice->wasapi.hEventPlayback);
 
@@ -29450,39 +29446,6 @@ static void ma_device_source_info_callback(ma_pa_context* pPulseContext, const m
     (void)pPulseContext; /* Unused. */
 }
 
-#if 0
-static void ma_device_sink_name_callback(ma_pa_context* pPulseContext, const ma_pa_sink_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_device* pDevice;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    pDevice = (ma_device*)pUserData;
-    MA_ASSERT(pDevice != NULL);
-
-    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), pInfo->description, (size_t)-1);
-
-    (void)pPulseContext; /* Unused. */
-}
-
-static void ma_device_source_name_callback(ma_pa_context* pPulseContext, const ma_pa_source_info* pInfo, int endOfList, void* pUserData)
-{
-    ma_device* pDevice;
-
-    if (endOfList > 0) {
-        return;
-    }
-
-    pDevice = (ma_device*)pUserData;
-    MA_ASSERT(pDevice != NULL);
-
-    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), pInfo->description, (size_t)-1);
-
-    (void)pPulseContext; /* Unused. */
-}
-#endif
 
 static ma_result ma_context_get_sink_info__pulse(ma_context* pContext, const char* pDeviceName, ma_pa_sink_info* pSinkInfo)
 {
@@ -40630,8 +40593,6 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
 MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceType, const ma_device_descriptor* pDescriptorPlayback, const ma_device_descriptor* pDescriptorCapture)
 {
-    ma_result result;
-
     if (pDevice == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -40669,42 +40630,6 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 
         if (pDevice->playback.internalPeriodSizeInFrames == 0) {
             pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptorPlayback->periodSizeInMilliseconds, pDescriptorPlayback->sampleRate);
-        }
-    }
-
-    /*
-    The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead.
-    For loopback devices, we need to retrieve the name of the playback device.
-    */
-    {
-        ma_device_info deviceInfo;
-
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
-            result = ma_device_get_info(pDevice, (deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (pDescriptorCapture->pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
-                }
-            }
-        }
-
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (pDescriptorPlayback->pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
-                }
-            }
         }
     }
 
@@ -41665,87 +41590,6 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         return result;
     }
 
-#if 0
-    /*
-    On output the descriptors will contain the *actual* data format of the device. We need this to know how to convert the data between
-    the requested format and the internal format.
-    */
-    if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-        if (!ma_device_descriptor_is_valid(&descriptorCapture)) {
-            ma_device_uninit(pDevice);
-            return MA_INVALID_ARGS;
-        }
-
-        pDevice->capture.internalFormat             = descriptorCapture.format;
-        pDevice->capture.internalChannels           = descriptorCapture.channels;
-        pDevice->capture.internalSampleRate         = descriptorCapture.sampleRate;
-        ma_channel_map_copy(pDevice->capture.internalChannelMap, descriptorCapture.channelMap, descriptorCapture.channels);
-        pDevice->capture.internalPeriodSizeInFrames = descriptorCapture.periodSizeInFrames;
-        pDevice->capture.internalPeriods            = descriptorCapture.periodCount;
-
-        if (pDevice->capture.internalPeriodSizeInFrames == 0) {
-            pDevice->capture.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorCapture.periodSizeInMilliseconds, descriptorCapture.sampleRate);
-        }
-    }
-
-    if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-        if (!ma_device_descriptor_is_valid(&descriptorPlayback)) {
-            ma_device_uninit(pDevice);
-            return MA_INVALID_ARGS;
-        }
-
-        pDevice->playback.internalFormat             = descriptorPlayback.format;
-        pDevice->playback.internalChannels           = descriptorPlayback.channels;
-        pDevice->playback.internalSampleRate         = descriptorPlayback.sampleRate;
-        ma_channel_map_copy(pDevice->playback.internalChannelMap, descriptorPlayback.channelMap, descriptorPlayback.channels);
-        pDevice->playback.internalPeriodSizeInFrames = descriptorPlayback.periodSizeInFrames;
-        pDevice->playback.internalPeriods            = descriptorPlayback.periodCount;
-
-        if (pDevice->playback.internalPeriodSizeInFrames == 0) {
-            pDevice->playback.internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(descriptorPlayback.periodSizeInMilliseconds, descriptorPlayback.sampleRate);
-        }
-    }
-
-
-    /*
-    The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead.
-    For loopback devices, we need to retrieve the name of the playback device.
-    */
-    {
-        ma_device_info deviceInfo;
-
-        if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex || pConfig->deviceType == ma_device_type_loopback) {
-            result = ma_device_get_info(pDevice, (pConfig->deviceType == ma_device_type_loopback) ? ma_device_type_playback : ma_device_type_capture, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (descriptorCapture.pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
-                }
-            }
-        }
-
-        if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
-            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (descriptorPlayback.pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
-                }
-            }
-        }
-    }
-
-
-    ma_device__post_init_setup(pDevice, pConfig->deviceType);
-#endif
 
     result = ma_device_post_init(pDevice, pConfig->deviceType, &descriptorPlayback, &descriptorCapture);
     if (result != MA_SUCCESS) {
