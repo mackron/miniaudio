@@ -10631,6 +10631,8 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
 
 struct ma_node_graph
 {
+    ma_data_source_base ds;
+
     /* Immutable. */
     ma_node_base endpoint; /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
     ma_uint16 nodeCacheCapInFrames;
@@ -11008,7 +11010,6 @@ typedef struct
 #ifndef MA_NO_RESOURCE_MANAGER
     ma_resource_manager_pipeline_notifications initNotifications;
 #endif
-    ma_fence* pDoneFence;                       /* Deprecated. Use initNotifications instead. Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
@@ -57189,6 +57190,11 @@ MA_API ma_result ma_data_source_get_cursor_in_seconds(ma_data_source* pDataSourc
         return result;
     }
 
+    /* If there is no notion of a sample rate we can't convert to seconds. */
+    if (sampleRate == 0) {
+        return MA_INVALID_OPERATION;
+    }
+
     /* VC6 does not support division of unsigned 64-bit integers with floating point numbers. Need to use a signed number. This shouldn't effect anything in practice. */
     *pCursor = (ma_int64)cursorInPCMFrames / (float)sampleRate;
 
@@ -57215,6 +57221,11 @@ MA_API ma_result ma_data_source_get_length_in_seconds(ma_data_source* pDataSourc
     result = ma_data_source_get_data_format(pDataSource, NULL, NULL, &sampleRate, NULL, 0);
     if (result != MA_SUCCESS) {
         return result;
+    }
+
+    /* If there is no notion of a sample rate we can't convert to seconds. */
+    if (sampleRate == 0) {
+        return MA_INVALID_OPERATION;
     }
 
     /* VC6 does not support division of unsigned 64-bit integers with floating point numbers. Need to use a signed number. This shouldn't effect anything in practice. */
@@ -70286,6 +70297,53 @@ static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 #endif
 
 
+
+static ma_result ma_node_graph_data_source__on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    /* Since there's no notion of an end, we don't ever want to return MA_AT_END here. But it is possible to return 0. */
+    ma_node_graph* pNodeGraph = (ma_node_graph*)pDataSource;
+    MA_ASSERT(pNodeGraph != NULL);
+
+    return ma_node_graph_read_pcm_frames(pNodeGraph, pFramesOut, frameCount, pFramesRead);
+}
+
+static ma_result ma_node_graph_data_source__on_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_node_graph* pNodeGraph = (ma_node_graph*)pDataSource;
+    MA_ASSERT(pNodeGraph != NULL);
+
+    if (pFormat != NULL) {
+        *pFormat = ma_format_f32;
+    }
+
+    if (pChannels != NULL) {
+        *pChannels = ma_node_graph_get_channels(pNodeGraph);
+    }
+
+    if (pSampleRate != NULL) {
+        *pSampleRate = 0;   /* There's no notion of a sample rate. It's just whatever rate is supplied by the underlying nodes. */
+    }
+
+    /* Just assume the default channel map. */
+    if (pChannelMap != NULL) {
+        ma_channel_map_init_standard(ma_standard_channel_map_default, pChannelMap, channelMapCap, *pChannels);
+    }
+
+    return MA_SUCCESS;
+}
+
+static ma_data_source_vtable ma_gNodeGraphDataSourceVTable = 
+{
+    ma_node_graph_data_source__on_read,
+    NULL,   /* onSeek */
+    ma_node_graph_data_source__on_get_data_format,
+    NULL,   /* onGetCursor */
+    NULL,   /* onGetLength */
+    NULL,   /* onSetLooping */
+    0
+};
+
+
 static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     MA_ASSERT(pNode != NULL);
@@ -70315,6 +70373,7 @@ static ma_node_vtable g_node_graph_endpoint_vtable =
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph)
 {
     ma_result result;
+    ma_data_source_config dataSourceConfig;
     ma_node_config endpointConfig;
 
     if (pNodeGraph == NULL) {
@@ -70328,6 +70387,16 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
 
+    /* Data source. */
+    dataSourceConfig = ma_data_source_config_init();
+    dataSourceConfig.vtable = &ma_gNodeGraphDataSourceVTable;
+
+    result = ma_data_source_init(&dataSourceConfig, &pNodeGraph->ds);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+
     /* Endpoint. */
     endpointConfig = ma_node_config_init();
     endpointConfig.vtable          = &g_node_graph_endpoint_vtable;
@@ -70336,6 +70405,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
     if (result != MA_SUCCESS) {
+        ma_data_source_uninit(&pNodeGraph->ds);
         return result;
     }
 
@@ -70349,6 +70419,7 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     }
 
     ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+    ma_data_source_uninit(&pNodeGraph->ds);
 }
 
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph)
@@ -74804,11 +74875,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         return MA_OUT_OF_MEMORY;
     }
 
-    /* Removed in 0.12. Set pDoneFence on the notifications. */
     notifications = pConfig->initNotifications;
-    if (pConfig->pDoneFence != NULL && notifications.done.pFence == NULL) {
-        notifications.done.pFence = pConfig->pDoneFence;
-    }
 
     /*
     We must wrap everything around the fence if one was specified. This ensures ma_fence_wait() does
@@ -74863,10 +74930,10 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
     }
 
     config = ma_sound_config_init(pEngine);
-    config.pFilePath          = pFilePath;
-    config.flags              = flags;
-    config.pInitialAttachment = pGroup;
-    config.pDoneFence         = pDoneFence;
+    config.pFilePath                     = pFilePath;
+    config.flags                         = flags;
+    config.pInitialAttachment            = pGroup;
+    config.initNotifications.done.pFence = pDoneFence;
 
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
@@ -74880,10 +74947,10 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
     }
 
     config = ma_sound_config_init(pEngine);
-    config.pFilePathW         = pFilePath;
-    config.flags              = flags;
-    config.pInitialAttachment = pGroup;
-    config.pDoneFence         = pDoneFence;
+    config.pFilePathW                    = pFilePath;
+    config.flags                         = flags;
+    config.pInitialAttachment            = pGroup;
+    config.initNotifications.done.pFence = pDoneFence;
 
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
