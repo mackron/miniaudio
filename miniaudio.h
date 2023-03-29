@@ -5812,7 +5812,7 @@ typedef struct
     const void* pData;
 } ma_audio_buffer_ref;
 
-MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
+MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
 MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef);
 MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
 MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
@@ -57722,7 +57722,7 @@ static ma_data_source_vtable g_ma_audio_buffer_ref_data_source_vtable =
     0
 };
 
-MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef)
+MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef)
 {
     ma_result result;
     ma_data_source_config dataSourceConfig;
@@ -57743,7 +57743,7 @@ MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, 
 
     pAudioBufferRef->format       = format;
     pAudioBufferRef->channels     = channels;
-    pAudioBufferRef->sampleRate   = 0;  /* TODO: Version 0.12. Set this to sampleRate. */
+    pAudioBufferRef->sampleRate   = sampleRate;
     pAudioBufferRef->cursor       = 0;
     pAudioBufferRef->sizeInFrames = sizeInFrames;
     pAudioBufferRef->pData        = pData;
@@ -57982,13 +57982,10 @@ static ma_result ma_audio_buffer_init_ex(const ma_audio_buffer_config* pConfig, 
         return MA_INVALID_ARGS; /* Not allowing buffer sizes of 0 frames. */
     }
 
-    result = ma_audio_buffer_ref_init(pConfig->format, pConfig->channels, NULL, 0, &pAudioBuffer->ref);
+    result = ma_audio_buffer_ref_init(pConfig->format, pConfig->channels, pConfig->sampleRate, NULL, 0, &pAudioBuffer->ref);
     if (result != MA_SUCCESS) {
         return result;
     }
-
-    /* TODO: Version 0.12. Set this in ma_audio_buffer_ref_init() instead of here. */
-    pAudioBuffer->ref.sampleRate = pConfig->sampleRate;
 
     ma_allocation_callbacks_init_copy(&pAudioBuffer->allocationCallbacks, &pConfig->allocationCallbacks);
 
