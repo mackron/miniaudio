@@ -10632,8 +10632,7 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
 struct ma_node_graph
 {
     /* Immutable. */
-    ma_node_base base;                  /* The node graph itself is a node so it can be connected as an input to different node graph. This has zero inputs and calls ma_node_graph_read_pcm_frames() to generate it's output. */
-    ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
+    ma_node_base endpoint; /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
     ma_uint16 nodeCacheCapInFrames;
 
     /* Read and written by multiple threads. */
@@ -70287,28 +70286,6 @@ static ma_bool32 ma_node_graph_is_reading(ma_node_graph* pNodeGraph)
 #endif
 
 
-static void ma_node_graph_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
-{
-    ma_node_graph* pNodeGraph = (ma_node_graph*)pNode;
-    ma_uint64 framesRead;
-
-    ma_node_graph_read_pcm_frames(pNodeGraph, ppFramesOut[0], *pFrameCountOut, &framesRead);
-
-    *pFrameCountOut = (ma_uint32)framesRead;    /* Safe cast. */
-
-    (void)ppFramesIn;
-    (void)pFrameCountIn;
-}
-
-static ma_node_vtable g_node_graph_node_vtable =
-{
-    ma_node_graph_node_process_pcm_frames,
-    NULL,   /* onGetRequiredInputFrameCount */
-    0,      /* 0 input buses. */
-    1,      /* 1 output bus. */
-    0       /* Flags. */
-};
-
 static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 {
     MA_ASSERT(pNode != NULL);
@@ -70324,13 +70301,6 @@ static void ma_node_graph_endpoint_process_pcm_frames(ma_node* pNode, const floa
     (void)pFrameCountIn;
     (void)ppFramesOut;
     (void)pFrameCountOut;
-
-#if 0
-    /* The data has already been mixed. We just need to move it to the output buffer. */
-    if (ppFramesIn != NULL) {
-        ma_copy_pcm_frames(ppFramesOut[0], ppFramesIn[0], *pFrameCountOut, ma_format_f32, ma_node_get_output_channels(pNode, 0));
-    }
-#endif
 }
 
 static ma_node_vtable g_node_graph_endpoint_vtable =
@@ -70345,7 +70315,6 @@ static ma_node_vtable g_node_graph_endpoint_vtable =
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph)
 {
     ma_result result;
-    ma_node_config baseConfig;
     ma_node_config endpointConfig;
 
     if (pNodeGraph == NULL) {
@@ -70359,17 +70328,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
 
-    /* Base node so we can use the node graph as a node into another graph. */
-    baseConfig = ma_node_config_init();
-    baseConfig.vtable = &g_node_graph_node_vtable;
-    baseConfig.pOutputChannels = &pConfig->channels;
-
-    result = ma_node_init(pNodeGraph, &baseConfig, pAllocationCallbacks, &pNodeGraph->base);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-
     /* Endpoint. */
     endpointConfig = ma_node_config_init();
     endpointConfig.vtable          = &g_node_graph_endpoint_vtable;
@@ -70378,7 +70336,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
 
     result = ma_node_init(pNodeGraph, &endpointConfig, pAllocationCallbacks, &pNodeGraph->endpoint);
     if (result != MA_SUCCESS) {
-        ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
         return result;
     }
 
