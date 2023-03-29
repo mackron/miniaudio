@@ -11058,8 +11058,7 @@ typedef struct
     ma_fence* pDoneFence;                       /* Deprecated. Use initNotifications instead. Released when the resource manager has finished decoding the entire sound. Not used with streams. */
 } ma_sound_config;
 
-MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
-MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
+MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
 
 struct ma_sound
 {
@@ -11093,8 +11092,7 @@ struct ma_sound_inlined
 typedef ma_sound_config ma_sound_group_config;
 typedef ma_sound        ma_sound_group;
 
-MA_API ma_sound_group_config ma_sound_group_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
-MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
+MA_API ma_sound_group_config ma_sound_group_config_init(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
 typedef struct
 {
@@ -74067,12 +74065,7 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 }
 
 
-MA_API ma_sound_config ma_sound_config_init(void)
-{
-    return ma_sound_config_init_2(NULL);
-}
-
-MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine)
+MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine)
 {
     ma_sound_config config;
 
@@ -74090,12 +74083,7 @@ MA_API ma_sound_config ma_sound_config_init_2(ma_engine* pEngine)
     return config;
 }
 
-MA_API ma_sound_group_config ma_sound_group_config_init(void)
-{
-    return ma_sound_group_config_init_2(NULL);
-}
-
-MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine)
+MA_API ma_sound_group_config ma_sound_group_config_init(ma_engine* pEngine)
 {
     ma_sound_group_config config;
 
@@ -75126,7 +75114,7 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
         return MA_INVALID_ARGS;
     }
 
-    config = ma_sound_config_init_2(pEngine);
+    config = ma_sound_config_init(pEngine);
     config.pFilePath          = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -75143,7 +75131,7 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
         return MA_INVALID_ARGS;
     }
 
-    config = ma_sound_config_init_2(pEngine);
+    config = ma_sound_config_init(pEngine);
     config.pFilePathW         = pFilePath;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -75186,7 +75174,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
         return result;
     }
 
-    config = ma_sound_config_init_2(pEngine);
+    config = ma_sound_config_init(pEngine);
     config.pDataSource        = pSound->pResourceManagerDataSource;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -75206,7 +75194,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
 MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
 {
-    ma_sound_config config = ma_sound_config_init_2(pEngine);
+    ma_sound_config config = ma_sound_config_init(pEngine);
     config.pDataSource        = pDataSource;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
@@ -75973,7 +75961,7 @@ MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc c
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup)
 {
-    ma_sound_group_config config = ma_sound_group_config_init_2(pEngine);
+    ma_sound_group_config config = ma_sound_group_config_init(pEngine);
     config.flags              = flags;
     config.pInitialAttachment = pParentGroup;
     return ma_sound_group_init_ex(pEngine, &config, pGroup);
