@@ -11173,8 +11173,6 @@ MA_API ma_uint64 ma_engine_get_time_in_pcm_frames(const ma_engine* pEngine);
 MA_API ma_uint64 ma_engine_get_time_in_milliseconds(const ma_engine* pEngine);
 MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 globalTime);
 MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime);
-MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine);                  /* Deprecated. Use ma_engine_get_time_in_pcm_frames(). Will be removed in version 0.12. */
-MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime);  /* Deprecated. Use ma_engine_set_time_in_pcm_frames(). Will be removed in version 0.12. */
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine);
 MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 
@@ -74674,16 +74672,6 @@ MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 
 MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime)
 {
     return ma_engine_set_time_in_pcm_frames(pEngine, globalTime * ma_engine_get_sample_rate(pEngine) / 1000);
-}
-
-MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
-{
-    return ma_engine_get_time_in_pcm_frames(pEngine);
-}
-
-MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime)
-{
-    return ma_engine_set_time_in_pcm_frames(pEngine, globalTime);
 }
 
 MA_API ma_uint32 ma_engine_get_channels(const ma_engine* pEngine)
