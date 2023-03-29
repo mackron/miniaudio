@@ -5836,7 +5836,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
 } ma_audio_buffer_config;
 
-MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks);
 
 typedef struct
 {
@@ -57949,14 +57949,14 @@ MA_API ma_result ma_audio_buffer_ref_get_available_frames(const ma_audio_buffer_
 
 
 
-MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_audio_buffer_config ma_audio_buffer_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint64 sizeInFrames, const void* pData, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_audio_buffer_config config;
 
     MA_ZERO_OBJECT(&config);
     config.format       = format;
     config.channels     = channels;
-    config.sampleRate   = 0;    /* TODO: Version 0.12. Set this to sampleRate. */
+    config.sampleRate   = sampleRate;
     config.sizeInFrames = sizeInFrames;
     config.pData        = pData;
     ma_allocation_callbacks_init_copy(&config.allocationCallbacks, pAllocationCallbacks);
@@ -67365,7 +67365,7 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
         case ma_resource_manager_data_supply_type_decoded:          /* Connector is an audio buffer. */
         {
             ma_audio_buffer_config config;
-            config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.backend.decoded.format, pDataBuffer->pNode->data.backend.decoded.channels, pDataBuffer->pNode->data.backend.decoded.totalFrameCount, pDataBuffer->pNode->data.backend.decoded.pData, NULL);
+            config = ma_audio_buffer_config_init(pDataBuffer->pNode->data.backend.decoded.format, pDataBuffer->pNode->data.backend.decoded.channels, pDataBuffer->pNode->data.backend.decoded.sampleRate, pDataBuffer->pNode->data.backend.decoded.totalFrameCount, pDataBuffer->pNode->data.backend.decoded.pData, NULL);
             result = ma_audio_buffer_init(&config, &pDataBuffer->connector.buffer);
         } break;
 
