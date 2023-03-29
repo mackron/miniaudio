@@ -4923,8 +4923,6 @@ typedef struct
     ma_uint32 sampleRate;
     ma_uint32 delayInFrames;
     ma_bool32 delayStart;       /* Set to true to delay the start of the output; false otherwise. */
-    float wet;                  /* 0..1. Default = 1. */
-    float dry;                  /* 0..1. Default = 1. */
     float decay;                /* 0..1. Default = 0 (no feedback). Feedback decay. Use this for echo. */
 } ma_delay_config;
 
@@ -4942,10 +4940,6 @@ typedef struct
 MA_API ma_result ma_delay_init(const ma_delay_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_delay* pDelay);
 MA_API void ma_delay_uninit(ma_delay* pDelay, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_result ma_delay_process_pcm_frames(ma_delay* pDelay, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount);
-MA_API void ma_delay_set_wet(ma_delay* pDelay, float value);
-MA_API float ma_delay_get_wet(const ma_delay* pDelay);
-MA_API void ma_delay_set_dry(ma_delay* pDelay, float value);
-MA_API float ma_delay_get_dry(const ma_delay* pDelay);
 MA_API void ma_delay_set_decay(ma_delay* pDelay, float value);
 MA_API float ma_delay_get_decay(const ma_delay* pDelay);
 
@@ -10945,10 +10939,6 @@ typedef struct
 
 MA_API ma_result ma_delay_node_init(ma_node_graph* pNodeGraph, const ma_delay_node_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_delay_node* pDelayNode);
 MA_API void ma_delay_node_uninit(ma_delay_node* pDelayNode, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API void ma_delay_node_set_wet(ma_delay_node* pDelayNode, float value);
-MA_API float ma_delay_node_get_wet(const ma_delay_node* pDelayNode);
-MA_API void ma_delay_node_set_dry(ma_delay_node* pDelayNode, float value);
-MA_API float ma_delay_node_get_dry(const ma_delay_node* pDelayNode);
 MA_API void ma_delay_node_set_decay(ma_delay_node* pDelayNode, float value);
 MA_API float ma_delay_node_get_decay(const ma_delay_node* pDelayNode);
 #endif  /* MA_NO_NODE_GRAPH */
@@ -48287,8 +48277,6 @@ MA_API ma_delay_config ma_delay_config_init(ma_uint32 channels, ma_uint32 sample
     config.sampleRate    = sampleRate;
     config.delayInFrames = delayInFrames;
     config.delayStart    = (decay == 0) ? MA_TRUE : MA_FALSE;   /* Delay the start if it looks like we're not configuring an echo. */
-    config.wet           = 1;
-    config.dry           = 1;
     config.decay         = decay;
 
     return config;
@@ -48353,18 +48341,18 @@ MA_API ma_result ma_delay_process_pcm_frames(ma_delay* pDelay, void* pFramesOut,
                 /* Delayed start. */
 
                 /* Read */
-                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
+                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer];
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + pFramesInF32[iChannel];
             } else {
                 /* Immediate start */
 
                 /* Feedback */
-                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + (pFramesInF32[iChannel] * pDelay->config.dry);
+                pDelay->pBuffer[iBuffer] = (pDelay->pBuffer[iBuffer] * pDelay->config.decay) + pFramesInF32[iChannel];
 
                 /* Read */
-                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer] * pDelay->config.wet;
+                pFramesOutF32[iChannel] = pDelay->pBuffer[iBuffer];
             }
         }
 
@@ -48375,42 +48363,6 @@ MA_API ma_result ma_delay_process_pcm_frames(ma_delay* pDelay, void* pFramesOut,
     }
 
     return MA_SUCCESS;
-}
-
-MA_API void ma_delay_set_wet(ma_delay* pDelay, float value)
-{
-    if (pDelay == NULL) {
-        return;
-    }
-
-    pDelay->config.wet = value;
-}
-
-MA_API float ma_delay_get_wet(const ma_delay* pDelay)
-{
-    if (pDelay == NULL) {
-        return 0;
-    }
-
-    return pDelay->config.wet;
-}
-
-MA_API void ma_delay_set_dry(ma_delay* pDelay, float value)
-{
-    if (pDelay == NULL) {
-        return;
-    }
-
-    pDelay->config.dry = value;
-}
-
-MA_API float ma_delay_get_dry(const ma_delay* pDelay)
-{
-    if (pDelay == NULL) {
-        return 0;
-    }
-
-    return pDelay->config.dry;
 }
 
 MA_API void ma_delay_set_decay(ma_delay* pDelay, float value)
@@ -73329,42 +73281,6 @@ MA_API void ma_delay_node_uninit(ma_delay_node* pDelayNode, const ma_allocation_
     /* The base node is always uninitialized first. */
     ma_node_uninit(pDelayNode, pAllocationCallbacks);
     ma_delay_uninit(&pDelayNode->delay, pAllocationCallbacks);
-}
-
-MA_API void ma_delay_node_set_wet(ma_delay_node* pDelayNode, float value)
-{
-    if (pDelayNode == NULL) {
-        return;
-    }
-
-    ma_delay_set_wet(&pDelayNode->delay, value);
-}
-
-MA_API float ma_delay_node_get_wet(const ma_delay_node* pDelayNode)
-{
-    if (pDelayNode == NULL) {
-        return 0;
-    }
-
-    return ma_delay_get_wet(&pDelayNode->delay);
-}
-
-MA_API void ma_delay_node_set_dry(ma_delay_node* pDelayNode, float value)
-{
-    if (pDelayNode == NULL) {
-        return;
-    }
-
-    ma_delay_set_dry(&pDelayNode->delay, value);
-}
-
-MA_API float ma_delay_node_get_dry(const ma_delay_node* pDelayNode)
-{
-    if (pDelayNode == NULL) {
-        return 0;
-    }
-
-    return ma_delay_get_dry(&pDelayNode->delay);
 }
 
 MA_API void ma_delay_node_set_decay(ma_delay_node* pDelayNode, float value)
