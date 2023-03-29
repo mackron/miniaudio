@@ -10203,26 +10203,6 @@ MA_API ma_resource_manager_pipeline_notifications ma_resource_manager_pipeline_n
 
 
 
-/* BEGIN BACKWARDS COMPATIBILITY */
-/* TODO: Remove this block in version 0.12. */
-#if 1
-#define ma_resource_manager_job                         ma_job
-#define ma_resource_manager_job_init                    ma_job_init
-#define MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_FLAG_NON_BLOCKING MA_JOB_QUEUE_FLAG_NON_BLOCKING
-#define ma_resource_manager_job_queue_config            ma_job_queue_config
-#define ma_resource_manager_job_queue_config_init       ma_job_queue_config_init
-#define ma_resource_manager_job_queue                   ma_job_queue
-#define ma_resource_manager_job_queue_get_heap_size     ma_job_queue_get_heap_size
-#define ma_resource_manager_job_queue_init_preallocated ma_job_queue_init_preallocated
-#define ma_resource_manager_job_queue_init              ma_job_queue_init
-#define ma_resource_manager_job_queue_uninit            ma_job_queue_uninit
-#define ma_resource_manager_job_queue_post              ma_job_queue_post
-#define ma_resource_manager_job_queue_next              ma_job_queue_next
-#endif
-/* END BACKWARDS COMPATIBILITY */
-
-
-
 
 /* Maximum job thread count will be restricted to this, but this may be removed later and replaced with a heap allocation thereby removing any limitation. */
 #ifndef MA_RESOURCE_MANAGER_MAX_JOB_THREAD_COUNT
