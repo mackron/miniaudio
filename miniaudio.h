@@ -6188,6 +6188,7 @@ typedef void ma_async_notification;
 typedef struct
 {
     void (* onSignal)(ma_async_notification* pNotification);
+    void* pUserData;
 } ma_async_notification_callbacks;
 
 MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotification);
@@ -10987,8 +10988,9 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
 typedef struct
 {
-    ma_fence* pLoadedFence;                     /* Set to NULL if not using a fence. */
-    void (* onAtEnd)(void* pUserData, ma_sound* pSound);    /* Fired when the sound reaches the end of the data source. */
+    ma_fence* pLoadedFence;                                 /* Set to NULL if not using a fence. */
+    void (* onLoaded)(void* pUserData, ma_sound* pSuond);   /* Fired by the resource manager when the sound has finished loading. */
+    void (* onAtEnd )(void* pUserData, ma_sound* pSound);   /* Fired when the sound reaches the end of the data source. */
     void* pUserData;
 } ma_sound_notifications;
 
@@ -11032,6 +11034,7 @@ struct ma_sound
     */
 #ifndef MA_NO_RESOURCE_MANAGER
     ma_resource_manager_data_source* pResourceManagerDataSource;
+    ma_async_notification_callbacks resourceManagerDoneNotification;
 #endif
 };
 
@@ -16831,7 +16834,7 @@ MA_API ma_result ma_async_notification_signal(ma_async_notification* pNotificati
     }
 
     pNotificationCallbacks->onSignal(pNotification);
-    return MA_INVALID_ARGS;
+    return MA_SUCCESS;
 }
 
 
@@ -74867,6 +74870,16 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
 }
 
 #ifndef MA_NO_RESOURCE_MANAGER
+static void ma_sound__on_async_notification_loaded(ma_async_notification* pNotification)
+{
+    ma_sound* pSound = (ma_sound*)((ma_async_notification_callbacks*)pNotification)->pUserData;
+    MA_ASSERT(pSound != NULL);
+
+    if (pSound->notifications.onLoaded) {
+        pSound->notifications.onLoaded(pSound->notifications.pUserData, pSound);
+    }
+}
+
 MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound)
 {
     ma_result result = MA_SUCCESS;
@@ -74894,6 +74907,12 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     notifications = ma_resource_manager_pipeline_notifications_init();
     if (pConfig->pNotifications != NULL) {
         notifications.done.pFence = pConfig->pNotifications->pLoadedFence;
+
+        if (pConfig->pNotifications->onLoaded != NULL) {
+            pSound->resourceManagerDoneNotification.onSignal  = ma_sound__on_async_notification_loaded;
+            pSound->resourceManagerDoneNotification.pUserData = pSound;
+            notifications.done.pNotification = &pSound->resourceManagerDoneNotification;
+        }
     }
     
 
