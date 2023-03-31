@@ -10985,8 +10985,15 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 
 #define MA_SOUND_SOURCE_CHANNEL_COUNT   0xFFFFFFFF
 
-/* Callback for when a sound reaches the end. */
-typedef void (* ma_sound_end_proc)(void* pUserData, ma_sound* pSound);
+typedef struct
+{
+    ma_fence* pLoadedFence;                     /* Set to NULL if not using a fence. */
+    void (* onAtEnd)(void* pUserData, ma_sound* pSound);    /* Fired when the sound reaches the end of the data source. */
+    void* pUserData;
+} ma_sound_notifications;
+
+MA_API ma_sound_notifications ma_sound_notifications_init(void);
+
 
 typedef struct
 {
@@ -11005,11 +11012,7 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     ma_bool32 isLooping;
-    ma_sound_end_proc endCallback;              /* Fired when the sound reaches the end. Will be fired from the audio thread. Do not restart, uninitialize or otherwise change the state of the sound from here. Instead fire an event or set a variable to indicate to a different thread to change the start of the sound. Will not be fired in response to a scheduled stop with ma_sound_set_stop_time_*(). */
-    void* pEndCallbackUserData;
-#ifndef MA_NO_RESOURCE_MANAGER
-    ma_resource_manager_pipeline_notifications initNotifications;
-#endif
+    const ma_sound_notifications* pNotifications;   /* A pointer to an object containing callbacks for when a sound has finished loading, reached the end, etc. A copy of this structure will be made internally. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
@@ -11020,8 +11023,7 @@ struct ma_sound
     ma_data_source* pDataSource;
     MA_ATOMIC(8, ma_uint64) seekTarget; /* The PCM frame index to seek to in the mixing thread. Set to (~(ma_uint64)0) to not perform any seeking. */
     MA_ATOMIC(4, ma_bool32) atEnd;
-    ma_sound_end_proc endCallback;
-    void* pEndCallbackUserData;
+    ma_sound_notifications notifications;
     ma_bool8 ownsDataSource;
 
     /*
@@ -11143,11 +11145,11 @@ MA_API ma_result ma_engine_play_sound(ma_engine* pEngine, const char* pFilePath,
 #endif
 
 #ifndef MA_NO_RESOURCE_MANAGER
-MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound);
-MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound);
-MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
+MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
+MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 #endif
-MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound);
+MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound);
 MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pConfig, ma_sound* pSound);
 MA_API void ma_sound_uninit(ma_sound* pSound);
 MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
@@ -11212,7 +11214,6 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
 MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor);
 MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength);
-MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData);
 
 MA_API ma_result ma_sound_group_init(ma_engine* pEngine, ma_uint32 flags, ma_sound_group* pParentGroup, ma_sound_group* pGroup);
 MA_API ma_result ma_sound_group_init_ex(ma_engine* pEngine, const ma_sound_group_config* pConfig, ma_sound_group* pGroup);
@@ -73137,8 +73138,8 @@ static void ma_sound_set_at_end(ma_sound* pSound, ma_bool32 atEnd)
 
     /* Fire any callbacks or events. */
     if (atEnd) {
-        if (pSound->endCallback != NULL) {
-            pSound->endCallback(pSound->pEndCallbackUserData, pSound);
+        if (pSound->notifications.onAtEnd != NULL) {
+            pSound->notifications.onAtEnd(pSound->notifications.pUserData, pSound);
         }
     }
 }
@@ -73881,6 +73882,17 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     if (pEngineNode->_ownsHeap) {
         ma_free(pEngineNode->_pHeap, pAllocationCallbacks);
     }
+}
+
+
+
+MA_API ma_sound_notifications ma_sound_notifications_init(void)
+{
+    ma_sound_notifications notifications;
+
+    MA_ZERO_OBJECT(&notifications);
+
+    return notifications;
 }
 
 
@@ -74786,6 +74798,10 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
         type = ma_engine_node_type_group;
     }
 
+    if (pConfig->pNotifications != NULL) {
+        pSound->notifications = *pConfig->pNotifications;
+    }
+
     /*
     Sounds are engine nodes. Before we can initialize this we need to determine the channel count.
     If we can't do this we need to abort. It's up to the caller to ensure they're using a data
@@ -74875,7 +74891,11 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         return MA_OUT_OF_MEMORY;
     }
 
-    notifications = pConfig->initNotifications;
+    notifications = ma_resource_manager_pipeline_notifications_init();
+    if (pConfig->pNotifications != NULL) {
+        notifications.done.pFence = pConfig->pNotifications->pLoadedFence;
+    }
+    
 
     /*
     We must wrap everything around the fence if one was specified. This ensures ma_fence_wait() does
@@ -74921,7 +74941,7 @@ done:
     return result;
 }
 
-MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
     ma_sound_config config;
 
@@ -74930,15 +74950,15 @@ MA_API ma_result ma_sound_init_from_file(ma_engine* pEngine, const char* pFilePa
     }
 
     config = ma_sound_config_init(pEngine);
-    config.pFilePath                     = pFilePath;
-    config.flags                         = flags;
-    config.pInitialAttachment            = pGroup;
-    config.initNotifications.done.pFence = pDoneFence;
+    config.pFilePath          = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    config.pNotifications     = pNotifications;
 
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
-MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, ma_fence* pDoneFence, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pFilePath, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
     ma_sound_config config;
 
@@ -74947,15 +74967,15 @@ MA_API ma_result ma_sound_init_from_file_w(ma_engine* pEngine, const wchar_t* pF
     }
 
     config = ma_sound_config_init(pEngine);
-    config.pFilePathW                    = pFilePath;
-    config.flags                         = flags;
-    config.pInitialAttachment            = pGroup;
-    config.initNotifications.done.pFence = pDoneFence;
+    config.pFilePathW         = pFilePath;
+    config.flags              = flags;
+    config.pInitialAttachment = pGroup;
+    config.pNotifications     = pNotifications;
 
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
-MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistingSound, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
     ma_result result;
     ma_sound_config config;
@@ -74994,6 +75014,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
     config.monoExpansionMode  = pExistingSound->engineNode.monoExpansionMode;
+    config.pNotifications     = pNotifications;
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
@@ -75007,12 +75028,14 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 }
 #endif
 
-MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, ma_sound* pSound)
+MA_API ma_result ma_sound_init_from_data_source(ma_engine* pEngine, ma_data_source* pDataSource, ma_uint32 flags, ma_sound_group* pGroup, const ma_sound_notifications* pNotifications, ma_sound* pSound)
 {
     ma_sound_config config = ma_sound_config_init(pEngine);
     config.pDataSource        = pDataSource;
     config.flags              = flags;
     config.pInitialAttachment = pGroup;
+    config.pNotifications     = pNotifications;
+
     return ma_sound_init_ex(pEngine, &config, pSound);
 }
 
@@ -75029,8 +75052,9 @@ MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pCo
         return MA_INVALID_ARGS;
     }
 
-    pSound->endCallback          = pConfig->endCallback;
-    pSound->pEndCallbackUserData = pConfig->pEndCallbackUserData;
+    if (pConfig->pNotifications != NULL) {
+        pSound->notifications = *pConfig->pNotifications;
+    }
 
     /* We need to load the sound differently depending on whether or not we're loading from a file. */
 #ifndef MA_NO_RESOURCE_MANAGER
@@ -75754,23 +75778,6 @@ MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength
     }
 
     return ma_data_source_get_length_in_seconds(pSound->pDataSource, pLength);
-}
-
-MA_API ma_result ma_sound_set_end_callback(ma_sound* pSound, ma_sound_end_proc callback, void* pUserData)
-{
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* The notion of an end is only valid for sounds that are backed by a data source. */
-    if (pSound->pDataSource == NULL) {
-        return MA_INVALID_OPERATION;
-    }
-
-    pSound->endCallback          = callback;
-    pSound->pEndCallbackUserData = pUserData;
-
-    return MA_SUCCESS;
 }
 
 
