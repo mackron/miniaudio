@@ -10989,8 +10989,9 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
 typedef struct
 {
     ma_fence* pLoadedFence;                                 /* Set to NULL if not using a fence. */
-    void (* onLoaded)(void* pUserData, ma_sound* pSuond);   /* Fired by the resource manager when the sound has finished loading. */
-    void (* onAtEnd )(void* pUserData, ma_sound* pSound);   /* Fired when the sound reaches the end of the data source. */
+    void (* onLoaded )(void* pUserData, ma_sound* pSuond);  /* Fired by the resource manager when the sound has finished loading. */
+    void (* onAtEnd  )(void* pUserData, ma_sound* pSound);  /* Fired when the sound reaches the end of the data source. */
+    void (* onProcess)(void* pUserData, ma_sound* pSound, float* pFrames, ma_uint32 frameCount);
     void* pUserData;
 } ma_sound_notifications;
 
@@ -73409,6 +73410,27 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             break;
         }
     }
+
+    /*
+    Fire the processing callback. We can cast pEngineNode to a `ma_sound` since that's the base object. There's
+    a few edge cases here. It's possible that a sound does not have a data source or an input which means the
+    input frame count may be zero. In this case, the output frame count at this point will also be zero since
+    it was unable to process any data. We need to check for this and just assume that the processing callback
+    is producing some data. We pre-initialize this to silence.
+    */
+    {
+        ma_sound* pSound = (ma_sound*)pEngineNode;
+        if (pSound->notifications.onProcess != NULL) {
+            if (totalFramesProcessedOut == 0 && totalFramesProcessedIn == 0 && frameCountOut > 0) {
+                /* Pre-silence the output buffer. This should be the equivalent to setting the output frame count to 0. */
+                totalFramesProcessedOut = frameCountOut;
+                ma_silence_pcm_frames(ppFramesOut[0], totalFramesProcessedOut, ma_format_f32, channelsOut);
+            }
+
+            pSound->notifications.onProcess(pSound->notifications.pUserData, pSound, ppFramesOut[0], totalFramesProcessedOut);
+        }
+    }
+    
 
     /* At this point we're done processing. */
     *pFrameCountIn  = totalFramesProcessedIn;
