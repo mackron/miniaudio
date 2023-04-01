@@ -6950,9 +6950,10 @@ typedef union
 } ma_device_id;
 
 
-typedef struct ma_context_config    ma_context_config;
-typedef struct ma_device_config     ma_device_config;
-typedef struct ma_backend_callbacks ma_backend_callbacks;
+typedef struct ma_context_config        ma_context_config;
+typedef struct ma_device_config         ma_device_config;
+typedef struct ma_device_backend_vtable ma_device_backend_vtable;
+typedef struct ma_backend_callbacks     ma_backend_callbacks;
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
@@ -7182,6 +7183,32 @@ struct ma_backend_callbacks
     ma_result (* onDeviceGetInfo)(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
 };
 
+struct ma_device_backend_vtable
+{
+    ma_result (* onContextInit            )(void* pUserData, ma_context* pContext, const ma_context_config* pConfig, ma_device_backend_vtable** ppBackendVTable, void** ppBackendUserData);
+    ma_result (* onContextUninit          )(void* pUserData, ma_context* pContext);
+    ma_result (* onContextEnumerateDevices)(void* pUserData, ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData);
+    ma_result (* onContextGetDeviceInfo   )(void* pUserData, ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
+    ma_result (* onDeviceInit             )(void* pUserData, ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture);
+    ma_result (* onDeviceUninit           )(void* pUserData, ma_device* pDevice);
+    ma_result (* onDeviceStart            )(void* pUserData, ma_device* pDevice);
+    ma_result (* onDeviceStop             )(void* pUserData, ma_device* pDevice);
+    ma_result (* onDeviceRead             )(void* pUserData, ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
+    ma_result (* onDeviceWrite            )(void* pUserData, ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
+    ma_result (* onDeviceDataLoop         )(void* pUserData, ma_device* pDevice);
+    ma_result (* onDeviceDataLoopWakeup   )(void* pUserData, ma_device* pDevice);
+    ma_result (* onDeviceGetInfo          )(void* pUserData, ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo);
+
+    /* This is temporary while we migrate backends over to the new callback system. */
+    ma_bool32 (* onHasStart         )(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasStop          )(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasRead          )(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasWrite         )(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasDataLoop      )(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasDataLoopWakeup)(void* pUserData, ma_context* pContext);
+    ma_bool32 (* onHasDeviceGetInfo )(void* pUserData, ma_context* pContext);
+};
+
 struct ma_context_config
 {
     ma_log* pLog;
@@ -7211,6 +7238,13 @@ struct ma_context_config
         const char* pClientName;
         ma_bool32 tryStartServer;
     } jack;
+    struct
+    {
+        ma_device_backend_vtable** ppVTables;
+        void** ppUserDatas;
+        ma_uint32 count;
+    } custom2;
+
     ma_backend_callbacks custom;
 };
 
@@ -7242,7 +7276,9 @@ typedef struct
 
 struct ma_context
 {
-    ma_backend_callbacks callbacks;
+    ma_backend_callbacks callbacks;     /* Old system. Will be removed when all stock backends have been converted over to the new system. */
+    ma_device_backend_vtable* pVTable;  /* New system. */
+    void* pVTableUserData;
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
@@ -17729,6 +17765,193 @@ DEVICE I/O
         #include <dlfcn.h>
     #endif
 #endif
+
+
+
+
+static ma_result ma_context_init__compat(void* pUserData, ma_context* pContext, const ma_context_config* pConfig, ma_device_backend_vtable** ppBackendVTable, void** ppBackendUserData)
+{
+    (void)pUserData;
+    (void)ppBackendVTable;
+    (void)ppBackendUserData;
+    return pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
+}
+
+static ma_result ma_context_uninit__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onContextUninit(pContext);
+}
+
+static ma_result ma_context_enumerate_devices__compat(void* pUserData, ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
+{
+    (void)pUserData;
+    return pContext->callbacks.onContextEnumerateDevices(pContext, callback, pCallbackUserData);
+}
+
+static ma_result ma_context_get_device_info__compat(void* pUserData, ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+{
+    (void)pUserData;
+    return pContext->callbacks.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, pDeviceInfo);
+}
+
+static ma_result ma_device_init__compat(void* pUserData, ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+{
+    (void)pUserData;
+    return pDevice->pContext->callbacks.onDeviceInit(pDevice, pConfig, pDescriptorPlayback, pDescriptorCapture);
+}
+
+static ma_result ma_device_uninit__compat(void* pUserData, ma_device* pDevice)
+{
+    (void)pUserData;
+    return pDevice->pContext->callbacks.onDeviceUninit(pDevice);
+}
+
+static ma_result ma_device_start__compat(void* pUserData, ma_device* pDevice)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceStart == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceStart(pDevice);
+}
+
+static ma_result ma_device_stop__compat(void* pUserData, ma_device* pDevice)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceStop == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceStop(pDevice);
+}
+
+static ma_result ma_device_read__compat(void* pUserData, ma_device* pDevice, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceRead == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceRead(pDevice, pFrames, frameCount, pFramesRead);
+}
+
+static ma_result ma_device_write__compat(void* pUserData, ma_device* pDevice, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceWrite == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceWrite(pDevice, pFrames, frameCount, pFramesWritten);
+}
+
+static ma_result ma_device_data_loop__compat(void* pUserData, ma_device* pDevice)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceDataLoop == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceDataLoop(pDevice);
+}
+
+static ma_result ma_device_data_loop_wakeup__compat(void* pUserData, ma_device* pDevice)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
+}
+
+static ma_result ma_device_get_info__compat(void* pUserData, ma_device* pDevice, ma_device_type deviceType, ma_device_info* pDeviceInfo)
+{
+    (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceGetInfo == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDevice->pContext->callbacks.onDeviceGetInfo(pDevice, deviceType, pDeviceInfo);
+}
+
+
+static ma_bool32 ma_device_has_start__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceStart != NULL;
+}
+
+static ma_bool32 ma_device_has_stop__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceStop != NULL;
+}
+
+static ma_bool32 ma_device_has_read__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceRead != NULL;
+}
+
+static ma_bool32 ma_device_has_write__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceWrite != NULL;
+}
+
+static ma_bool32 ma_device_has_data_loop__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceDataLoop != NULL;
+}
+
+static ma_bool32 ma_device_has_data_loop_wakeup__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceDataLoopWakeup != NULL;
+}
+
+static ma_bool32 ma_device_has_get_info__compat(void* pUserData, ma_context* pContext)
+{
+    (void)pUserData;
+    return pContext->callbacks.onDeviceGetInfo != NULL;
+}
+
+static ma_device_backend_vtable ma_gDeviceVTable_Compat =
+{
+    ma_context_init__compat,
+    ma_context_uninit__compat,
+    ma_context_enumerate_devices__compat,
+    ma_context_get_device_info__compat,
+    ma_device_init__compat,
+    ma_device_uninit__compat,
+    ma_device_start__compat,
+    ma_device_stop__compat,
+    ma_device_read__compat,
+    ma_device_write__compat,
+    ma_device_data_loop__compat,
+    ma_device_data_loop_wakeup__compat,
+    ma_device_get_info__compat,
+
+    /* Temporary compatibility functions. Will be removed when all backends implement the new vtable system. */
+    ma_device_has_start__compat,
+    ma_device_has_stop__compat,
+    ma_device_has_read__compat,
+    ma_device_has_write__compat,
+    ma_device_has_data_loop__compat,
+    ma_device_has_data_loop_wakeup__compat,
+    ma_device_has_get_info__compat
+};
 
 
 
