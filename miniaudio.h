@@ -17780,30 +17780,55 @@ static ma_result ma_context_init__compat(void* pUserData, ma_context* pContext, 
 static ma_result ma_context_uninit__compat(void* pUserData, ma_context* pContext)
 {
     (void)pUserData;
+
+    if (pContext->callbacks.onContextUninit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pContext->callbacks.onContextUninit(pContext);
 }
 
 static ma_result ma_context_enumerate_devices__compat(void* pUserData, ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
 {
     (void)pUserData;
+
+    if (pContext->callbacks.onContextEnumerateDevices == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pContext->callbacks.onContextEnumerateDevices(pContext, callback, pCallbackUserData);
 }
 
 static ma_result ma_context_get_device_info__compat(void* pUserData, ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     (void)pUserData;
+
+    if (pContext->callbacks.onContextGetDeviceInfo == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pContext->callbacks.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, pDeviceInfo);
 }
 
 static ma_result ma_device_init__compat(void* pUserData, ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     (void)pUserData;
+    
+    if (pDevice->pContext->callbacks.onDeviceInit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pDevice->pContext->callbacks.onDeviceInit(pDevice, pConfig, pDescriptorPlayback, pDescriptorCapture);
 }
 
 static ma_result ma_device_uninit__compat(void* pUserData, ma_device* pDevice)
 {
     (void)pUserData;
+
+    if (pDevice->pContext->callbacks.onDeviceUninit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     return pDevice->pContext->callbacks.onDeviceUninit(pDevice);
 }
 
@@ -19295,7 +19320,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 
     /* Just some quick validation on the device type and the available callbacks. */
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
-        if (pDevice->pContext->callbacks.onDeviceRead == NULL) {
+        if (pDevice->pContext->pVTable->onDeviceRead == NULL || (pDevice->pContext->pVTable->onHasRead && pDevice->pContext->pVTable->onHasRead(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_FALSE)) {
             return MA_NOT_IMPLEMENTED;
         }
 
@@ -19303,7 +19328,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        if (pDevice->pContext->callbacks.onDeviceWrite == NULL) {
+        if (pDevice->pContext->pVTable->onDeviceWrite == NULL || (pDevice->pContext->pVTable->onHasWrite && pDevice->pContext->pVTable->onHasWrite(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_FALSE)) {
             return MA_NOT_IMPLEMENTED;
         }
 
@@ -19329,7 +19354,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                         capturedDeviceFramesToTryProcessing = capturedDeviceDataCapInFrames;
                     }
 
-                    result = pDevice->pContext->callbacks.onDeviceRead(pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
+                    result = pDevice->pContext->pVTable->onDeviceRead(pDevice->pContext->pVTableUserData, pDevice, capturedDeviceData, capturedDeviceFramesToTryProcessing, &capturedDeviceFramesToProcess);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -19376,7 +19401,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                                 break;
                             }
 
-                            result = pDevice->pContext->callbacks.onDeviceWrite(pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
+                            result = pDevice->pContext->pVTable->onDeviceWrite(pDevice->pContext->pVTableUserData, pDevice, playbackDeviceData, (ma_uint32)convertedDeviceFrameCount, NULL);   /* Safe cast. */
                             if (result != MA_SUCCESS) {
                                 exitLoop = MA_TRUE;
                                 break;
@@ -19417,7 +19442,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                         framesToReadThisIteration = capturedDeviceDataCapInFrames;
                     }
 
-                    result = pDevice->pContext->callbacks.onDeviceRead(pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
+                    result = pDevice->pContext->pVTable->onDeviceRead(pDevice->pContext->pVTableUserData, pDevice, capturedDeviceData, framesToReadThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -19449,7 +19474,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
 
                     ma_device__read_frames_from_client(pDevice, framesToWriteThisIteration, playbackDeviceData);
 
-                    result = pDevice->pContext->callbacks.onDeviceWrite(pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
+                    result = pDevice->pContext->pVTable->onDeviceWrite(pDevice->pContext->pVTableUserData, pDevice, playbackDeviceData, framesToWriteThisIteration, &framesProcessed);
                     if (result != MA_SUCCESS) {
                         exitLoop = MA_TRUE;
                         break;
@@ -40623,10 +40648,18 @@ static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint
 
 static ma_bool32 ma_context_is_backend_asynchronous(ma_context* pContext)
 {
+    ma_bool32 hasRead;
+    ma_bool32 hasWrite;
+
     MA_ASSERT(pContext != NULL);
 
-    if (pContext->callbacks.onDeviceRead == NULL && pContext->callbacks.onDeviceWrite == NULL) {
-        if (pContext->callbacks.onDeviceDataLoop == NULL) {
+    hasRead  = pContext->pVTable->onDeviceRead  != NULL && (pContext->pVTable->onHasRead  == NULL || pContext->pVTable->onHasRead (pContext->pVTableUserData, pContext) == MA_TRUE);
+    hasWrite = pContext->pVTable->onDeviceWrite != NULL && (pContext->pVTable->onHasWrite == NULL || pContext->pVTable->onHasWrite(pContext->pVTableUserData, pContext) == MA_TRUE);
+
+    if (hasRead == MA_FALSE && hasWrite == MA_FALSE) {
+        ma_bool32 hasDataLoop = pContext->pVTable->onDeviceDataLoop != NULL && (pContext->pVTable->onHasDataLoop == NULL || pContext->pVTable->onHasDataLoop(pContext->pVTableUserData, pContext) == MA_TRUE);
+
+        if (hasDataLoop == MA_FALSE) {
             return MA_TRUE;
         } else {
             return MA_FALSE;
@@ -40907,8 +40940,8 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
         MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_starting);
 
         /* If the device has a start callback, start it now. */
-        if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-            startResult = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+        if (pDevice->pContext->pVTable->onDeviceStart != NULL && (pDevice->pContext->pVTable->onHasStart == NULL || pDevice->pContext->pVTable->onHasStart(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+            startResult = pDevice->pContext->pVTable->onDeviceStart(pDevice->pContext->pVTableUserData, pDevice);
         } else {
             startResult = MA_SUCCESS;
         }
@@ -40929,16 +40962,16 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 
         ma_device__on_notification_started(pDevice);
 
-        if (pDevice->pContext->callbacks.onDeviceDataLoop != NULL) {
-            pDevice->pContext->callbacks.onDeviceDataLoop(pDevice);
+        if (pDevice->pContext->pVTable->onDeviceDataLoop != NULL && (pDevice->pContext->pVTable->onHasDataLoop == NULL || pDevice->pContext->pVTable->onHasDataLoop(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+            pDevice->pContext->pVTable->onDeviceDataLoop(pDevice->pContext->pVTableUserData, pDevice);
         } else {
             /* The backend is not using a custom main loop implementation, so now fall back to the blocking read-write implementation. */
             ma_device_audio_thread__default_read_write(pDevice);
         }
 
         /* Getting here means we have broken from the main loop which happens the application has requested that device be stopped. */
-        if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-            stopResult = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+        if (pDevice->pContext->pVTable->onDeviceStop != NULL && (pDevice->pContext->pVTable->onHasStop == NULL || pDevice->pContext->pVTable->onHasStop(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+            stopResult = pDevice->pContext->pVTable->onDeviceStop(pDevice->pContext->pVTableUserData, pDevice);
         } else {
             stopResult = MA_SUCCESS;    /* No stop callback with the backend. Just assume successful. */
         }
@@ -41284,66 +41317,78 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         /* Make sure all callbacks are reset so we don't accidentally drag in any from previously failed initialization attempts. */
         MA_ZERO_OBJECT(&pContext->callbacks);
 
+        /* For stock backends we can just map the backend enum to the appropriate vtable. */
+
         /* These backends are using the new callback system. */
         switch (backend) {
         #ifdef MA_HAS_WASAPI
             case ma_backend_wasapi:
             {
                 pContext->callbacks.onContextInit = ma_context_init__wasapi;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_DSOUND
             case ma_backend_dsound:
             {
                 pContext->callbacks.onContextInit = ma_context_init__dsound;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_WINMM
             case ma_backend_winmm:
             {
                 pContext->callbacks.onContextInit = ma_context_init__winmm;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_COREAUDIO
             case ma_backend_coreaudio:
             {
                 pContext->callbacks.onContextInit = ma_context_init__coreaudio;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_SNDIO
             case ma_backend_sndio:
             {
                 pContext->callbacks.onContextInit = ma_context_init__sndio;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_AUDIO4
             case ma_backend_audio4:
             {
                 pContext->callbacks.onContextInit = ma_context_init__audio4;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_OSS
             case ma_backend_oss:
             {
                 pContext->callbacks.onContextInit = ma_context_init__oss;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_PULSEAUDIO
             case ma_backend_pulseaudio:
             {
                 pContext->callbacks.onContextInit = ma_context_init__pulse;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_ALSA
             case ma_backend_alsa:
             {
                 pContext->callbacks.onContextInit = ma_context_init__alsa;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_JACK
             case ma_backend_jack:
             {
                 pContext->callbacks.onContextInit = ma_context_init__jack;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_AAUDIO
@@ -41351,6 +41396,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             {
                 if (ma_is_backend_enabled(backend)) {
                     pContext->callbacks.onContextInit = ma_context_init__aaudio;
+                    pContext->pVTable = &ma_gDeviceVTable_Compat;
                 }
             } break;
         #endif
@@ -41359,6 +41405,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             {
                 if (ma_is_backend_enabled(backend)) {
                     pContext->callbacks.onContextInit = ma_context_init__opensl;
+                    pContext->pVTable = &ma_gDeviceVTable_Compat;
                 }
             } break;
         #endif
@@ -41366,6 +41413,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             case ma_backend_webaudio:
             {
                 pContext->callbacks.onContextInit = ma_context_init__webaudio;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
         #ifdef MA_HAS_CUSTOM
@@ -41373,23 +41421,33 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             {
                 /* Slightly different logic for custom backends. Custom backends can optionally set all of their callbacks in the config. */
                 pContext->callbacks = pConfig->custom;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
+
+                /*
+                TODO: We'll need to handle custom backends differently so we can iterate over each of the vtables in
+                order and choose the first one that works. When we do this, this branch here will be empty and we'll
+                just do the logic after this switch.
+                */
             } break;
         #endif
         #ifdef MA_HAS_NULL
             case ma_backend_null:
             {
                 pContext->callbacks.onContextInit = ma_context_init__null;
+                pContext->pVTable = &ma_gDeviceVTable_Compat;
             } break;
         #endif
 
             default: break;
         }
 
-        if (pContext->callbacks.onContextInit != NULL) {
+        if (pContext->pVTable != NULL) {
+            MA_ASSERT(pContext->pVTable->onContextInit != NULL);    /* onContextInit() must always be specified. */
+
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize %s backend...\n", ma_get_backend_name(backend));
-            result = pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
+            result = pContext->pVTable->onContextInit(pContext->pVTableUserData, pContext, pConfig, &pContext->pVTable, &pContext->pVTableUserData);
         } else {
-            /* Getting here means the onContextInit callback is not set which means the backend is not enabled. Special case for the custom backend. */
+            /* Getting here means the vtable is not set which means the backend is not enabled. Special case for the custom backend. */
             if (backend != ma_backend_custom) {
                 result = MA_BACKEND_NOT_ENABLED;
             } else {
@@ -41441,8 +41499,8 @@ MA_API ma_result ma_context_uninit(ma_context* pContext)
         return MA_INVALID_ARGS;
     }
 
-    if (pContext->callbacks.onContextUninit != NULL) {
-        pContext->callbacks.onContextUninit(pContext);
+    if (pContext->pVTable->onContextUninit != NULL) {
+        pContext->pVTable->onContextUninit(pContext->pVTableUserData, pContext);
     }
 
     ma_mutex_uninit(&pContext->deviceEnumLock);
@@ -41481,13 +41539,13 @@ MA_API ma_result ma_context_enumerate_devices(ma_context* pContext, ma_enum_devi
         return MA_INVALID_ARGS;
     }
 
-    if (pContext->callbacks.onContextEnumerateDevices == NULL) {
+    if (pContext->pVTable->onContextEnumerateDevices == NULL) {
         return MA_INVALID_OPERATION;
     }
 
     ma_mutex_lock(&pContext->deviceEnumLock);
     {
-        result = pContext->callbacks.onContextEnumerateDevices(pContext, callback, pUserData);
+        result = pContext->pVTable->onContextEnumerateDevices(pContext->pVTableUserData, pContext, callback, pUserData);
     }
     ma_mutex_unlock(&pContext->deviceEnumLock);
 
@@ -41557,7 +41615,7 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
         return MA_INVALID_ARGS;
     }
 
-    if (pContext->callbacks.onContextEnumerateDevices == NULL) {
+    if (pContext->pVTable->onContextEnumerateDevices == NULL) {
         return MA_INVALID_OPERATION;
     }
 
@@ -41569,7 +41627,7 @@ MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** p
         pContext->captureDeviceInfoCount = 0;
 
         /* Now enumerate over available devices. */
-        result = pContext->callbacks.onContextEnumerateDevices(pContext, ma_context_get_devices__enum_callback, NULL);
+        result = pContext->pVTable->onContextEnumerateDevices(pContext->pVTableUserData, pContext, ma_context_get_devices__enum_callback, NULL);
         if (result == MA_SUCCESS) {
             /* Playback devices. */
             if (ppPlaybackDeviceInfos != NULL) {
@@ -41615,13 +41673,13 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
         MA_COPY_MEMORY(&deviceInfo.id, pDeviceID, sizeof(*pDeviceID));
     }
 
-    if (pContext->callbacks.onContextGetDeviceInfo == NULL) {
+    if (pContext->pVTable->onContextGetDeviceInfo == NULL) {
         return MA_INVALID_OPERATION;
     }
 
     ma_mutex_lock(&pContext->deviceInfoLock);
     {
-        result = pContext->callbacks.onContextGetDeviceInfo(pContext, deviceType, pDeviceID, &deviceInfo);
+        result = pContext->pVTable->onContextGetDeviceInfo(pContext->pVTableUserData, pContext, deviceType, pDeviceID, &deviceInfo);
     }
     ma_mutex_unlock(&pContext->deviceInfoLock);
 
@@ -41671,7 +41729,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
     /* Check that we have our callbacks defined. */
-    if (pContext->callbacks.onDeviceInit == NULL) {
+    if (pContext->pVTable->onDeviceInit == NULL) {
         return MA_INVALID_OPERATION;
     }
 
@@ -41810,7 +41868,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     }
 
 
-    result = pContext->callbacks.onDeviceInit(pDevice, pConfig, &descriptorPlayback, &descriptorCapture);
+    result = pContext->pVTable->onDeviceInit(pContext->pVTableUserData, pDevice, pConfig, &descriptorPlayback, &descriptorCapture);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDevice->startEvent);
         ma_event_uninit(&pDevice->wakeupEvent);
@@ -42086,8 +42144,8 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_thread_wait(&pDevice->thread);
     }
 
-    if (pDevice->pContext->callbacks.onDeviceUninit != NULL) {
-        pDevice->pContext->callbacks.onDeviceUninit(pDevice);
+    if (pDevice->pContext->pVTable->onDeviceUninit != NULL) {
+        pDevice->pContext->pVTable->onDeviceUninit(pDevice->pContext->pVTableUserData, pDevice);
     }
 
 
@@ -42157,8 +42215,8 @@ MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_
     }
 
     /* If the onDeviceGetInfo() callback is set, use that. Otherwise we'll fall back to ma_context_get_device_info(). */
-    if (pDevice->pContext->callbacks.onDeviceGetInfo != NULL) {
-        return pDevice->pContext->callbacks.onDeviceGetInfo(pDevice, type, pDeviceInfo);
+    if (pDevice->pContext->pVTable->onDeviceGetInfo != NULL && (pDevice->pContext->pVTable->onHasDeviceGetInfo == NULL || pDevice->pContext->pVTable->onHasDeviceGetInfo(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+        return pDevice->pContext->pVTable->onDeviceGetInfo(pDevice->pContext->pVTableUserData, pDevice, type, pDeviceInfo);
     }
 
     /* Getting here means onDeviceGetInfo is not implemented so we need to fall back to an alternative. */
@@ -42233,8 +42291,8 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
-            if (pDevice->pContext->callbacks.onDeviceStart != NULL) {
-                result = pDevice->pContext->callbacks.onDeviceStart(pDevice);
+            if (pDevice->pContext->pVTable->onDeviceStart != NULL && (pDevice->pContext->pVTable->onHasStart == NULL || pDevice->pContext->pVTable->onHasStart(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+                result = pDevice->pContext->pVTable->onDeviceStart(pDevice->pContext->pVTableUserData, pDevice);
             } else {
                 result = MA_INVALID_OPERATION;
             }
@@ -42294,8 +42352,8 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         /* Asynchronous backends need to be handled differently. */
         if (ma_context_is_backend_asynchronous(pDevice->pContext)) {
             /* Asynchronous backends must have a stop operation. */
-            if (pDevice->pContext->callbacks.onDeviceStop != NULL) {
-                result = pDevice->pContext->callbacks.onDeviceStop(pDevice);
+            if (pDevice->pContext->pVTable->onDeviceStop != NULL && (pDevice->pContext->pVTable->onHasStop == NULL || pDevice->pContext->pVTable->onHasStop(pDevice->pContext->pVTableUserData, pDevice->pContext) == MA_TRUE)) {
+                result = pDevice->pContext->pVTable->onDeviceStop(pDevice->pContext->pVTableUserData, pDevice);
             } else {
                 result = MA_INVALID_OPERATION;
             }
@@ -42310,8 +42368,8 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
             */
             MA_ASSERT(ma_device_get_state(pDevice) != ma_device_state_started);
 
-            if (pDevice->pContext->callbacks.onDeviceDataLoopWakeup != NULL) {
-                pDevice->pContext->callbacks.onDeviceDataLoopWakeup(pDevice);
+            if (pDevice->pContext->pVTable->onDeviceDataLoopWakeup != NULL) {
+                pDevice->pContext->pVTable->onDeviceDataLoopWakeup(pDevice->pContext->pVTableUserData, pDevice);
             }
 
             /*
