@@ -7185,7 +7185,7 @@ struct ma_backend_callbacks
 
 struct ma_device_backend_vtable
 {
-    ma_result (* onContextInit            )(void* pUserData, ma_context* pContext, const ma_context_config* pConfig, ma_device_backend_vtable** ppBackendVTable, void** ppBackendUserData);
+    ma_result (* onContextInit            )(void* pUserData, ma_context* pContext, const ma_context_config* pConfig);
     ma_result (* onContextUninit          )(void* pUserData, ma_context* pContext);
     ma_result (* onContextEnumerateDevices)(void* pUserData, ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData);
     ma_result (* onContextGetDeviceInfo   )(void* pUserData, ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
@@ -7242,10 +7242,8 @@ struct ma_context_config
     {
         ma_device_backend_vtable** ppVTables;
         void** ppUserDatas;
-        ma_uint32 count;
-    } custom2;
-
-    ma_backend_callbacks custom;
+        size_t count;
+    } custom;
 };
 
 /* WASAPI specific structure for some commands which must run on a common thread due to bugs in WASAPI. */
@@ -7279,6 +7277,7 @@ struct ma_context
     ma_backend_callbacks callbacks;     /* Old system. Will be removed when all stock backends have been converted over to the new system. */
     ma_device_backend_vtable* pVTable;  /* New system. */
     void* pVTableUserData;
+    void* pBackendData;                 /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
@@ -7690,6 +7689,7 @@ struct ma_device
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     void* pUserData;                            /* Application defined data. */
+    void* pBackendData;                         /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
@@ -17769,11 +17769,9 @@ DEVICE I/O
 
 
 
-static ma_result ma_context_init__compat(void* pUserData, ma_context* pContext, const ma_context_config* pConfig, ma_device_backend_vtable** ppBackendVTable, void** ppBackendUserData)
+static ma_result ma_context_init__compat(void* pUserData, ma_context* pContext, const ma_context_config* pConfig)
 {
     (void)pUserData;
-    (void)ppBackendVTable;
-    (void)ppBackendUserData;
     return pContext->callbacks.onContextInit(pContext, pConfig, &pContext->callbacks);
 }
 
@@ -41316,6 +41314,8 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
 
         /* Make sure all callbacks are reset so we don't accidentally drag in any from previously failed initialization attempts. */
         MA_ZERO_OBJECT(&pContext->callbacks);
+        pContext->pVTable = NULL;
+        pContext->pVTableUserData = NULL;
 
         /* For stock backends we can just map the backend enum to the appropriate vtable. */
 
@@ -41419,15 +41419,7 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         #ifdef MA_HAS_CUSTOM
             case ma_backend_custom:
             {
-                /* Slightly different logic for custom backends. Custom backends can optionally set all of their callbacks in the config. */
-                pContext->callbacks = pConfig->custom;
-                pContext->pVTable = &ma_gDeviceVTable_Compat;
-
-                /*
-                TODO: We'll need to handle custom backends differently so we can iterate over each of the vtables in
-                order and choose the first one that works. When we do this, this branch here will be empty and we'll
-                just do the logic after this switch.
-                */
+                /* Custom backends are handled differently. */
             } break;
         #endif
         #ifdef MA_HAS_NULL
@@ -41441,23 +41433,51 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
             default: break;
         }
 
-        if (pContext->pVTable != NULL) {
-            MA_ASSERT(pContext->pVTable->onContextInit != NULL);    /* onContextInit() must always be specified. */
+        /* Special case for custom backends. */
+        if (backend == ma_backend_custom) {
+            /* It's a custom backend. We need to iterate over each vtable and use the first one that works. */
+            if (pConfig->custom.ppVTables != NULL && pConfig->custom.count > 0) {
+                size_t iVTable;
+                for (iVTable = 0; iVTable < pConfig->custom.count; iVTable += 1) {
+                    void* pUserData = NULL;
+                    if (pConfig->custom.ppUserDatas != NULL) {
+                        pUserData = pConfig->custom.ppUserDatas[iVTable];
+                    }
 
-            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize %s backend...\n", ma_get_backend_name(backend));
-            result = pContext->pVTable->onContextInit(pContext->pVTableUserData, pContext, pConfig, &pContext->pVTable, &pContext->pVTableUserData);
-        } else {
-            /* Getting here means the vtable is not set which means the backend is not enabled. Special case for the custom backend. */
-            if (backend != ma_backend_custom) {
-                result = MA_BACKEND_NOT_ENABLED;
+                    pContext->pVTable         = pConfig->custom.ppVTables[iVTable];
+                    pContext->pVTableUserData = pUserData;
+
+                    if (pContext->pVTable != NULL) {
+                        MA_ASSERT(pContext->pVTable->onContextInit != NULL);    /* onContextInit() must always be specified. */
+
+                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize custom backend %d...\n", (int)iVTable);
+
+                        result = pContext->pVTable->onContextInit(pContext->pVTableUserData, pContext, pConfig);
+                        if (result == MA_SUCCESS) {
+                            break;
+                        } else {
+                            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Failed to initialize custom backend %d.\n", (int)iVTable);
+                        }
+                    }
+                }
             } else {
-            #if !defined(MA_HAS_CUSTOM)
-                result = MA_BACKEND_NOT_ENABLED;
-            #else
+                /* No custom backend vtables defined. */
                 result = MA_NO_BACKEND;
-            #endif
+            }
+        } else {
+            /* It's not a custom backend. */
+            if (pContext->pVTable != NULL) {
+                MA_ASSERT(pContext->pVTable->onContextInit != NULL);    /* onContextInit() must always be specified. */
+
+                ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize %s backend...\n", ma_get_backend_name(backend));
+                result = pContext->pVTable->onContextInit(pContext->pVTableUserData, pContext, pConfig);
+            } else {
+                /* Getting here means the vtable is not set which means the backend is not enabled. */
+                result = MA_BACKEND_NOT_ENABLED;
             }
         }
+
+        
 
         /* If this iteration was successful, return. */
         if (result == MA_SUCCESS) {

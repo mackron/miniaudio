@@ -1,8 +1,8 @@
 /*
-This example show how a custom backend can be implemented.
+This example shows how a custom backend can be implemented.
 
 This implements a full-featured SDL2 backend. It's intentionally built using the same paradigms as the built-in backends in order to make
-it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the build-in
+it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the built-in
 backends. It supports both runtime and compile-time linking and respects the MA_NO_RUNTIME_LINKING option. It also works on Emscripten
 which requires the `-s USE_SDL=2` option.
 
@@ -11,17 +11,21 @@ custom backends without needing to modify any of the base miniaudio initializati
 `ma_context_ex`. The first member of this structure is a `ma_context` object which allows it to be cast between the two. The same is done
 for devices, which is called `ma_device_ex`. In these structures there is a section for each custom backend, which in this example is just
 SDL. These are only enabled at compile time if `MA_SUPPORT_SDL` is defined, which it always is in this example (you may want to have some
-logic which more intelligently enables or disables SDL support).
+logic which more intelligently enables or disables SDL support). This is not the only way to associate backend-specific data with the
+context and/or device. In both the `ma_context` and `ma_device` structures there is a member named `pBackendData` which is a `void*` and
+can be used to reference any data you like. It is not used by miniaudio and exists purely for the purpose of allowing you to associate
+backend-specific data with the context and/or device.
 
-To use a custom backend, at a minimum you must set the `custom.onContextInit()` callback in the context config. You do not need to set the
-other callbacks, but if you don't, you must set them in the implementation of the `onContextInit()` callback which is done via an output
-parameter. This is the approach taken by this example because it's the simplest way to support multiple custom backends. The idea is that
-the `onContextInit()` callback is set to a generic "loader", which then calls out to a backend-specific implementation which then sets the
-remaining callbacks if it is successfully initialized.
+To use a custom backend, you must implement a `ma_device_backend_vtable`. You pass a pointer to this into the context config along with
+an optional user data pointer. In this example we just declare our `ma_device_backend_vtable` statically and pass in NULL for the user
+data. The device config accepts an array of vtable pointers which is how you can plug in multiple custom backends. In this example we just
+have the one vtable pointer, but it's designed to easily allow you to plug in other custom backends. Any functions that you don't need
+can be defined as NULL in the vtable.
 
 Custom backends are identified with the `ma_backend_custom` backend type. For the purpose of demonstration, this example only uses the
 `ma_backend_custom` backend type because otherwise the built-in backends would always get chosen first and none of the code for the custom
-backends would actually get hit. By default, the `ma_backend_custom` backend is the lowest priority backend, except for `ma_backend_null`.
+backends would actually get hit. By default, the `ma_backend_custom` backend is the second-lowest priority backend, sitting just above
+`ma_backend_null`.
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
@@ -173,7 +177,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     }
 }
 
-static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_result ma_context_enumerate_devices__sdl(void* pUserData, ma_context* pContext, ma_enum_devices_callback_proc callback, void* pCallbackUserData)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
     ma_bool32 isTerminated = MA_FALSE;
@@ -182,6 +186,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
+    (void)pUserData;
 
     /* Playback */
     if (!isTerminated) {
@@ -197,7 +202,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
                 deviceInfo.isDefault = MA_TRUE;
             }
 
-            cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pUserData);
+            cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pCallbackUserData);
             if (cbResult == MA_FALSE) {
                 isTerminated = MA_TRUE;
                 break;
@@ -219,7 +224,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
                 deviceInfo.isDefault = MA_TRUE;
             }
 
-            cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pUserData);
+            cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pCallbackUserData);
             if (cbResult == MA_FALSE) {
                 isTerminated = MA_TRUE;
                 break;
@@ -230,7 +235,7 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info__sdl(void* pUserData, ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
 
@@ -242,6 +247,7 @@ static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device
 #endif
 
     MA_ASSERT(pContext != NULL);
+    (void)pUserData;
 
     if (pDeviceID == NULL) {
         if (deviceType == ma_device_type_playback) {
@@ -424,13 +430,14 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__sdl(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+static ma_result ma_device_init__sdl(void* pUserData, ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
     ma_result result;
 
     MA_ASSERT(pDevice != NULL);
+    (void)pUserData;
     
     /* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it's requested. */
     if (pConfig->deviceType == ma_device_type_loopback) {
@@ -458,12 +465,13 @@ static ma_result ma_device_init__sdl(ma_device* pDevice, const ma_device_config*
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_uninit__sdl(ma_device* pDevice)
+static ma_result ma_device_uninit__sdl(void* pUserData, ma_device* pDevice)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
 
     MA_ASSERT(pDevice != NULL);
+    (void)pUserData;
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_CloseAudioDevice)pContextEx->sdl.SDL_CloseAudioDevice)(pDeviceEx->sdl.deviceIDCapture);
@@ -476,12 +484,13 @@ static ma_result ma_device_uninit__sdl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_start__sdl(ma_device* pDevice)
+static ma_result ma_device_start__sdl(void* pUserData, ma_device* pDevice)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
 
     MA_ASSERT(pDevice != NULL);
+    (void)pUserData;
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx->sdl.SDL_PauseAudioDevice)(pDeviceEx->sdl.deviceIDCapture, 0);
@@ -494,12 +503,13 @@ static ma_result ma_device_start__sdl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_stop__sdl(ma_device* pDevice)
+static ma_result ma_device_stop__sdl(void* pUserData, ma_device* pDevice)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
 
     MA_ASSERT(pDevice != NULL);
+    (void)pUserData;
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx->sdl.SDL_PauseAudioDevice)(pDeviceEx->sdl.deviceIDCapture, 1);
@@ -512,11 +522,12 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_uninit__sdl(ma_context* pContext)
+static ma_result ma_context_uninit__sdl(void* pUserData, ma_context* pContext)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
 
     MA_ASSERT(pContext != NULL);
+    (void)pUserData;
 
     ((MA_PFN_SDL_QuitSubSystem)pContextEx->sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
 
@@ -527,7 +538,7 @@ static ma_result ma_context_uninit__sdl(ma_context* pContext)
     return MA_SUCCESS;
 }
 
-static ma_result ma_context_init__sdl(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
+static ma_result ma_context_init__sdl(void* pUserData, ma_context* pContext, const ma_context_config* pConfig)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
     int resultSDL;
@@ -547,6 +558,7 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const ma_context_con
 
     MA_ASSERT(pContext != NULL);
 
+    (void)pUserData;
     (void)pConfig;
 
     /* Check if we have SDL2 installed somewhere. If not it's not usable and we need to abort. */
@@ -585,51 +597,26 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const ma_context_con
         return MA_ERROR;
     }
 
-    /*
-    The last step is to make sure the callbacks are set properly in `pCallbacks`. Internally, miniaudio will copy these callbacks into the
-    context object and then use them for then on for calling into our custom backend.
-    */
-    pCallbacks->onContextInit             = ma_context_init__sdl;
-    pCallbacks->onContextUninit           = ma_context_uninit__sdl;
-    pCallbacks->onContextEnumerateDevices = ma_context_enumerate_devices__sdl;
-    pCallbacks->onContextGetDeviceInfo    = ma_context_get_device_info__sdl;
-    pCallbacks->onDeviceInit              = ma_device_init__sdl;
-    pCallbacks->onDeviceUninit            = ma_device_uninit__sdl;
-    pCallbacks->onDeviceStart             = ma_device_start__sdl;
-    pCallbacks->onDeviceStop              = ma_device_stop__sdl;
-
     return MA_SUCCESS;
 }
-#endif  /* MA_HAS_SDL */
 
-
-/*
-This is our custom backend "loader". All this does is attempts to initialize our custom backends in the order they are listed. The first
-one to successfully initialize is the one that's chosen. In this example we're just listing them statically, but you can use whatever logic
-you want to handle backend selection.
-
-This is used as the onContextInit() callback in the context config.
-*/
-static ma_result ma_context_init__custom_loader(ma_context* pContext, const ma_context_config* pConfig, ma_backend_callbacks* pCallbacks)
+static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
 {
-    ma_result result = MA_NO_BACKEND;
-
-    /* Silence some unused parameter warnings just in case no custom backends are enabled. */
-    (void)pContext;
-    (void)pCallbacks;
-
-    /* SDL. */
-#if !defined(MA_NO_SDL)
-    if (result != MA_SUCCESS) {
-        result = ma_context_init__sdl(pContext, pConfig, pCallbacks);
-    }
-#endif
-
-    /* ... plug in any other custom backends here ... */
-
-    /* If we have a success result we have initialized a backend. Otherwise we need to tell miniaudio about the error so it can skip over our custom backends. */
-    return result;
-}
+    ma_context_init__sdl,
+    ma_context_uninit__sdl,
+    ma_context_enumerate_devices__sdl,
+    ma_context_get_device_info__sdl,
+    ma_device_init__sdl,
+    ma_device_uninit__sdl,
+    ma_device_start__sdl,
+    ma_device_stop__sdl,
+    NULL,   /* onDeviceRead */
+    NULL,   /* onDeviceWrite */
+    NULL,   /* onDeviceDataLoop */
+    NULL,   /* onDeviceDataLoopWakeup */
+    NULL    /* onDeviceGetInfo */
+};
+#endif  /* MA_HAS_SDL */
 
 
 /*
@@ -666,6 +653,7 @@ int main(int argc, char** argv)
     ma_device_ex device;
     ma_waveform_config sineWaveConfig;
     ma_waveform sineWave;
+    char name[256];
 
     /*
     We're just using ma_backend_custom in this example for demonstration purposes, but a more realistic use case would probably want to include
@@ -675,20 +663,20 @@ int main(int argc, char** argv)
         ma_backend_custom
     };
 
-    /*
-    To implement a custom backend you need to implement the callbacks in the "custom" member of the context config. The only mandatory
-    callback required at this point is the onContextInit() callback. If you do not set the other callbacks, you must set them in
-    onContextInit() by setting them on the `pCallbacks` parameter.
+    /* Plug in our vtable pointers. Add any custom backends to this list. */
+    ma_device_backend_vtable* pBackendVTables[] =
+    {
+    #if !defined(MA_NO_SDL)
+        &ma_gDeviceBackendVTable_SDL,
+    #endif
+        NULL,   /* Just so we don't end up with an empty array. */
+    };
 
-    The way we're doing it in this example enables us to easily plug in multiple custom backends. What we do is set the onContextInit()
-    callback to a generic "loader" function (ma_context_init__custom_loader() in this example), which then calls out to backend-specific
-    context initialization routines, one of which will be for SDL. That way, if for example we wanted to add support for another backend,
-    we don't need to touch this part of the code. Instead we add logic to ma_context_init__custom_loader() to choose the most appropriate
-    custom backend. That will then fill out the other callbacks appropriately.
-    */
     contextConfig = ma_context_config_init();
-    contextConfig.custom.onContextInit = ma_context_init__custom_loader;
-    
+    contextConfig.custom.ppVTables   = pBackendVTables;
+    contextConfig.custom.ppUserDatas = NULL;   /* We're not using user data in this example so can set this to NULL, but if you need it, declare an array here, one for each item in ppVTables. */
+    contextConfig.custom.count       = (sizeof(pBackendVTables) / sizeof(pBackendVTables[0])) - 1;
+
     result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, (ma_context*)&context);
     if (result != MA_SUCCESS) {
         return -1;
@@ -715,7 +703,8 @@ int main(int argc, char** argv)
     }
 
 
-    printf("Device Name: %s\n", ((ma_device*)&device)->playback.name);
+    ma_device_get_name((ma_device*)&device, ma_device_type_playback, name, sizeof(name), NULL);
+    printf("Device Name: %s\n", name);
 
     if (ma_device_start((ma_device*)&device) != MA_SUCCESS) {
         ma_device_uninit((ma_device*)&device);
