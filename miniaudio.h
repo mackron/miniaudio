@@ -75384,10 +75384,11 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
     }
 
     config = ma_sound_config_init_2(pEngine);
-    config.pDataSource        = pSound->pResourceManagerDataSource;
-    config.flags              = flags;
-    config.pInitialAttachment = pGroup;
-    config.monoExpansionMode  = pExistingSound->engineNode.monoExpansionMode;
+    config.pDataSource                 = pSound->pResourceManagerDataSource;
+    config.flags                       = flags;
+    config.pInitialAttachment          = pGroup;
+    config.monoExpansionMode           = pExistingSound->engineNode.monoExpansionMode;
+    config.volumeSmoothTimeInPCMFrames = pExistingSound->engineNode.volumeSmoothTimeInPCMFrames;
 
     result = ma_sound_init_from_data_source_internal(pEngine, &config, pSound);
     if (result != MA_SUCCESS) {
