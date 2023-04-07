@@ -1,3 +1,9 @@
+v0.11.15 - TBD
+==============
+* Fix a bug in ma_gainer where smoothing isn't applied correctly thus resulting in glitching.
+* Add support for smoothing volume changes of sounds with `ma_sound_set_volume()`.
+
+
 v0.11.14 - 2023-03-29
 =====================
 * Fix some pedantic warnings when compiling with GCC.
