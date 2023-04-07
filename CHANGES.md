@@ -1,7 +1,7 @@
 v0.11.15 - TBD
 ==============
 * Fix a bug in ma_gainer where smoothing isn't applied correctly thus resulting in glitching.
-* Add support for smoothing volume changes of sounds with `ma_sound_set_volume()`.
+* Add support for volume smoothing to sounds when changing the volume with `ma_sound_set_volume()`. To use this, you must configure it via the `volumeSmoothTimeInPCMFrames` member of ma_sound_config and use `ma_sound_init_ex()` to initialize your sound. Smoothing is disabled by default.
 
 
 v0.11.14 - 2023-03-29
