@@ -10982,6 +10982,7 @@ typedef struct
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_uint32 sampleRate;               /* Only used when the type is set to ma_engine_node_type_sound. */
+    ma_uint32 volumeSmoothTimeInPCMFrames;  /* The number of frames to smooth over volume changes. Defaults to 0 in which case no smoothing is used. */
     ma_mono_expansion_mode monoExpansionMode;
     ma_bool8 isPitchDisabled;           /* Pitching can be explicitly disabled with MA_SOUND_FLAG_NO_PITCH to optimize processing. */
     ma_bool8 isSpatializationDisabled;  /* Spatialization can be explicitly disabled with MA_SOUND_FLAG_NO_SPATIALIZATION. */
@@ -10997,11 +10998,14 @@ typedef struct
     ma_node_base baseNode;                              /* Must be the first member for compatiblity with the ma_node API. */
     ma_engine* pEngine;                                 /* A pointer to the engine. Set based on the value from the config. */
     ma_uint32 sampleRate;                               /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
+    ma_uint32 volumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_fader fader;
     ma_linear_resampler resampler;                      /* For pitch shift. */
     ma_spatializer spatializer;
     ma_panner panner;
+    ma_gainer volumeGainer;                             /* This will only be used if volumeSmoothTimeInPCMFrames is > 0. */
+    ma_atomic_float volume;                             /* Defaults to 1. */
     MA_ATOMIC(4, float) pitch;
     float oldPitch;                                     /* For determining whether or not the resampler needs to be updated to reflect the new pitch. The resampler will be updated on the mixing thread. */
     float oldDopplerPitch;                              /* For determining whether or not the resampler needs to be updated to take a new doppler pitch into account. */
@@ -11045,6 +11049,7 @@ typedef struct
     ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. Set to MA_SOUND_SOURCE_CHANNEL_COUNT to use the data source's channel count (only used if using a data source as input). */
     ma_mono_expansion_mode monoExpansionMode;   /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
     ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
+    ma_uint32 volumeSmoothTimeInPCMFrames;      /* The number of frames to smooth over volume changes. Defaults to 0 in which case no smoothing is used. */
     ma_uint64 initialSeekPointInPCMFrames;      /* Initializes the sound such that it's seeked to this location by default. */
     ma_uint64 rangeBegInPCMFrames;
     ma_uint64 rangeEndInPCMFrames;
@@ -48690,7 +48695,7 @@ static /*__attribute__((noinline))*/ ma_result ma_gainer_process_pcm_frames_inte
 
                 /* Initialize the running gain. */
                 for (iChannel = 0; iChannel < pGainer->config.channels; iChannel += 1) {
-                    float t = (pGainer->pOldGains[iChannel] - pGainer->pNewGains[iChannel]) * pGainer->masterVolume;
+                    float t = (pGainer->pNewGains[iChannel] - pGainer->pOldGains[iChannel]) * pGainer->masterVolume;
                     pRunningGainDelta[iChannel] = t * d;
                     pRunningGain[iChannel] = (pGainer->pOldGains[iChannel] * pGainer->masterVolume) + (t * a);
                 }
@@ -73533,8 +73538,16 @@ static ma_result ma_engine_node_set_volume(ma_engine_node* pEngineNode, float vo
         return MA_INVALID_ARGS;
     }
 
-    /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for hodling our volume. */
-    ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
+    ma_atomic_float_set(&pEngineNode->volume, volume);
+
+    /* If we're not smoothing we should bypass the volume gainer entirely. */
+    if (pEngineNode->volumeSmoothTimeInPCMFrames == 0) {
+        /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for hodling our volume. */
+        ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
+    } else {
+        /* We're using volume smoothing, so apply the master volume to the gainer. */
+        ma_gainer_set_gain(&pEngineNode->volumeGainer, volume);
+    }
 
     return MA_SUCCESS;
 }
@@ -73551,7 +73564,9 @@ static ma_result ma_engine_node_get_volume(const ma_engine_node* pEngineNode, fl
         return MA_INVALID_ARGS;
     }
 
-    return ma_spatializer_get_master_volume(&pEngineNode->spatializer, pVolume);
+    *pVolume = ma_atomic_float_get((ma_atomic_float*)&pEngineNode->volume);
+
+    return MA_SUCCESS;
 }
 
 
@@ -73567,6 +73582,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     ma_bool32 isFadingEnabled;
     ma_bool32 isSpatializationEnabled;
     ma_bool32 isPanningEnabled;
+    ma_bool32 isVolumeSmoothingEnabled;
 
     frameCountIn  = *pFrameCountIn;
     frameCountOut = *pFrameCountOut;
@@ -73577,10 +73593,11 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     totalFramesProcessedIn  = 0;
     totalFramesProcessedOut = 0;
 
-    isPitchingEnabled       = ma_engine_node_is_pitching_enabled(pEngineNode);
-    isFadingEnabled         = pEngineNode->fader.volumeBeg != 1 || pEngineNode->fader.volumeEnd != 1;
-    isSpatializationEnabled = ma_engine_node_is_spatialization_enabled(pEngineNode);
-    isPanningEnabled        = pEngineNode->panner.pan != 0 && channelsOut != 1;
+    isPitchingEnabled        = ma_engine_node_is_pitching_enabled(pEngineNode);
+    isFadingEnabled          = pEngineNode->fader.volumeBeg != 1 || pEngineNode->fader.volumeEnd != 1;
+    isSpatializationEnabled  = ma_engine_node_is_spatialization_enabled(pEngineNode);
+    isPanningEnabled         = pEngineNode->panner.pan != 0 && channelsOut != 1;
+    isVolumeSmoothingEnabled = pEngineNode->volumeSmoothTimeInPCMFrames > 0;
 
     /* Keep going while we've still got data available for processing. */
     while (totalFramesProcessedOut < frameCountOut) {
@@ -73657,6 +73674,19 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
         }
 
         /*
+        If we're using smoothing, we won't be applying volume via the spatializer, but instead from a ma_gainer. In this case
+        we'll want to apply our volume now.
+        */
+        if (isVolumeSmoothingEnabled) {
+            if (isWorkingBufferValid) {
+                ma_gainer_process_pcm_frames(&pEngineNode->volumeGainer, pWorkingBuffer, pWorkingBuffer, framesJustProcessedOut);
+            } else {
+                ma_gainer_process_pcm_frames(&pEngineNode->volumeGainer, pWorkingBuffer, pRunningFramesIn, framesJustProcessedOut);
+                isWorkingBufferValid = MA_TRUE;
+            }
+        }
+
+        /*
         If at this point we still haven't actually done anything with the working buffer we need
         to just read straight from the input buffer.
         */
@@ -73687,11 +73717,21 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
 
             if (channelsIn == channelsOut) {
                 /* No channel conversion required. Just copy straight to the output buffer. */
-                ma_copy_and_apply_volume_factor_f32(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut * channelsOut, volume);
+                if (isVolumeSmoothingEnabled) {
+                    /* Volume has already been applied. Just copy straight to the output buffer. */
+                    ma_copy_pcm_frames(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut * channelsOut, ma_format_f32, channelsOut);
+                } else {
+                    /* Volume has not been applied yet. Copy and apply volume in the same pass. */
+                    ma_copy_and_apply_volume_factor_f32(pRunningFramesOut, pWorkingBuffer, framesJustProcessedOut * channelsOut, volume);
+                }
             } else {
                 /* Channel conversion required. TODO: Add support for channel maps here. */
                 ma_channel_map_apply_f32(pRunningFramesOut, NULL, channelsOut, pWorkingBuffer, NULL, channelsIn, framesJustProcessedOut, ma_channel_mix_mode_simple, pEngineNode->monoExpansionMode);
-                ma_apply_volume_factor_f32(pRunningFramesOut, framesJustProcessedOut * channelsOut, volume);
+
+                /* If we're using smoothing, the volume will have already been applied. */
+                if (!isVolumeSmoothingEnabled) {
+                    ma_apply_volume_factor_f32(pRunningFramesOut, framesJustProcessedOut * channelsOut, volume);
+                }
             }
         }
 
@@ -73936,6 +73976,7 @@ typedef struct
     size_t baseNodeOffset;
     size_t resamplerOffset;
     size_t spatializerOffset;
+    size_t gainerOffset;
 } ma_engine_node_heap_layout;
 
 static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pConfig, ma_engine_node_heap_layout* pHeapLayout)
@@ -73945,6 +73986,7 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     ma_node_config baseNodeConfig;
     ma_linear_resampler_config resamplerConfig;
     ma_spatializer_config spatializerConfig;
+    ma_gainer_config gainerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
@@ -74010,6 +74052,20 @@ static ma_result ma_engine_node_get_heap_layout(const ma_engine_node_config* pCo
     pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
 
 
+    /* Gainer. Will not be used if we are not using smoothing. */
+    if (pConfig->volumeSmoothTimeInPCMFrames > 0) {
+        gainerConfig = ma_gainer_config_init(channelsIn, pConfig->volumeSmoothTimeInPCMFrames);
+
+        result = ma_gainer_get_heap_size(&gainerConfig, &tempHeapSize);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        pHeapLayout->gainerOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += ma_align_64(tempHeapSize);
+    }
+
+
     return MA_SUCCESS;
 }
 
@@ -74043,6 +74099,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     ma_fader_config faderConfig;
     ma_spatializer_config spatializerConfig;
     ma_panner_config pannerConfig;
+    ma_gainer_config gainerConfig;
     ma_uint32 channelsIn;
     ma_uint32 channelsOut;
     ma_channel defaultStereoChannelMap[2] = {MA_CHANNEL_SIDE_LEFT, MA_CHANNEL_SIDE_RIGHT};  /* <-- Consistent with the default channel map of a stereo listener. Means channel conversion can run on a fast path. */
@@ -74065,15 +74122,17 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     pEngineNode->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    pEngineNode->pEngine                  = pConfig->pEngine;
-    pEngineNode->sampleRate               = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
-    pEngineNode->monoExpansionMode        = pConfig->monoExpansionMode;
-    pEngineNode->pitch                    = 1;
-    pEngineNode->oldPitch                 = 1;
-    pEngineNode->oldDopplerPitch          = 1;
-    pEngineNode->isPitchDisabled          = pConfig->isPitchDisabled;
-    pEngineNode->isSpatializationDisabled = pConfig->isSpatializationDisabled;
-    pEngineNode->pinnedListenerIndex      = pConfig->pinnedListenerIndex;
+    pEngineNode->pEngine                     = pConfig->pEngine;
+    pEngineNode->sampleRate                  = (pConfig->sampleRate > 0) ? pConfig->sampleRate : ma_engine_get_sample_rate(pEngineNode->pEngine);
+    pEngineNode->volumeSmoothTimeInPCMFrames = pConfig->volumeSmoothTimeInPCMFrames;
+    pEngineNode->monoExpansionMode           = pConfig->monoExpansionMode;
+    ma_atomic_float_set(&pEngineNode->volume, 1);
+    pEngineNode->pitch                       = 1;
+    pEngineNode->oldPitch                    = 1;
+    pEngineNode->oldDopplerPitch             = 1;
+    pEngineNode->isPitchDisabled             = pConfig->isPitchDisabled;
+    pEngineNode->isSpatializationDisabled    = pConfig->isSpatializationDisabled;
+    pEngineNode->pinnedListenerIndex         = pConfig->pinnedListenerIndex;
 
     channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
     channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
@@ -74153,6 +74212,18 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
         goto error3;
     }
 
+
+    /* We'll need a gainer for smoothing out volume changes if we have a non-zero smooth time. We apply this before converting to the output channel count. */
+    if (pConfig->volumeSmoothTimeInPCMFrames > 0) {
+        gainerConfig = ma_gainer_config_init(channelsIn, pConfig->volumeSmoothTimeInPCMFrames);
+
+        result = ma_gainer_init_preallocated(&gainerConfig, ma_offset_ptr(pHeap, heapLayout.gainerOffset), &pEngineNode->volumeGainer);
+        if (result != MA_SUCCESS) {
+            goto error3;
+        }
+    }
+
+
     return MA_SUCCESS;
 
     /* No need for allocation callbacks here because we use a preallocated heap. */
@@ -74201,6 +74272,10 @@ MA_API void ma_engine_node_uninit(ma_engine_node* pEngineNode, const ma_allocati
     ma_node_uninit(&pEngineNode->baseNode, pAllocationCallbacks);
 
     /* Now that the node has been uninitialized we can safely uninitialize the rest. */
+    if (pEngineNode->volumeSmoothTimeInPCMFrames > 0) {
+        ma_gainer_uninit(&pEngineNode->volumeGainer, pAllocationCallbacks);
+    }
+
     ma_spatializer_uninit(&pEngineNode->spatializer, pAllocationCallbacks);
     ma_linear_resampler_uninit(&pEngineNode->resampler, pAllocationCallbacks);
 
@@ -75134,9 +75209,10 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
     source that provides this information upfront.
     */
     engineNodeConfig = ma_engine_node_config_init(pEngine, type, pConfig->flags);
-    engineNodeConfig.channelsIn        = pConfig->channelsIn;
-    engineNodeConfig.channelsOut       = pConfig->channelsOut;
-    engineNodeConfig.monoExpansionMode = pConfig->monoExpansionMode;
+    engineNodeConfig.channelsIn                  = pConfig->channelsIn;
+    engineNodeConfig.channelsOut                 = pConfig->channelsOut;
+    engineNodeConfig.volumeSmoothTimeInPCMFrames = pConfig->volumeSmoothTimeInPCMFrames;
+    engineNodeConfig.monoExpansionMode           = pConfig->monoExpansionMode;
 
     /* If we're loading from a data source the input channel count needs to be the data source's native channel count. */
     if (pConfig->pDataSource != NULL) {
