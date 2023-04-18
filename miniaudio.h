@@ -40660,7 +40660,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
         pDevice->playback.inputCacheConsumed  = 0;
         pDevice->playback.inputCacheRemaining = 0;
 
-        if ((pDevice->type == ma_device_type_duplex && ma_context_is_backend_asynchronous(pDevice->pContext)) ||            /* Duplex with asynchronous backend. */
+        if (pDevice->type == ma_device_type_duplex ||                                                                       /* Duplex. backend may decide to use ma_device_handle_backend_data_callback() which will require this cache. */
             ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS)       /* Data conversion required input frame calculation not supported. */
         {
             /* We need a heap allocated cache. We want to size this based on the period size. */
