@@ -22095,7 +22095,18 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         if (hr != S_OK) {
             result = MA_FORMAT_NOT_SUPPORTED;
         } else {
-            MA_COPY_MEMORY(&wf, pNativeFormat, sizeof(wf));
+            /*
+            I've seen cases where cbSize will be set to sizeof(WAVEFORMATEX) even though the structure itself
+            is given the format tag of WAVE_FORMAT_EXTENSIBLE. If the format tag is WAVE_FORMAT_EXTENSIBLE
+            want to make sure we copy the whole WAVEFORMATEXTENSIBLE structure. Otherwise we'll have to be
+            safe and only copy the WAVEFORMATEX part.
+            */
+            if (pNativeFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+                MA_COPY_MEMORY(&wf, pNativeFormat, sizeof(MA_WAVEFORMATEXTENSIBLE));
+            } else {
+                MA_COPY_MEMORY(&wf, pNativeFormat, ma_min(pNativeFormat->cbSize, sizeof(wf)));
+            }
+            
             result = MA_SUCCESS;
         }
 
@@ -22140,8 +22151,16 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     pData->channelsOut = wf.nChannels;
     pData->sampleRateOut = wf.nSamplesPerSec;
 
-    /* Get the internal channel map based on the channel mask. */
-    ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pData->channelsOut, pData->channelMapOut);
+    /*
+    Get the internal channel map based on the channel mask. There is a possibility that GetMixFormat() returns
+    a WAVEFORMATEX instead of a WAVEFORMATEXTENSIBLE, in which case the channel mask will be undefined. In this
+    case we'll just use the default channel map.
+    */
+    if (wf.wFormatTag == WAVE_FORMAT_EXTENSIBLE || wf.cbSize >= sizeof(MA_WAVEFORMATEXTENSIBLE)) {
+        ma_channel_mask_to_channel_map__win32(wf.dwChannelMask, pData->channelsOut, pData->channelMapOut);
+    } else {
+        ma_channel_map_init_standard(ma_standard_channel_map_microsoft, pData->channelMapOut, ma_countof(pData->channelMapOut), pData->channelsOut);
+    }
 
     /* Period size. */
     pData->periodsOut = (pData->periodsIn != 0) ? pData->periodsIn : MA_DEFAULT_PERIODS;
