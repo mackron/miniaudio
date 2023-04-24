@@ -22104,7 +22104,18 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
             if (pNativeFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
                 MA_COPY_MEMORY(&wf, pNativeFormat, sizeof(MA_WAVEFORMATEXTENSIBLE));
             } else {
-                MA_COPY_MEMORY(&wf, pNativeFormat, ma_min(pNativeFormat->cbSize, sizeof(wf)));
+                /* I've seen a case where cbSize was set to 0. Assume sizeof(WAVEFORMATEX) in this case. */
+                size_t cbSize = pNativeFormat->cbSize;
+                if (cbSize == 0) {
+                    cbSize = sizeof(MA_WAVEFORMATEX);
+                }
+
+                /* Make sure we don't copy more than the capacity of `wf`. */
+                if (cbSize > sizeof(wf)) {
+                    cbSize = sizeof(wf);
+                }
+
+                MA_COPY_MEMORY(&wf, pNativeFormat, cbSize);
             }
             
             result = MA_SUCCESS;
