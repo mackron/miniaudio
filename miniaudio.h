@@ -21998,6 +21998,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     ma_WASAPIDeviceInterface* pDeviceInterface = NULL;
     ma_IAudioClient2* pAudioClient2;
     ma_uint32 nativeSampleRate;
+    ma_bool32 usingProcessLoopback = MA_FALSE;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pData != NULL);
@@ -22006,6 +22007,8 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     if (deviceType == ma_device_type_duplex) {
         return MA_INVALID_ARGS;
     }
+
+    usingProcessLoopback = deviceType == ma_device_type_loopback && pData->loopbackProcessID != 0 && pDeviceID == NULL;
 
     pData->pAudioClient = NULL;
     pData->pRenderClient = NULL;
@@ -22093,7 +22096,20 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         MA_WAVEFORMATEXTENSIBLE* pNativeFormat = NULL;
         hr = ma_IAudioClient_GetMixFormat((ma_IAudioClient*)pData->pAudioClient, (MA_WAVEFORMATEX**)&pNativeFormat);
         if (hr != S_OK) {
-            result = MA_FORMAT_NOT_SUPPORTED;
+            /* When using process-specific loopback, GetMixFormat() seems to always fail. */
+            if (usingProcessLoopback) {
+                wf.wFormatTag      = WAVE_FORMAT_IEEE_FLOAT;
+                wf.nChannels       = 2;
+                wf.nSamplesPerSec  = 44100;
+                wf.wBitsPerSample  = 32;
+                wf.nBlockAlign     = wf.nChannels * wf.wBitsPerSample / 8;
+                wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
+                wf.cbSize          = sizeof(MA_WAVEFORMATEX);
+
+                result = MA_SUCCESS;
+            } else {
+                result = MA_FORMAT_NOT_SUPPORTED;
+            }
         } else {
             /*
             I've seen cases where cbSize will be set to sizeof(WAVEFORMATEX) even though the structure itself
@@ -22344,11 +22360,20 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     }
 
     if (!wasInitializedUsingIAudioClient3) {
-        ma_uint32 bufferSizeInFrames;
+        ma_uint32 bufferSizeInFrames = 0;
         hr = ma_IAudioClient_GetBufferSize((ma_IAudioClient*)pData->pAudioClient, &bufferSizeInFrames);
         if (FAILED(hr)) {
             errorMsg = "[WASAPI] Failed to get audio client's actual buffer size.", result = ma_result_from_HRESULT(hr);
             goto done;
+        }
+
+        /*
+        When using process loopback mode, retrieval of the buffer size seems to result in totally
+        incorrect values. In this case we'll just assume it's the same size as what we requested
+        when we initialized the client.
+        */
+        if (usingProcessLoopback) {
+            bufferSizeInFrames = (ma_uint32)((periodDurationInMicroseconds * pData->periodsOut) * pData->sampleRateOut / 1000000);
         }
 
         pData->periodSizeInFramesOut = bufferSizeInFrames / pData->periodsOut;
