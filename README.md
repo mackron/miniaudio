@@ -157,7 +157,6 @@ Platforms and Backends
             <img src="https://miniaud.io/img/platforms/android/android.svg" style="height:100px;">
         </td>
     </tr>
-    
     <tr style="font-weight:bold;">
         <td style="vertical-align:top; padding:0em; font-weight:bold;">
             Windows
@@ -177,7 +176,6 @@ Platforms and Backends
             Android
         </td>
     </tr>
-    
     <tr>
         <td style="vertical-align:top; padding-top:1em;">
             WASAPI<br/>
@@ -202,60 +200,43 @@ Platforms and Backends
             OpenSL | ES
         </td>
     </tr>
-    
-    
-    <!-- PLATFORM ROW 2 -->
     <tr>
         <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
-
         </td>
         <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
-
         </td>
         <td style="width:20%; vertical-align:center; padding:1em; padding-top:4em;">
             <img src="https://miniaud.io/img/platforms/web/html5.svg" style="height:128px;">
         </td>
         <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
-
         </td>
         <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
-
         </td>
     </tr>
-    
     <tr style="font-weight:bold;">
         <td style="vertical-align:top; padding:0em; font-weight:bold;">
-
         </td>
         <td style="vertical-align:top; padding:0em;">
-
         </td>
         <td style=vertical-align:top; padding:0em;">
             Web
         </td>
         <td style="vertical-align:top; padding:0em;">
-
         </td>
         <td style="vertical-align:top; padding:0em;">
-
         </td>
     </tr>
-    
     <tr>
         <td style="vertical-align:top; padding-top:1em;">
-
         </td>
         <td style="vertical-align:top; padding-top:1em;">
-        
         </td>
         <td style="vertical-align:top; padding-top:1em;">
             Emscripten / WebAudio
         </td>
         <td style="vertical-align:top; padding-top:1em;">
-
         </td>
         <td style="vertical-align:top; padding-top:1em;">
-
         </td>
     </tr>
 </table>
