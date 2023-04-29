@@ -137,6 +137,130 @@ which is always the most up-to-date and authoritive source of information on how
 documentation is generated from this in-code documentation.
 
 
+Platforms and Backends
+======================
+<table style="margin:0 auto; text-align:center; width:75%; margin-top:2em; font-size:12pt;">
+    <tr>
+        <td style="width:20%; vertical-align:center; padding:1em;">
+            <img src="https://miniaud.io/img/platforms/windows/windows-10.svg" style="height:128px;">
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em;">
+            <img src="https://miniaud.io/img/platforms/apple/apple-black.svg" style="height:128px;">
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em;">
+            <img src="https://miniaud.io/img/platforms/linux/linux.svg" style="height:128px;">
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em;">
+            <img src="https://miniaud.io/img/platforms/bsd/freebsd.svg" style="height:128px;">
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em;">
+            <img src="https://miniaud.io/img/platforms/android/android.svg" style="height:100px;">
+        </td>
+    </tr>
+    
+    <tr style="font-weight:bold;">
+        <td style="vertical-align:top; padding:0em; font-weight:bold;">
+            Windows
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+            macOS / iOS
+        </td>
+        <td style=vertical-align:top; padding:0em;">
+            Linux
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+            FreeBSD / 
+            OpenBSD /
+            NetBSD
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+            Android
+        </td>
+    </tr>
+    
+    <tr>
+        <td style="vertical-align:top; padding-top:1em;">
+            WASAPI<br/>
+            DirectSound<br/>
+            WinMM
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+            Core Audio
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+            ALSA<br/>
+            PulseAudio<br/>
+            JACK
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+            OSS<br/>
+            sndio<br/>
+            audio(4)
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+            AAudio<br/>
+            OpenSL | ES
+        </td>
+    </tr>
+    
+    
+    <!-- PLATFORM ROW 2 -->
+    <tr>
+        <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em; padding-top:4em;">
+            <img src="https://miniaud.io/img/platforms/web/html5.svg" style="height:128px;">
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+        </td>
+        <td style="width:20%; vertical-align:center; padding:1em; padding-top:2em;">
+
+        </td>
+    </tr>
+    
+    <tr style="font-weight:bold;">
+        <td style="vertical-align:top; padding:0em; font-weight:bold;">
+
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+
+        </td>
+        <td style=vertical-align:top; padding:0em;">
+            Web
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+
+        </td>
+        <td style="vertical-align:top; padding:0em;">
+
+        </td>
+    </tr>
+    
+    <tr>
+        <td style="vertical-align:top; padding-top:1em;">
+
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+        
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+            Emscripten / WebAudio
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+
+        </td>
+        <td style="vertical-align:top; padding-top:1em;">
+
+        </td>
+    </tr>
+</table>
+
+
 Supported Platforms
 ===================
 - Windows, UWP
