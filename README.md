@@ -12,12 +12,12 @@
 </p>
 
 <p align="center">
+    <a href="#features">Features</a> -
     <a href="#examples">Examples</a> -
+    <a href="#building">Building</a> -
     <a href="#documentation">Documentation</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
-    <a href="#backends">Backends</a> -
-    <a href="#major-features">Major Features</a> -
-    <a href="#building">Building</a>
+    <a href="#license">License</a>
 </p>
 
 miniaudio is written in C with no dependencies except the standard library and should compile clean on all major
@@ -198,9 +198,8 @@ miniaudio should compile clean on other platforms, but it will not include any s
 by default. To support that, you would need to implement a custom backend. You can do this without needing to
 modify the miniaudio source code. See the [custom_backend](examples/custom_backend.c) example.
 
-
 Backends
-========
+--------
 - WASAPI
 - DirectSound
 - WinMM
