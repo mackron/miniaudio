@@ -75444,7 +75444,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     /*
     We need to make a clone of the data source. If the data source is not a data buffer (i.e. a stream)
-    the this will fail.
+    this will fail.
     */
     pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
     if (pSound->pResourceManagerDataSource == NULL) {
@@ -75471,6 +75471,9 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
         MA_ZERO_OBJECT(pSound);
         return result;
     }
+
+    /* Make sure the sound is marked as the owner of the data source or else it will never get uninitialized. */
+    pSound->ownsDataSource = MA_TRUE;
 
     return MA_SUCCESS;
 }
