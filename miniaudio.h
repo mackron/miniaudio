@@ -23358,6 +23358,30 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                         result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
                     }
+                } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                    /* Device needs to be reinitialized. This might happen if the device is disconnected. We only do this if we're using the default device. */
+                    if (pDevice->playback.pID == NULL && pDevice->type != ma_device_type_duplex) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Playback device invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Attempting reroute.");
+
+                        ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+                        {
+                            result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
+                        }
+                        ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+
+                        if (result != MA_SUCCESS) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reroute playback device after AUDCLNT_E_DEVICE_INVALIDATED. Aborting.");
+                            break;
+                        }
+
+                        /* The device will need to be started again or else we'll get stuck. */
+                        ma_device_start__wasapi(pDevice);
+                    } else {
+                        /* The device has been invalidated, but we're using a specific device. We'll just need to abort. */
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] The playback device has been invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Aborting.");
+                        result = MA_ERROR;
+                        break;
+                    }
                 } else {
                     /* Some error occurred. We'll need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.\n", (int)hr);
