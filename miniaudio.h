@@ -22927,7 +22927,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", hr);
             return ma_result_from_HRESULT(hr);
         }
 
@@ -22937,7 +22937,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
         if (FAILED(hr)) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", hr);
             return ma_result_from_HRESULT(hr);
         }
 
