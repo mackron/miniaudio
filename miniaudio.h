@@ -20880,13 +20880,7 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");*/
 #endif
 
-    /* We only ever use the eConsole role in miniaudio. */
-    if (role != ma_eConsole) {
-        ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting: role != eConsole\n");
-        return S_OK;
-    }
-
-    /* We only care about devices with the same data flow and role as the current device. */
+    /* We only care about devices with the same data flow as the current device. */
     if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender)  ||
         (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture) ||
         (pThis->pDevice->type == ma_device_type_loopback && dataFlow != ma_eRender)) {
