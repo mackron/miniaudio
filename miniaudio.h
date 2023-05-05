@@ -40970,7 +40970,11 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     ma_CoUninitialize(pContext);
-    ma_dlclose(pContext, pContext->win32.hUser32DLL);
+
+    #if defined(MA_WIN32_DESKTOP)
+        ma_dlclose(pContext, pContext->win32.hUser32DLL);
+    #endif
+
     ma_dlclose(pContext, pContext->win32.hOle32DLL);
     ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
 #else
@@ -40983,6 +40987,18 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 {
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    #if defined(MA_WIN32_DESKTOP)
+        /* User32.dll */
+        pContext->win32.hUser32DLL = ma_dlopen(pContext, "user32.dll");
+        if (pContext->win32.hUser32DLL == NULL) {
+            return MA_FAILED_TO_INIT_BACKEND;
+        }
+
+        pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
+        pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
+    #endif
+
+
     /* Ole32.dll */
     pContext->win32.hOle32DLL = ma_dlopen(pContext, "ole32.dll");
     if (pContext->win32.hOle32DLL == NULL) {
@@ -40996,16 +41012,6 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "PropVariantClear");
     pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "StringFromGUID2");
-
-
-    /* User32.dll */
-    pContext->win32.hUser32DLL = ma_dlopen(pContext, "user32.dll");
-    if (pContext->win32.hUser32DLL == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
-    pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
 
 
     /* Advapi32.dll */
