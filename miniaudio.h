@@ -40973,10 +40973,10 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 
     #if defined(MA_WIN32_DESKTOP)
         ma_dlclose(pContext, pContext->win32.hUser32DLL);
+        ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
     #endif
 
     ma_dlclose(pContext, pContext->win32.hOle32DLL);
-    ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
 #else
     (void)pContext;
 #endif
@@ -40996,8 +40996,18 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 
         pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
         pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
-    #endif
 
+
+        /* Advapi32.dll */
+        pContext->win32.hAdvapi32DLL = ma_dlopen(pContext, "advapi32.dll");
+        if (pContext->win32.hAdvapi32DLL == NULL) {
+            return MA_FAILED_TO_INIT_BACKEND;
+        }
+
+        pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
+        pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
+        pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+    #endif
 
     /* Ole32.dll */
     pContext->win32.hOle32DLL = ma_dlopen(pContext, "ole32.dll");
@@ -41012,17 +41022,6 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "PropVariantClear");
     pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "StringFromGUID2");
-
-
-    /* Advapi32.dll */
-    pContext->win32.hAdvapi32DLL = ma_dlopen(pContext, "advapi32.dll");
-    if (pContext->win32.hAdvapi32DLL == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
-    pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
-    pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
 #else
     (void)pContext; /* Unused. */
 #endif
