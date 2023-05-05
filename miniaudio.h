@@ -23363,21 +23363,41 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
                     /* Device needs to be reinitialized. This might happen if the device is disconnected. We only do this if we're using the default device. */
                     if (pDevice->playback.pID == NULL && pDevice->type != ma_device_type_duplex) {
+                        ma_uint32 timeToAbortInMilliseconds = 1000;
+                        ma_uint32 retryDelayInMilliseconds  = 250;
+                        ma_uint32 retryCount = timeToAbortInMilliseconds / retryDelayInMilliseconds;
+                        ma_uint32 iRetry;
+
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Playback device invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Attempting reroute.");
 
-                        ma_mutex_lock(&pDevice->wasapi.rerouteLock);
-                        {
-                            result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
-                        }
-                        ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
+                        for (iRetry = 0; iRetry < retryCount; iRetry += 1) {
+                            ma_mutex_lock(&pDevice->wasapi.rerouteLock);
+                            {
+                                result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
+                            }
+                            ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
 
-                        if (result != MA_SUCCESS) {
-                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reroute playback device after AUDCLNT_E_DEVICE_INVALIDATED. Aborting.");
+                            if (result == MA_SUCCESS) {
+                                result = ma_device_start__wasapi(pDevice);
+                                if (result == MA_SUCCESS) {
+                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Reroute successful.");
+                                    break;
+                                } else {
+                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Reroute attempt failed. Failed to restart device.");
+                                }
+                            } else {
+                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Reroute attempt failed.");
+                            }
+
+                            /* Getting here means we failed the reroute attempt. Sleep for a bit and retry. */
+                            ma_sleep(retryDelayInMilliseconds);
+                        }
+
+                        if (iRetry == retryCount) {
+                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reroute device after AUDCLNT_E_DEVICE_INVALIDATED. Aborting.");
+                            result = MA_ERROR;
                             break;
                         }
-
-                        /* The device will need to be started again or else we'll get stuck. */
-                        ma_device_start__wasapi(pDevice);
                     } else {
                         /* The device has been invalidated, but we're using a specific device. We'll just need to abort. */
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] The playback device has been invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Aborting.");
