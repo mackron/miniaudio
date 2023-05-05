@@ -18455,22 +18455,22 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
 
-#ifdef _WIN32
-    /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
-    #if !defined(WINAPI_FAMILY) || (defined(WINAPI_FAMILY) && (defined(WINAPI_FAMILY_DESKTOP_APP) && WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP))
-        handle = (ma_handle)LoadLibraryA(filename);
+    #ifdef MA_WIN32
+        /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
+        #if !defined(MA_WIN32_UWP)
+            handle = (ma_handle)LoadLibraryA(filename);
+        #else
+            /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
+            WCHAR filenameW[4096];
+            if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                handle = NULL;
+            } else {
+                handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
+            }
+        #endif
     #else
-        /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
-        WCHAR filenameW[4096];
-        if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
-            handle = NULL;
-        } else {
-            handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
-        }
+        handle = (ma_handle)dlopen(filename, RTLD_NOW);
     #endif
-#else
-    handle = (ma_handle)dlopen(filename, RTLD_NOW);
-#endif
 
     /*
     I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
@@ -18493,11 +18493,11 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
 #ifndef MA_NO_RUNTIME_LINKING
-#ifdef _WIN32
-    FreeLibrary((HMODULE)handle);
-#else
-    dlclose((void*)handle);
-#endif
+    #ifdef MA_WIN32
+        FreeLibrary((HMODULE)handle);
+    #else
+        dlclose((void*)handle);
+    #endif
 
     (void)pContext;
 #else
