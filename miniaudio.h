@@ -19820,7 +19820,7 @@ WIN32 COMMON
 
 *******************************************************************************/
 #if defined(MA_WIN32)
-#if defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
     #define ma_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MA_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
@@ -22927,7 +22927,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", hr);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
 
@@ -22937,7 +22937,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
         if (FAILED(hr)) {
-            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", hr);
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
 
@@ -23359,50 +23359,6 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                     if (WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, MA_WASAPI_WAIT_TIMEOUT_MILLISECONDS) != WAIT_OBJECT_0) {
                         result = MA_ERROR;
                         break;   /* Wait failed. Probably timed out. */
-                    }
-                } else if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
-                    /* Device needs to be reinitialized. This might happen if the device is disconnected. We only do this if we're using the default device. */
-                    if (pDevice->playback.pID == NULL && pDevice->type != ma_device_type_duplex) {
-                        ma_uint32 timeToAbortInMilliseconds = 1000;
-                        ma_uint32 retryDelayInMilliseconds  = 250;
-                        ma_uint32 retryCount = timeToAbortInMilliseconds / retryDelayInMilliseconds;
-                        ma_uint32 iRetry;
-
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Playback device invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Attempting reroute.");
-
-                        for (iRetry = 0; iRetry < retryCount; iRetry += 1) {
-                            ma_mutex_lock(&pDevice->wasapi.rerouteLock);
-                            {
-                                result = ma_device_reroute__wasapi(pDevice, ma_device_type_playback);
-                            }
-                            ma_mutex_unlock(&pDevice->wasapi.rerouteLock);
-
-                            if (result == MA_SUCCESS) {
-                                result = ma_device_start__wasapi(pDevice);
-                                if (result == MA_SUCCESS) {
-                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Reroute successful.");
-                                    break;
-                                } else {
-                                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Reroute attempt failed. Failed to restart device.");
-                                }
-                            } else {
-                                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Reroute attempt failed.");
-                            }
-
-                            /* Getting here means we failed the reroute attempt. Sleep for a bit and retry. */
-                            ma_sleep(retryDelayInMilliseconds);
-                        }
-
-                        if (iRetry == retryCount) {
-                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reroute device after AUDCLNT_E_DEVICE_INVALIDATED. Aborting.");
-                            result = MA_ERROR;
-                            break;
-                        }
-                    } else {
-                        /* The device has been invalidated, but we're using a specific device. We'll just need to abort. */
-                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] The playback device has been invalidated (AUDCLNT_E_DEVICE_INVALIDATED). Aborting.");
-                        result = MA_ERROR;
-                        break;
                     }
                 } else {
                     /* Some error occurred. We'll need to abort. */
@@ -41012,7 +40968,7 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     ma_CoUninitialize(pContext);
     ma_dlclose(pContext, pContext->win32.hUser32DLL);
     ma_dlclose(pContext, pContext->win32.hOle32DLL);
@@ -41026,7 +40982,7 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 
 static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 {
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     /* Ole32.dll */
     pContext->win32.hOle32DLL = ma_dlopen(pContext, "ole32.dll");
     if (pContext->win32.hOle32DLL == NULL) {
