@@ -67938,7 +67938,12 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             job.data.resourceManager.loadDataBufferNode.pInitFence        = pInitFence;
             job.data.resourceManager.loadDataBufferNode.pDoneFence        = pDoneFence;
 
-            result = ma_resource_manager_post_job(pResourceManager, &job);
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                result = ma_job_process(&job);
+            } else {
+                result = ma_resource_manager_post_job(pResourceManager, &job);
+            }
+
             if (result != MA_SUCCESS) {
                 /* Failed to post job. Probably ran out of memory. */
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
@@ -67951,11 +67956,12 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
                 if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
 
                 if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                    ma_resource_manager_inline_notification_init(pResourceManager, pInitNotification);
+                    ma_resource_manager_inline_notification_uninit(pInitNotification);
+                } else {
+                    /* These will have been freed by the job thread, but with WAIT_INIT they will already have happend sinced the job has already been handled. */
+                    ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
+                    ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
                 }
-
-                ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
-                ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
                 ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
@@ -68395,7 +68401,13 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             job.data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames = pConfig->loopPointEndInPCMFrames;
             job.data.resourceManager.loadDataBuffer.isLooping               = pConfig->isLooping;
 
-            result = ma_resource_manager_post_job(pResourceManager, &job);
+            /* If we need to wait for initialization to complete we can just process the job in place. */
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                result = ma_job_process(&job);
+            } else {
+                result = ma_resource_manager_post_job(pResourceManager, &job);
+            }
+
             if (result != MA_SUCCESS) {
                 /* We failed to post the job. Most likely there isn't enough room in the queue's buffer. */
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER job. %s.\n", ma_result_description(result));
@@ -70094,6 +70106,12 @@ done:
 
     /* Increment the node's execution pointer so that the next jobs can be processed. This is how we keep decoding of pages in-order. */
     c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
+
+    /* A busy result should be considered successful from the point of view of the job system. */
+    if (result == MA_BUSY) {
+        result  = MA_SUCCESS;
+    }
+
     return result;
 }
 
