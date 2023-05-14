@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.15 - 2023-04-30
+miniaudio - v0.11.16 - 2023-05-15
 
 David Reid - mackron@gmail.com
 
@@ -7101,22 +7101,22 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 
     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
 
-#ifdef _WIN32
-    /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
-    #if !defined(WINAPI_FAMILY) || (defined(WINAPI_FAMILY) && (defined(WINAPI_FAMILY_DESKTOP_APP) && WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP))
-        handle = (ma_handle)LoadLibraryA(filename);
+    #ifdef MA_WIN32
+        /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
+        #if !defined(MA_WIN32_UWP)
+            handle = (ma_handle)LoadLibraryA(filename);
+        #else
+            /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
+            WCHAR filenameW[4096];
+            if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                handle = NULL;
+            } else {
+                handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
+            }
+        #endif
     #else
-        /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
-        WCHAR filenameW[4096];
-        if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
-            handle = NULL;
-        } else {
-            handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
-        }
+        handle = (ma_handle)dlopen(filename, RTLD_NOW);
     #endif
-#else
-    handle = (ma_handle)dlopen(filename, RTLD_NOW);
-#endif
 
     /*
     I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
@@ -7139,11 +7139,11 @@ MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
 MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
 {
 #ifndef MA_NO_RUNTIME_LINKING
-#ifdef _WIN32
-    FreeLibrary((HMODULE)handle);
-#else
-    dlclose((void*)handle);
-#endif
+    #ifdef MA_WIN32
+        FreeLibrary((HMODULE)handle);
+    #else
+        dlclose((void*)handle);
+    #endif
 
     (void)pContext;
 #else
@@ -8466,7 +8466,7 @@ WIN32 COMMON
 
 *******************************************************************************/
 #if defined(MA_WIN32)
-#if defined(MA_WIN32_DESKTOP)
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     #define ma_CoInitializeEx(pContext, pvReserved, dwCoInit)                          ((pContext->win32.CoInitializeEx) ? ((MA_PFN_CoInitializeEx)pContext->win32.CoInitializeEx)(pvReserved, dwCoInit) : ((MA_PFN_CoInitialize)pContext->win32.CoInitialize)(pvReserved))
     #define ma_CoUninitialize(pContext)                                                ((MA_PFN_CoUninitialize)pContext->win32.CoUninitialize)()
     #define ma_CoCreateInstance(pContext, rclsid, pUnkOuter, dwClsContext, riid, ppv)  ((MA_PFN_CoCreateInstance)pContext->win32.CoCreateInstance)(rclsid, pUnkOuter, dwClsContext, riid, ppv)
@@ -9526,13 +9526,9 @@ static HRESULT STDMETHODCALLTYPE ma_IMMNotificationClient_OnDefaultDeviceChanged
     /*ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "IMMNotificationClient_OnDefaultDeviceChanged(dataFlow=%d, role=%d, pDefaultDeviceID=%S)\n", dataFlow, role, (pDefaultDeviceID != NULL) ? pDefaultDeviceID : L"(NULL)");*/
 #endif
 
-    /* We only ever use the eConsole role in miniaudio. */
-    if (role != ma_eConsole) {
-        ma_log_postf(ma_device_get_log(pThis->pDevice), MA_LOG_LEVEL_DEBUG, "[WASAPI] Stream rerouting: role != eConsole\n");
-        return S_OK;
-    }
+    (void)role;
 
-    /* We only care about devices with the same data flow and role as the current device. */
+    /* We only care about devices with the same data flow as the current device. */
     if ((pThis->pDevice->type == ma_device_type_playback && dataFlow != ma_eRender)  ||
         (pThis->pDevice->type == ma_device_type_capture  && dataFlow != ma_eCapture) ||
         (pThis->pDevice->type == ma_device_type_loopback && dataFlow != ma_eRender)) {
@@ -11577,7 +11573,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device.");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal capture device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
 
@@ -11587,7 +11583,7 @@ static ma_result ma_device_start__wasapi_nolock(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         hr = ma_IAudioClient_Start((ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback);
         if (FAILED(hr)) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device.");
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to start internal playback device. HRESULT = %d.", (int)hr);
             return ma_result_from_HRESULT(hr);
         }
 
@@ -29618,11 +29614,15 @@ static ma_bool32 ma_device__is_initialized(ma_device* pDevice)
 static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     ma_CoUninitialize(pContext);
-    ma_dlclose(pContext, pContext->win32.hUser32DLL);
+
+    #if defined(MA_WIN32_DESKTOP)
+        ma_dlclose(pContext, pContext->win32.hUser32DLL);
+        ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
+    #endif
+
     ma_dlclose(pContext, pContext->win32.hOle32DLL);
-    ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
 #else
     (void)pContext;
 #endif
@@ -29632,7 +29632,29 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 
 static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 {
-#ifdef MA_WIN32_DESKTOP
+#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    #if defined(MA_WIN32_DESKTOP)
+        /* User32.dll */
+        pContext->win32.hUser32DLL = ma_dlopen(pContext, "user32.dll");
+        if (pContext->win32.hUser32DLL == NULL) {
+            return MA_FAILED_TO_INIT_BACKEND;
+        }
+
+        pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
+        pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
+
+
+        /* Advapi32.dll */
+        pContext->win32.hAdvapi32DLL = ma_dlopen(pContext, "advapi32.dll");
+        if (pContext->win32.hAdvapi32DLL == NULL) {
+            return MA_FAILED_TO_INIT_BACKEND;
+        }
+
+        pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
+        pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
+        pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+    #endif
+
     /* Ole32.dll */
     pContext->win32.hOle32DLL = ma_dlopen(pContext, "ole32.dll");
     if (pContext->win32.hOle32DLL == NULL) {
@@ -29646,27 +29668,6 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoTaskMemFree");
     pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "PropVariantClear");
     pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "StringFromGUID2");
-
-
-    /* User32.dll */
-    pContext->win32.hUser32DLL = ma_dlopen(pContext, "user32.dll");
-    if (pContext->win32.hUser32DLL == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
-    pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
-
-
-    /* Advapi32.dll */
-    pContext->win32.hAdvapi32DLL = ma_dlopen(pContext, "advapi32.dll");
-    if (pContext->win32.hAdvapi32DLL == NULL) {
-        return MA_FAILED_TO_INIT_BACKEND;
-    }
-
-    pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
-    pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
-    pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
 #else
     (void)pContext; /* Unused. */
 #endif
@@ -56583,7 +56584,12 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
             job.data.resourceManager.loadDataBufferNode.pInitFence        = pInitFence;
             job.data.resourceManager.loadDataBufferNode.pDoneFence        = pDoneFence;
 
-            result = ma_resource_manager_post_job(pResourceManager, &job);
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                result = ma_job_process(&job);
+            } else {
+                result = ma_resource_manager_post_job(pResourceManager, &job);
+            }
+
             if (result != MA_SUCCESS) {
                 /* Failed to post job. Probably ran out of memory. */
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
@@ -56596,11 +56602,12 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
                 if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
 
                 if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
-                    ma_resource_manager_inline_notification_init(pResourceManager, pInitNotification);
+                    ma_resource_manager_inline_notification_uninit(pInitNotification);
+                } else {
+                    /* These will have been freed by the job thread, but with WAIT_INIT they will already have happend sinced the job has already been handled. */
+                    ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
+                    ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
                 }
-
-                ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
-                ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
 
                 ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
                 ma_free(pDataBufferNode, &pResourceManager->config.allocationCallbacks);
@@ -57040,7 +57047,13 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             job.data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames = pConfig->loopPointEndInPCMFrames;
             job.data.resourceManager.loadDataBuffer.isLooping               = pConfig->isLooping;
 
-            result = ma_resource_manager_post_job(pResourceManager, &job);
+            /* If we need to wait for initialization to complete we can just process the job in place. */
+            if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
+                result = ma_job_process(&job);
+            } else {
+                result = ma_resource_manager_post_job(pResourceManager, &job);
+            }
+
             if (result != MA_SUCCESS) {
                 /* We failed to post the job. Most likely there isn't enough room in the queue's buffer. */
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER job. %s.\n", ma_result_description(result));
@@ -58739,6 +58752,12 @@ done:
 
     /* Increment the node's execution pointer so that the next jobs can be processed. This is how we keep decoding of pages in-order. */
     c89atomic_fetch_add_32(&pDataBufferNode->executionPointer, 1);
+
+    /* A busy result should be considered successful from the point of view of the job system. */
+    if (result == MA_BUSY) {
+        result  = MA_SUCCESS;
+    }
+
     return result;
 }
 
@@ -64090,7 +64109,7 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
 
     /*
     We need to make a clone of the data source. If the data source is not a data buffer (i.e. a stream)
-    the this will fail.
+    this will fail.
     */
     pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
     if (pSound->pResourceManagerDataSource == NULL) {
@@ -64117,6 +64136,9 @@ MA_API ma_result ma_sound_init_copy(ma_engine* pEngine, const ma_sound* pExistin
         MA_ZERO_OBJECT(pSound);
         return result;
     }
+
+    /* Make sure the sound is marked as the owner of the data source or else it will never get uninitialized. */
+    pSound->ownsDataSource = MA_TRUE;
 
     return MA_SUCCESS;
 }

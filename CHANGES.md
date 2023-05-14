@@ -1,3 +1,9 @@
+v0.11.16 - 2023-05-15
+=====================
+* Fix a memory leak with `ma_sound_init_copy()`.
+* Improve performance of `ma_sound_init_*()` when using the `ASYNC | DECODE` flag combination.
+
+
 v0.11.15 - 2023-04-30
 =====================
 * Fix a bug where initialization of a duplex device fails on some backends.
