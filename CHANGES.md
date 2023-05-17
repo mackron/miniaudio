@@ -1,3 +1,8 @@
+v0.11.7 - TBD
+=============
+
+
+
 v0.11.16 - 2023-05-15
 =====================
 * Fix a memory leak with `ma_sound_init_copy()`.
