@@ -58974,6 +58974,31 @@ MA_API ma_result ma_vfs_open_and_read_file_w(ma_vfs* pVFS, const wchar_t* pFileP
 #endif
 
 #if defined(MA_USE_WIN32_FILEIO)
+/*
+We need to dynamically load SetFilePointer or SetFilePointerEx because older versions of Windows do
+not have the Ex version. We therefore need to do some dynamic branching depending on what's available.
+
+We load these when we load our first file from the default VFS. It's left open for the life of the
+program and is left to the OS to uninitialize when the program terminates.
+*/
+typedef DWORD (__stdcall * ma_SetFilePointer_proc)(HANDLE hFile, LONG lDistanceToMove, LONG* lpDistanceToMoveHigh, DWORD dwMoveMethod);
+typedef BOOL  (__stdcall * ma_SetFilePointerEx_proc)(HANDLE hFile, LARGE_INTEGER liDistanceToMove, LARGE_INTEGER* lpNewFilePointer, DWORD dwMoveMethod);
+
+static ma_handle hKernel32DLL = NULL;
+static ma_SetFilePointer_proc   ma_SetFilePointer   = NULL;
+static ma_SetFilePointerEx_proc ma_SetFilePointerEx = NULL;
+
+static void ma_win32_fileio_init(void)
+{
+    if (hKernel32DLL == NULL) {
+        hKernel32DLL = ma_dlopen(NULL, "kernel32.dll");
+        if (hKernel32DLL != NULL) {
+            ma_SetFilePointer   = (ma_SetFilePointer_proc)  ma_dlsym(NULL, hKernel32DLL, "SetFilePointer");
+            ma_SetFilePointerEx = (ma_SetFilePointerEx_proc)ma_dlsym(NULL, hKernel32DLL, "SetFilePointerEx");
+        }
+    }
+}
+
 static void ma_default_vfs__get_open_settings_win32(ma_uint32 openMode, DWORD* pDesiredAccess, DWORD* pShareMode, DWORD* pCreationDisposition)
 {
     *pDesiredAccess = 0;
@@ -59005,6 +59030,9 @@ static ma_result ma_default_vfs_open__win32(ma_vfs* pVFS, const char* pFilePath,
 
     (void)pVFS;
 
+    /* Load some Win32 symbols dynamically so we can dynamically check for the existence of SetFilePointerEx. */
+    ma_win32_fileio_init();
+
     ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
 
     hFile = CreateFileA(pFilePath, dwDesiredAccess, dwShareMode, NULL, dwCreationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -59024,6 +59052,9 @@ static ma_result ma_default_vfs_open_w__win32(ma_vfs* pVFS, const wchar_t* pFile
     DWORD dwCreationDisposition;
 
     (void)pVFS;
+
+    /* Load some Win32 symbols dynamically so we can dynamically check for the existence of SetFilePointerEx. */
+    ma_win32_fileio_init();
 
     ma_default_vfs__get_open_settings_win32(openMode, &dwDesiredAccess, &dwShareMode, &dwCreationDisposition);
 
@@ -59150,16 +59181,19 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         dwMoveMethod = FILE_BEGIN;
     }
 
-#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
-    /* No SetFilePointerEx() so restrict to 31 bits. */
-    if (origin > 0x7FFFFFFF) {
-        return MA_OUT_OF_RANGE;
+    if (ma_SetFilePointerEx != NULL) {
+        result = ma_SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
+    } else if (ma_SetFilePointer != NULL) {
+        /* No SetFilePointerEx() so restrict to 31 bits. */
+        if (origin > 0x7FFFFFFF) {
+            return MA_OUT_OF_RANGE;
+        }
+
+        result = ma_SetFilePointer((HANDLE)file, (LONG)liDistanceToMove.QuadPart, NULL, dwMoveMethod);
+    } else {
+        return MA_NOT_IMPLEMENTED;
     }
 
-    result = SetFilePointer((HANDLE)file, (LONG)liDistanceToMove.QuadPart, NULL, dwMoveMethod);
-#else
-    result = SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
-#endif
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
@@ -59172,20 +59206,22 @@ static ma_result ma_default_vfs_tell__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
     LARGE_INTEGER liZero;
     LARGE_INTEGER liTell;
     BOOL result;
-#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
-    LONG tell;
-#endif
 
     (void)pVFS;
 
     liZero.QuadPart = 0;
 
-#if (defined(_MSC_VER) && _MSC_VER <= 1200) || defined(__DMC__)
-    result = SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
-    liTell.QuadPart = tell;
-#else
-    result = SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
-#endif
+    if (ma_SetFilePointerEx != NULL) {
+        result = ma_SetFilePointerEx((HANDLE)file, liZero, &liTell, FILE_CURRENT);
+    } else if (ma_SetFilePointer != NULL) {
+        LONG tell;
+
+        result = ma_SetFilePointer((HANDLE)file, (LONG)liZero.QuadPart, &tell, FILE_CURRENT);
+        liTell.QuadPart = tell;
+    } else {
+        return MA_NOT_IMPLEMENTED;
+    }
+
     if (result == 0) {
         return ma_result_from_GetLastError(GetLastError());
     }
