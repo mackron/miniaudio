@@ -11424,6 +11424,7 @@ IMPLEMENTATION
 #endif
 
 
+/* Architecture Detection */
 #if !defined(MA_64BIT) && !defined(MA_32BIT)
 #ifdef _WIN32
 #ifdef _WIN64
@@ -11453,12 +11454,18 @@ IMPLEMENTATION
 #endif
 #endif
 
-/* Architecture Detection */
+#if defined(__arm__) || defined(_M_ARM)
+#define MA_ARM32
+#endif
+#if defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
+#define MA_ARM64
+#endif
+
 #if defined(__x86_64__) || defined(_M_X64)
 #define MA_X64
 #elif defined(__i386) || defined(_M_IX86)
 #define MA_X86
-#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
+#elif defined(MA_ARM32) || defined(MA_ARM64)
 #define MA_ARM
 #endif
 
