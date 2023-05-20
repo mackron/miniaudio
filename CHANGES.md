@@ -1,6 +1,7 @@
 v0.11.7 - TBD
 =============
-
+* Work around some bad code generation by Clang.
+* Fix a very minor linting warning in VS2022.
 
 
 v0.11.16 - 2023-05-15
