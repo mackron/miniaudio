@@ -2460,37 +2460,18 @@ used. The same general process applies to detachment. See `ma_node_attach_output
 8. Decoding
 ===========
 The `ma_decoder` API is used for reading audio files. Decoders are completely decoupled from
-devices and can be used independently. The following formats are supported:
+devices and can be used independently. Built-in support is included for the following formats:
 
-    +---------+------------------+----------+
-    | Format  | Decoding Backend | Built-In |
-    +---------+------------------+----------+
-    | WAV     | dr_wav           | Yes      |
-    | MP3     | dr_mp3           | Yes      |
-    | FLAC    | dr_flac          | Yes      |
-    | Vorbis  | stb_vorbis       | No       |
-    +---------+------------------+----------+
+    +---------+
+    | Format  |
+    +---------+
+    | WAV     |
+    | MP3     |
+    | FLAC    |
+    +---------+
 
-Vorbis is supported via stb_vorbis which can be enabled by including the header section before the
-implementation of miniaudio, like the following:
-
-    ```c
-    #define STB_VORBIS_HEADER_ONLY
-    #include "extras/stb_vorbis.c"    // Enables Vorbis decoding.
-
-    #define MINIAUDIO_IMPLEMENTATION
-    #include "miniaudio.h"
-
-    // The stb_vorbis implementation must come after the implementation of miniaudio.
-    #undef STB_VORBIS_HEADER_ONLY
-    #include "extras/stb_vorbis.c"
-    ```
-
-A copy of stb_vorbis is included in the "extras" folder in the miniaudio repository (https://github.com/mackron/miniaudio).
-
-Built-in decoders are amalgamated into the implementation section of miniaudio. You can disable the
-built-in decoders by specifying one or more of the following options before the miniaudio
-implementation:
+You can disable the built-in decoders by specifying one or more of the following options before the
+miniaudio implementation:
 
     ```c
     #define MA_NO_WAV
@@ -2498,8 +2479,8 @@ implementation:
     #define MA_NO_FLAC
     ```
 
-Disabling built-in decoding libraries is useful if you use these libraries independently of the
-`ma_decoder` API.
+miniaudio supports the ability to plug in custom decoders. See the section below for details on how
+to use custom decoders.
 
 A decoder can be initialized from a file with `ma_decoder_init_file()`, a block of memory with
 `ma_decoder_init_memory()`, or from data delivered via callbacks with `ma_decoder_init()`. Here is
@@ -2640,8 +2621,7 @@ opportunity to clean up and internal data.
 
 9. Encoding
 ===========
-The `ma_encoding` API is used for writing audio files. The only supported output format is WAV
-which is achieved via dr_wav which is amalgamated into the implementation section of miniaudio.
+The `ma_encoding` API is used for writing audio files. The only supported output format is WAV.
 This can be disabled by specifying the following option before the implementation of miniaudio:
 
     ```c
@@ -10056,7 +10036,7 @@ struct ma_encoder
     ma_encoder_uninit_proc onUninit;
     ma_encoder_write_pcm_frames_proc onWritePCMFrames;
     void* pUserData;
-    void* pInternalEncoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
+    void* pInternalEncoder;
     union
     {
         struct
