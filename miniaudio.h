@@ -4157,28 +4157,31 @@ typedef enum
     MA_CANCELLED                      = -51,
     MA_MEMORY_ALREADY_MAPPED          = -52,
 
+    /* General non-standard errors. */
+    MA_CRC_MISMATCH                   = -100,
+
     /* General miniaudio-specific errors. */
-    MA_FORMAT_NOT_SUPPORTED           = -100,
-    MA_DEVICE_TYPE_NOT_SUPPORTED      = -101,
-    MA_SHARE_MODE_NOT_SUPPORTED       = -102,
-    MA_NO_BACKEND                     = -103,
-    MA_NO_DEVICE                      = -104,
-    MA_API_NOT_FOUND                  = -105,
-    MA_INVALID_DEVICE_CONFIG          = -106,
-    MA_LOOP                           = -107,
-    MA_BACKEND_NOT_ENABLED            = -108,
+    MA_FORMAT_NOT_SUPPORTED           = -200,
+    MA_DEVICE_TYPE_NOT_SUPPORTED      = -201,
+    MA_SHARE_MODE_NOT_SUPPORTED       = -202,
+    MA_NO_BACKEND                     = -203,
+    MA_NO_DEVICE                      = -204,
+    MA_API_NOT_FOUND                  = -205,
+    MA_INVALID_DEVICE_CONFIG          = -206,
+    MA_LOOP                           = -207,
+    MA_BACKEND_NOT_ENABLED            = -208,
 
     /* State errors. */
-    MA_DEVICE_NOT_INITIALIZED         = -200,
-    MA_DEVICE_ALREADY_INITIALIZED     = -201,
-    MA_DEVICE_NOT_STARTED             = -202,
-    MA_DEVICE_NOT_STOPPED             = -203,
+    MA_DEVICE_NOT_INITIALIZED         = -300,
+    MA_DEVICE_ALREADY_INITIALIZED     = -301,
+    MA_DEVICE_NOT_STARTED             = -302,
+    MA_DEVICE_NOT_STOPPED             = -303,
 
     /* Operation errors. */
-    MA_FAILED_TO_INIT_BACKEND         = -300,
-    MA_FAILED_TO_OPEN_BACKEND_DEVICE  = -301,
-    MA_FAILED_TO_START_BACKEND_DEVICE = -302,
-    MA_FAILED_TO_STOP_BACKEND_DEVICE  = -303
+    MA_FAILED_TO_INIT_BACKEND         = -400,
+    MA_FAILED_TO_OPEN_BACKEND_DEVICE  = -401,
+    MA_FAILED_TO_START_BACKEND_DEVICE = -402,
+    MA_FAILED_TO_STOP_BACKEND_DEVICE  = -403
 } ma_result;
 
 
@@ -81117,7 +81120,6 @@ static MA_INLINE ma_bool32 ma_dr_flac_has_sse41(void)
 #define MA_DR_FLAC_ZERO_OBJECT(p)               MA_DR_FLAC_ZERO_MEMORY((p), sizeof(*(p)))
 #endif
 #define MA_DR_FLAC_MAX_SIMD_VECTOR_SIZE                     64
-#define MA_DR_FLAC_CRC_MISMATCH                             -128
 #define MA_DR_FLAC_SUBFRAME_CONSTANT                        0
 #define MA_DR_FLAC_SUBFRAME_VERBATIM                        1
 #define MA_DR_FLAC_SUBFRAME_FIXED                           8
@@ -82152,7 +82154,7 @@ static ma_result ma_dr_flac__read_utf8_coded_number(ma_dr_flac_bs* bs, ma_uint64
         byteCount = 7;
     } else {
         *pNumberOut = 0;
-        return MA_DR_FLAC_CRC_MISMATCH;
+        return MA_CRC_MISMATCH;
     }
     MA_DR_FLAC_ASSERT(byteCount > 1);
     result = (ma_uint64)(utf8[0] & (0xFF >> (byteCount + 1)));
@@ -84118,7 +84120,7 @@ static ma_result ma_dr_flac__decode_flac_frame(ma_dr_flac* pFlac)
     }
 #ifndef MA_DR_FLAC_NO_CRC
     if (actualCRC16 != desiredCRC16) {
-        return MA_DR_FLAC_CRC_MISMATCH;
+        return MA_CRC_MISMATCH;
     }
 #endif
     pFlac->currentFLACFrame.pcmFramesRemaining = pFlac->currentFLACFrame.header.blockSizeInPCMFrames;
@@ -84149,7 +84151,7 @@ static ma_result ma_dr_flac__seek_flac_frame(ma_dr_flac* pFlac)
     }
 #ifndef MA_DR_FLAC_NO_CRC
     if (actualCRC16 != desiredCRC16) {
-        return MA_DR_FLAC_CRC_MISMATCH;
+        return MA_CRC_MISMATCH;
     }
 #endif
     return MA_SUCCESS;
@@ -84164,7 +84166,7 @@ static ma_bool32 ma_dr_flac__read_and_decode_next_flac_frame(ma_dr_flac* pFlac)
         }
         result = ma_dr_flac__decode_flac_frame(pFlac);
         if (result != MA_SUCCESS) {
-            if (result == MA_DR_FLAC_CRC_MISMATCH) {
+            if (result == MA_CRC_MISMATCH) {
                 continue;
             } else {
                 return MA_FALSE;
@@ -84266,7 +84268,7 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__brute_force(ma_dr_flac* pFlac, m
                 if (result == MA_SUCCESS) {
                     return ma_dr_flac__seek_forward_by_pcm_frames(pFlac, pcmFramesToDecode) == pcmFramesToDecode;
                 } else {
-                    if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                    if (result == MA_CRC_MISMATCH) {
                         goto next_iteration;
                     } else {
                         return MA_FALSE;
@@ -84281,7 +84283,7 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__brute_force(ma_dr_flac* pFlac, m
                 if (result == MA_SUCCESS) {
                     runningPCMFrameCount += pcmFrameCountInThisFLACFrame;
                 } else {
-                    if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                    if (result == MA_CRC_MISMATCH) {
                         goto next_iteration;
                     } else {
                         return MA_FALSE;
@@ -84530,7 +84532,7 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__seek_table(ma_dr_flac* pFlac, ma
                 if (result == MA_SUCCESS) {
                     return ma_dr_flac__seek_forward_by_pcm_frames(pFlac, pcmFramesToDecode) == pcmFramesToDecode;
                 } else {
-                    if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                    if (result == MA_CRC_MISMATCH) {
                         goto next_iteration;
                     } else {
                         return MA_FALSE;
@@ -84545,7 +84547,7 @@ static ma_bool32 ma_dr_flac__seek_to_pcm_frame__seek_table(ma_dr_flac* pFlac, ma
                 if (result == MA_SUCCESS) {
                     runningPCMFrameCount += pcmFrameCountInThisFLACFrame;
                 } else {
-                    if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                    if (result == MA_CRC_MISMATCH) {
                         goto next_iteration;
                     } else {
                         return MA_FALSE;
@@ -85251,7 +85253,7 @@ static ma_result ma_dr_flac_ogg__read_page_header(ma_dr_flac_read_proc onRead, v
             if (result == MA_SUCCESS) {
                 return MA_SUCCESS;
             } else {
-                if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                if (result == MA_CRC_MISMATCH) {
                     continue;
                 } else {
                     return result;
@@ -85554,7 +85556,7 @@ static ma_bool32 ma_dr_flac_ogg__seek_to_pcm_frame(ma_dr_flac* pFlac, ma_uint64 
                 pFlac->currentPCMFrame = runningPCMFrameCount;
                 return ma_dr_flac__seek_forward_by_pcm_frames(pFlac, pcmFramesToDecode) == pcmFramesToDecode;
             } else {
-                if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                if (result == MA_CRC_MISMATCH) {
                     continue;
                 } else {
                     return MA_FALSE;
@@ -85565,7 +85567,7 @@ static ma_bool32 ma_dr_flac_ogg__seek_to_pcm_frame(ma_dr_flac* pFlac, ma_uint64 
             if (result == MA_SUCCESS) {
                 runningPCMFrameCount += pcmFrameCountInThisFrame;
             } else {
-                if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                if (result == MA_CRC_MISMATCH) {
                     continue;
                 } else {
                     return MA_FALSE;
@@ -85908,7 +85910,7 @@ static ma_dr_flac* ma_dr_flac_open_with_metadata_private(ma_dr_flac_read_proc on
             if (result == MA_SUCCESS) {
                 break;
             } else {
-                if (result == MA_DR_FLAC_CRC_MISMATCH) {
+                if (result == MA_CRC_MISMATCH) {
                     if (!ma_dr_flac__read_next_flac_frame_header(&pFlac->bs, pFlac->bitsPerSample, &pFlac->currentFLACFrame.header)) {
                         ma_dr_flac__free_from_callbacks(pFlac, &allocationCallbacks);
                         return NULL;
