@@ -11,12 +11,12 @@ ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, c
     printf("    %s\n", pFileName);
 
     noiseConfig = ma_noise_config_init(format, 1, type, 0, 0.1);
-    result = ma_noise_init(&noiseConfig, &noise);
+    result = ma_noise_init(&noiseConfig, NULL, &noise);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, format, noiseConfig.channels, 48000);
+    encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, format, noiseConfig.channels, 48000);
     result = ma_encoder_init_file(pFileName, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
         return result;
@@ -25,8 +25,8 @@ ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, c
     /* We'll do a few seconds of data. */
     for (iFrame = 0; iFrame < encoder.config.sampleRate * 10; iFrame += 1) {
         ma_uint8 temp[1024];
-        ma_noise_read_pcm_frames(&noise, temp, 1);
-        ma_encoder_write_pcm_frames(&encoder, temp, 1);
+        ma_noise_read_pcm_frames(&noise, temp, 1, NULL);
+        ma_encoder_write_pcm_frames(&encoder, temp, 1, NULL);
     }
 
     ma_encoder_uninit(&encoder);

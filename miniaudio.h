@@ -17713,6 +17713,105 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
 
 
 
+/*******************************************************************************
+
+Dynamic Linking
+
+*******************************************************************************/
+MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
+{
+#ifndef MA_NO_RUNTIME_LINKING
+    ma_handle handle;
+
+    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
+
+    #ifdef MA_WIN32
+        /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
+        #if !defined(MA_WIN32_UWP)
+            handle = (ma_handle)LoadLibraryA(filename);
+        #else
+            /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
+            WCHAR filenameW[4096];
+            if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
+                handle = NULL;
+            } else {
+                handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
+            }
+        #endif
+    #else
+        handle = (ma_handle)dlopen(filename, RTLD_NOW);
+    #endif
+
+    /*
+    I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
+    backend is a deliberate design choice. Instead I'm logging it as an informational message.
+    */
+    if (handle == NULL) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_INFO, "Failed to load library: %s\n", filename);
+    }
+
+    return handle;
+#else
+    /* Runtime linking is disabled. */
+    (void)pLog;
+    (void)filename;
+    return NULL;
+#endif
+}
+
+MA_API void ma_dlclose(ma_log* pLog, ma_handle handle)
+{
+#ifndef MA_NO_RUNTIME_LINKING
+    #ifdef MA_WIN32
+        FreeLibrary((HMODULE)handle);
+    #else
+        dlclose((void*)handle);
+    #endif
+
+    (void)pLog;
+#else
+    /* Runtime linking is disabled. */
+    (void)pLog;
+    (void)handle;
+#endif
+}
+
+MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
+{
+#ifndef MA_NO_RUNTIME_LINKING
+    ma_proc proc;
+
+    ma_log_postf(pLog, MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
+
+#ifdef _WIN32
+    proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
+#else
+#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+    proc = (ma_proc)dlsym((void*)handle, symbol);
+#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+    #pragma GCC diagnostic pop
+#endif
+#endif
+
+    if (proc == NULL) {
+        ma_log_postf(pLog, MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
+    }
+
+    (void)pLog; /* It's possible for pContext to be unused. */
+    return proc;
+#else
+    /* Runtime linking is disabled. */
+    (void)pLog;
+    (void)handle;
+    (void)symbol;
+    return NULL;
+#endif
+}
+
+
 
 /************************************************************************************************************************************************************
 *************************************************************************************************************************************************************
@@ -18376,105 +18475,6 @@ Timing
     #endif
 #endif
 
-
-/*******************************************************************************
-
-Dynamic Linking
-
-*******************************************************************************/
-MA_API ma_handle ma_dlopen(ma_context* pContext, const char* filename)
-{
-#ifndef MA_NO_RUNTIME_LINKING
-    ma_handle handle;
-
-    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading library: %s\n", filename);
-
-    #ifdef MA_WIN32
-        /* From MSDN: Desktop applications cannot use LoadPackagedLibrary; if a desktop application calls this function it fails with APPMODEL_ERROR_NO_PACKAGE.*/
-        #if !defined(MA_WIN32_UWP)
-            handle = (ma_handle)LoadLibraryA(filename);
-        #else
-            /* *sigh* It appears there is no ANSI version of LoadPackagedLibrary()... */
-            WCHAR filenameW[4096];
-            if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, filenameW, sizeof(filenameW)) == 0) {
-                handle = NULL;
-            } else {
-                handle = (ma_handle)LoadPackagedLibrary(filenameW, 0);
-            }
-        #endif
-    #else
-        handle = (ma_handle)dlopen(filename, RTLD_NOW);
-    #endif
-
-    /*
-    I'm not considering failure to load a library an error nor a warning because seamlessly falling through to a lower-priority
-    backend is a deliberate design choice. Instead I'm logging it as an informational message.
-    */
-    if (handle == NULL) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "Failed to load library: %s\n", filename);
-    }
-
-    (void)pContext; /* It's possible for pContext to be unused. */
-    return handle;
-#else
-    /* Runtime linking is disabled. */
-    (void)pContext;
-    (void)filename;
-    return NULL;
-#endif
-}
-
-MA_API void ma_dlclose(ma_context* pContext, ma_handle handle)
-{
-#ifndef MA_NO_RUNTIME_LINKING
-    #ifdef MA_WIN32
-        FreeLibrary((HMODULE)handle);
-    #else
-        dlclose((void*)handle);
-    #endif
-
-    (void)pContext;
-#else
-    /* Runtime linking is disabled. */
-    (void)pContext;
-    (void)handle;
-#endif
-}
-
-MA_API ma_proc ma_dlsym(ma_context* pContext, ma_handle handle, const char* symbol)
-{
-#ifndef MA_NO_RUNTIME_LINKING
-    ma_proc proc;
-
-    ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Loading symbol: %s\n", symbol);
-
-#ifdef _WIN32
-    proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
-#else
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wpedantic"
-#endif
-    proc = (ma_proc)dlsym((void*)handle, symbol);
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
-    #pragma GCC diagnostic pop
-#endif
-#endif
-
-    if (proc == NULL) {
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "Failed to load symbol: %s\n", symbol);
-    }
-
-    (void)pContext; /* It's possible for pContext to be unused. */
-    return proc;
-#else
-    /* Runtime linking is disabled. */
-    (void)pContext;
-    (void)handle;
-    (void)symbol;
-    return NULL;
-#endif
-}
 
 
 #if 0
@@ -23338,14 +23338,14 @@ static ma_result ma_context_uninit__wasapi(ma_context* pContext)
     ma_thread_wait(&pContext->wasapi.commandThread);
 
     if (pContext->wasapi.hAvrt) {
-        ma_dlclose(pContext, pContext->wasapi.hAvrt);
+        ma_dlclose(ma_context_get_log(pContext), pContext->wasapi.hAvrt);
         pContext->wasapi.hAvrt = NULL;
     }
 
     #if defined(MA_WIN32_UWP)
     {
         if (pContext->wasapi.hMMDevapi) {
-            ma_dlclose(pContext, pContext->wasapi.hMMDevapi);
+            ma_dlclose(ma_context_get_log(pContext), pContext->wasapi.hMMDevapi);
             pContext->wasapi.hMMDevapi = NULL;
         }
     }
@@ -23379,15 +23379,15 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         ma_PFNVerifyVersionInfoW _VerifyVersionInfoW;
         ma_PFNVerSetConditionMask _VerSetConditionMask;
 
-        kernel32DLL = ma_dlopen(pContext, "kernel32.dll");
+        kernel32DLL = ma_dlopen(ma_context_get_log(pContext), "kernel32.dll");
         if (kernel32DLL == NULL) {
             return MA_NO_BACKEND;
         }
 
-        _VerifyVersionInfoW  = (ma_PFNVerifyVersionInfoW )ma_dlsym(pContext, kernel32DLL, "VerifyVersionInfoW");
-        _VerSetConditionMask = (ma_PFNVerSetConditionMask)ma_dlsym(pContext, kernel32DLL, "VerSetConditionMask");
+        _VerifyVersionInfoW  = (ma_PFNVerifyVersionInfoW )ma_dlsym(ma_context_get_log(pContext), kernel32DLL, "VerifyVersionInfoW");
+        _VerSetConditionMask = (ma_PFNVerSetConditionMask)ma_dlsym(ma_context_get_log(pContext), kernel32DLL, "VerSetConditionMask");
         if (_VerifyVersionInfoW == NULL || _VerSetConditionMask == NULL) {
-            ma_dlclose(pContext, kernel32DLL);
+            ma_dlclose(ma_context_get_log(pContext), kernel32DLL);
             return MA_NO_BACKEND;
         }
 
@@ -23402,7 +23402,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
             result = MA_NO_BACKEND;
         }
 
-        ma_dlclose(pContext, kernel32DLL);
+        ma_dlclose(ma_context_get_log(pContext), kernel32DLL);
     }
 #endif
 
@@ -23459,13 +23459,13 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         #if defined(MA_WIN32_UWP)
         {
             /* Link to mmdevapi so we can get access to ActivateAudioInterfaceAsync(). */
-            pContext->wasapi.hMMDevapi = ma_dlopen(pContext, "mmdevapi.dll");
+            pContext->wasapi.hMMDevapi = ma_dlopen(ma_context_get_log(pContext), "mmdevapi.dll");
             if (pContext->wasapi.hMMDevapi) {
-                pContext->wasapi.ActivateAudioInterfaceAsync = ma_dlsym(pContext, pContext->wasapi.hMMDevapi, "ActivateAudioInterfaceAsync");
+                pContext->wasapi.ActivateAudioInterfaceAsync = ma_dlsym(ma_context_get_log(pContext), pContext->wasapi.hMMDevapi, "ActivateAudioInterfaceAsync");
                 if (pContext->wasapi.ActivateAudioInterfaceAsync == NULL) {
                     ma_semaphore_uninit(&pContext->wasapi.commandSem);
                     ma_mutex_uninit(&pContext->wasapi.commandLock);
-                    ma_dlclose(pContext, pContext->wasapi.hMMDevapi);
+                    ma_dlclose(ma_context_get_log(pContext), pContext->wasapi.hMMDevapi);
                     return MA_NO_BACKEND;   /* ActivateAudioInterfaceAsync() could not be loaded. */
                 }
             } else {
@@ -23477,16 +23477,16 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const ma_context_
         #endif
 
         /* Optionally use the Avrt API to specify the audio thread's latency sensitivity requirements */
-        pContext->wasapi.hAvrt = ma_dlopen(pContext, "avrt.dll");
+        pContext->wasapi.hAvrt = ma_dlopen(ma_context_get_log(pContext), "avrt.dll");
         if (pContext->wasapi.hAvrt) {
-            pContext->wasapi.AvSetMmThreadCharacteristicsA   = ma_dlsym(pContext, pContext->wasapi.hAvrt, "AvSetMmThreadCharacteristicsA");
-            pContext->wasapi.AvRevertMmThreadcharacteristics = ma_dlsym(pContext, pContext->wasapi.hAvrt, "AvRevertMmThreadCharacteristics");
+            pContext->wasapi.AvSetMmThreadCharacteristicsA   = ma_dlsym(ma_context_get_log(pContext), pContext->wasapi.hAvrt, "AvSetMmThreadCharacteristicsA");
+            pContext->wasapi.AvRevertMmThreadcharacteristics = ma_dlsym(ma_context_get_log(pContext), pContext->wasapi.hAvrt, "AvRevertMmThreadCharacteristics");
 
             /* If either function could not be found, disable use of avrt entirely. */
             if (!pContext->wasapi.AvSetMmThreadCharacteristicsA || !pContext->wasapi.AvRevertMmThreadcharacteristics) {
                 pContext->wasapi.AvSetMmThreadCharacteristicsA   = NULL;
                 pContext->wasapi.AvRevertMmThreadcharacteristics = NULL;
-                ma_dlclose(pContext, pContext->wasapi.hAvrt);
+                ma_dlclose(ma_context_get_log(pContext), pContext->wasapi.hAvrt);
                 pContext->wasapi.hAvrt = NULL;
             }
         }
@@ -25217,7 +25217,7 @@ static ma_result ma_context_uninit__dsound(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_dsound);
 
-    ma_dlclose(pContext, pContext->dsound.hDSoundDLL);
+    ma_dlclose(ma_context_get_log(pContext), pContext->dsound.hDSoundDLL);
 
     return MA_SUCCESS;
 }
@@ -25228,15 +25228,15 @@ static ma_result ma_context_init__dsound(ma_context* pContext, const ma_context_
 
     (void)pConfig;
 
-    pContext->dsound.hDSoundDLL = ma_dlopen(pContext, "dsound.dll");
+    pContext->dsound.hDSoundDLL = ma_dlopen(ma_context_get_log(pContext), "dsound.dll");
     if (pContext->dsound.hDSoundDLL == NULL) {
         return MA_API_NOT_FOUND;
     }
 
-    pContext->dsound.DirectSoundCreate            = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCreate");
-    pContext->dsound.DirectSoundEnumerateA        = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
-    pContext->dsound.DirectSoundCaptureCreate     = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
-    pContext->dsound.DirectSoundCaptureEnumerateA = ma_dlsym(pContext, pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
+    pContext->dsound.DirectSoundCreate            = ma_dlsym(ma_context_get_log(pContext), pContext->dsound.hDSoundDLL, "DirectSoundCreate");
+    pContext->dsound.DirectSoundEnumerateA        = ma_dlsym(ma_context_get_log(pContext), pContext->dsound.hDSoundDLL, "DirectSoundEnumerateA");
+    pContext->dsound.DirectSoundCaptureCreate     = ma_dlsym(ma_context_get_log(pContext), pContext->dsound.hDSoundDLL, "DirectSoundCaptureCreate");
+    pContext->dsound.DirectSoundCaptureEnumerateA = ma_dlsym(ma_context_get_log(pContext), pContext->dsound.hDSoundDLL, "DirectSoundCaptureEnumerateA");
 
     /*
     We need to support all functions or nothing. DirectSound with Windows 95 seems to not work too
@@ -26316,7 +26316,7 @@ static ma_result ma_context_uninit__winmm(ma_context* pContext)
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(pContext->backend == ma_backend_winmm);
 
-    ma_dlclose(pContext, pContext->winmm.hWinMM);
+    ma_dlclose(ma_context_get_log(pContext), pContext->winmm.hWinMM);
     return MA_SUCCESS;
 }
 
@@ -26326,28 +26326,28 @@ static ma_result ma_context_init__winmm(ma_context* pContext, const ma_context_c
 
     (void)pConfig;
 
-    pContext->winmm.hWinMM = ma_dlopen(pContext, "winmm.dll");
+    pContext->winmm.hWinMM = ma_dlopen(ma_context_get_log(pContext), "winmm.dll");
     if (pContext->winmm.hWinMM == NULL) {
         return MA_NO_BACKEND;
     }
 
-    pContext->winmm.waveOutGetNumDevs      = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutGetNumDevs");
-    pContext->winmm.waveOutGetDevCapsA     = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutGetDevCapsA");
-    pContext->winmm.waveOutOpen            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutOpen");
-    pContext->winmm.waveOutClose           = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutClose");
-    pContext->winmm.waveOutPrepareHeader   = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutPrepareHeader");
-    pContext->winmm.waveOutUnprepareHeader = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutUnprepareHeader");
-    pContext->winmm.waveOutWrite           = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutWrite");
-    pContext->winmm.waveOutReset           = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveOutReset");
-    pContext->winmm.waveInGetNumDevs       = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInGetNumDevs");
-    pContext->winmm.waveInGetDevCapsA      = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInGetDevCapsA");
-    pContext->winmm.waveInOpen             = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInOpen");
-    pContext->winmm.waveInClose            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInClose");
-    pContext->winmm.waveInPrepareHeader    = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInPrepareHeader");
-    pContext->winmm.waveInUnprepareHeader  = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInUnprepareHeader");
-    pContext->winmm.waveInAddBuffer        = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInAddBuffer");
-    pContext->winmm.waveInStart            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInStart");
-    pContext->winmm.waveInReset            = ma_dlsym(pContext, pContext->winmm.hWinMM, "waveInReset");
+    pContext->winmm.waveOutGetNumDevs      = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutGetNumDevs");
+    pContext->winmm.waveOutGetDevCapsA     = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutGetDevCapsA");
+    pContext->winmm.waveOutOpen            = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutOpen");
+    pContext->winmm.waveOutClose           = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutClose");
+    pContext->winmm.waveOutPrepareHeader   = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutPrepareHeader");
+    pContext->winmm.waveOutUnprepareHeader = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutUnprepareHeader");
+    pContext->winmm.waveOutWrite           = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutWrite");
+    pContext->winmm.waveOutReset           = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveOutReset");
+    pContext->winmm.waveInGetNumDevs       = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInGetNumDevs");
+    pContext->winmm.waveInGetDevCapsA      = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInGetDevCapsA");
+    pContext->winmm.waveInOpen             = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInOpen");
+    pContext->winmm.waveInClose            = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInClose");
+    pContext->winmm.waveInPrepareHeader    = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInPrepareHeader");
+    pContext->winmm.waveInUnprepareHeader  = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInUnprepareHeader");
+    pContext->winmm.waveInAddBuffer        = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInAddBuffer");
+    pContext->winmm.waveInStart            = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInStart");
+    pContext->winmm.waveInReset            = ma_dlsym(ma_context_get_log(pContext), pContext->winmm.hWinMM, "waveInReset");
 
     pCallbacks->onContextInit             = ma_context_init__winmm;
     pCallbacks->onContextUninit           = ma_context_uninit__winmm;
@@ -28211,7 +28211,7 @@ static ma_result ma_context_uninit__alsa(ma_context* pContext)
     ((ma_snd_config_update_free_global_proc)pContext->alsa.snd_config_update_free_global)();
 
 #ifndef MA_NO_RUNTIME_LINKING
-    ma_dlclose(pContext, pContext->alsa.asoundSO);
+    ma_dlclose(ma_context_get_log(pContext), pContext->alsa.asoundSO);
 #endif
 
     ma_mutex_uninit(&pContext->alsa.internalDeviceEnumLock);
@@ -28230,7 +28230,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     size_t i;
 
     for (i = 0; i < ma_countof(libasoundNames); ++i) {
-        pContext->alsa.asoundSO = ma_dlopen(pContext, libasoundNames[i]);
+        pContext->alsa.asoundSO = ma_dlopen(ma_context_get_log(pContext), libasoundNames[i]);
         if (pContext->alsa.asoundSO != NULL) {
             break;
         }
@@ -28241,72 +28241,72 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
         return MA_NO_BACKEND;
     }
 
-    pContext->alsa.snd_pcm_open                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_open");
-    pContext->alsa.snd_pcm_close                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_close");
-    pContext->alsa.snd_pcm_hw_params_sizeof               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_sizeof");
-    pContext->alsa.snd_pcm_hw_params_any                  = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_any");
-    pContext->alsa.snd_pcm_hw_params_set_format           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format");
-    pContext->alsa.snd_pcm_hw_params_set_format_first     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
-    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
-    pContext->alsa.snd_pcm_hw_params_set_channels         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels");
-    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
-    pContext->alsa.snd_pcm_hw_params_set_channels_minmax  = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_minmax");
-    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_resample");
-    pContext->alsa.snd_pcm_hw_params_set_rate             = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate");
-    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
-    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
-    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_periods_near");
-    pContext->alsa.snd_pcm_hw_params_set_access           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
-    pContext->alsa.snd_pcm_hw_params_get_format           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
-    pContext->alsa.snd_pcm_hw_params_get_channels         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
-    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_min");
-    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_max");
-    pContext->alsa.snd_pcm_hw_params_get_rate             = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
-    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_min");
-    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_max");
-    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
-    pContext->alsa.snd_pcm_hw_params_get_periods          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
-    pContext->alsa.snd_pcm_hw_params_get_access           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
-    pContext->alsa.snd_pcm_hw_params_test_format          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_test_format");
-    pContext->alsa.snd_pcm_hw_params_test_channels        = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_test_channels");
-    pContext->alsa.snd_pcm_hw_params_test_rate            = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params_test_rate");
-    pContext->alsa.snd_pcm_hw_params                      = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_hw_params");
-    pContext->alsa.snd_pcm_sw_params_sizeof               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_sizeof");
-    pContext->alsa.snd_pcm_sw_params_current              = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
-    pContext->alsa.snd_pcm_sw_params_get_boundary         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_get_boundary");
-    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
-    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
-    pContext->alsa.snd_pcm_sw_params_set_stop_threshold   = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params_set_stop_threshold");
-    pContext->alsa.snd_pcm_sw_params                      = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_sw_params");
-    pContext->alsa.snd_pcm_format_mask_sizeof             = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
-    pContext->alsa.snd_pcm_format_mask_test               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
-    pContext->alsa.snd_pcm_get_chmap                      = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_get_chmap");
-    pContext->alsa.snd_pcm_state                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_state");
-    pContext->alsa.snd_pcm_prepare                        = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_prepare");
-    pContext->alsa.snd_pcm_start                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_start");
-    pContext->alsa.snd_pcm_drop                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_drop");
-    pContext->alsa.snd_pcm_drain                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_drain");
-    pContext->alsa.snd_pcm_reset                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_reset");
-    pContext->alsa.snd_device_name_hint                   = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_device_name_hint");
-    pContext->alsa.snd_device_name_get_hint               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_device_name_get_hint");
-    pContext->alsa.snd_card_get_index                     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_card_get_index");
-    pContext->alsa.snd_device_name_free_hint              = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_device_name_free_hint");
-    pContext->alsa.snd_pcm_mmap_begin                     = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_mmap_begin");
-    pContext->alsa.snd_pcm_mmap_commit                    = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_mmap_commit");
-    pContext->alsa.snd_pcm_recover                        = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_recover");
-    pContext->alsa.snd_pcm_readi                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_readi");
-    pContext->alsa.snd_pcm_writei                         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_writei");
-    pContext->alsa.snd_pcm_avail                          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_avail");
-    pContext->alsa.snd_pcm_avail_update                   = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_avail_update");
-    pContext->alsa.snd_pcm_wait                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_wait");
-    pContext->alsa.snd_pcm_nonblock                       = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_nonblock");
-    pContext->alsa.snd_pcm_info                           = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info");
-    pContext->alsa.snd_pcm_info_sizeof                    = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
-    pContext->alsa.snd_pcm_info_get_name                  = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_info_get_name");
-    pContext->alsa.snd_pcm_poll_descriptors               = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors");
-    pContext->alsa.snd_pcm_poll_descriptors_count         = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_count");
-    pContext->alsa.snd_pcm_poll_descriptors_revents       = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_revents");
-    pContext->alsa.snd_config_update_free_global          = (ma_proc)ma_dlsym(pContext, pContext->alsa.asoundSO, "snd_config_update_free_global");
+    pContext->alsa.snd_pcm_open                           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_open");
+    pContext->alsa.snd_pcm_close                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_close");
+    pContext->alsa.snd_pcm_hw_params_sizeof               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_sizeof");
+    pContext->alsa.snd_pcm_hw_params_any                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_any");
+    pContext->alsa.snd_pcm_hw_params_set_format           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format");
+    pContext->alsa.snd_pcm_hw_params_set_format_first     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_format_first");
+    pContext->alsa.snd_pcm_hw_params_get_format_mask      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format_mask");
+    pContext->alsa.snd_pcm_hw_params_set_channels         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels");
+    pContext->alsa.snd_pcm_hw_params_set_channels_near    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_near");
+    pContext->alsa.snd_pcm_hw_params_set_channels_minmax  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_channels_minmax");
+    pContext->alsa.snd_pcm_hw_params_set_rate_resample    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_resample");
+    pContext->alsa.snd_pcm_hw_params_set_rate             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate");
+    pContext->alsa.snd_pcm_hw_params_set_rate_near        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_rate_near");
+    pContext->alsa.snd_pcm_hw_params_set_buffer_size_near = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_buffer_size_near");
+    pContext->alsa.snd_pcm_hw_params_set_periods_near     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_periods_near");
+    pContext->alsa.snd_pcm_hw_params_set_access           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_set_access");
+    pContext->alsa.snd_pcm_hw_params_get_format           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_format");
+    pContext->alsa.snd_pcm_hw_params_get_channels         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels");
+    pContext->alsa.snd_pcm_hw_params_get_channels_min     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_min");
+    pContext->alsa.snd_pcm_hw_params_get_channels_max     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_channels_max");
+    pContext->alsa.snd_pcm_hw_params_get_rate             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate");
+    pContext->alsa.snd_pcm_hw_params_get_rate_min         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_min");
+    pContext->alsa.snd_pcm_hw_params_get_rate_max         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_rate_max");
+    pContext->alsa.snd_pcm_hw_params_get_buffer_size      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_buffer_size");
+    pContext->alsa.snd_pcm_hw_params_get_periods          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_periods");
+    pContext->alsa.snd_pcm_hw_params_get_access           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_get_access");
+    pContext->alsa.snd_pcm_hw_params_test_format          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_test_format");
+    pContext->alsa.snd_pcm_hw_params_test_channels        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_test_channels");
+    pContext->alsa.snd_pcm_hw_params_test_rate            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params_test_rate");
+    pContext->alsa.snd_pcm_hw_params                      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_hw_params");
+    pContext->alsa.snd_pcm_sw_params_sizeof               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_sizeof");
+    pContext->alsa.snd_pcm_sw_params_current              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_current");
+    pContext->alsa.snd_pcm_sw_params_get_boundary         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_get_boundary");
+    pContext->alsa.snd_pcm_sw_params_set_avail_min        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_set_avail_min");
+    pContext->alsa.snd_pcm_sw_params_set_start_threshold  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_set_start_threshold");
+    pContext->alsa.snd_pcm_sw_params_set_stop_threshold   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params_set_stop_threshold");
+    pContext->alsa.snd_pcm_sw_params                      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_sw_params");
+    pContext->alsa.snd_pcm_format_mask_sizeof             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_format_mask_sizeof");
+    pContext->alsa.snd_pcm_format_mask_test               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_format_mask_test");
+    pContext->alsa.snd_pcm_get_chmap                      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_get_chmap");
+    pContext->alsa.snd_pcm_state                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_state");
+    pContext->alsa.snd_pcm_prepare                        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_prepare");
+    pContext->alsa.snd_pcm_start                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_start");
+    pContext->alsa.snd_pcm_drop                           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_drop");
+    pContext->alsa.snd_pcm_drain                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_drain");
+    pContext->alsa.snd_pcm_reset                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_reset");
+    pContext->alsa.snd_device_name_hint                   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_device_name_hint");
+    pContext->alsa.snd_device_name_get_hint               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_device_name_get_hint");
+    pContext->alsa.snd_card_get_index                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_card_get_index");
+    pContext->alsa.snd_device_name_free_hint              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_device_name_free_hint");
+    pContext->alsa.snd_pcm_mmap_begin                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_mmap_begin");
+    pContext->alsa.snd_pcm_mmap_commit                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_mmap_commit");
+    pContext->alsa.snd_pcm_recover                        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_recover");
+    pContext->alsa.snd_pcm_readi                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_readi");
+    pContext->alsa.snd_pcm_writei                         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_writei");
+    pContext->alsa.snd_pcm_avail                          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_avail");
+    pContext->alsa.snd_pcm_avail_update                   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_avail_update");
+    pContext->alsa.snd_pcm_wait                           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_wait");
+    pContext->alsa.snd_pcm_nonblock                       = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_nonblock");
+    pContext->alsa.snd_pcm_info                           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_info");
+    pContext->alsa.snd_pcm_info_sizeof                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_info_sizeof");
+    pContext->alsa.snd_pcm_info_get_name                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_info_get_name");
+    pContext->alsa.snd_pcm_poll_descriptors               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_poll_descriptors");
+    pContext->alsa.snd_pcm_poll_descriptors_count         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_count");
+    pContext->alsa.snd_pcm_poll_descriptors_revents       = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_pcm_poll_descriptors_revents");
+    pContext->alsa.snd_config_update_free_global          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->alsa.asoundSO, "snd_config_update_free_global");
 #else
     /* The system below is just for type safety. */
     ma_snd_pcm_open_proc                           _snd_pcm_open                           = snd_pcm_open;
@@ -30726,7 +30726,7 @@ static ma_result ma_context_uninit__pulse(ma_context* pContext)
     ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
 
 #ifndef MA_NO_RUNTIME_LINKING
-    ma_dlclose(pContext, pContext->pulse.pulseSO);
+    ma_dlclose(ma_context_get_log(pContext), pContext->pulse.pulseSO);
 #endif
 
     return MA_SUCCESS;
@@ -30743,7 +30743,7 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
     size_t i;
 
     for (i = 0; i < ma_countof(libpulseNames); ++i) {
-        pContext->pulse.pulseSO = ma_dlopen(pContext, libpulseNames[i]);
+        pContext->pulse.pulseSO = ma_dlopen(ma_context_get_log(pContext), libpulseNames[i]);
         if (pContext->pulse.pulseSO != NULL) {
             break;
         }
@@ -30753,67 +30753,67 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
         return MA_NO_BACKEND;
     }
 
-    pContext->pulse.pa_mainloop_new                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_new");
-    pContext->pulse.pa_mainloop_free                   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_free");
-    pContext->pulse.pa_mainloop_quit                   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_quit");
-    pContext->pulse.pa_mainloop_get_api                = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_get_api");
-    pContext->pulse.pa_mainloop_iterate                = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_iterate");
-    pContext->pulse.pa_mainloop_wakeup                 = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_mainloop_wakeup");
-    pContext->pulse.pa_threaded_mainloop_new           = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_new");
-    pContext->pulse.pa_threaded_mainloop_free          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_free");
-    pContext->pulse.pa_threaded_mainloop_start         = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_start");
-    pContext->pulse.pa_threaded_mainloop_stop          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_stop");
-    pContext->pulse.pa_threaded_mainloop_lock          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_lock");
-    pContext->pulse.pa_threaded_mainloop_unlock        = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_unlock");
-    pContext->pulse.pa_threaded_mainloop_wait          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_wait");
-    pContext->pulse.pa_threaded_mainloop_signal        = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_signal");
-    pContext->pulse.pa_threaded_mainloop_accept        = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_accept");
-    pContext->pulse.pa_threaded_mainloop_get_retval    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_get_retval");
-    pContext->pulse.pa_threaded_mainloop_get_api       = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_get_api");
-    pContext->pulse.pa_threaded_mainloop_in_thread     = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_in_thread");
-    pContext->pulse.pa_threaded_mainloop_set_name      = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_threaded_mainloop_set_name");
-    pContext->pulse.pa_context_new                     = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_new");
-    pContext->pulse.pa_context_unref                   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_unref");
-    pContext->pulse.pa_context_connect                 = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_connect");
-    pContext->pulse.pa_context_disconnect              = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_disconnect");
-    pContext->pulse.pa_context_set_state_callback      = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_set_state_callback");
-    pContext->pulse.pa_context_get_state               = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_get_state");
-    pContext->pulse.pa_context_get_sink_info_list      = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_get_sink_info_list");
-    pContext->pulse.pa_context_get_source_info_list    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_get_source_info_list");
-    pContext->pulse.pa_context_get_sink_info_by_name   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_get_sink_info_by_name");
-    pContext->pulse.pa_context_get_source_info_by_name = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_context_get_source_info_by_name");
-    pContext->pulse.pa_operation_unref                 = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_operation_unref");
-    pContext->pulse.pa_operation_get_state             = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_operation_get_state");
-    pContext->pulse.pa_channel_map_init_extend         = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_channel_map_init_extend");
-    pContext->pulse.pa_channel_map_valid               = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_channel_map_valid");
-    pContext->pulse.pa_channel_map_compatible          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_channel_map_compatible");
-    pContext->pulse.pa_stream_new                      = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_new");
-    pContext->pulse.pa_stream_unref                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_unref");
-    pContext->pulse.pa_stream_connect_playback         = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_connect_playback");
-    pContext->pulse.pa_stream_connect_record           = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_connect_record");
-    pContext->pulse.pa_stream_disconnect               = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_disconnect");
-    pContext->pulse.pa_stream_get_state                = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_state");
-    pContext->pulse.pa_stream_get_sample_spec          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_sample_spec");
-    pContext->pulse.pa_stream_get_channel_map          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_channel_map");
-    pContext->pulse.pa_stream_get_buffer_attr          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_buffer_attr");
-    pContext->pulse.pa_stream_set_buffer_attr          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_buffer_attr");
-    pContext->pulse.pa_stream_get_device_name          = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_get_device_name");
-    pContext->pulse.pa_stream_set_write_callback       = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_write_callback");
-    pContext->pulse.pa_stream_set_read_callback        = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_read_callback");
-    pContext->pulse.pa_stream_set_suspended_callback   = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_suspended_callback");
-    pContext->pulse.pa_stream_set_moved_callback       = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_set_moved_callback");
-    pContext->pulse.pa_stream_is_suspended             = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_is_suspended");
-    pContext->pulse.pa_stream_flush                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_flush");
-    pContext->pulse.pa_stream_drain                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_drain");
-    pContext->pulse.pa_stream_is_corked                = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_is_corked");
-    pContext->pulse.pa_stream_cork                     = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_cork");
-    pContext->pulse.pa_stream_trigger                  = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_trigger");
-    pContext->pulse.pa_stream_begin_write              = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_begin_write");
-    pContext->pulse.pa_stream_write                    = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_write");
-    pContext->pulse.pa_stream_peek                     = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_peek");
-    pContext->pulse.pa_stream_drop                     = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_drop");
-    pContext->pulse.pa_stream_writable_size            = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_writable_size");
-    pContext->pulse.pa_stream_readable_size            = (ma_proc)ma_dlsym(pContext, pContext->pulse.pulseSO, "pa_stream_readable_size");
+    pContext->pulse.pa_mainloop_new                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_new");
+    pContext->pulse.pa_mainloop_free                   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_free");
+    pContext->pulse.pa_mainloop_quit                   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_quit");
+    pContext->pulse.pa_mainloop_get_api                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_get_api");
+    pContext->pulse.pa_mainloop_iterate                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_iterate");
+    pContext->pulse.pa_mainloop_wakeup                 = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_mainloop_wakeup");
+    pContext->pulse.pa_threaded_mainloop_new           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_new");
+    pContext->pulse.pa_threaded_mainloop_free          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_free");
+    pContext->pulse.pa_threaded_mainloop_start         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_start");
+    pContext->pulse.pa_threaded_mainloop_stop          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_stop");
+    pContext->pulse.pa_threaded_mainloop_lock          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_lock");
+    pContext->pulse.pa_threaded_mainloop_unlock        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_unlock");
+    pContext->pulse.pa_threaded_mainloop_wait          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_wait");
+    pContext->pulse.pa_threaded_mainloop_signal        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_signal");
+    pContext->pulse.pa_threaded_mainloop_accept        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_accept");
+    pContext->pulse.pa_threaded_mainloop_get_retval    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_get_retval");
+    pContext->pulse.pa_threaded_mainloop_get_api       = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_get_api");
+    pContext->pulse.pa_threaded_mainloop_in_thread     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_in_thread");
+    pContext->pulse.pa_threaded_mainloop_set_name      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_threaded_mainloop_set_name");
+    pContext->pulse.pa_context_new                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_new");
+    pContext->pulse.pa_context_unref                   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_unref");
+    pContext->pulse.pa_context_connect                 = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_connect");
+    pContext->pulse.pa_context_disconnect              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_disconnect");
+    pContext->pulse.pa_context_set_state_callback      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_set_state_callback");
+    pContext->pulse.pa_context_get_state               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_get_state");
+    pContext->pulse.pa_context_get_sink_info_list      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_get_sink_info_list");
+    pContext->pulse.pa_context_get_source_info_list    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_get_source_info_list");
+    pContext->pulse.pa_context_get_sink_info_by_name   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_get_sink_info_by_name");
+    pContext->pulse.pa_context_get_source_info_by_name = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_context_get_source_info_by_name");
+    pContext->pulse.pa_operation_unref                 = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_operation_unref");
+    pContext->pulse.pa_operation_get_state             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_operation_get_state");
+    pContext->pulse.pa_channel_map_init_extend         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_channel_map_init_extend");
+    pContext->pulse.pa_channel_map_valid               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_channel_map_valid");
+    pContext->pulse.pa_channel_map_compatible          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_channel_map_compatible");
+    pContext->pulse.pa_stream_new                      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_new");
+    pContext->pulse.pa_stream_unref                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_unref");
+    pContext->pulse.pa_stream_connect_playback         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_connect_playback");
+    pContext->pulse.pa_stream_connect_record           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_connect_record");
+    pContext->pulse.pa_stream_disconnect               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_disconnect");
+    pContext->pulse.pa_stream_get_state                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_get_state");
+    pContext->pulse.pa_stream_get_sample_spec          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_get_sample_spec");
+    pContext->pulse.pa_stream_get_channel_map          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_get_channel_map");
+    pContext->pulse.pa_stream_get_buffer_attr          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_get_buffer_attr");
+    pContext->pulse.pa_stream_set_buffer_attr          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_set_buffer_attr");
+    pContext->pulse.pa_stream_get_device_name          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_get_device_name");
+    pContext->pulse.pa_stream_set_write_callback       = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_set_write_callback");
+    pContext->pulse.pa_stream_set_read_callback        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_set_read_callback");
+    pContext->pulse.pa_stream_set_suspended_callback   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_set_suspended_callback");
+    pContext->pulse.pa_stream_set_moved_callback       = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_set_moved_callback");
+    pContext->pulse.pa_stream_is_suspended             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_is_suspended");
+    pContext->pulse.pa_stream_flush                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_flush");
+    pContext->pulse.pa_stream_drain                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_drain");
+    pContext->pulse.pa_stream_is_corked                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_is_corked");
+    pContext->pulse.pa_stream_cork                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_cork");
+    pContext->pulse.pa_stream_trigger                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_trigger");
+    pContext->pulse.pa_stream_begin_write              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_begin_write");
+    pContext->pulse.pa_stream_write                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_write");
+    pContext->pulse.pa_stream_peek                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_peek");
+    pContext->pulse.pa_stream_drop                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_drop");
+    pContext->pulse.pa_stream_writable_size            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_writable_size");
+    pContext->pulse.pa_stream_readable_size            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->pulse.pulseSO, "pa_stream_readable_size");
 #else
     /* This strange assignment system is just for type safety. */
     ma_pa_mainloop_new_proc                    _pa_mainloop_new                   = pa_mainloop_new;
@@ -30958,7 +30958,7 @@ static ma_result ma_context_init__pulse(ma_context* pContext, const ma_context_c
         ma_free(pContext->pulse.pServerName, &pContext->allocationCallbacks);
         ma_free(pContext->pulse.pApplicationName, &pContext->allocationCallbacks);
     #ifndef MA_NO_RUNTIME_LINKING
-        ma_dlclose(pContext, pContext->pulse.pulseSO);
+        ma_dlclose(ma_context_get_log(pContext), pContext->pulse.pulseSO);
     #endif
         return result;
     }
@@ -31522,7 +31522,7 @@ static ma_result ma_context_uninit__jack(ma_context* pContext)
     pContext->jack.pClientName = NULL;
 
 #ifndef MA_NO_RUNTIME_LINKING
-    ma_dlclose(pContext, pContext->jack.jackSO);
+    ma_dlclose(ma_context_get_log(pContext), pContext->jack.jackSO);
 #endif
 
     return MA_SUCCESS;
@@ -31544,7 +31544,7 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
     size_t i;
 
     for (i = 0; i < ma_countof(libjackNames); ++i) {
-        pContext->jack.jackSO = ma_dlopen(pContext, libjackNames[i]);
+        pContext->jack.jackSO = ma_dlopen(ma_context_get_log(pContext), libjackNames[i]);
         if (pContext->jack.jackSO != NULL) {
             break;
         }
@@ -31554,22 +31554,22 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
         return MA_NO_BACKEND;
     }
 
-    pContext->jack.jack_client_open              = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_client_open");
-    pContext->jack.jack_client_close             = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_client_close");
-    pContext->jack.jack_client_name_size         = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_client_name_size");
-    pContext->jack.jack_set_process_callback     = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_set_process_callback");
-    pContext->jack.jack_set_buffer_size_callback = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_set_buffer_size_callback");
-    pContext->jack.jack_on_shutdown              = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_on_shutdown");
-    pContext->jack.jack_get_sample_rate          = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_get_sample_rate");
-    pContext->jack.jack_get_buffer_size          = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_get_buffer_size");
-    pContext->jack.jack_get_ports                = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_get_ports");
-    pContext->jack.jack_activate                 = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_activate");
-    pContext->jack.jack_deactivate               = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_deactivate");
-    pContext->jack.jack_connect                  = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_connect");
-    pContext->jack.jack_port_register            = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_port_register");
-    pContext->jack.jack_port_name                = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_port_name");
-    pContext->jack.jack_port_get_buffer          = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_port_get_buffer");
-    pContext->jack.jack_free                     = (ma_proc)ma_dlsym(pContext, pContext->jack.jackSO, "jack_free");
+    pContext->jack.jack_client_open              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_client_open");
+    pContext->jack.jack_client_close             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_client_close");
+    pContext->jack.jack_client_name_size         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_client_name_size");
+    pContext->jack.jack_set_process_callback     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_set_process_callback");
+    pContext->jack.jack_set_buffer_size_callback = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_set_buffer_size_callback");
+    pContext->jack.jack_on_shutdown              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_on_shutdown");
+    pContext->jack.jack_get_sample_rate          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_get_sample_rate");
+    pContext->jack.jack_get_buffer_size          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_get_buffer_size");
+    pContext->jack.jack_get_ports                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_get_ports");
+    pContext->jack.jack_activate                 = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_activate");
+    pContext->jack.jack_deactivate               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_deactivate");
+    pContext->jack.jack_connect                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_connect");
+    pContext->jack.jack_port_register            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_port_register");
+    pContext->jack.jack_port_name                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_port_name");
+    pContext->jack.jack_port_get_buffer          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_port_get_buffer");
+    pContext->jack.jack_free                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->jack.jackSO, "jack_free");
 #else
     /*
     This strange assignment system is here just to ensure type safety of miniaudio's function pointer
@@ -31625,7 +31625,7 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
         if (result != MA_SUCCESS) {
             ma_free(pContext->jack.pClientName, &pContext->allocationCallbacks);
         #ifndef MA_NO_RUNTIME_LINKING
-            ma_dlclose(pContext, pContext->jack.jackSO);
+            ma_dlclose(ma_context_get_log(pContext), pContext->jack.jackSO);
         #endif
             return MA_NO_BACKEND;
         }
@@ -34637,9 +34637,9 @@ static ma_result ma_context_uninit__coreaudio(ma_context* pContext)
 #endif
 
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-    ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
-    ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-    ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+    ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit);
+    ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
+    ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
 #endif
 
 #if !defined(MA_APPLE_MOBILE)
@@ -34728,26 +34728,26 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
 #endif
 
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-    pContext->coreaudio.hCoreFoundation = ma_dlopen(pContext, "CoreFoundation.framework/CoreFoundation");
+    pContext->coreaudio.hCoreFoundation = ma_dlopen(ma_context_get_log(pContext), "CoreFoundation.framework/CoreFoundation");
     if (pContext->coreaudio.hCoreFoundation == NULL) {
         return MA_API_NOT_FOUND;
     }
 
-    pContext->coreaudio.CFStringGetCString = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
-    pContext->coreaudio.CFRelease          = ma_dlsym(pContext, pContext->coreaudio.hCoreFoundation, "CFRelease");
+    pContext->coreaudio.CFStringGetCString = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation, "CFStringGetCString");
+    pContext->coreaudio.CFRelease          = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation, "CFRelease");
 
 
-    pContext->coreaudio.hCoreAudio = ma_dlopen(pContext, "CoreAudio.framework/CoreAudio");
+    pContext->coreaudio.hCoreAudio = ma_dlopen(ma_context_get_log(pContext), "CoreAudio.framework/CoreAudio");
     if (pContext->coreaudio.hCoreAudio == NULL) {
-        ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
         return MA_API_NOT_FOUND;
     }
 
-    pContext->coreaudio.AudioObjectGetPropertyData        = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyData");
-    pContext->coreaudio.AudioObjectGetPropertyDataSize    = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyDataSize");
-    pContext->coreaudio.AudioObjectSetPropertyData        = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
-    pContext->coreaudio.AudioObjectAddPropertyListener    = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectAddPropertyListener");
-    pContext->coreaudio.AudioObjectRemovePropertyListener = ma_dlsym(pContext, pContext->coreaudio.hCoreAudio, "AudioObjectRemovePropertyListener");
+    pContext->coreaudio.AudioObjectGetPropertyData        = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyData");
+    pContext->coreaudio.AudioObjectGetPropertyDataSize    = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio, "AudioObjectGetPropertyDataSize");
+    pContext->coreaudio.AudioObjectSetPropertyData        = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio, "AudioObjectSetPropertyData");
+    pContext->coreaudio.AudioObjectAddPropertyListener    = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio, "AudioObjectAddPropertyListener");
+    pContext->coreaudio.AudioObjectRemovePropertyListener = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio, "AudioObjectRemovePropertyListener");
 
     /*
     It looks like Apple has moved some APIs from AudioUnit into AudioToolbox on more recent versions of macOS. They are still
@@ -34755,35 +34755,35 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     The way it'll work is that it'll first try AudioUnit, and if the required symbols are not present there we'll fall back to
     AudioToolbox.
     */
-    pContext->coreaudio.hAudioUnit = ma_dlopen(pContext, "AudioUnit.framework/AudioUnit");
+    pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "AudioUnit.framework/AudioUnit");
     if (pContext->coreaudio.hAudioUnit == NULL) {
-        ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-        ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
         return MA_API_NOT_FOUND;
     }
 
-    if (ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentFindNext") == NULL) {
+    if (ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioComponentFindNext") == NULL) {
         /* Couldn't find the required symbols in AudioUnit, so fall back to AudioToolbox. */
-        ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
-        pContext->coreaudio.hAudioUnit = ma_dlopen(pContext, "AudioToolbox.framework/AudioToolbox");
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit);
+        pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "AudioToolbox.framework/AudioToolbox");
         if (pContext->coreaudio.hAudioUnit == NULL) {
-            ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-            ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+            ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
+            ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
             return MA_API_NOT_FOUND;
         }
     }
 
-    pContext->coreaudio.AudioComponentFindNext            = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentFindNext");
-    pContext->coreaudio.AudioComponentInstanceDispose     = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceDispose");
-    pContext->coreaudio.AudioComponentInstanceNew         = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioComponentInstanceNew");
-    pContext->coreaudio.AudioOutputUnitStart              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStart");
-    pContext->coreaudio.AudioOutputUnitStop               = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioOutputUnitStop");
-    pContext->coreaudio.AudioUnitAddPropertyListener      = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitAddPropertyListener");
-    pContext->coreaudio.AudioUnitGetPropertyInfo          = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetPropertyInfo");
-    pContext->coreaudio.AudioUnitGetProperty              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitGetProperty");
-    pContext->coreaudio.AudioUnitSetProperty              = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitSetProperty");
-    pContext->coreaudio.AudioUnitInitialize               = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitInitialize");
-    pContext->coreaudio.AudioUnitRender                   = ma_dlsym(pContext, pContext->coreaudio.hAudioUnit, "AudioUnitRender");
+    pContext->coreaudio.AudioComponentFindNext            = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioComponentFindNext");
+    pContext->coreaudio.AudioComponentInstanceDispose     = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioComponentInstanceDispose");
+    pContext->coreaudio.AudioComponentInstanceNew         = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioComponentInstanceNew");
+    pContext->coreaudio.AudioOutputUnitStart              = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioOutputUnitStart");
+    pContext->coreaudio.AudioOutputUnitStop               = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioOutputUnitStop");
+    pContext->coreaudio.AudioUnitAddPropertyListener      = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitAddPropertyListener");
+    pContext->coreaudio.AudioUnitGetPropertyInfo          = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitGetPropertyInfo");
+    pContext->coreaudio.AudioUnitGetProperty              = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitGetProperty");
+    pContext->coreaudio.AudioUnitSetProperty              = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitSetProperty");
+    pContext->coreaudio.AudioUnitInitialize               = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitInitialize");
+    pContext->coreaudio.AudioUnitRender                   = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioUnitRender");
 #else
     pContext->coreaudio.CFStringGetCString                = (ma_proc)CFStringGetCString;
     pContext->coreaudio.CFRelease                         = (ma_proc)CFRelease;
@@ -34825,9 +34825,9 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
         pContext->coreaudio.component = ((ma_AudioComponentFindNext_proc)pContext->coreaudio.AudioComponentFindNext)(NULL, &desc);
         if (pContext->coreaudio.component == NULL) {
         #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-            ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
-            ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-            ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+            ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit);
+            ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
+            ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
         #endif
             return MA_FAILED_TO_INIT_BACKEND;
         }
@@ -34837,9 +34837,9 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     result = ma_context__init_device_tracking__coreaudio(pContext);
     if (result != MA_SUCCESS) {
     #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-        ma_dlclose(pContext, pContext->coreaudio.hAudioUnit);
-        ma_dlclose(pContext, pContext->coreaudio.hCoreAudio);
-        ma_dlclose(pContext, pContext->coreaudio.hCoreFoundation);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
+        ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
     #endif
         return result;
     }
@@ -35660,7 +35660,7 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const ma_context_c
     size_t i;
 
     for (i = 0; i < ma_countof(libsndioNames); ++i) {
-        pContext->sndio.sndioSO = ma_dlopen(pContext, libsndioNames[i]);
+        pContext->sndio.sndioSO = ma_dlopen(ma_context_get_log(pContext), libsndioNames[i]);
         if (pContext->sndio.sndioSO != NULL) {
             break;
         }
@@ -35670,16 +35670,16 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const ma_context_c
         return MA_NO_BACKEND;
     }
 
-    pContext->sndio.sio_open    = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_open");
-    pContext->sndio.sio_close   = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_close");
-    pContext->sndio.sio_setpar  = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_setpar");
-    pContext->sndio.sio_getpar  = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_getpar");
-    pContext->sndio.sio_getcap  = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_getcap");
-    pContext->sndio.sio_write   = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_write");
-    pContext->sndio.sio_read    = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_read");
-    pContext->sndio.sio_start   = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_start");
-    pContext->sndio.sio_stop    = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_stop");
-    pContext->sndio.sio_initpar = (ma_proc)ma_dlsym(pContext, pContext->sndio.sndioSO, "sio_initpar");
+    pContext->sndio.sio_open    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_open");
+    pContext->sndio.sio_close   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_close");
+    pContext->sndio.sio_setpar  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_setpar");
+    pContext->sndio.sio_getpar  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_getpar");
+    pContext->sndio.sio_getcap  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_getcap");
+    pContext->sndio.sio_write   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_write");
+    pContext->sndio.sio_read    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_read");
+    pContext->sndio.sio_start   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_start");
+    pContext->sndio.sio_stop    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_stop");
+    pContext->sndio.sio_initpar = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->sndio.sndioSO, "sio_initpar");
 #else
     pContext->sndio.sio_open    = sio_open;
     pContext->sndio.sio_close   = sio_close;
@@ -38121,7 +38121,7 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 
     ma_device_job_thread_uninit(&pContext->aaudio.jobThread, &pContext->allocationCallbacks);
 
-    ma_dlclose(pContext, pContext->aaudio.hAAudio);
+    ma_dlclose(ma_context_get_log(pContext), pContext->aaudio.hAAudio);
     pContext->aaudio.hAAudio = NULL;
 
     return MA_SUCCESS;
@@ -38135,7 +38135,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     };
 
     for (i = 0; i < ma_countof(libNames); ++i) {
-        pContext->aaudio.hAAudio = ma_dlopen(pContext, libNames[i]);
+        pContext->aaudio.hAAudio = ma_dlopen(ma_context_get_log(pContext), libNames[i]);
         if (pContext->aaudio.hAAudio != NULL) {
             break;
         }
@@ -38145,35 +38145,35 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    pContext->aaudio.AAudio_createStreamBuilder                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudio_createStreamBuilder");
-    pContext->aaudio.AAudioStreamBuilder_delete                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_delete");
-    pContext->aaudio.AAudioStreamBuilder_setDeviceId               = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDeviceId");
-    pContext->aaudio.AAudioStreamBuilder_setDirection              = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDirection");
-    pContext->aaudio.AAudioStreamBuilder_setSharingMode            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setSharingMode");
-    pContext->aaudio.AAudioStreamBuilder_setFormat                 = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFormat");
-    pContext->aaudio.AAudioStreamBuilder_setChannelCount           = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setChannelCount");
-    pContext->aaudio.AAudioStreamBuilder_setSampleRate             = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setSampleRate");
-    pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setBufferCapacityInFrames");
-    pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFramesPerDataCallback");
-    pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDataCallback");
-    pContext->aaudio.AAudioStreamBuilder_setErrorCallback          = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setErrorCallback");
-    pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setPerformanceMode");
-    pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setUsage");
-    pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
-    pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
-    pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy");
-    pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
-    pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_close");
-    pContext->aaudio.AAudioStream_getState                         = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getState");
-    pContext->aaudio.AAudioStream_waitForStateChange               = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_waitForStateChange");
-    pContext->aaudio.AAudioStream_getFormat                        = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getFormat");
-    pContext->aaudio.AAudioStream_getChannelCount                  = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getChannelCount");
-    pContext->aaudio.AAudioStream_getSampleRate                    = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getSampleRate");
-    pContext->aaudio.AAudioStream_getBufferCapacityInFrames        = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getBufferCapacityInFrames");
-    pContext->aaudio.AAudioStream_getFramesPerDataCallback         = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getFramesPerDataCallback");
-    pContext->aaudio.AAudioStream_getFramesPerBurst                = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_getFramesPerBurst");
-    pContext->aaudio.AAudioStream_requestStart                     = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStart");
-    pContext->aaudio.AAudioStream_requestStop                      = (ma_proc)ma_dlsym(pContext, pContext->aaudio.hAAudio, "AAudioStream_requestStop");
+    pContext->aaudio.AAudio_createStreamBuilder                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudio_createStreamBuilder");
+    pContext->aaudio.AAudioStreamBuilder_delete                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_delete");
+    pContext->aaudio.AAudioStreamBuilder_setDeviceId               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDeviceId");
+    pContext->aaudio.AAudioStreamBuilder_setDirection              = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDirection");
+    pContext->aaudio.AAudioStreamBuilder_setSharingMode            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setSharingMode");
+    pContext->aaudio.AAudioStreamBuilder_setFormat                 = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFormat");
+    pContext->aaudio.AAudioStreamBuilder_setChannelCount           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setChannelCount");
+    pContext->aaudio.AAudioStreamBuilder_setSampleRate             = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setSampleRate");
+    pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setBufferCapacityInFrames");
+    pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setFramesPerDataCallback");
+    pContext->aaudio.AAudioStreamBuilder_setDataCallback           = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setDataCallback");
+    pContext->aaudio.AAudioStreamBuilder_setErrorCallback          = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setErrorCallback");
+    pContext->aaudio.AAudioStreamBuilder_setPerformanceMode        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setPerformanceMode");
+    pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setUsage");
+    pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setContentType");
+    pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setInputPreset");
+    pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_setAllowedCapturePolicy");
+    pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStreamBuilder_openStream");
+    pContext->aaudio.AAudioStream_close                            = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_close");
+    pContext->aaudio.AAudioStream_getState                         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getState");
+    pContext->aaudio.AAudioStream_waitForStateChange               = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_waitForStateChange");
+    pContext->aaudio.AAudioStream_getFormat                        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getFormat");
+    pContext->aaudio.AAudioStream_getChannelCount                  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getChannelCount");
+    pContext->aaudio.AAudioStream_getSampleRate                    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getSampleRate");
+    pContext->aaudio.AAudioStream_getBufferCapacityInFrames        = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getBufferCapacityInFrames");
+    pContext->aaudio.AAudioStream_getFramesPerDataCallback         = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getFramesPerDataCallback");
+    pContext->aaudio.AAudioStream_getFramesPerBurst                = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_getFramesPerBurst");
+    pContext->aaudio.AAudioStream_requestStart                     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_requestStart");
+    pContext->aaudio.AAudioStream_requestStop                      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->aaudio.hAAudio, "AAudioStream_requestStop");
 
 
     pCallbacks->onContextInit             = ma_context_init__aaudio;
@@ -38199,7 +38199,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
 
         result = ma_device_job_thread_init(&jobThreadConfig, &pContext->allocationCallbacks, &pContext->aaudio.jobThread);
         if (result != MA_SUCCESS) {
-            ma_dlclose(pContext, pContext->aaudio.hAAudio);
+            ma_dlclose(ma_context_get_log(pContext), pContext->aaudio.hAAudio);
             pContext->aaudio.hAAudio = NULL;
             return result;
         }
@@ -39336,7 +39336,7 @@ static ma_result ma_context_uninit__opensl(ma_context* pContext)
 static ma_result ma_dlsym_SLInterfaceID__opensl(ma_context* pContext, const char* pName, ma_handle* pHandle)
 {
     /* We need to return an error if the symbol cannot be found. This is important because there have been reports that some symbols do not exist. */
-    ma_handle* p = (ma_handle*)ma_dlsym(pContext, pContext->opensl.libOpenSLES, pName);
+    ma_handle* p = (ma_handle*)ma_dlsym(ma_context_get_log(pContext), pContext->opensl.libOpenSLES, pName);
     if (p == NULL) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL] Cannot find symbol %s", pName);
         return MA_NO_BACKEND;
@@ -39394,7 +39394,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
     references to the symbols and will hopefully skip the checks.
     */
     for (i = 0; i < ma_countof(libOpenSLESNames); i += 1) {
-        pContext->opensl.libOpenSLES = ma_dlopen(pContext, libOpenSLESNames[i]);
+        pContext->opensl.libOpenSLES = ma_dlopen(ma_context_get_log(pContext), libOpenSLESNames[i]);
         if (pContext->opensl.libOpenSLES != NULL) {
             break;
         }
@@ -39407,49 +39407,49 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ENGINE", &pContext->opensl.SL_IID_ENGINE);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_AUDIOIODEVICECAPABILITIES", &pContext->opensl.SL_IID_AUDIOIODEVICECAPABILITIES);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDSIMPLEBUFFERQUEUE", &pContext->opensl.SL_IID_ANDROIDSIMPLEBUFFERQUEUE);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_RECORD", &pContext->opensl.SL_IID_RECORD);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_PLAY", &pContext->opensl.SL_IID_PLAY);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_OUTPUTMIX", &pContext->opensl.SL_IID_OUTPUTMIX);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
     result = ma_dlsym_SLInterfaceID__opensl(pContext, "SL_IID_ANDROIDCONFIGURATION", &pContext->opensl.SL_IID_ANDROIDCONFIGURATION);
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         return result;
     }
 
-    pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(pContext, pContext->opensl.libOpenSLES, "slCreateEngine");
+    pContext->opensl.slCreateEngine = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->opensl.libOpenSLES, "slCreateEngine");
     if (pContext->opensl.slCreateEngine == NULL) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL] Cannot find symbol slCreateEngine.");
         return MA_NO_BACKEND;
     }
@@ -39473,7 +39473,7 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const ma_context_
     ma_spinlock_unlock(&g_maOpenSLSpinlock);
 
     if (result != MA_SUCCESS) {
-        ma_dlclose(pContext, pContext->opensl.libOpenSLES);
+        ma_dlclose(ma_context_get_log(pContext), pContext->opensl.libOpenSLES);
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL] Failed to initialize OpenSL engine.");
         return result;
     }
@@ -40906,11 +40906,11 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
     ma_CoUninitialize(pContext);
 
     #if defined(MA_WIN32_DESKTOP)
-        ma_dlclose(pContext, pContext->win32.hUser32DLL);
-        ma_dlclose(pContext, pContext->win32.hAdvapi32DLL);
+        ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
+        ma_dlclose(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL);
     #endif
 
-    ma_dlclose(pContext, pContext->win32.hOle32DLL);
+    ma_dlclose(ma_context_get_log(pContext), pContext->win32.hOle32DLL);
 #else
     (void)pContext;
 #endif
@@ -40923,39 +40923,39 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
     #if defined(MA_WIN32_DESKTOP)
         /* User32.dll */
-        pContext->win32.hUser32DLL = ma_dlopen(pContext, "user32.dll");
+        pContext->win32.hUser32DLL = ma_dlopen(ma_context_get_log(pContext), "user32.dll");
         if (pContext->win32.hUser32DLL == NULL) {
             return MA_FAILED_TO_INIT_BACKEND;
         }
 
-        pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetForegroundWindow");
-        pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(pContext, pContext->win32.hUser32DLL, "GetDesktopWindow");
+        pContext->win32.GetForegroundWindow = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetForegroundWindow");
+        pContext->win32.GetDesktopWindow    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hUser32DLL, "GetDesktopWindow");
 
 
         /* Advapi32.dll */
-        pContext->win32.hAdvapi32DLL = ma_dlopen(pContext, "advapi32.dll");
+        pContext->win32.hAdvapi32DLL = ma_dlopen(ma_context_get_log(pContext), "advapi32.dll");
         if (pContext->win32.hAdvapi32DLL == NULL) {
             return MA_FAILED_TO_INIT_BACKEND;
         }
 
-        pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
-        pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegCloseKey");
-        pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(pContext, pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
+        pContext->win32.RegOpenKeyExA    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegOpenKeyExA");
+        pContext->win32.RegCloseKey      = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegCloseKey");
+        pContext->win32.RegQueryValueExA = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hAdvapi32DLL, "RegQueryValueExA");
     #endif
 
     /* Ole32.dll */
-    pContext->win32.hOle32DLL = ma_dlopen(pContext, "ole32.dll");
+    pContext->win32.hOle32DLL = ma_dlopen(ma_context_get_log(pContext), "ole32.dll");
     if (pContext->win32.hOle32DLL == NULL) {
         return MA_FAILED_TO_INIT_BACKEND;
     }
 
-    pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoInitialize");
-    pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoInitializeEx");
-    pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoUninitialize");
-    pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoCreateInstance");
-    pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "CoTaskMemFree");
-    pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "PropVariantClear");
-    pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(pContext, pContext->win32.hOle32DLL, "StringFromGUID2");
+    pContext->win32.CoInitialize     = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitialize");
+    pContext->win32.CoInitializeEx   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoInitializeEx");
+    pContext->win32.CoUninitialize   = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoUninitialize");
+    pContext->win32.CoCreateInstance = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoCreateInstance");
+    pContext->win32.CoTaskMemFree    = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "CoTaskMemFree");
+    pContext->win32.PropVariantClear = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "PropVariantClear");
+    pContext->win32.StringFromGUID2  = (ma_proc)ma_dlsym(ma_context_get_log(pContext), pContext->win32.hOle32DLL, "StringFromGUID2");
 #else
     (void)pContext; /* Unused. */
 #endif
