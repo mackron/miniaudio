@@ -11545,7 +11545,7 @@ IMPLEMENTATION
 
             What's basically happening is that we're saving and restoring the ebx register manually.
             */
-            #if defined(DRFLAC_X86) && defined(__PIC__)
+            #if defined(MA_X86) && defined(__PIC__)
                 __asm__ __volatile__ (
                     "xchg{l} {%%}ebx, %k1;"
                     "cpuid;"
