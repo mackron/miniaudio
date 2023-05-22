@@ -20,7 +20,7 @@ ma_result test_notch2__by_format(const char* pInputFilePath, const char* pOutput
     }
 
     notchConfig = ma_notch2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 1, 60);
-    result = ma_notch2_init(&notchConfig, &notch);
+    result = ma_notch2_init(&notchConfig, NULL, &notch);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
         ma_encoder_uninit(&encoder);
@@ -36,13 +36,13 @@ ma_result test_notch2__by_format(const char* pInputFilePath, const char* pOutput
         ma_uint64 framesJustRead;
 
         framesToRead = ma_min(tempCapIn, tempCapOut);
-        framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
+        ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead, &framesJustRead);
 
         /* Filter */
         ma_notch2_process_pcm_frames(&notch, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead, NULL);
 
         if (framesJustRead < framesToRead) {
             break;
