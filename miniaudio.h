@@ -3914,7 +3914,13 @@ typedef ma_uint16 wchar_t;
 
 #ifdef _MSC_VER
     #define MA_INLINE __forceinline
-    #define MA_NO_INLINE __declspec(noinline)
+
+    /* noinline was introduced in Visual Studio 2005. */
+    #if _MSC_VER >= 1400
+        #define MA_NO_INLINE __declspec(noinline)
+    #else
+        #define MA_NO_INLINE
+    #endif
 #elif defined(__GNUC__)
     /*
     I've had a bug report where GCC is emitting warnings about functions possibly not being inlineable. This warning happens when
