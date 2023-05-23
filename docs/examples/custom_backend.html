@@ -248,7 +248,7 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
 <h1>Custom Backend</h1><p>
 This example show how a custom backend can be implemented.
 </p>
@@ -780,7 +780,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     ((MA_PFN_SDL_QuitSubSystem)pContextEx-&gt;sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
 
     <span style="color:#009900">/* Close the handle to the SDL shared object last. */</span>
-    ma_dlclose(pContext, pContextEx-&gt;sdl.hSDL);
+    ma_dlclose(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL);
     pContextEx-&gt;sdl.hSDL = NULL;
 
     <span style="color:#0033ff">return</span> MA_SUCCESS;
@@ -810,7 +810,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 
     <span style="color:#009900">/* Check if we have SDL2 installed somewhere. If not it&#39;s not usable and we need to abort. */</span>
     <span style="color:#0033ff">for</span> (iName = 0; iName &lt; ma_countof(pSDLNames); iName += 1) {
-        pContextEx-&gt;sdl.hSDL = ma_dlopen(pContext, pSDLNames[iName]);
+        pContextEx-&gt;sdl.hSDL = ma_dlopen(ma_context_get_log(pContext), pSDLNames[iName]);
         <span style="color:#0033ff">if</span> (pContextEx-&gt;sdl.hSDL != NULL) {
             <span style="color:#0033ff">break</span>;
         }
@@ -821,13 +821,13 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     }
 
     <span style="color:#009900">/* Now that we have the handle to the shared object we can go ahead and load some function pointers. */</span>
-    pContextEx-&gt;sdl.SDL_InitSubSystem      = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_InitSubSystem&quot;</span>);
-    pContextEx-&gt;sdl.SDL_QuitSubSystem      = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_QuitSubSystem&quot;</span>);
-    pContextEx-&gt;sdl.SDL_GetNumAudioDevices = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetNumAudioDevices&quot;</span>);
-    pContextEx-&gt;sdl.SDL_GetAudioDeviceName = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetAudioDeviceName&quot;</span>);
-    pContextEx-&gt;sdl.SDL_CloseAudioDevice   = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_CloseAudioDevice&quot;</span>);
-    pContextEx-&gt;sdl.SDL_OpenAudioDevice    = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_OpenAudioDevice&quot;</span>);
-    pContextEx-&gt;sdl.SDL_PauseAudioDevice   = ma_dlsym(pContext, pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_PauseAudioDevice&quot;</span>);
+    pContextEx-&gt;sdl.SDL_InitSubSystem      = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_InitSubSystem&quot;</span>);
+    pContextEx-&gt;sdl.SDL_QuitSubSystem      = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_QuitSubSystem&quot;</span>);
+    pContextEx-&gt;sdl.SDL_GetNumAudioDevices = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetNumAudioDevices&quot;</span>);
+    pContextEx-&gt;sdl.SDL_GetAudioDeviceName = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_GetAudioDeviceName&quot;</span>);
+    pContextEx-&gt;sdl.SDL_CloseAudioDevice   = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_CloseAudioDevice&quot;</span>);
+    pContextEx-&gt;sdl.SDL_OpenAudioDevice    = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_OpenAudioDevice&quot;</span>);
+    pContextEx-&gt;sdl.SDL_PauseAudioDevice   = ma_dlsym(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL, <span style="color:#cc3300">&quot;SDL_PauseAudioDevice&quot;</span>);
 <span style="color:#666666">#else</span>
     pContextEx-&gt;sdl.SDL_InitSubSystem      = (ma_proc)SDL_InitSubSystem;
     pContextEx-&gt;sdl.SDL_QuitSubSystem      = (ma_proc)SDL_QuitSubSystem;
@@ -840,7 +840,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 
     resultSDL = ((MA_PFN_SDL_InitSubSystem)pContextEx-&gt;sdl.SDL_InitSubSystem)(MA_SDL_INIT_AUDIO);
     <span style="color:#0033ff">if</span> (resultSDL != 0) {
-        ma_dlclose(pContext, pContextEx-&gt;sdl.hSDL);
+        ma_dlclose(ma_context_get_log(pContext), pContextEx-&gt;sdl.hSDL);
         <span style="color:#0033ff">return</span> MA_ERROR;
     }
 

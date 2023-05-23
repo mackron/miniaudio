@@ -836,16 +836,16 @@ ma_sound_set_stop_time_in_milliseconds()
 </pre></div><p>
 
 The start/stop time needs to be specified based on the absolute timer which is controlled by the
-engine. The current global time time in PCM frames can be retrieved with <span style="font-family:monospace;">ma_engine_get_time()</span>.
-The engine&#39;s global time can be changed with <span style="font-family:monospace;">ma_engine_set_time()</span> for synchronization purposes if
-required. Note that scheduling a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span>
-before anything will play:
+engine. The current global time time in PCM frames can be retrieved with
+<span style="font-family:monospace;">ma_engine_get_time_in_pcm_frames()</span>. The engine&#39;s global time can be changed with
+<span style="font-family:monospace;">ma_engine_set_time_in_pcm_frames()</span> for synchronization purposes if required. Note that scheduling
+a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span> before anything will play:
 </p>
 <p>
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2);
+ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time_in_pcm_frames(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2);
 ma_sound_start(&amp;sound);
 </pre></div><p>
 
@@ -931,6 +931,11 @@ dependencies. See below for platform-specific details.
 <p>
 
 Note that GCC and Clang require <span style="font-family:monospace;">-msse2</span>, <span style="font-family:monospace;">-mavx2</span>, etc. for SIMD optimizations.
+</p>
+<p>
+
+If you get errors about undefined references to <span style="font-family:monospace;">__sync_val_compare_and_swap_8</span>, <span style="font-family:monospace;">__atomic_load_8</span>,
+etc. you need to link with <span style="font-family:monospace;">-latomic</span>.
 </p>
 <p>
 
@@ -1965,7 +1970,7 @@ base object (<span style="font-family:monospace;">ma_data_source_base</span>):
     <span style="color:#009900">// Retrieve the length in PCM frames here. Return MA_NOT_IMPLEMENTED and set *pLength to 0 if there is no notion of a length or if the length is unknown.</span>
 }
 
-<span style="color:#0033ff">static</span> g_my_data_source_vtable =
+<span style="color:#0033ff">static</span> ma_data_source_vtable g_my_data_source_vtable =
 {
     my_data_source_read,
     my_data_source_seek,
@@ -2617,10 +2622,10 @@ can be useful to schedule a sound to start or stop:
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#009900">// Start the sound in 1 second from now.</span>
-ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 1));
+ma_sound_set_start_time_in_pcm_frames(&amp;sound, ma_engine_get_time_in_pcm_frames(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 1));
 
 <span style="color:#009900">// Stop the sound in 2 seconds from now.</span>
-ma_sound_set_stop_time_in_pcm_frames(&amp;sound, ma_engine_get_time(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2));
+ma_sound_set_stop_time_in_pcm_frames(&amp;sound, ma_engine_get_time_in_pcm_frames(&amp;engine) + (ma_engine_get_sample_rate(&amp;engine) * 2));
 </pre></div><p>
 
 Note that scheduling a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span> before
@@ -2629,9 +2634,9 @@ anything will play.
 <p>
 
 The time is specified in global time which is controlled by the engine. You can get the engine&#39;s
-current time with <span style="font-family:monospace;">ma_engine_get_time()</span>. The engine&#39;s global time is incremented automatically as
-audio data is read, but it can be reset with <span style="font-family:monospace;">ma_engine_set_time()</span> in case it needs to be
-resynchronized for some reason.
+current time with <span style="font-family:monospace;">ma_engine_get_time_in_pcm_frames()</span>. The engine&#39;s global time is incremented
+automatically as audio data is read, but it can be reset with <span style="font-family:monospace;">ma_engine_set_time_in_pcm_frames()</span>
+in case it needs to be resynchronized for some reason.
 </p>
 <p>
 
@@ -4021,7 +4026,7 @@ used. The same general process applies to detachment. See <span style="font-fami
 <h1 id="Decoding" class="man">8. Decoding</h1>
 <p>
 The <span style="font-family:monospace;">ma_decoder</span> API is used for reading audio files. Decoders are completely decoupled from
-devices and can be used independently. The following formats are supported:
+devices and can be used independently. Built-in support is included for the following formats:
 </p>
 <p>
 
@@ -4030,83 +4035,25 @@ devices and can be used independently. The following formats are supported:
 <th class="doc" valign="top"><p>
 Format</p>
 </th>
-<th class="doc" valign="top"><p>
-Decoding Backend</p>
-</th>
-<th class="doc" valign="top"><p>
-Built-In</p>
-</th>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
 WAV</p>
-</td>
-<td class="doc" valign="top"><p>
-dr_wav</p>
-</td>
-<td class="doc" valign="top"><p>
-Yes</p>
 </td>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
 MP3</p>
 </td>
-<td class="doc" valign="top"><p>
-dr_mp3</p>
-</td>
-<td class="doc" valign="top"><p>
-Yes</p>
-</td>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
 FLAC</p>
 </td>
-<td class="doc" valign="top"><p>
-dr_flac</p>
-</td>
-<td class="doc" valign="top"><p>
-Yes</p>
-</td>
-</tr>
-<tr>
-<td class="doc" valign="top"><p>
-Vorbis</p>
-</td>
-<td class="doc" valign="top"><p>
-stb_vorbis</p>
-</td>
-<td class="doc" valign="top"><p>
-No</p>
-</td>
 </tr>
 </table></div><p>
-Vorbis is supported via stb_vorbis which can be enabled by including the header section before the
-implementation of miniaudio, like the following:
-</p>
-<p>
-
-</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#666666">#define</span> STB_VORBIS_HEADER_ONLY
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/stb_vorbis.c&quot;</span>    <span style="color:#009900">// Enables Vorbis decoding.</span>
-
-<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
-
-<span style="color:#009900">// The stb_vorbis implementation must come after the implementation of miniaudio.</span>
-<span style="color:#666666">#undef</span> STB_VORBIS_HEADER_ONLY
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;extras/stb_vorbis.c&quot;</span>
-</pre></div><p>
-
-A copy of stb_vorbis is included in the &quot;extras&quot; folder in the miniaudio repository (<a href="https://github.com/mackron/miniaudio">https://github.com/mackron/miniaudio</a>).
-</p>
-<p>
-
-Built-in decoders are amalgamated into the implementation section of miniaudio. You can disable the
-built-in decoders by specifying one or more of the following options before the miniaudio
-implementation:
+You can disable the built-in decoders by specifying one or more of the following options before the
+miniaudio implementation:
 </p>
 <p>
 
@@ -4117,8 +4064,8 @@ implementation:
 <span style="color:#666666">#define</span> MA_NO_FLAC
 </pre></div><p>
 
-Disabling built-in decoding libraries is useful if you use these libraries independently of the
-<span style="font-family:monospace;">ma_decoder</span> API.
+miniaudio supports the ability to plug in custom decoders. See the section below for details on how
+to use custom decoders.
 </p>
 <p>
 
@@ -4315,8 +4262,7 @@ opportunity to clean up and internal data.
 </p>
 <h1 id="Encoding" class="man">9. Encoding</h1>
 <p>
-The <span style="font-family:monospace;">ma_encoding</span> API is used for writing audio files. The only supported output format is WAV
-which is achieved via dr_wav which is amalgamated into the implementation section of miniaudio.
+The <span style="font-family:monospace;">ma_encoding</span> API is used for writing audio files. The only supported output format is WAV.
 This can be disabled by specifying the following option before the implementation of miniaudio:
 </p>
 <p>
