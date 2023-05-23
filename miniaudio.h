@@ -17721,6 +17721,13 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
 Dynamic Linking
 
 *******************************************************************************/
+#ifdef MA_POSIX
+    /* No need for dlfcn.h if we're not using runtime linking. */
+    #ifndef MA_NO_RUNTIME_LINKING
+        #include <dlfcn.h>
+    #endif
+#endif
+
 MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename)
 {
 #ifndef MA_NO_RUNTIME_LINKING
