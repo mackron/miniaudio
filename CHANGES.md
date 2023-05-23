@@ -1,8 +1,11 @@
 v0.11.7 - TBD
 =============
-* Work around some bad code generation by Clang.
-* Fix a very minor linting warning in VS2022.
 * Fix some compilation errors with MA_USE_STDINT.
+* Fix a possible runtime error with Windows 95/98.
+* Fix a very minor linting warning in VS2022.
+* Add support for AIFF/AIFC decoding.
+* Add support for RIFX decoding.
+* Work around some bad code generation by Clang.
 * Amalgamations of dr_wav, dr_flac, dr_mp3 and c89atomic have been updated so that they're now fully namespaced. This allows each of these libraries to be able to be used alongside miniaudio without any conflicts. In addition, some duplicate code, such as sized type declarations, result codes, etc. has been removed.
 
 
