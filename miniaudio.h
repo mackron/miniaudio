@@ -10118,8 +10118,8 @@ MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 
 
 typedef struct
 {
-    ma_pulsewave_config config;
     ma_waveform waveform;
+    ma_pulsewave_config config;
 } ma_pulsewave;
 
 MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform);
