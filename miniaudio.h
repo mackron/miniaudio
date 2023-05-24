@@ -10104,6 +10104,32 @@ MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double freque
 MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type type);
 MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
 
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double dutyCycle;
+    double amplitude;
+    double frequency;
+} ma_pulsewave_config;
+
+MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double dutyCycle, double amplitude, double frequency);
+
+typedef struct
+{
+    ma_pulsewave_config config;
+    ma_waveform waveform;
+} ma_pulsewave;
+
+MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform);
+MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform);
+MA_API ma_result ma_pulsewave_read_pcm_frames(ma_pulsewave* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint64 frameIndex);
+MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude);
+MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency);
+MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate);
+
 typedef enum
 {
     ma_noise_type_white,
@@ -65226,12 +65252,12 @@ static ma_int16 ma_waveform_sine_s16(double time, double amplitude)
     return ma_pcm_sample_f32_to_s16(ma_waveform_sine_f32(time, amplitude));
 }
 
-static float ma_waveform_square_f32(double time, double amplitude)
+static float ma_waveform_square_f32(double time, double dutyCycle, double amplitude)
 {
     double f = time - (ma_int64)time;
     double r;
 
-    if (f < 0.5) {
+    if (f < dutyCycle) {
         r =  amplitude;
     } else {
         r = -amplitude;
@@ -65240,9 +65266,9 @@ static float ma_waveform_square_f32(double time, double amplitude)
     return (float)r;
 }
 
-static ma_int16 ma_waveform_square_s16(double time, double amplitude)
+static ma_int16 ma_waveform_square_s16(double time, double dutyCycle, double amplitude)
 {
-    return ma_pcm_sample_f32_to_s16(ma_waveform_square_f32(time, amplitude));
+    return ma_pcm_sample_f32_to_s16(ma_waveform_square_f32(time, dutyCycle, amplitude));
 }
 
 static float ma_waveform_triangle_f32(double time, double amplitude)
@@ -65317,7 +65343,7 @@ static void ma_waveform_read_pcm_frames__sine(ma_waveform* pWaveform, void* pFra
     }
 }
 
-static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pFramesOut, ma_uint64 frameCount)
+static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, double dutyCycle, void* pFramesOut, ma_uint64 frameCount)
 {
     ma_uint64 iFrame;
     ma_uint64 iChannel;
@@ -65330,7 +65356,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
     if (pWaveform->config.format == ma_format_f32) {
         float* pFramesOutF32 = (float*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.amplitude);
+            float s = ma_waveform_square_f32(pWaveform->time, dutyCycle, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -65340,7 +65366,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
     } else if (pWaveform->config.format == ma_format_s16) {
         ma_int16* pFramesOutS16 = (ma_int16*)pFramesOut;
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            ma_int16 s = ma_waveform_square_s16(pWaveform->time, pWaveform->config.amplitude);
+            ma_int16 s = ma_waveform_square_s16(pWaveform->time, dutyCycle, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -65349,7 +65375,7 @@ static void ma_waveform_read_pcm_frames__square(ma_waveform* pWaveform, void* pF
         }
     } else {
         for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-            float s = ma_waveform_square_f32(pWaveform->time, pWaveform->config.amplitude);
+            float s = ma_waveform_square_f32(pWaveform->time, dutyCycle, pWaveform->config.amplitude);
             pWaveform->time += pWaveform->advance;
 
             for (iChannel = 0; iChannel < pWaveform->config.channels; iChannel += 1) {
@@ -65467,7 +65493,7 @@ MA_API ma_result ma_waveform_read_pcm_frames(ma_waveform* pWaveform, void* pFram
 
             case ma_waveform_type_square:
             {
-                ma_waveform_read_pcm_frames__square(pWaveform, pFramesOut, frameCount);
+                ma_waveform_read_pcm_frames__square(pWaveform, 0.5, pFramesOut, frameCount);
             } break;
 
             case ma_waveform_type_triangle:
@@ -65504,6 +65530,134 @@ MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64
     return MA_SUCCESS;
 }
 
+MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double dutyCycle, double amplitude, double frequency)
+{
+    ma_pulsewave_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.dutyCycle  = dutyCycle;
+    config.amplitude  = amplitude;
+    config.frequency  = frequency;
+
+    return config;
+}
+
+MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pWaveform);
+
+    ma_waveform_config config = ma_waveform_config_init(
+        pConfig->format,
+        pConfig->channels,
+        pConfig->sampleRate,
+        ma_waveform_type_square,
+        pConfig->amplitude,
+        pConfig->frequency
+    );
+
+    return ma_waveform_init(&config, &pWaveform->waveform);
+}
+
+MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform)
+{
+    if (pWaveform == NULL) {
+        return;
+    }
+
+    ma_waveform_uninit(&pWaveform->waveform);
+}
+
+MA_API ma_result ma_pulsewave_read_pcm_frames(ma_pulsewave* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesOut != NULL) {
+        ma_waveform_read_pcm_frames__square(&pWaveform->waveform, pWaveform->config.dutyCycle, pFramesOut, frameCount);
+    } else {
+        pWaveform->waveform.time += pWaveform->waveform.advance * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = frameCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint64 frameIndex)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_waveform_seek_to_pcm_frame(&pWaveform->waveform, frameIndex);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.amplitude = amplitude;
+    ma_waveform_set_amplitude(&pWaveform->waveform, amplitude);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.dutyCycle = dutyCycle;
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.frequency = frequency;
+    ma_waveform_set_frequency(&pWaveform->waveform, frequency);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.sampleRate = sampleRate;
+    ma_waveform_set_sample_rate(&pWaveform->waveform, sampleRate);
+
+    return MA_SUCCESS;
+}
 
 MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels, ma_noise_type type, ma_int32 seed, double amplitude)
 {
