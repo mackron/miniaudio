@@ -10129,6 +10129,7 @@ MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint
 MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude);
 MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency);
 MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate);
+MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle);
 
 typedef enum
 {
@@ -65624,17 +65625,6 @@ MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double ampl
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pWaveform->config.dutyCycle = dutyCycle;
-
-    return MA_SUCCESS;
-}
-
 MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency)
 {
     if (pWaveform == NULL) {
@@ -65658,6 +65648,19 @@ MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32
 
     return MA_SUCCESS;
 }
+
+MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.dutyCycle = dutyCycle;
+
+    return MA_SUCCESS;
+}
+
+
 
 MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels, ma_noise_type type, ma_int32 seed, double amplitude)
 {
