@@ -12,7 +12,7 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
         return result;
     }
 
-    encoderConfig = ma_encoder_config_init(ma_resource_format_wav, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
+    encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, pEncoder);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(pDecoder);

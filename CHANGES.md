@@ -1,7 +1,27 @@
-v0.11.15 - TBD
-==============
+v0.11.7 - 2023-05-27
+====================
+* Fix compilation errors with MA_USE_STDINT.
+* Fix a possible runtime error with Windows 95/98.
+* Fix a very minor linting warning in VS2022.
+* Add support for AIFF/AIFC decoding.
+* Add support for RIFX decoding.
+* Work around some bad code generation by Clang.
+* Amalgamations of dr_wav, dr_flac, dr_mp3 and c89atomic have been updated so that they're now fully namespaced. This allows each of these libraries to be able to be used alongside miniaudio without any conflicts. In addition, some duplicate code, such as sized type declarations, result codes, etc. has been removed.
+
+
+v0.11.16 - 2023-05-15
+=====================
+* Fix a memory leak with `ma_sound_init_copy()`.
+* Improve performance of `ma_sound_init_*()` when using the `ASYNC | DECODE` flag combination.
+
+
+v0.11.15 - 2023-04-30
+=====================
+* Fix a bug where initialization of a duplex device fails on some backends.
 * Fix a bug in ma_gainer where smoothing isn't applied correctly thus resulting in glitching.
 * Add support for volume smoothing to sounds when changing the volume with `ma_sound_set_volume()`. To use this, you must configure it via the `volumeSmoothTimeInPCMFrames` member of ma_sound_config and use `ma_sound_init_ex()` to initialize your sound. Smoothing is disabled by default.
+* WASAPI: Fix a possible buffer overrun when initializing a device.
+* WASAPI: Make device initialization more robust by improving the handling of the querying of the internal data format.
 
 
 v0.11.14 - 2023-03-29

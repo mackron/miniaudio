@@ -20,7 +20,7 @@ ma_result test_hishelf2__by_format(const char* pInputFilePath, const char* pOutp
     }
 
     hishelfConfig = ma_hishelf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 18, 1, 16000);
-    result = ma_hishelf2_init(&hishelfConfig, &hishelf);
+    result = ma_hishelf2_init(&hishelfConfig, NULL, &hishelf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
         ma_encoder_uninit(&encoder);
@@ -36,13 +36,13 @@ ma_result test_hishelf2__by_format(const char* pInputFilePath, const char* pOutp
         ma_uint64 framesJustRead;
 
         framesToRead = ma_min(tempCapIn, tempCapOut);
-        framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
+        ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead, &framesJustRead);
 
         /* Filter */
         ma_hishelf2_process_pcm_frames(&hishelf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead, NULL);
 
         if (framesJustRead < framesToRead) {
             break;

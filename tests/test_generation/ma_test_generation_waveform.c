@@ -1,18 +1,11 @@
 
-static drwav_data_format drwav_data_format_from_waveform_config(const ma_waveform_config* pWaveformConfig)
-{
-    MA_ASSERT(pWaveformConfig != NULL);
-
-    return drwav_data_format_from_minaudio_format(pWaveformConfig->format, pWaveformConfig->channels, pWaveformConfig->sampleRate);
-}
-
 ma_result test_waveform__by_format_and_type(ma_format format, ma_waveform_type type, double amplitude, const char* pFileName)
 {
     ma_result result;
     ma_waveform_config waveformConfig;
     ma_waveform waveform;
-    drwav_data_format wavFormat;
-    drwav wav;
+    ma_encoder_config encoderConfig;
+    ma_encoder encoder;
     ma_uint32 iFrame;
 
     printf("    %s\n", pFileName);
@@ -23,19 +16,22 @@ ma_result test_waveform__by_format_and_type(ma_format format, ma_waveform_type t
         return result;
     }
 
-    wavFormat = drwav_data_format_from_waveform_config(&waveformConfig);
-    if (!drwav_init_file_write(&wav, pFileName, &wavFormat, NULL)) {
-        return MA_ERROR;    /* Could not open file for writing. */
+    encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, waveformConfig.format, waveformConfig.channels, waveformConfig.sampleRate);
+    result = ma_encoder_init_file(pFileName, &encoderConfig, &encoder);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize encoder. */
     }
 
     /* We'll do a few seconds of data. */
-    for (iFrame = 0; iFrame < wavFormat.sampleRate * 10; iFrame += 1) {
+    for (iFrame = 0; iFrame < waveformConfig.sampleRate * 10; iFrame += 1) {
         float temp[MA_MAX_CHANNELS];
-        ma_waveform_read_pcm_frames(&waveform, temp, 1);
-        drwav_write_pcm_frames(&wav, 1, temp);
+        ma_waveform_read_pcm_frames(&waveform, temp, 1, NULL);
+        ma_encoder_write_pcm_frames(&encoder, temp, 1, NULL);
     }
 
-    drwav_uninit(&wav);
+    ma_encoder_uninit(&encoder);
+    ma_waveform_uninit(&waveform);
+
     return MA_SUCCESS;
 }
 

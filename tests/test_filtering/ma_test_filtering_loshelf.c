@@ -20,7 +20,7 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
     }
 
     loshelfConfig = ma_loshelf2_config_init(decoder.outputFormat, decoder.outputChannels, decoder.outputSampleRate, 6, 1, 200);
-    result = ma_loshelf2_init(&loshelfConfig, &loshelf);
+    result = ma_loshelf2_init(&loshelfConfig, NULL, &loshelf);
     if (result != MA_SUCCESS) {
         ma_decoder_uninit(&decoder);
         ma_encoder_uninit(&encoder);
@@ -36,13 +36,13 @@ ma_result test_loshelf2__by_format(const char* pInputFilePath, const char* pOutp
         ma_uint64 framesJustRead;
 
         framesToRead = ma_min(tempCapIn, tempCapOut);
-        framesJustRead = ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead);
+        ma_decoder_read_pcm_frames(&decoder, tempIn, framesToRead, &framesJustRead);
 
         /* Filter */
         ma_loshelf2_process_pcm_frames(&loshelf, tempOut, tempIn, framesJustRead);
 
         /* Write to the WAV file. */
-        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead);
+        ma_encoder_write_pcm_frames(&encoder, tempOut, framesJustRead, NULL);
 
         if (framesJustRead < framesToRead) {
             break;

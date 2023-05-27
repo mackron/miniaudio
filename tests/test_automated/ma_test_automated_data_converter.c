@@ -7,7 +7,7 @@ ma_result init_data_converter(ma_uint32 rateIn, ma_uint32 rateOut, ma_resample_a
     config = ma_data_converter_config_init(ma_format_s16, ma_format_s16, 1, 1, rateIn, rateOut);
     config.resampling.algorithm = algorithm;
 
-    result = ma_data_converter_init(&config, pDataConverter);
+    result = ma_data_converter_init(&config, NULL, pDataConverter);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -52,7 +52,7 @@ ma_result test_data_converter__resampling_expected_output_fixed_interval(ma_data
         ma_uint64 expectedOutputFrameCount;
 
         /* We retrieve the required number of input frames for the specified number of output frames, and then compare with what we actually get when reading. */
-        expectedOutputFrameCount = ma_data_converter_get_expected_output_frame_count(pDataConverter, frameCountPerIteration);
+        ma_data_converter_get_expected_output_frame_count(pDataConverter, frameCountPerIteration, &expectedOutputFrameCount);
 
         outputFrameCount = ma_countof(output);
         inputFrameCount = frameCountPerIteration;
@@ -90,7 +90,7 @@ ma_result test_data_converter__resampling_expected_output_by_algorithm_and_rate_
 
     result = test_data_converter__resampling_expected_output_fixed_interval(&converter, frameCountPerIteration);
 
-    ma_data_converter_uninit(&converter);
+    ma_data_converter_uninit(&converter, NULL);
 
     if (hasError) {
         return MA_ERROR;
@@ -170,12 +170,6 @@ ma_result test_data_converter__resampling_expected_output()
         hasError = MA_TRUE;
     }
 
-    printf("Speex\n");
-    result = test_data_converter__resampling_expected_output_by_algorithm(ma_resample_algorithm_speex);
-    if (result != 0) {
-        hasError = MA_TRUE;
-    }
-
     if (hasError) {
         return MA_ERROR;
     } else {
@@ -205,7 +199,7 @@ ma_result test_data_converter__resampling_required_input_fixed_interval(ma_data_
         ma_uint64 requiredInputFrameCount;
 
         /* We retrieve the required number of input frames for the specified number of output frames, and then compare with what we actually get when reading. */
-        requiredInputFrameCount = ma_data_converter_get_required_input_frame_count(pDataConverter, frameCountPerIteration);
+        ma_data_converter_get_required_input_frame_count(pDataConverter, frameCountPerIteration, &requiredInputFrameCount);
 
         outputFrameCount = frameCountPerIteration;
         inputFrameCount = ma_countof(input);
@@ -243,7 +237,7 @@ ma_result test_data_converter__resampling_required_input_by_algorithm_and_rate_f
 
     result = test_data_converter__resampling_required_input_fixed_interval(&converter, frameCountPerIteration);
 
-    ma_data_converter_uninit(&converter);
+    ma_data_converter_uninit(&converter, NULL);
 
     if (hasError) {
         return MA_ERROR;
@@ -319,12 +313,6 @@ ma_result test_data_converter__resampling_required_input()
 
     printf("Linear\n");
     result = test_data_converter__resampling_required_input_by_algorithm(ma_resample_algorithm_linear);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    printf("Speex\n");
-    result = test_data_converter__resampling_required_input_by_algorithm(ma_resample_algorithm_speex);
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }

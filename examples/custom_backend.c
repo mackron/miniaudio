@@ -532,7 +532,7 @@ static ma_result ma_context_uninit__sdl(void* pUserData, ma_context* pContext)
     ((MA_PFN_SDL_QuitSubSystem)pContextEx->sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
 
     /* Close the handle to the SDL shared object last. */
-    ma_dlclose(pContext, pContextEx->sdl.hSDL);
+    ma_dlclose(ma_context_get_log(pContext), pContextEx->sdl.hSDL);
     pContextEx->sdl.hSDL = NULL;
 
     return MA_SUCCESS;
@@ -563,7 +563,7 @@ static ma_result ma_context_init__sdl(void* pUserData, ma_context* pContext, con
 
     /* Check if we have SDL2 installed somewhere. If not it's not usable and we need to abort. */
     for (iName = 0; iName < ma_countof(pSDLNames); iName += 1) {
-        pContextEx->sdl.hSDL = ma_dlopen(pContext, pSDLNames[iName]);
+        pContextEx->sdl.hSDL = ma_dlopen(ma_context_get_log(pContext), pSDLNames[iName]);
         if (pContextEx->sdl.hSDL != NULL) {
             break;
         }
@@ -574,13 +574,13 @@ static ma_result ma_context_init__sdl(void* pUserData, ma_context* pContext, con
     }
 
     /* Now that we have the handle to the shared object we can go ahead and load some function pointers. */
-    pContextEx->sdl.SDL_InitSubSystem      = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_InitSubSystem");
-    pContextEx->sdl.SDL_QuitSubSystem      = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_QuitSubSystem");
-    pContextEx->sdl.SDL_GetNumAudioDevices = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_GetNumAudioDevices");
-    pContextEx->sdl.SDL_GetAudioDeviceName = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_GetAudioDeviceName");
-    pContextEx->sdl.SDL_CloseAudioDevice   = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_CloseAudioDevice");
-    pContextEx->sdl.SDL_OpenAudioDevice    = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_OpenAudioDevice");
-    pContextEx->sdl.SDL_PauseAudioDevice   = ma_dlsym(pContext, pContextEx->sdl.hSDL, "SDL_PauseAudioDevice");
+    pContextEx->sdl.SDL_InitSubSystem      = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_InitSubSystem");
+    pContextEx->sdl.SDL_QuitSubSystem      = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_QuitSubSystem");
+    pContextEx->sdl.SDL_GetNumAudioDevices = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_GetNumAudioDevices");
+    pContextEx->sdl.SDL_GetAudioDeviceName = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_GetAudioDeviceName");
+    pContextEx->sdl.SDL_CloseAudioDevice   = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_CloseAudioDevice");
+    pContextEx->sdl.SDL_OpenAudioDevice    = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_OpenAudioDevice");
+    pContextEx->sdl.SDL_PauseAudioDevice   = ma_dlsym(ma_context_get_log(pContext), pContextEx->sdl.hSDL, "SDL_PauseAudioDevice");
 #else
     pContextEx->sdl.SDL_InitSubSystem      = (ma_proc)SDL_InitSubSystem;
     pContextEx->sdl.SDL_QuitSubSystem      = (ma_proc)SDL_QuitSubSystem;
@@ -593,7 +593,7 @@ static ma_result ma_context_init__sdl(void* pUserData, ma_context* pContext, con
 
     resultSDL = ((MA_PFN_SDL_InitSubSystem)pContextEx->sdl.SDL_InitSubSystem)(MA_SDL_INIT_AUDIO);
     if (resultSDL != 0) {
-        ma_dlclose(pContext, pContextEx->sdl.hSDL);
+        ma_dlclose(ma_context_get_log(pContext), pContextEx->sdl.hSDL);
         return MA_ERROR;
     }
 
