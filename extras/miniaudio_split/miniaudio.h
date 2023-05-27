@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.16 - 2023-05-15
+miniaudio - v0.11.17 - 2023-05-27
 
 David Reid - mackron@gmail.com
 
@@ -20,7 +20,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 16
+#define MA_VERSION_REVISION 17
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -212,6 +212,13 @@ typedef ma_uint16 wchar_t;
 
 #ifdef _MSC_VER
     #define MA_INLINE __forceinline
+
+    /* noinline was introduced in Visual Studio 2005. */
+    #if _MSC_VER >= 1400
+        #define MA_NO_INLINE __declspec(noinline)
+    #else
+        #define MA_NO_INLINE
+    #endif
 #elif defined(__GNUC__)
     /*
     I've had a bug report where GCC is emitting warnings about functions possibly not being inlineable. This warning happens when
@@ -228,13 +235,17 @@ typedef ma_uint16 wchar_t;
 
     #if (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 2)) || defined(__clang__)
         #define MA_INLINE MA_GNUC_INLINE_HINT __attribute__((always_inline))
+        #define MA_NO_INLINE __attribute__((noinline))
     #else
         #define MA_INLINE MA_GNUC_INLINE_HINT
+        #define MA_NO_INLINE __attribute__((noinline))
     #endif
 #elif defined(__WATCOMC__)
     #define MA_INLINE __inline
+    #define MA_NO_INLINE
 #else
     #define MA_INLINE
+    #define MA_NO_INLINE
 #endif
 
 #if !defined(MA_API)
@@ -464,28 +475,31 @@ typedef enum
     MA_CANCELLED                      = -51,
     MA_MEMORY_ALREADY_MAPPED          = -52,
 
+    /* General non-standard errors. */
+    MA_CRC_MISMATCH                   = -100,
+
     /* General miniaudio-specific errors. */
-    MA_FORMAT_NOT_SUPPORTED           = -100,
-    MA_DEVICE_TYPE_NOT_SUPPORTED      = -101,
-    MA_SHARE_MODE_NOT_SUPPORTED       = -102,
-    MA_NO_BACKEND                     = -103,
-    MA_NO_DEVICE                      = -104,
-    MA_API_NOT_FOUND                  = -105,
-    MA_INVALID_DEVICE_CONFIG          = -106,
-    MA_LOOP                           = -107,
-    MA_BACKEND_NOT_ENABLED            = -108,
+    MA_FORMAT_NOT_SUPPORTED           = -200,
+    MA_DEVICE_TYPE_NOT_SUPPORTED      = -201,
+    MA_SHARE_MODE_NOT_SUPPORTED       = -202,
+    MA_NO_BACKEND                     = -203,
+    MA_NO_DEVICE                      = -204,
+    MA_API_NOT_FOUND                  = -205,
+    MA_INVALID_DEVICE_CONFIG          = -206,
+    MA_LOOP                           = -207,
+    MA_BACKEND_NOT_ENABLED            = -208,
 
     /* State errors. */
-    MA_DEVICE_NOT_INITIALIZED         = -200,
-    MA_DEVICE_ALREADY_INITIALIZED     = -201,
-    MA_DEVICE_NOT_STARTED             = -202,
-    MA_DEVICE_NOT_STOPPED             = -203,
+    MA_DEVICE_NOT_INITIALIZED         = -300,
+    MA_DEVICE_ALREADY_INITIALIZED     = -301,
+    MA_DEVICE_NOT_STARTED             = -302,
+    MA_DEVICE_NOT_STOPPED             = -303,
 
     /* Operation errors. */
-    MA_FAILED_TO_INIT_BACKEND         = -300,
-    MA_FAILED_TO_OPEN_BACKEND_DEVICE  = -301,
-    MA_FAILED_TO_START_BACKEND_DEVICE = -302,
-    MA_FAILED_TO_STOP_BACKEND_DEVICE  = -303
+    MA_FAILED_TO_INIT_BACKEND         = -400,
+    MA_FAILED_TO_OPEN_BACKEND_DEVICE  = -401,
+    MA_FAILED_TO_START_BACKEND_DEVICE = -402,
+    MA_FAILED_TO_STOP_BACKEND_DEVICE  = -403
 } ma_result;
 
 
@@ -6343,7 +6357,7 @@ struct ma_encoder
     ma_encoder_uninit_proc onUninit;
     ma_encoder_write_pcm_frames_proc onWritePCMFrames;
     void* pUserData;
-    void* pInternalEncoder; /* <-- The drwav/drflac/stb_vorbis/etc. objects. */
+    void* pInternalEncoder;
     union
     {
         struct
@@ -6407,6 +6421,33 @@ MA_API ma_result ma_waveform_set_amplitude(ma_waveform* pWaveform, double amplit
 MA_API ma_result ma_waveform_set_frequency(ma_waveform* pWaveform, double frequency);
 MA_API ma_result ma_waveform_set_type(ma_waveform* pWaveform, ma_waveform_type type);
 MA_API ma_result ma_waveform_set_sample_rate(ma_waveform* pWaveform, ma_uint32 sampleRate);
+
+typedef struct
+{
+    ma_format format;
+    ma_uint32 channels;
+    ma_uint32 sampleRate;
+    double dutyCycle;
+    double amplitude;
+    double frequency;
+} ma_pulsewave_config;
+
+MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double dutyCycle, double amplitude, double frequency);
+
+typedef struct
+{
+    ma_waveform waveform;
+    ma_pulsewave_config config;
+} ma_pulsewave;
+
+MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform);
+MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform);
+MA_API ma_result ma_pulsewave_read_pcm_frames(ma_pulsewave* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint64 frameIndex);
+MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude);
+MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency);
+MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate);
+MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle);
 
 typedef enum
 {

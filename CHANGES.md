@@ -1,6 +1,6 @@
-v0.11.7 - TBD
-=============
-* Fix some compilation errors with MA_USE_STDINT.
+v0.11.7 - 2023-05-27
+====================
+* Fix compilation errors with MA_USE_STDINT.
 * Fix a possible runtime error with Windows 95/98.
 * Fix a very minor linting warning in VS2022.
 * Add support for AIFF/AIFC decoding.
