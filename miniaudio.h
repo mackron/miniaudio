@@ -59676,7 +59676,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  9
+#define MA_DR_WAV_VERSION_REVISION  10
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -78026,10 +78026,10 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                 break;
             }
         }
-        if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
-            ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
-            return MA_FALSE;
-        }
+    }
+    if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
+        ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
+        return MA_FALSE;
     }
     pWav->fmt                 = fmt;
     pWav->sampleRate          = fmt.sampleRate;
