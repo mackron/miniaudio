@@ -11276,6 +11276,7 @@ MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 abs
 MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound);
+MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound);
 MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
@@ -59730,7 +59731,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  9
+#define MA_DR_WAV_VERSION_REVISION  10
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -75891,6 +75892,11 @@ MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound)
     return ma_node_get_time(pSound);
 }
 
+MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound)
+{
+    return ma_sound_get_time_in_pcm_frames(pSound) * 1000 / ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+}
+
 MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
 {
     if (pSound == NULL) {
@@ -78064,10 +78070,10 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                 break;
             }
         }
-        if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
-            ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
-            return MA_FALSE;
-        }
+    }
+    if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
+        ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
+        return MA_FALSE;
     }
     pWav->fmt                 = fmt;
     pWav->sampleRate          = fmt.sampleRate;
