@@ -11136,6 +11136,8 @@ typedef ma_sound        ma_sound_group;
 MA_API ma_sound_group_config ma_sound_group_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
 MA_API ma_sound_group_config ma_sound_group_config_init_2(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
+typedef void (* ma_engine_process_proc)(void* pUserData, void* pFramesOut, ma_uint64 frameCount);
+
 typedef struct
 {
 #if !defined(MA_NO_RESOURCE_MANAGER)
@@ -11161,6 +11163,8 @@ typedef struct
     ma_bool32 noDevice;                             /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
     ma_mono_expansion_mode monoExpansionMode;       /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
     ma_vfs* pResourceManagerVFS;                    /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
+    ma_engine_process_proc onProcess;               /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
+    void* pProcessUserData;                         /* User data that's passed into onProcess. */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init(void);
@@ -11188,6 +11192,8 @@ struct ma_engine
     ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
+    ma_engine_process_proc onProcess;
+    void* pProcessUserData;
 };
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine);
@@ -74194,6 +74200,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     pEngine->monoExpansionMode = engineConfig.monoExpansionMode;
     pEngine->defaultVolumeSmoothTimeInPCMFrames = engineConfig.defaultVolumeSmoothTimeInPCMFrames;
+    pEngine->onProcess = engineConfig.onProcess;
+    pEngine->pProcessUserData = engineConfig.pProcessUserData;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
 
     #if !defined(MA_NO_RESOURCE_MANAGER)
@@ -74492,7 +74500,27 @@ MA_API void ma_engine_uninit(ma_engine* pEngine)
 
 MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    return ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, pFramesRead);
+    ma_result result;
+    ma_uint64 framesRead = 0;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    result = ma_node_graph_read_pcm_frames(&pEngine->nodeGraph, pFramesOut, frameCount, &framesRead);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesRead;
+    }
+
+    if (pEngine->onProcess) {
+        pEngine->onProcess(pEngine->pProcessUserData, pFramesOut, framesRead);
+    }
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_node_graph* ma_engine_get_node_graph(ma_engine* pEngine)
