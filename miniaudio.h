@@ -11295,6 +11295,7 @@ MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 abs
 MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound);
+MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound);
 MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
@@ -75834,6 +75835,11 @@ MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound)
     }
 
     return ma_node_get_time(pSound);
+}
+
+MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound)
+{
+    return ma_sound_get_time_in_pcm_frames(pSound) * 1000 / ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
 }
 
 MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping)
