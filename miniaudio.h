@@ -11119,7 +11119,7 @@ typedef ma_sound        ma_sound_group;
 
 MA_API ma_sound_group_config ma_sound_group_config_init(ma_engine* pEngine);  /* Will be renamed to ma_sound_config_init() in version 0.12. */
 
-typedef void (* ma_engine_process_proc)(void* pUserData, void* pFramesOut, ma_uint64 frameCount);
+typedef void (* ma_engine_process_proc)(void* pUserData, float* pFramesOut, ma_uint64 frameCount);
 
 typedef struct
 {
