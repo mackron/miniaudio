@@ -11055,7 +11055,7 @@ typedef struct
     ma_fence* pLoadedFence;                                 /* Set to NULL if not using a fence. */
     void (* onLoaded )(void* pUserData, ma_sound* pSuond);  /* Fired by the resource manager when the sound has finished loading. */
     void (* onAtEnd  )(void* pUserData, ma_sound* pSound);  /* Fired when the sound reaches the end of the data source. */
-    void (* onProcess)(void* pUserData, ma_sound* pSound, float* pFrames, ma_uint32 frameCount);
+    void (* onProcess)(void* pUserData, ma_sound* pSound, float* pFrames, ma_uint64 frameCount);
     void* pUserData;
 } ma_sound_notifications;
 
