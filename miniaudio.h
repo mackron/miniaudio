@@ -11147,6 +11147,7 @@ typedef struct
     ma_context* pContext;
     ma_device* pDevice;                             /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
     ma_device_id* pPlaybackDeviceID;                /* The ID of the playback device to use with the default listener. */
+    ma_device_data_proc dataCallback;               /* Can be null. Can be used to provide a custom device data callback. */
     ma_device_notification_proc notificationCallback;
 #endif
     ma_log* pLog;                                   /* When set to NULL, will use the context's log. */
@@ -74228,7 +74229,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             deviceConfig.playback.format           = ma_format_f32;
             deviceConfig.playback.channels         = engineConfig.channels;
             deviceConfig.sampleRate                = engineConfig.sampleRate;
-            deviceConfig.dataCallback              = ma_engine_data_callback_internal;
+            deviceConfig.dataCallback              = (engineConfig.dataCallback != NULL) ? engineConfig.dataCallback : ma_engine_data_callback_internal;
             deviceConfig.pUserData                 = pEngine;
             deviceConfig.notificationCallback      = engineConfig.notificationCallback;
             deviceConfig.periodSizeInFrames        = engineConfig.periodSizeInFrames;
