@@ -37593,7 +37593,7 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         anything from Android 11 and earlier. Suggestions welcome on how we might be able to make
         this more targetted.
         */
-        if (pConfig->aaudio.enableCompatibilityWorkarounds && ma_android_sdk_version() > 30) {
+        if (!pConfig->aaudio.enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) {
             /*
             AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
