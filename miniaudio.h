@@ -74518,7 +74518,7 @@ MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut,
     }
 
     if (pEngine->onProcess) {
-        pEngine->onProcess(pEngine->pProcessUserData, pFramesOut, framesRead);
+        pEngine->onProcess(pEngine->pProcessUserData, (float*)pFramesOut, framesRead);  /* Safe cast to float* because the engine always works on floating point samples. */
     }
 
     return MA_SUCCESS;
