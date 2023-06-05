@@ -37743,7 +37743,7 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         anything from Android 11 and earlier. Suggestions welcome on how we might be able to make
         this more targetted.
         */
-        if (pConfig->aaudio.enableCompatibilityWorkarounds && ma_android_sdk_version() > 30) {
+        if (!pConfig->aaudio.enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) {
             /*
             AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
@@ -74559,7 +74559,7 @@ MA_API ma_result ma_engine_read_pcm_frames(ma_engine* pEngine, void* pFramesOut,
     }
 
     if (pEngine->onProcess) {
-        pEngine->onProcess(pEngine->pProcessUserData, pFramesOut, framesRead);
+        pEngine->onProcess(pEngine->pProcessUserData, (float*)pFramesOut, framesRead);  /* Safe cast to float* because the engine always works on floating point samples. */
     }
 
     return MA_SUCCESS;
