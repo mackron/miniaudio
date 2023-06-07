@@ -77965,7 +77965,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             } else {
                 compressionFormat = MA_DR_WAVE_FORMAT_PCM;
             }
-            aiffFrameCount = frameCount / channels;
+            aiffFrameCount = frameCount;
             fmt.formatTag      = compressionFormat;
             fmt.channels       = channels;
             fmt.sampleRate     = (ma_uint32)sampleRate;
@@ -79186,11 +79186,16 @@ MA_API ma_uint64 ma_dr_wav_read_pcm_frames_le(ma_dr_wav* pWav, ma_uint64 framesT
 {
     ma_uint32 bytesPerFrame;
     ma_uint64 bytesToRead;
+    ma_uint64 framesRemainingInFile;
     if (pWav == NULL || framesToRead == 0) {
         return 0;
     }
     if (ma_dr_wav__is_compressed_format_tag(pWav->translatedFormatTag)) {
         return 0;
+    }
+    framesRemainingInFile = pWav->totalPCMFrameCount - pWav->readCursorInPCMFrames;
+    if (framesToRead > framesRemainingInFile) {
+        framesToRead = framesRemainingInFile;
     }
     bytesPerFrame = ma_dr_wav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
