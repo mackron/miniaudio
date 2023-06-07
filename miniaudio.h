@@ -51322,8 +51322,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
                 }
             }
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
+            }
 
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -51409,8 +51411,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pFramesOutS16, pFramesOutS16);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pFramesOutS16, pFramesOutS16);
+            }
 
             pFramesOutS16 += pResampler->config.channels;
         }
@@ -51482,8 +51486,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
                 }
             }
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
+            }
 
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -51569,8 +51575,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pFramesOutF32, pFramesOutF32);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pFramesOutF32, pFramesOutF32);
+            }
 
             pFramesOutF32 += pResampler->config.channels;
         }
