@@ -1,5 +1,11 @@
-v0.11.7 - 2023-05-27
-====================
+v0.11.18 - TBD
+=====================
+* Add support for setting a callback on an `ma_engine` object that get's fired after it processes a chunk of audio. This allows applications to do things such as apply a post-processing effect or output the audio to a file.
+* AAudio: Fix an error where the buffer size is not configured correctly which sometimes results in excessively high latency.
+
+
+v0.11.17 - 2023-05-27
+=====================
 * Fix compilation errors with MA_USE_STDINT.
 * Fix a possible runtime error with Windows 95/98.
 * Fix a very minor linting warning in VS2022.
