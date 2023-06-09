@@ -65580,7 +65580,10 @@ MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsew
         pConfig->frequency
     );
 
-    return ma_waveform_init(&config, &pWaveform->waveform);
+    ma_result result = ma_waveform_init(&config, &pWaveform->waveform);
+    ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
+
+    return result;
 }
 
 MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform)
