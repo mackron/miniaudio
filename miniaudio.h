@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.17 - 2023-05-27
+miniaudio - v0.11.18 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3702,7 +3702,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 17
+#define MA_VERSION_REVISION 18
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -51369,8 +51369,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_downsample(ma_linear
                 }
             }
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pResampler->x1.s16, pResampler->x1.s16);
+            }
 
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -51456,8 +51458,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_s16_upsample(ma_linear_r
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_s16(pResampler, pFramesOutS16);
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pFramesOutS16, pFramesOutS16);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_s16(&pResampler->lpf, pFramesOutS16, pFramesOutS16);
+            }
 
             pFramesOutS16 += pResampler->config.channels;
         }
@@ -51529,8 +51533,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_downsample(ma_linear
                 }
             }
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pResampler->x1.f32, pResampler->x1.f32);
+            }
 
             framesProcessedIn     += 1;
             pResampler->inTimeInt -= 1;
@@ -51616,8 +51622,10 @@ static ma_result ma_linear_resampler_process_pcm_frames_f32_upsample(ma_linear_r
             MA_ASSERT(pResampler->inTimeInt == 0);
             ma_linear_resampler_interpolate_frame_f32(pResampler, pFramesOutF32);
 
-            /* Filter. */
-            ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pFramesOutF32, pFramesOutF32);
+            /* Filter. Do not apply filtering if sample rates are the same or else you'll get dangerous glitching. */
+            if (pResampler->config.sampleRateIn != pResampler->config.sampleRateOut) {
+                ma_lpf_process_pcm_frame_f32(&pResampler->lpf, pFramesOutF32, pFramesOutF32);
+            }
 
             pFramesOutF32 += pResampler->config.channels;
         }
@@ -60038,6 +60046,7 @@ typedef struct
     struct
     {
         ma_bool8 isLE;
+        ma_bool8 isUnsigned;
     } aiff;
 } ma_dr_wav;
 MA_API ma_bool32 ma_dr_wav_init(ma_dr_wav* pWav, ma_dr_wav_read_proc onRead, ma_dr_wav_seek_proc onSeek, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks);
@@ -65625,7 +65634,10 @@ MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsew
         pConfig->frequency
     );
 
-    return ma_waveform_init(&config, &pWaveform->waveform);
+    ma_result result = ma_waveform_init(&config, &pWaveform->waveform);
+    ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
+
+    return result;
 }
 
 MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform)
@@ -76840,11 +76852,7 @@ MA_PRIVATE ma_result ma_dr_wav__read_chunk_header(ma_dr_wav_read_proc onRead, vo
             return MA_INVALID_FILE;
         }
         pHeaderOut->sizeInBytes = ma_dr_wav_bytes_to_u32_ex(sizeInBytes, container);
-        if (container == ma_dr_wav_container_aiff) {
-            pHeaderOut->paddingSize = 0;
-        } else {
-            pHeaderOut->paddingSize = ma_dr_wav__chunk_padding_size_riff(pHeaderOut->sizeInBytes);
-        }
+        pHeaderOut->paddingSize = ma_dr_wav__chunk_padding_size_riff(pHeaderOut->sizeInBytes);
         *pRunningBytesReadOut += 8;
     } else if (container == ma_dr_wav_container_w64) {
         ma_uint8 sizeInBytes[8];
@@ -77683,6 +77691,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
     ma_bool8 foundChunk_fmt  = MA_FALSE;
     ma_bool8 foundChunk_data = MA_FALSE;
     ma_bool8 isAIFCFormType = MA_FALSE;
+    ma_uint64 aiffFrameCount = 0;
     cursor = 0;
     sequential = (flags & MA_DR_WAV_SEQUENTIAL) != 0;
     MA_DR_WAV_ZERO_OBJECT(&fmt);
@@ -77943,6 +77952,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             ma_uint8 commData[24];
             ma_uint32 commDataBytesToRead;
             ma_uint16 channels;
+            ma_uint32 frameCount;
             ma_uint16 sampleSizeInBits;
             ma_int64  sampleRate;
             ma_uint16 compressionFormat;
@@ -77962,6 +77972,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                 return MA_FALSE;
             }
             channels         = ma_dr_wav_bytes_to_u16_ex     (commData + 0, pWav->container);
+            frameCount       = ma_dr_wav_bytes_to_u32_ex     (commData + 2, pWav->container);
             sampleSizeInBits = ma_dr_wav_bytes_to_u16_ex     (commData + 6, pWav->container);
             sampleRate       = ma_dr_wav_aiff_extented_to_s64(commData + 8);
             if (sampleRate < 0 || sampleRate > 0xFFFFFFFF) {
@@ -77971,14 +77982,19 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                 const ma_uint8* type = commData + 18;
                 if (ma_dr_wav_fourcc_equal(type, "NONE")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_PCM;
+                } else if (ma_dr_wav_fourcc_equal(type, "raw ")) {
+                    compressionFormat = MA_DR_WAVE_FORMAT_PCM;
+                    if (sampleSizeInBits == 8) {
+                        pWav->aiff.isUnsigned = MA_TRUE;
+                    }
                 } else if (ma_dr_wav_fourcc_equal(type, "sowt")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_PCM;
                     pWav->aiff.isLE = MA_TRUE;
                 } else if (ma_dr_wav_fourcc_equal(type, "fl32") || ma_dr_wav_fourcc_equal(type, "fl64") || ma_dr_wav_fourcc_equal(type, "FL32") || ma_dr_wav_fourcc_equal(type, "FL64")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_IEEE_FLOAT;
-                } else if (ma_dr_wav_fourcc_equal(type, "alaw")) {
+                } else if (ma_dr_wav_fourcc_equal(type, "alaw") || ma_dr_wav_fourcc_equal(type, "ALAW")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_ALAW;
-                } else if (ma_dr_wav_fourcc_equal(type, "ulaw")) {
+                } else if (ma_dr_wav_fourcc_equal(type, "ulaw") || ma_dr_wav_fourcc_equal(type, "ULAW")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_MULAW;
                 } else if (ma_dr_wav_fourcc_equal(type, "ima4")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_DVI_ADPCM;
@@ -77990,6 +78006,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             } else {
                 compressionFormat = MA_DR_WAVE_FORMAT_PCM;
             }
+            aiffFrameCount = frameCount;
             fmt.formatTag      = compressionFormat;
             fmt.channels       = channels;
             fmt.sampleRate     = (ma_uint32)sampleRate;
@@ -77999,6 +78016,13 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             if (fmt.blockAlign == 0 && compressionFormat == MA_DR_WAVE_FORMAT_DVI_ADPCM) {
                 fmt.blockAlign = 34 * fmt.channels;
             }
+            if (compressionFormat == MA_DR_WAVE_FORMAT_ALAW || compressionFormat == MA_DR_WAVE_FORMAT_MULAW) {
+                if (fmt.bitsPerSample > 8) {
+                    fmt.bitsPerSample = 8;
+                    fmt.blockAlign = fmt.channels;
+                }
+            }
+            fmt.bitsPerSample += (fmt.bitsPerSample & 7);
             if (isAIFCFormType) {
                 if (ma_dr_wav__seek_forward(pWav->onSeek, (chunkSize - commDataBytesToRead), pWav->pUserData) == MA_FALSE) {
                     return MA_FALSE;
@@ -78113,6 +78137,8 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
     pWav->dataChunkDataSize   = dataChunkSize;
     if (sampleCountFromFactChunk != 0) {
         pWav->totalPCMFrameCount = sampleCountFromFactChunk;
+    } else if (aiffFrameCount != 0) {
+        pWav->totalPCMFrameCount = aiffFrameCount;
     } else {
         ma_uint32 bytesPerFrame = ma_dr_wav_get_bytes_per_pcm_frame(pWav);
         if (bytesPerFrame == 0) {
@@ -79201,11 +79227,16 @@ MA_API ma_uint64 ma_dr_wav_read_pcm_frames_le(ma_dr_wav* pWav, ma_uint64 framesT
 {
     ma_uint32 bytesPerFrame;
     ma_uint64 bytesToRead;
+    ma_uint64 framesRemainingInFile;
     if (pWav == NULL || framesToRead == 0) {
         return 0;
     }
     if (ma_dr_wav__is_compressed_format_tag(pWav->translatedFormatTag)) {
         return 0;
+    }
+    framesRemainingInFile = pWav->totalPCMFrameCount - pWav->readCursorInPCMFrames;
+    if (framesToRead > framesRemainingInFile) {
+        framesToRead = framesRemainingInFile;
     }
     bytesPerFrame = ma_dr_wav_get_bytes_per_pcm_frame(pWav);
     if (bytesPerFrame == 0) {
@@ -79234,20 +79265,32 @@ MA_API ma_uint64 ma_dr_wav_read_pcm_frames_be(ma_dr_wav* pWav, ma_uint64 framesT
 }
 MA_API ma_uint64 ma_dr_wav_read_pcm_frames(ma_dr_wav* pWav, ma_uint64 framesToRead, void* pBufferOut)
 {
+    ma_uint64 framesRead = 0;
     if (ma_dr_wav_is_container_be(pWav->container)) {
         if (pWav->container != ma_dr_wav_container_aiff || pWav->aiff.isLE == MA_FALSE) {
             if (ma_dr_wav__is_little_endian()) {
-                return ma_dr_wav_read_pcm_frames_be(pWav, framesToRead, pBufferOut);
+                framesRead = ma_dr_wav_read_pcm_frames_be(pWav, framesToRead, pBufferOut);
             } else {
-                return ma_dr_wav_read_pcm_frames_le(pWav, framesToRead, pBufferOut);
+                framesRead = ma_dr_wav_read_pcm_frames_le(pWav, framesToRead, pBufferOut);
             }
+            goto post_process;
         }
     }
     if (ma_dr_wav__is_little_endian()) {
-        return ma_dr_wav_read_pcm_frames_le(pWav, framesToRead, pBufferOut);
+        framesRead = ma_dr_wav_read_pcm_frames_le(pWav, framesToRead, pBufferOut);
     } else {
-        return ma_dr_wav_read_pcm_frames_be(pWav, framesToRead, pBufferOut);
+        framesRead = ma_dr_wav_read_pcm_frames_be(pWav, framesToRead, pBufferOut);
     }
+    post_process:
+    {
+        if (pWav->container == ma_dr_wav_container_aiff && pWav->bitsPerSample == 8 && pWav->aiff.isUnsigned == MA_FALSE) {
+            ma_uint64 iSample;
+            for (iSample = 0; iSample < framesRead * pWav->channels; iSample += 1) {
+                ((ma_uint8*)pBufferOut)[iSample] += 128;
+            }
+        }
+    }
+    return framesRead;
 }
 MA_PRIVATE ma_bool32 ma_dr_wav_seek_to_first_pcm_frame(ma_dr_wav* pWav)
 {
@@ -79323,7 +79366,6 @@ MA_API ma_bool32 ma_dr_wav_seek_to_pcm_frame(ma_dr_wav* pWav, ma_uint64 targetFr
             return MA_FALSE;
         }
         totalSizeInBytes = pWav->totalPCMFrameCount * bytesPerFrame;
-        MA_DR_WAV_ASSERT(totalSizeInBytes >= pWav->bytesRemaining);
         currentBytePos = totalSizeInBytes - pWav->bytesRemaining;
         targetBytePos  = targetFrameIndex * bytesPerFrame;
         if (currentBytePos < targetBytePos) {
@@ -79914,6 +79956,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__alaw(ma_dr_wav* pWav, ma_uin
             break;
         }
         ma_dr_wav_alaw_to_s16(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
@@ -79952,6 +80004,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s16__mulaw(ma_dr_wav* pWav, ma_ui
             break;
         }
         ma_dr_wav_mulaw_to_s16(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
@@ -80251,6 +80313,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_f32__alaw(ma_dr_wav* pWav, ma_uin
             break;
         }
         ma_dr_wav_alaw_to_f32(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
@@ -80286,6 +80358,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_f32__mulaw(ma_dr_wav* pWav, ma_ui
             break;
         }
         ma_dr_wav_mulaw_to_f32(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
@@ -80591,6 +80673,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s32__alaw(ma_dr_wav* pWav, ma_uin
             break;
         }
         ma_dr_wav_alaw_to_s32(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
@@ -80626,6 +80718,16 @@ MA_PRIVATE ma_uint64 ma_dr_wav_read_pcm_frames_s32__mulaw(ma_dr_wav* pWav, ma_ui
             break;
         }
         ma_dr_wav_mulaw_to_s32(pBufferOut, sampleData, (size_t)samplesRead);
+        #ifdef MA_DR_WAV_LIBSNDFILE_COMPAT
+        {
+            if (pWav->container == ma_dr_wav_container_aiff) {
+                ma_uint64 iSample;
+                for (iSample = 0; iSample < samplesRead; iSample += 1) {
+                    pBufferOut[iSample] = -pBufferOut[iSample];
+                }
+            }
+        }
+        #endif
         pBufferOut      += samplesRead;
         framesToRead    -= framesRead;
         totalFramesRead += framesRead;
