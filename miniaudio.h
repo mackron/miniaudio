@@ -53931,7 +53931,7 @@ static ma_bool32 ma_data_converter_config_is_resampler_required(const ma_data_co
 {
     MA_ASSERT(pConfig != NULL);
 
-    return pConfig->allowDynamicSampleRate || pConfig->sampleRateIn != pConfig->sampleRateOut;
+    return (pConfig->allowDynamicSampleRate == MA_TRUE) || (pConfig->sampleRateIn != pConfig->sampleRateOut);
 }
 
 static ma_format ma_data_converter_config_get_mid_format(const ma_data_converter_config* pConfig)
@@ -73359,14 +73359,14 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
     MA_ASSERT(pEngineNode != NULL);
 
     /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
-    return !ma_atomic_load_explicit_32(&pEngineNode->isPitchDisabled, ma_atomic_memory_order_acquire);
+    return ma_atomic_load_explicit_32(&pEngineNode->isPitchDisabled, ma_atomic_memory_order_acquire) == 0;
 }
 
 static ma_bool32 ma_engine_node_is_spatialization_enabled(const ma_engine_node* pEngineNode)
 {
     MA_ASSERT(pEngineNode != NULL);
 
-    return !ma_atomic_load_explicit_32(&pEngineNode->isSpatializationDisabled, ma_atomic_memory_order_acquire);
+    return ma_atomic_load_explicit_32(&pEngineNode->isSpatializationDisabled, ma_atomic_memory_order_acquire) == 0;
 }
 
 static ma_uint64 ma_engine_node_get_required_input_frame_count(const ma_engine_node* pEngineNode, ma_uint64 outputFrameCount)
