@@ -53901,7 +53901,7 @@ MA_API ma_data_converter_config ma_data_converter_config_init_default(void)
     config.allowDynamicSampleRate = MA_FALSE; /* Disable dynamic sample rates by default because dynamic rate adjustments should be quite rare and it allows an optimization for cases when the in and out sample rates are the same. */
 
     /* Linear resampling defaults. */
-    config.resampling.linear.lpfOrder = 1;
+    config.resampling.linear.lpfOrder = ma_min(MA_DEFAULT_RESAMPLER_LPF_ORDER, MA_MAX_FILTER_ORDER);
 
     return config;
 }
