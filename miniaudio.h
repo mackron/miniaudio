@@ -18628,7 +18628,7 @@ static void ma_device__on_data_inner(ma_device* pDevice, void* pFramesOut, const
     if (!pDevice->noPreSilencedOutputBuffer && pFramesOut != NULL) {
         ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
     }
-
+    PLOG_(MiniAudioLog, plog::info) <<   "6 frameCount =  " << frameCount;
     pDevice->onData(pDevice, pFramesOut, pFramesIn, frameCount);
 }
 
@@ -18649,7 +18649,10 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
         ma_uint32 totalFramesProcessed = 0;
 
         while (totalFramesProcessed < frameCount) {
+            PLOG_(MiniAudioLog, plog::info) <<  "23.1 start while  totalFramesProcessed =  " << totalFramesProcessed;
+            PLOG_(MiniAudioLog, plog::info) <<  "23.2 start while  frameCount =  " << frameCount;
             ma_uint32 totalFramesRemaining = frameCount - totalFramesProcessed;
+            PLOG_(MiniAudioLog, plog::info) <<  "23.3 start while  totalFramesRemaining =  " << totalFramesRemaining;
             ma_uint32 framesToProcessThisIteration = 0;
 
             if (pFramesIn != NULL) {
@@ -18657,8 +18660,10 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
                 if (pDevice->capture.intermediaryBufferLen < pDevice->capture.intermediaryBufferCap) {
                     /* There's some room left in the intermediary buffer. Write to it without firing the callback. */
                     framesToProcessThisIteration = totalFramesRemaining;
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.4 start while  framesToProcessThisIteration =  " << framesToProcessThisIteration;
                     if (framesToProcessThisIteration > pDevice->capture.intermediaryBufferCap - pDevice->capture.intermediaryBufferLen) {
                         framesToProcessThisIteration = pDevice->capture.intermediaryBufferCap - pDevice->capture.intermediaryBufferLen;
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.5 start while  framesToProcessThisIteration =  " << framesToProcessThisIteration;
                     }
 
                     ma_copy_pcm_frames(
@@ -18667,32 +18672,46 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
                         framesToProcessThisIteration,
                         pDevice->capture.format, pDevice->capture.channels);
 
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.6 start while   pDevice->capture.intermediaryBufferLen =  " << pDevice->capture.intermediaryBufferLen;
                     pDevice->capture.intermediaryBufferLen += framesToProcessThisIteration;
+                     PLOG_(MiniAudioLog, plog::info) <<  "23.7 start while   pDevice->capture.intermediaryBufferLen =  " << pDevice->capture.intermediaryBufferLen;
                 }
 
+                PLOG_(MiniAudioLog, plog::info) <<  "23.8 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
+                PLOG_(MiniAudioLog, plog::info) <<  "23.9 start while   pDevice->capture.intermediaryBufferCap = " << pDevice->capture.intermediaryBufferLen;
                 if (pDevice->capture.intermediaryBufferLen == pDevice->capture.intermediaryBufferCap) {
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.10 start while   if (pDevice->capture.intermediaryBufferLen == pDevice->capture.intermediaryBufferCap)" ;
                     /* No room left in the intermediary buffer. Fire the data callback. */
                     if (pDevice->type == ma_device_type_duplex) {
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.11 start while   pDevice->type == ma_device_type_duplex" ;
                         /* We'll do the duplex data callback later after we've processed the playback data. */
                     } else {
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.12 start while not   pDevice->type == ma_device_type_duplex" ;
                         ma_device__on_data_inner(pDevice, NULL, pDevice->capture.pIntermediaryBuffer, pDevice->capture.intermediaryBufferCap);
 
                         /* The intermediary buffer has just been drained. */
                         pDevice->capture.intermediaryBufferLen = 0;
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.13 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
                     }
                 }
             }
 
             if (pFramesOut != NULL) {
+                PLOG_(MiniAudioLog, plog::info) <<  "23.14 start while   if (pFramesOut != NULL)" ;
                 /* Playing back. Read from the intermediary buffer. If there's nothing in it, fire the callback to fill it. */
                 if (pDevice->playback.intermediaryBufferLen > 0) {
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.15 start while  if (pDevice->playback.intermediaryBufferLen > 0)" ;
                     /* There's some content in the intermediary buffer. Read from that without firing the callback. */
                     if (pDevice->type == ma_device_type_duplex) {
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.16 start while   if (pDevice->type == ma_device_type_duplex)" ;
                         /* The frames processed this iteration for a duplex device will always be based on the capture side. Leave it unmodified. */
                     } else {
+
                         framesToProcessThisIteration = totalFramesRemaining;
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.17 start while  framesToProcessThisIteration = " << framesToProcessThisIteration;
                         if (framesToProcessThisIteration > pDevice->playback.intermediaryBufferLen) {
                             framesToProcessThisIteration = pDevice->playback.intermediaryBufferLen;
+                            PLOG_(MiniAudioLog, plog::info) <<  "23.18 start while  framesToProcessThisIteration = " << framesToProcessThisIteration;
                         }
                     }
 
@@ -18701,26 +18720,34 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
                         ma_offset_pcm_frames_ptr(pDevice->playback.pIntermediaryBuffer, pDevice->playback.intermediaryBufferCap - pDevice->playback.intermediaryBufferLen, pDevice->playback.format, pDevice->playback.channels),
                         framesToProcessThisIteration,
                         pDevice->playback.format, pDevice->playback.channels);
-
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.19 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
                     pDevice->playback.intermediaryBufferLen -= framesToProcessThisIteration;
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.20 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
                 }
 
                 if (pDevice->playback.intermediaryBufferLen == 0) {
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.21 start while   if (pDevice->playback.intermediaryBufferLen == 0)" ;
                     /* There's nothing in the intermediary buffer. Fire the data callback to fill it. */
                     if (pDevice->type == ma_device_type_duplex) {
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.22 start while   if (pDevice->type == ma_device_type_duplex)" ;
                         /* In duplex mode, the data callback will be fired later. Nothing to do here. */
                     } else {
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.23 start while not  if (pDevice->type == ma_device_type_duplex)" ;
                         ma_device__on_data_inner(pDevice, pDevice->playback.pIntermediaryBuffer, NULL, pDevice->playback.intermediaryBufferCap);
 
                         /* The intermediary buffer has just been filled. */
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.24 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
                         pDevice->playback.intermediaryBufferLen = pDevice->playback.intermediaryBufferCap;
+                        PLOG_(MiniAudioLog, plog::info) <<  "23.25 start while   pDevice->capture.intermediaryBufferLen = " << pDevice->capture.intermediaryBufferLen;
                     }
                 }
             }
 
             /* If we're in duplex mode we might need to do a refill of the data. */
             if (pDevice->type == ma_device_type_duplex) {
+                PLOG_(MiniAudioLog, plog::info) <<  "23.26 start while   if (pDevice->type == ma_device_type_duplex)" ;
                 if (pDevice->capture.intermediaryBufferLen == pDevice->capture.intermediaryBufferCap) {
+                    PLOG_(MiniAudioLog, plog::info) <<  "23.27 start while  pDevice->capture.pIntermediaryBuffer =  " << pDevice->capture.pIntermediaryBuffer;
                     ma_device__on_data_inner(pDevice, pDevice->playback.pIntermediaryBuffer, pDevice->capture.pIntermediaryBuffer, pDevice->capture.intermediaryBufferCap);
 
                     pDevice->playback.intermediaryBufferLen = pDevice->playback.intermediaryBufferCap;  /* The playback buffer will have just been filled. */
@@ -18729,7 +18756,9 @@ static void ma_device__on_data(ma_device* pDevice, void* pFramesOut, const void*
             }
 
             /* Make sure this is only incremented once in the duplex case. */
+            PLOG_(MiniAudioLog, plog::info) <<  "23.28 start while  totalFramesProcessed =  " << totalFramesProcessed;
             totalFramesProcessed += framesToProcessThisIteration;
+            PLOG_(MiniAudioLog, plog::info) <<  "23.29 start while  totalFramesProcessed =  " << totalFramesProcessed;
         }
     }
 }
@@ -18762,6 +18791,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
                     totalFramesProcessed += framesToProcessThisIteration;
                 }
             } else {
+                PLOG_(MiniAudioLog, plog::info) <<  "4 frameCount =  " << frameCount;
                 ma_device__on_data(pDevice, pFramesOut, pFramesIn, frameCount);
             }
 
@@ -18816,6 +18846,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                     framesToReadThisIterationOut = (frameCount - totalFramesReadOut);
                     framesToReadThisIterationIn  = framesToReadThisIterationOut;
                     if (framesToReadThisIterationIn > pDevice->playback.inputCacheRemaining) {
+                        PLOG_(MiniAudioLog, plog::info) << "0.1.2 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
                         framesToReadThisIterationIn = pDevice->playback.inputCacheRemaining;
                     }
 
@@ -18825,7 +18856,9 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                     }
 
                     pDevice->playback.inputCacheConsumed  += framesToReadThisIterationIn;
+                    PLOG_(MiniAudioLog, plog::info) << "0.1.3 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
                     pDevice->playback.inputCacheRemaining -= framesToReadThisIterationIn;
+                    PLOG_(MiniAudioLog, plog::info) << "0.1.4 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
 
                     totalFramesReadOut += framesToReadThisIterationOut;
                     pRunningFramesOut   = ma_offset_ptr(pRunningFramesOut, framesToReadThisIterationOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
@@ -18840,7 +18873,9 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                     ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, NULL, (ma_uint32)pDevice->playback.inputCacheCap);
 
                     pDevice->playback.inputCacheConsumed  = 0;
+                    PLOG_(MiniAudioLog, plog::info) << "0.1.5 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
                     pDevice->playback.inputCacheRemaining = pDevice->playback.inputCacheCap;
+                    PLOG_(MiniAudioLog, plog::info) << "0.1.6 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
                 }
             }
         } else {
@@ -18997,6 +19032,7 @@ static ma_result ma_device__handle_duplex_callback_capture(ma_device* pDevice, m
 
 static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, ma_uint32 frameCount, void* pFramesInInternalFormat, ma_pcm_rb* pRB)
 {
+    PLOG_(MiniAudioLog, plog::info) <<  "3 frameCount =  " << frameCount;
     ma_result result;
     ma_uint8 silentInputFrames[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
     ma_uint32 totalFramesReadOut = 0;
@@ -19012,47 +19048,73 @@ static ma_result ma_device__handle_duplex_callback_playback(ma_device* pDevice, 
     the whole frameCount frames we just use silence instead for the input data.
     */
     MA_ZERO_MEMORY(silentInputFrames, sizeof(silentInputFrames));
+    PLOG_(MiniAudioLog, plog::info) <<  "3.1 totalFramesReadOut =  " << totalFramesReadOut;
 
-    while (totalFramesReadOut < frameCount && ma_device_is_started(pDevice)) {
+
+    while ((totalFramesReadOut < frameCount) && ma_device_is_started(pDevice)) {
+        PLOG_(MiniAudioLog, plog::info) <<  "3.2 start while totalFramesReadOut =  " << totalFramesReadOut;
+        PLOG_(MiniAudioLog, plog::info) <<  "3.2.1 start while frameCount =  " << frameCount;
+        PLOG_(MiniAudioLog, plog::info) <<  "3.2.2 start while ma_device_is_started =  " << ma_device_is_started(pDevice);
+
         /*
         We should have a buffer allocated on the heap. Any playback frames still sitting in there
         need to be sent to the internal device before we process any more data from the client.
         */
+        PLOG_(MiniAudioLog, plog::info) <<  "3.3 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
         if (pDevice->playback.inputCacheRemaining > 0) {
+            PLOG_(MiniAudioLog, plog::info) << "3.3.1 pDevice->playback.inputCacheRemaining >0  " ;
             ma_uint64 framesConvertedIn  = pDevice->playback.inputCacheRemaining;
             ma_uint64 framesConvertedOut = (frameCount - totalFramesReadOut);
+
+            PLOG_(MiniAudioLog, plog::info) << "3.3.2 framesConvertedIn =   " << framesConvertedIn;
+            PLOG_(MiniAudioLog, plog::info) << "3.3.3 framesConvertedOut =   " << framesConvertedOut;
+            PLOG_(MiniAudioLog, plog::info) << "3.3.4 totalFramesReadOut =   " << totalFramesReadOut;
             ma_data_converter_process_pcm_frames(&pDevice->playback.converter, ma_offset_pcm_frames_ptr(pDevice->playback.pInputCache, pDevice->playback.inputCacheConsumed, pDevice->playback.format, pDevice->playback.channels), &framesConvertedIn, pFramesInInternalFormat, &framesConvertedOut);
 
             pDevice->playback.inputCacheConsumed  += framesConvertedIn;
             pDevice->playback.inputCacheRemaining -= framesConvertedIn;
 
+            PLOG_(MiniAudioLog, plog::info) << "3.3.5 pDevice->playback.inputCacheConsumed  =   " << pDevice->playback.inputCacheConsumed ;
+            PLOG_(MiniAudioLog, plog::info) << "3.3.6 pDevice->playback.inputCacheRemaining =   " << pDevice->playback.inputCacheRemaining;
+
             totalFramesReadOut        += (ma_uint32)framesConvertedOut; /* Safe cast. */
+            PLOG_(MiniAudioLog, plog::info) << "3.3.7 totalFramesReadOut =   " << totalFramesReadOut;
             pFramesInInternalFormat    = ma_offset_ptr(pFramesInInternalFormat, framesConvertedOut * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         }
-
+        PLOG_(MiniAudioLog, plog::info) << "3.4 totalFramesReadOut =   " << totalFramesReadOut;
         /* If there's no more data in the cache we'll need to fill it with some. */
-        if (totalFramesReadOut < frameCount && pDevice->playback.inputCacheRemaining == 0) {
+        PLOG_(MiniAudioLog, plog::info) << "3.4.1 totalFramesReadOut  = "  << totalFramesReadOut;
+        PLOG_(MiniAudioLog, plog::info) << "3.4.2 frameCount  = "  << frameCount;
+        PLOG_(MiniAudioLog, plog::info) << "3.4.3 pDevice->playback.inputCacheRemaining  = "  << pDevice->playback.inputCacheRemaining;
+        if ((totalFramesReadOut < frameCount) && pDevice->playback.inputCacheRemaining == 0) {
+            PLOG_(MiniAudioLog, plog::info) << "3.4.4 totalFramesReadOut < frameCount && pDevice->playback.inputCacheRemaining == 0" ;
             ma_uint32 inputFrameCount;
             void* pInputFrames;
 
             inputFrameCount = (ma_uint32)pDevice->playback.inputCacheCap;
+            PLOG_(MiniAudioLog, plog::info) << "3.5 inputFrameCount =  " << inputFrameCount;
             result = ma_pcm_rb_acquire_read(pRB, &inputFrameCount, &pInputFrames);
             if (result == MA_SUCCESS) {
                 if (inputFrameCount > 0) {
+                    PLOG_(MiniAudioLog, plog::info) << "3.5.1 inputFrameCount =  " << inputFrameCount;
                     ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, pInputFrames, inputFrameCount);
                 } else {
                     if (ma_pcm_rb_pointer_distance(pRB) == 0) {
+                        PLOG_(MiniAudioLog, plog::info) << "3.5.2 inputFrameCount =  " << inputFrameCount;
                         break;  /* Underrun. */
                     }
                 }
             } else {
                 /* No capture data available. Feed in silence. */
                 inputFrameCount = (ma_uint32)ma_min(pDevice->playback.inputCacheCap, sizeof(silentInputFrames) / ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+                PLOG_(MiniAudioLog, plog::info) << "3.7 inputFrameCount =  " << inputFrameCount;
                 ma_device__handle_data_callback(pDevice, pDevice->playback.pInputCache, silentInputFrames, inputFrameCount);
             }
 
             pDevice->playback.inputCacheConsumed  = 0;
+            PLOG_(MiniAudioLog, plog::info) << "3.8 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
             pDevice->playback.inputCacheRemaining = inputFrameCount;
+            PLOG_(MiniAudioLog, plog::info) << "3.9 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
 
             result = ma_pcm_rb_commit_read(pRB, inputFrameCount);
             if (result != MA_SUCCESS) {
@@ -33315,6 +33377,8 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
             if (pBufferList->mBuffers[iBuffer].mNumberChannels == pDevice->playback.internalChannels) {
                 ma_uint32 frameCountForThisBuffer = pBufferList->mBuffers[iBuffer].mDataByteSize / ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
                 if (frameCountForThisBuffer > 0) {
+                    PLOG_(MiniAudioLog, plog::info) <<  "1 frameCountForThisBuffer =  " << frameCountForThisBuffer;
+
                     ma_device_handle_backend_data_callback(pDevice, pBufferList->mBuffers[iBuffer].mData, NULL, frameCountForThisBuffer);
                 }
 
@@ -40700,6 +40764,7 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
 
         pDevice->playback.inputCacheConsumed  = 0;
         pDevice->playback.inputCacheRemaining = 0;
+        PLOG_(MiniAudioLog, plog::info) << "0 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
 
         if (pDevice->type == ma_device_type_duplex ||                                                                       /* Duplex. backend may decide to use ma_device_handle_backend_data_callback() which will require this cache. */
             ma_data_converter_get_required_input_frame_count(&pDevice->playback.converter, 1, &unused) != MA_SUCCESS)       /* Data conversion required input frame calculation not supported. */
@@ -40710,7 +40775,10 @@ static ma_result ma_device__post_init_setup(ma_device* pDevice, ma_device_type d
             ma_uint64 newInputCacheSizeInBytes;
 
             newInputCacheCap = ma_calculate_frame_count_after_resampling(pDevice->playback.internalSampleRate, pDevice->sampleRate, pDevice->playback.internalPeriodSizeInFrames);
-
+            PLOG_(MiniAudioLog, plog::info) << "0.0.1 newInputCacheCap=  " << newInputCacheCap;
+            PLOG_(MiniAudioLog, plog::info) << "0.0.2 pDevice->playback.internalPeriodSizeInFrames =  " << pDevice->playback.internalPeriodSizeInFrames;
+            PLOG_(MiniAudioLog, plog::info) << "0.0.3 pDevice->sampleRate =  " << pDevice->sampleRate;
+            PLOG_(MiniAudioLog, plog::info) << "0.0.4 pDevice->playback.internalSampleRate =  " << pDevice->playback.internalSampleRate;
             newInputCacheSizeInBytes = newInputCacheCap * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
             if (newInputCacheSizeInBytes > MA_SIZE_MAX) {
                 ma_free(pDevice->playback.pInputCache, &pDevice->pContext->allocationCallbacks);
@@ -42376,6 +42444,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         pDevice->playback.intermediaryBufferLen = 0;
         pDevice->playback.inputCacheConsumed    = 0;
         pDevice->playback.inputCacheRemaining   = 0;
+        PLOG_(MiniAudioLog, plog::info) << "0.1 pDevice->playback.inputCacheRemaining =  " << pDevice->playback.inputCacheRemaining;
     }
     ma_mutex_unlock(&pDevice->startStopLock);
 
@@ -42473,6 +42542,7 @@ MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void
         }
 
         if (pOutput != NULL) {
+            PLOG_(MiniAudioLog, plog::info) <<   "2 frameCount =  " << frameCount;
             ma_device__handle_duplex_callback_playback(pDevice, frameCount, pOutput, &pDevice->duplexRB.rb);
         }
     } else {
@@ -56640,7 +56710,7 @@ MA_API ma_result ma_pcm_rb_acquire_read(ma_pcm_rb* pRB, ma_uint32* pSizeInFrames
     if (pRB == NULL || pSizeInFrames == NULL) {
         return MA_INVALID_ARGS;
     }
-
+    
     sizeInBytes = *pSizeInFrames * ma_pcm_rb_get_bpf(pRB);
 
     result = ma_rb_acquire_read(&pRB->rb, &sizeInBytes, ppBufferOut);
