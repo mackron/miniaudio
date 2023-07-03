@@ -30304,6 +30304,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         if (pDescriptorCapture->sampleRate != 0) {
             ss.rate = pDescriptorCapture->sampleRate;
         }
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY;
 
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
@@ -30311,14 +30312,17 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
+            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.\n");
         }
         if (ss.rate == 0) {
             ss.rate = MA_DEFAULT_SAMPLE_RATE;
+            streamFlags |= MA_PA_STREAM_FIX_RATE;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.rate = 0. Defaulting to %d.\n", ss.rate);
         }
         if (ss.channels == 0) {
             ss.channels = MA_DEFAULT_CHANNELS;
+            streamFlags |= MA_PA_STREAM_FIX_CHANNELS;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.channels = 0. Defaulting to %d.\n", ss.channels);
         }
 
@@ -30347,7 +30351,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
 
         /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
         if (devCapture != NULL) {
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
@@ -30450,20 +30453,24 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             ss.rate = pDescriptorPlayback->sampleRate;
         }
 
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY;
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
                 ss.format = MA_PA_SAMPLE_FLOAT32LE;
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
+            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.\n");
         }
         if (ss.rate == 0) {
             ss.rate = MA_DEFAULT_SAMPLE_RATE;
+            streamFlags |= MA_PA_STREAM_FIX_RATE;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.rate = 0. Defaulting to %d.\n", ss.rate);
         }
         if (ss.channels == 0) {
             ss.channels = MA_DEFAULT_CHANNELS;
+            streamFlags |= MA_PA_STREAM_FIX_CHANNELS;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.channels = 0. Defaulting to %d.\n", ss.channels);
         }
 
@@ -30496,7 +30503,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
 
         /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
         if (devPlayback != NULL) {
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
