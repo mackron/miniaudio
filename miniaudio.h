@@ -18755,7 +18755,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
                         framesToProcessThisIteration = sizeof(tempFramesIn)/bpfCapture;
                     }
 
-                    ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, masterVolumeFactor);
+                    ma_copy_and_apply_volume_factor_pcm_frames(tempFramesIn, ma_offset_ptr(pFramesIn, totalFramesProcessed*bpfCapture), framesToProcessThisIteration, pDevice->capture.format, pDevice->capture.channels, 1.f);
 
                     ma_device__on_data(pDevice, ma_offset_ptr(pFramesOut, totalFramesProcessed*bpfPlayback), tempFramesIn, framesToProcessThisIteration);
 
@@ -18768,9 +18768,9 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
             /* Volume control and clipping for playback devices. */
             if (pFramesOut != NULL) {
                 if (masterVolumeFactor < 1) {
-                    if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
+                    // if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
                         ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
-                    }
+                    // }
                 }
 
                 if (!pDevice->noClip && pDevice->playback.format == ma_format_f32) {
