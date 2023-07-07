@@ -11219,7 +11219,9 @@ MA_API ma_uint32 ma_engine_get_sample_rate(const ma_engine* pEngine);
 MA_API ma_result ma_engine_start(ma_engine* pEngine);
 MA_API ma_result ma_engine_stop(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume);
+MA_API float ma_engine_get_volume(ma_engine* pEngine);
 MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB);
+MA_API float ma_engine_get_gain_db(ma_engine* pEngine);
 
 MA_API ma_uint32 ma_engine_get_listener_count(const ma_engine* pEngine);
 MA_API ma_uint32 ma_engine_find_closest_listener(const ma_engine* pEngine, float absolutePosX, float absolutePosY, float absolutePosZ);
@@ -74719,13 +74721,23 @@ MA_API ma_result ma_engine_set_volume(ma_engine* pEngine, float volume)
     return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, volume);
 }
 
-MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
+MA_API float ma_engine_get_volume(ma_engine* pEngine)
 {
     if (pEngine == NULL) {
-        return MA_INVALID_ARGS;
+        return 0;
     }
 
-    return ma_node_set_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0, ma_volume_db_to_linear(gainDB));
+    return ma_node_get_output_bus_volume(ma_node_graph_get_endpoint(&pEngine->nodeGraph), 0);
+}
+
+MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
+{
+    return ma_engine_set_volume(pEngine, ma_volume_db_to_linear(gainDB));
+}
+
+MA_API float ma_engine_get_gain_db(ma_engine* pEngine)
+{
+    return ma_volume_linear_to_db(ma_engine_get_volume(pEngine));   
 }
 
 
