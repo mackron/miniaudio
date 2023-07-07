@@ -51648,7 +51648,7 @@ MA_API ma_result ma_linear_resampler_set_rate_ratio(ma_linear_resampler* pResamp
         return MA_INVALID_ARGS;
     }
 
-    d = 1000;
+    d = 1000000;
     n = (ma_uint32)(ratioInOut * d);
 
     if (n == 0) {
