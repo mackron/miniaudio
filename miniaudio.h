@@ -7658,6 +7658,8 @@ struct ma_context
             ma_proc RegOpenKeyExA;
             ma_proc RegCloseKey;
             ma_proc RegQueryValueExA;
+
+            /*HRESULT*/ long CoInitializeResult;
         } win32;
 #endif
 #ifdef MA_POSIX
@@ -40838,10 +40840,14 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
 static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 {
     ma_device* pDevice = (ma_device*)pData;
+#ifdef MA_WIN32
+    HRESULT CoInitializeResult;
+#endif
+
     MA_ASSERT(pDevice != NULL);
 
 #ifdef MA_WIN32
-    ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
+    CoInitializeResult = ma_CoInitializeEx(pDevice->pContext, NULL, MA_COINIT_VALUE);
 #endif
 
     /*
@@ -40927,7 +40933,9 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
     }
 
 #ifdef MA_WIN32
-    ma_CoUninitialize(pDevice->pContext);
+    if (CoInitializeResult == S_OK) {
+        ma_CoUninitialize(pDevice->pContext);
+    }
 #endif
 
     return (ma_thread_result)0;
@@ -40950,7 +40958,9 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    ma_CoUninitialize(pContext);
+    if (pContext->win32.CoInitializeResult == S_OK) {
+        ma_CoUninitialize(pContext);
+    }
 
     #if defined(MA_WIN32_DESKTOP)
         ma_dlclose(ma_context_get_log(pContext), pContext->win32.hUser32DLL);
@@ -41007,7 +41017,7 @@ static ma_result ma_context_init_backend_apis__win32(ma_context* pContext)
     (void)pContext; /* Unused. */
 #endif
 
-    ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
+    pContext->win32.CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     return MA_SUCCESS;
 }
 #else
