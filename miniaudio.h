@@ -63279,8 +63279,6 @@ MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64
                 }
 
                 result = ma_stbvorbis_read_pcm_frames(pVorbis, buffer, framesToRead, &framesRead);
-                pVorbis->cursor += framesRead;
-
                 if (result != MA_SUCCESS) {
                     return result;
                 }
