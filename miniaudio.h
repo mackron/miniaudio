@@ -63749,7 +63749,7 @@ static ma_result ma_decoder_init_vorbis_from_file_w__internal(const wchar_t* pFi
 
 static ma_result ma_decoder_init_vorbis_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
-    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_vorbis, NULL, pData, dataSize, pConfig, pDecoder);
+    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pData, dataSize, pConfig, pDecoder);
 }
 #endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
 
