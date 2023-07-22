@@ -61092,6 +61092,47 @@ static ma_result ma_wav_init_internal(const ma_decoding_backend_config* pConfig,
     return MA_SUCCESS;
 }
 
+static ma_result ma_wav_post_init(ma_wav* pWav)
+{
+    /*
+    If an explicit format was not specified, try picking the closest match based on the internal
+    format. The format needs to be supported by miniaudio.
+    */
+    if (pWav->format == ma_format_unknown) {
+        switch (pWav->dr.translatedFormatTag)
+        {
+            case MA_DR_WAVE_FORMAT_PCM:
+            {
+                if (pWav->dr.bitsPerSample == 8) {
+                    pWav->format = ma_format_u8;
+                } else if (pWav->dr.bitsPerSample == 16) {
+                    pWav->format = ma_format_s16;
+                } else if (pWav->dr.bitsPerSample == 24) {
+                    pWav->format = ma_format_s24;
+                } else if (pWav->dr.bitsPerSample == 32) {
+                    pWav->format = ma_format_s32;
+                }
+            } break;
+
+            case MA_DR_WAVE_FORMAT_IEEE_FLOAT:
+            {
+                if (pWav->dr.bitsPerSample == 32) {
+                    pWav->format = ma_format_f32;
+                }
+            } break;
+
+            default: break;
+        }
+
+        /* Fall back to f32 if we couldn't find anything. */
+        if (pWav->format == ma_format_unknown) {
+            pWav->format =  ma_format_f32;
+        }
+    }
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_wav* pWav)
 {
     ma_result result;
@@ -61119,41 +61160,7 @@ MA_API ma_result ma_wav_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
             return MA_INVALID_FILE;
         }
 
-        /*
-        If an explicit format was not specified, try picking the closest match based on the internal
-        format. The format needs to be supported by miniaudio.
-        */
-        if (pWav->format == ma_format_unknown) {
-            switch (pWav->dr.translatedFormatTag)
-            {
-                case MA_DR_WAVE_FORMAT_PCM:
-                {
-                    if (pWav->dr.bitsPerSample == 8) {
-                        pWav->format = ma_format_u8;
-                    } else if (pWav->dr.bitsPerSample == 16) {
-                        pWav->format = ma_format_s16;
-                    } else if (pWav->dr.bitsPerSample == 24) {
-                        pWav->format = ma_format_s24;
-                    } else if (pWav->dr.bitsPerSample == 32) {
-                        pWav->format = ma_format_s32;
-                    }
-                } break;
-
-                case MA_DR_WAVE_FORMAT_IEEE_FLOAT:
-                {
-                    if (pWav->dr.bitsPerSample == 32) {
-                        pWav->format = ma_format_f32;
-                    }
-                } break;
-
-                default: break;
-            }
-
-            /* Fall back to f32 if we couldn't find anything. */
-            if (pWav->format == ma_format_unknown) {
-                pWav->format =  ma_format_f32;
-            }
-        }
+        ma_wav_post_init(pWav);
 
         return MA_SUCCESS;
     }
@@ -61183,6 +61190,8 @@ MA_API ma_result ma_wav_init_file(const char* pFilePath, const ma_decoding_backe
         if (wavResult != MA_TRUE) {
             return MA_INVALID_FILE;
         }
+
+        ma_wav_post_init(pWav);
 
         return MA_SUCCESS;
     }
@@ -61214,6 +61223,8 @@ MA_API ma_result ma_wav_init_file_w(const wchar_t* pFilePath, const ma_decoding_
             return MA_INVALID_FILE;
         }
 
+        ma_wav_post_init(pWav);
+
         return MA_SUCCESS;
     }
     #else
@@ -61243,6 +61254,8 @@ MA_API ma_result ma_wav_init_memory(const void* pData, size_t dataSize, const ma
         if (wavResult != MA_TRUE) {
             return MA_INVALID_FILE;
         }
+
+        ma_wav_post_init(pWav);
 
         return MA_SUCCESS;
     }
@@ -62422,6 +62435,18 @@ static ma_result ma_mp3_generate_seek_table(ma_mp3* pMP3, const ma_decoding_back
     return MA_SUCCESS;
 }
 
+static ma_result ma_mp3_post_init(ma_mp3* pMP3, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_result result;
+
+    result = ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
 MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
 {
     ma_result result;
@@ -62449,7 +62474,7 @@ MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
             return MA_INVALID_FILE;
         }
 
-        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
@@ -62480,7 +62505,7 @@ MA_API ma_result ma_mp3_init_file(const char* pFilePath, const ma_decoding_backe
             return MA_INVALID_FILE;
         }
 
-        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
@@ -62512,7 +62537,7 @@ MA_API ma_result ma_mp3_init_file_w(const wchar_t* pFilePath, const ma_decoding_
             return MA_INVALID_FILE;
         }
 
-        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
@@ -62544,7 +62569,7 @@ MA_API ma_result ma_mp3_init_memory(const void* pData, size_t dataSize, const ma
             return MA_INVALID_FILE;
         }
 
-        ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+        ma_mp3_post_init(pMP3, pConfig, pAllocationCallbacks);
 
         return MA_SUCCESS;
     }
