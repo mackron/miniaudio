@@ -30211,11 +30211,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     /*
     Notes for PulseAudio:
 
-      - We're always using native format/channels/rate regardless of whether or not PulseAudio
-        supports the format directly through their own data conversion system. I'm doing this to
-        reduce as much variability from the PulseAudio side as possible because it's seems to be
-        extremely unreliable at everything it does.
-
       - When both the period size in frames and milliseconds are 0, we default to miniaudio's
         default buffer sizes rather than leaving it up to PulseAudio because I don't trust
         PulseAudio to give us any kind of reasonable latency by default.
