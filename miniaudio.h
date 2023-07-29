@@ -39264,7 +39264,7 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
             return ma_result_from_OpenSL(resultSL);
         }
 
-        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueu silent buffers. */
+        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueue silent buffers. */
         if (pDevice->type == ma_device_type_duplex) {
             MA_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         } else {
