@@ -66237,13 +66237,16 @@ MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 
 
 MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform)
 {
+    ma_result result;
+    ma_waveform_config config;
+
     if (pWaveform == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pWaveform);
 
-    ma_waveform_config config = ma_waveform_config_init(
+    config = ma_waveform_config_init(
         pConfig->format,
         pConfig->channels,
         pConfig->sampleRate,
@@ -66252,7 +66255,7 @@ MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsew
         pConfig->frequency
     );
 
-    ma_result result = ma_waveform_init(&config, &pWaveform->waveform);
+    result = ma_waveform_init(&config, &pWaveform->waveform);
     ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
 
     return result;
