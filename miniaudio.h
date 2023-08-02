@@ -44684,13 +44684,14 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
             d1 = vmovq_n_f32(0);
         } else if (ditherMode == ma_dither_mode_rectangle) {
             float d0v[4];
+            float d1v[4];
+            
             d0v[0] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[3] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0 = vld1q_f32(d0v);
 
-            float d1v[4];
             d1v[0] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d1v[1] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d1v[2] = ma_dither_f32_rectangle(ditherMin, ditherMax);
@@ -44698,13 +44699,14 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
             d1 = vld1q_f32(d1v);
         } else {
             float d0v[4];
+            float d1v[4];
+            
             d0v[0] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[3] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0 = vld1q_f32(d0v);
 
-            float d1v[4];
             d1v[0] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d1v[1] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d1v[2] = ma_dither_f32_triangle(ditherMin, ditherMax);
