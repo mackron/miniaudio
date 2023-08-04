@@ -5043,13 +5043,14 @@ typedef struct
     float volumeBeg;            /* If volumeBeg and volumeEnd is equal to 1, no fading happens (ma_fader_process_pcm_frames() will run as a passthrough). */
     float volumeEnd;
     ma_uint64 lengthInFrames;   /* The total length of the fade. */
-    ma_uint64 cursorInFrames;   /* The current time in frames. Incremented by ma_fader_process_pcm_frames(). */
+    ma_int64  cursorInFrames;   /* The current time in frames. Incremented by ma_fader_process_pcm_frames(). Signed because it'll be offset by startOffsetInFrames in set_fade_ex(). */
 } ma_fader;
 
 MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader);
 MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API void ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames);
+MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_uint64 startOffsetInFrames);
 MA_API float ma_fader_get_current_volume(const ma_fader* pFader);
 
 
@@ -7094,7 +7095,7 @@ struct ma_device_config
 
 
 /*
-The callback for handling device enumeration. This is fired from `ma_context_enumerated_devices()`.
+The callback for handling device enumeration. This is fired from `ma_context_enumerate_devices()`.
 
 
 Parameters
@@ -49352,6 +49353,21 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
         frameCount = UINT_MAX - pFader->cursorInFrames;
     }
 
+    /* If the cursor is still negative we need to just copy the absolute number of those frames, but no more than frameCount. */
+    if (pFader->cursorInFrames < 0) {
+        ma_uint64 absCursorInFrames = (ma_uint64)0 - pFader->cursorInFrames;
+        if (absCursorInFrames > frameCount) {
+            absCursorInFrames = frameCount;
+        }
+
+        ma_copy_pcm_frames(pFramesOut, pFramesIn, absCursorInFrames, pFader->config.format, pFader->config.channels);
+
+        pFader->cursorInFrames += absCursorInFrames;
+        frameCount -= absCursorInFrames;
+        pFramesOut  = ma_offset_ptr(pFramesOut, ma_get_bytes_per_frame(pFader->config.format, pFader->config.channels)*absCursorInFrames);
+        pFramesIn   = ma_offset_ptr(pFramesIn,  ma_get_bytes_per_frame(pFader->config.format, pFader->config.channels)*absCursorInFrames);
+    }
+
     /* Optimized path if volumeBeg and volumeEnd are equal. */
     if (pFader->volumeBeg == pFader->volumeEnd) {
         if (pFader->volumeBeg == 1) {
@@ -49359,7 +49375,7 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
             ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels);
         } else {
             /* Copy with volume. */
-            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
+            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeBeg);
         }
     } else {
         /* Slower path. Volumes are different, so may need to do an interpolation. */
@@ -49371,7 +49387,7 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
             ma_uint64 iFrame;
             ma_uint32 iChannel;
 
-            /* For now we only support f32. Support for other formats will be added later. */
+            /* For now we only support f32. Support for other formats might be added later. */
             if (pFader->config.format == ma_format_f32) {
                 const float* pFramesInF32  = (const float*)pFramesIn;
                 /* */ float* pFramesOutF32 = (      float*)pFramesOut;
@@ -49416,6 +49432,11 @@ MA_API void ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat,
 
 MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames)
 {
+    ma_fader_set_fade(pFader, volumeBeg, volumeEnd, lengthInFrames, 0);
+}
+
+MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_uint64 startOffsetInFrames)
+{
     if (pFader == NULL) {
         return;
     }
@@ -49433,16 +49454,26 @@ MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd
         lengthInFrames = UINT_MAX;
     }
 
+    /* The start offset needs to be clamped to ensure it doesn't overflow a signed number. */
+    if (startOffsetInFrames > INT_MAX) {
+        startOffsetInFrames = INT_MAX;
+    }
+
     pFader->volumeBeg      = volumeBeg;
     pFader->volumeEnd      = volumeEnd;
     pFader->lengthInFrames = lengthInFrames;
-    pFader->cursorInFrames = 0; /* Reset cursor. */
+    pFader->cursorInFrames = -(ma_int64)startOffsetInFrames;
 }
 
 MA_API float ma_fader_get_current_volume(const ma_fader* pFader)
 {
     if (pFader == NULL) {
         return 0.0f;
+    }
+
+    /* Any frames prior to the start of the fade period will be at unfaded volume. */
+    if (pFader->cursorInFrames < 0) {
+        return 1.0f;
     }
 
     /* The current volume depends on the position of the cursor. */
