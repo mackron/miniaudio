@@ -74177,7 +74177,16 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     {
         ma_uint64 fadeLengthInFrames = ma_atomic_uint64_get(&pEngineNode->fadeSettings.fadeLengthInFrames);
         if (fadeLengthInFrames != ~(ma_uint64)0) {
-            ma_fader_set_fade_ex(&pEngineNode->fader, ma_atomic_float_get(&pEngineNode->fadeSettings.volumeBeg), ma_atomic_float_get(&pEngineNode->fadeSettings.volumeEnd), fadeLengthInFrames, ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames) - ma_engine_get_time(pEngineNode->pEngine));
+            float fadeVolumeBeg = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeBeg);
+            float fadeVolumeEnd = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeEnd);
+            ma_uint64 fadeStartOffsetInFrames = ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames);
+            if (fadeStartOffsetInFrames == ~(ma_uint64)0) {
+                fadeStartOffsetInFrames = 0;
+            } else {
+                fadeStartOffsetInFrames -= ma_engine_get_time(pEngineNode->pEngine);
+            }
+
+            ma_fader_set_fade_ex(&pEngineNode->fader, fadeVolumeBeg, fadeVolumeEnd, fadeLengthInFrames, fadeStartOffsetInFrames);
 
             /* Reset the fade length so we don't erroneously apply it again. */
             ma_atomic_uint64_set(&pEngineNode->fadeSettings.fadeLengthInFrames, ~(ma_uint64)0);
