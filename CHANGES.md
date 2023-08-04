@@ -1,9 +1,18 @@
 v0.11.18 - TBD
 =====================
 * Fix some AIFF compatibility issues.
+* Fix an error where the cursor of a Vorbis stream is incorrectly incremented.
 * Add support for setting a callback on an `ma_engine` object that get's fired after it processes a chunk of audio. This allows applications to do things such as apply a post-processing effect or output the audio to a file.
 * Add `ma_engine_get_volume()`.
+* Add `ma_sound_get_time_in_milliseconds()`.
+* Decouple `MA_API` and `MA_PRIVATE`. This relaxes applications from needing to define both of them if they're only wanting to redefine one.
+* Decoding backends will now have their onInitFile/W and onInitMemory initialization routines used where appropriate if they're defined.
+* Increase the accuracy of the linear resampler when setting the ratio with `ma_linear_resampler_set_rate_ratio()`.
+* Fix erroneous output with the linear resampler when in/out rates are the same.
 * AAudio: Fix an error where the buffer size is not configured correctly which sometimes results in excessively high latency.
+* ALSA: Fix a possible error when stopping and restarting a device.
+* PulseAudio: Minor changes to stream flags.
+* Win32: Fix an error where `CoUninialize()` is being called when the corresponding `CoInitializeEx()` fails.
 
 
 v0.11.17 - 2023-05-27
