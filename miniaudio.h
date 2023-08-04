@@ -3930,35 +3930,45 @@ typedef ma_uint16 wchar_t;
     #define MA_NO_INLINE
 #endif
 
+/* MA_DLL is not officially supported. You're on your own if you want to use this. */
+#if defined(MA_DLL)
+    #if defined(_WIN32)
+        #define MA_DLL_IMPORT  __declspec(dllimport)
+        #define MA_DLL_EXPORT  __declspec(dllexport)
+        #define MA_DLL_PRIVATE static
+    #else
+        #if defined(__GNUC__) && __GNUC__ >= 4
+            #define MA_DLL_IMPORT  __attribute__((visibility("default")))
+            #define MA_DLL_EXPORT  __attribute__((visibility("default")))
+            #define MA_DLL_PRIVATE __attribute__((visibility("hidden")))
+        #else
+            #define MA_DLL_IMPORT
+            #define MA_DLL_EXPORT
+            #define MA_DLL_PRIVATE static
+        #endif
+    #endif
+#endif
+
 #if !defined(MA_API)
     #if defined(MA_DLL)
-        #if defined(_WIN32)
-            #define MA_DLL_IMPORT  __declspec(dllimport)
-            #define MA_DLL_EXPORT  __declspec(dllexport)
-            #define MA_DLL_PRIVATE static
-        #else
-            #if defined(__GNUC__) && __GNUC__ >= 4
-                #define MA_DLL_IMPORT  __attribute__((visibility("default")))
-                #define MA_DLL_EXPORT  __attribute__((visibility("default")))
-                #define MA_DLL_PRIVATE __attribute__((visibility("hidden")))
-            #else
-                #define MA_DLL_IMPORT
-                #define MA_DLL_EXPORT
-                #define MA_DLL_PRIVATE static
-            #endif
-        #endif
-
         #if defined(MINIAUDIO_IMPLEMENTATION) || defined(MA_IMPLEMENTATION)
             #define MA_API  MA_DLL_EXPORT
         #else
             #define MA_API  MA_DLL_IMPORT
         #endif
-        #define MA_PRIVATE MA_DLL_PRIVATE
     #else
         #define MA_API extern
+    #endif
+#endif
+
+#if !defined(MA_STATIC)
+    #if defined(MA_DLL)
+        #define MA_PRIVATE MA_DLL_PRIVATE
+    #else
         #define MA_PRIVATE static
     #endif
 #endif
+
 
 /* SIMD alignment in bytes. Currently set to 32 bytes in preparation for future AVX optimizations. */
 #define MA_SIMD_ALIGNMENT  32
@@ -28197,6 +28207,12 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
 
 static ma_result ma_device_stop__alsa(ma_device* pDevice)
 {
+    /*
+    The stop callback will get called on the worker thread after read/write__alsa() has returned. At this point there is
+    a small chance that our wakeupfd has not been cleared. We'll clear that out now if applicable.
+    */
+    int resultPoll;
+
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Dropping capture device...\n");
         ((ma_snd_pcm_drop_proc)pDevice->pContext->alsa.snd_pcm_drop)((ma_snd_pcm_t*)pDevice->alsa.pPCMCapture);
@@ -28209,6 +28225,13 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         } else {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing capture device successful.\n");
         }
+
+	/* Clear the wakeupfd. */
+	resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, 1, 0);
+	if (resultPoll > 0) {
+	    ma_uint64 t;
+	    read(((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture)[0].fd, &t, sizeof(t));
+	}
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -28223,6 +28246,14 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         } else {
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing playback device successful.\n");
         }
+
+        /* Clear the wakeupfd. */
+	resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, 1, 0);
+	if (resultPoll > 0) {
+	    ma_uint64 t;
+	    read(((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback)[0].fd, &t, sizeof(t));
+	}
+
     }
 
     return MA_SUCCESS;
@@ -28235,7 +28266,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
         int resultALSA;
         int resultPoll = poll(pPollDescriptors, pollDescriptorCount, -1);
         if (resultPoll < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.");
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.\n");
             return ma_result_from_errno(errno);
         }
 
@@ -28248,7 +28279,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
             ma_uint64 t;
             int resultRead = read(pPollDescriptors[0].fd, &t, sizeof(t));    /* <-- Important that we read here so that the next write() does not block. */
             if (resultRead < 0) {
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] read() failed.");
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] read() failed.\n");
                 return ma_result_from_errno(errno);
             }
 
@@ -28262,13 +28293,17 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
         */
         resultALSA = ((ma_snd_pcm_poll_descriptors_revents_proc)pDevice->pContext->alsa.snd_pcm_poll_descriptors_revents)(pPCM, pPollDescriptors + 1, pollDescriptorCount - 1, &revents);   /* +1, -1 to ignore the wakeup descriptor. */
         if (resultALSA < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_poll_descriptors_revents() failed.");
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] snd_pcm_poll_descriptors_revents() failed.\n");
             return ma_result_from_errno(-resultALSA);
         }
 
         if ((revents & POLLERR) != 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] POLLERR detected.");
-            return ma_result_from_errno(errno);
+            ma_snd_pcm_state_t state = ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM);
+            if (state == MA_SND_PCM_STATE_XRUN) {
+                /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
+	    } else {		    
+                ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d\n", ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM));
+            }
         }
 
         if ((revents & requiredEvent) == requiredEvent) {
@@ -30361,11 +30396,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     /*
     Notes for PulseAudio:
 
-      - We're always using native format/channels/rate regardless of whether or not PulseAudio
-        supports the format directly through their own data conversion system. I'm doing this to
-        reduce as much variability from the PulseAudio side as possible because it's seems to be
-        extremely unreliable at everything it does.
-
       - When both the period size in frames and milliseconds are 0, we default to miniaudio's
         default buffer sizes rather than leaving it up to PulseAudio because I don't trust
         PulseAudio to give us any kind of reasonable latency by default.
@@ -30454,6 +30484,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         if (pDescriptorCapture->sampleRate != 0) {
             ss.rate = pDescriptorCapture->sampleRate;
         }
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY;
 
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
@@ -30461,14 +30492,17 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
+            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.\n");
         }
         if (ss.rate == 0) {
             ss.rate = MA_DEFAULT_SAMPLE_RATE;
+            streamFlags |= MA_PA_STREAM_FIX_RATE;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.rate = 0. Defaulting to %d.\n", ss.rate);
         }
         if (ss.channels == 0) {
             ss.channels = MA_DEFAULT_CHANNELS;
+            streamFlags |= MA_PA_STREAM_FIX_CHANNELS;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.channels = 0. Defaulting to %d.\n", ss.channels);
         }
 
@@ -30497,7 +30531,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
 
         /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
         if (devCapture != NULL) {
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
@@ -30600,20 +30633,24 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             ss.rate = pDescriptorPlayback->sampleRate;
         }
 
+        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY;
         if (ma_format_from_pulse(ss.format) == ma_format_unknown) {
             if (ma_is_little_endian()) {
                 ss.format = MA_PA_SAMPLE_FLOAT32LE;
             } else {
                 ss.format = MA_PA_SAMPLE_FLOAT32BE;
             }
+            streamFlags |= MA_PA_STREAM_FIX_FORMAT;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.format not supported by miniaudio. Defaulting to PA_SAMPLE_FLOAT32.\n");
         }
         if (ss.rate == 0) {
             ss.rate = MA_DEFAULT_SAMPLE_RATE;
+            streamFlags |= MA_PA_STREAM_FIX_RATE;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.rate = 0. Defaulting to %d.\n", ss.rate);
         }
         if (ss.channels == 0) {
             ss.channels = MA_DEFAULT_CHANNELS;
+            streamFlags |= MA_PA_STREAM_FIX_CHANNELS;
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] sample_spec.channels = 0. Defaulting to %d.\n", ss.channels);
         }
 
@@ -30646,7 +30683,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
 
 
         /* Connect after we've got all of our internal state set up. */
-        streamFlags = MA_PA_STREAM_START_CORKED | MA_PA_STREAM_ADJUST_LATENCY | MA_PA_STREAM_FIX_FORMAT | MA_PA_STREAM_FIX_RATE | MA_PA_STREAM_FIX_CHANNELS;
         if (devPlayback != NULL) {
             streamFlags |= MA_PA_STREAM_DONT_MOVE;
         }
@@ -39414,7 +39450,7 @@ static ma_result ma_device_start__opensl(ma_device* pDevice)
             return ma_result_from_OpenSL(resultSL);
         }
 
-        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueu silent buffers. */
+        /* In playback mode (no duplex) we need to load some initial buffers. In duplex mode we need to enqueue silent buffers. */
         if (pDevice->type == ma_device_type_duplex) {
             MA_ZERO_MEMORY(pDevice->opensl.pBufferPlayback, pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalPeriods * ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels));
         } else {
@@ -44758,13 +44794,14 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
             d1 = vmovq_n_f32(0);
         } else if (ditherMode == ma_dither_mode_rectangle) {
             float d0v[4];
+            float d1v[4];
+            
             d0v[0] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[3] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0 = vld1q_f32(d0v);
 
-            float d1v[4];
             d1v[0] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d1v[1] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d1v[2] = ma_dither_f32_rectangle(ditherMin, ditherMax);
@@ -44772,13 +44809,14 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
             d1 = vld1q_f32(d1v);
         } else {
             float d0v[4];
+            float d1v[4];
+            
             d0v[0] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[3] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0 = vld1q_f32(d0v);
 
-            float d1v[4];
             d1v[0] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d1v[1] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d1v[2] = ma_dither_f32_triangle(ditherMin, ditherMax);
@@ -66280,13 +66318,16 @@ MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 
 
 MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform)
 {
+    ma_result result;
+    ma_waveform_config config;
+
     if (pWaveform == NULL) {
         return MA_INVALID_ARGS;
     }
 
     MA_ZERO_OBJECT(pWaveform);
 
-    ma_waveform_config config = ma_waveform_config_init(
+    config = ma_waveform_config_init(
         pConfig->format,
         pConfig->channels,
         pConfig->sampleRate,
@@ -66295,7 +66336,7 @@ MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsew
         pConfig->frequency
     );
 
-    ma_result result = ma_waveform_init(&config, &pWaveform->waveform);
+    result = ma_waveform_init(&config, &pWaveform->waveform);
     ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
 
     return result;
