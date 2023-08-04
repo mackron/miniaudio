@@ -11069,6 +11069,15 @@ typedef struct
     MA_ATOMIC(4, ma_bool32) isSpatializationDisabled;   /* Set to false by default. When set to false, will not have spatialisation applied. */
     MA_ATOMIC(4, ma_uint32) pinnedListenerIndex;        /* The index of the listener this node should always use for spatialization. If set to MA_LISTENER_INDEX_CLOSEST the engine will use the closest listener. */
 
+    /* When setting a fade, it's not done immediately in ma_sound_set_fade(). It's deferred to the audio thread which means we need to store the settings here. */
+    struct
+    {
+        ma_atomic_float volumeBeg;
+        ma_atomic_float volumeEnd;
+        ma_atomic_uint64 fadeLengthInFrames;            /* <-- Defaults to (~(ma_uint64)0) which is used to indicate that no fade should be applied. */
+        ma_atomic_uint64 absoluteGlobalTimeInFrames;    /* <-- The time to start the fade. */
+    } fadeSettings;
+
     /* Memory management. */
     ma_bool8 _ownsHeap;
     void* _pHeap;
@@ -11310,6 +11319,8 @@ MA_API void ma_sound_set_directional_attenuation_factor(ma_sound* pSound, float 
 MA_API float ma_sound_get_directional_attenuation_factor(const ma_sound* pSound);
 MA_API void ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames);
 MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds);
+MA_API void ma_sound_set_fade_start_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames, ma_uint64 absoluteGlobalTimeInFrames);
+MA_API void ma_sound_set_fade_start_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API float ma_sound_get_current_fade_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_start_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API void ma_sound_set_start_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
@@ -49345,14 +49356,6 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
         return MA_INVALID_ARGS;
     }
 
-    /*
-    For now we need to clamp frameCount so that the cursor never overflows 32-bits. This is required for
-    the conversion to a float which we use for the linear interpolation. This might be changed later.
-    */
-    if (frameCount + pFader->cursorInFrames > UINT_MAX) {
-        frameCount = UINT_MAX - pFader->cursorInFrames;
-    }
-
     /* If the cursor is still negative we need to just copy the absolute number of those frames, but no more than frameCount. */
     if (pFader->cursorInFrames < 0) {
         ma_uint64 absCursorInFrames = (ma_uint64)0 - pFader->cursorInFrames;
@@ -49368,40 +49371,50 @@ MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut,
         pFramesIn   = ma_offset_ptr(pFramesIn,  ma_get_bytes_per_frame(pFader->config.format, pFader->config.channels)*absCursorInFrames);
     }
 
-    /* Optimized path if volumeBeg and volumeEnd are equal. */
-    if (pFader->volumeBeg == pFader->volumeEnd) {
-        if (pFader->volumeBeg == 1) {
-            /* Straight copy. */
-            ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels);
-        } else {
-            /* Copy with volume. */
-            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeBeg);
+    if (pFader->cursorInFrames >= 0) {
+        /*
+        For now we need to clamp frameCount so that the cursor never overflows 32-bits. This is required for
+        the conversion to a float which we use for the linear interpolation. This might be changed later.
+        */
+        if (frameCount + pFader->cursorInFrames > UINT_MAX) {
+            frameCount = UINT_MAX - pFader->cursorInFrames;
         }
-    } else {
-        /* Slower path. Volumes are different, so may need to do an interpolation. */
-        if (pFader->cursorInFrames >= pFader->lengthInFrames) {
-            /* Fast path. We've gone past the end of the fade period so just apply the end volume to all samples. */
-            ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
-        } else {
-            /* Slow path. This is where we do the actual fading. */
-            ma_uint64 iFrame;
-            ma_uint32 iChannel;
 
-            /* For now we only support f32. Support for other formats might be added later. */
-            if (pFader->config.format == ma_format_f32) {
-                const float* pFramesInF32  = (const float*)pFramesIn;
-                /* */ float* pFramesOutF32 = (      float*)pFramesOut;
-
-                for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
-                    float a = (ma_uint32)ma_min(pFader->cursorInFrames + iFrame, pFader->lengthInFrames) / (float)((ma_uint32)pFader->lengthInFrames);   /* Safe cast due to the frameCount clamp at the top of this function. */
-                    float volume = ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, a);
-
-                    for (iChannel = 0; iChannel < pFader->config.channels; iChannel += 1) {
-                        pFramesOutF32[iFrame*pFader->config.channels + iChannel] = pFramesInF32[iFrame*pFader->config.channels + iChannel] * volume;
-                    }
-                }
+        /* Optimized path if volumeBeg and volumeEnd are equal. */
+        if (pFader->volumeBeg == pFader->volumeEnd) {
+            if (pFader->volumeBeg == 1) {
+                /* Straight copy. */
+                ma_copy_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels);
             } else {
-                return MA_NOT_IMPLEMENTED;
+                /* Copy with volume. */
+                ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeBeg);
+            }
+        } else {
+            /* Slower path. Volumes are different, so may need to do an interpolation. */
+            if ((ma_uint64)pFader->cursorInFrames >= pFader->lengthInFrames) {
+                /* Fast path. We've gone past the end of the fade period so just apply the end volume to all samples. */
+                ma_copy_and_apply_volume_and_clip_pcm_frames(pFramesOut, pFramesIn, frameCount, pFader->config.format, pFader->config.channels, pFader->volumeEnd);
+            } else {
+                /* Slow path. This is where we do the actual fading. */
+                ma_uint64 iFrame;
+                ma_uint32 iChannel;
+
+                /* For now we only support f32. Support for other formats might be added later. */
+                if (pFader->config.format == ma_format_f32) {
+                    const float* pFramesInF32  = (const float*)pFramesIn;
+                    /* */ float* pFramesOutF32 = (      float*)pFramesOut;
+
+                    for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                        float a = (ma_uint32)ma_min(pFader->cursorInFrames + iFrame, pFader->lengthInFrames) / (float)((ma_uint32)pFader->lengthInFrames);   /* Safe cast due to the frameCount clamp at the top of this function. */
+                        float volume = ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, a);
+
+                        for (iChannel = 0; iChannel < pFader->config.channels; iChannel += 1) {
+                            pFramesOutF32[iFrame*pFader->config.channels + iChannel] = pFramesInF32[iFrame*pFader->config.channels + iChannel] * volume;
+                        }
+                    }
+                } else {
+                    return MA_NOT_IMPLEMENTED;
+                }
             }
         }
     }
@@ -49432,7 +49445,7 @@ MA_API void ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat,
 
 MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames)
 {
-    ma_fader_set_fade(pFader, volumeBeg, volumeEnd, lengthInFrames, 0);
+    ma_fader_set_fade_ex(pFader, volumeBeg, volumeEnd, lengthInFrames, 0);
 }
 
 MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_uint64 startOffsetInFrames)
@@ -49479,7 +49492,7 @@ MA_API float ma_fader_get_current_volume(const ma_fader* pFader)
     /* The current volume depends on the position of the cursor. */
     if (pFader->cursorInFrames == 0) {
         return pFader->volumeBeg;
-    } else if (pFader->cursorInFrames >= pFader->lengthInFrames) {
+    } else if ((ma_uint64)pFader->cursorInFrames >= pFader->lengthInFrames) {   /* Safe case because the < 0 case was checked above. */
         return pFader->volumeEnd;
     } else {
         /* The cursor is somewhere inside the fading period. We can figure this out with a simple linear interpoluation between volumeBeg and volumeEnd based on our cursor position. */
@@ -74160,6 +74173,17 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
     totalFramesProcessedIn  = 0;
     totalFramesProcessedOut = 0;
 
+    /* Update the fader if applicable. */
+    {
+        ma_uint64 fadeLengthInFrames = ma_atomic_uint64_get(&pEngineNode->fadeSettings.fadeLengthInFrames);
+        if (fadeLengthInFrames != ~(ma_uint64)0) {
+            ma_fader_set_fade_ex(&pEngineNode->fader, ma_atomic_float_get(&pEngineNode->fadeSettings.volumeBeg), ma_atomic_float_get(&pEngineNode->fadeSettings.volumeEnd), fadeLengthInFrames, ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames) - ma_engine_get_time(pEngineNode->pEngine));
+
+            /* Reset the fade length so we don't erroneously apply it again. */
+            ma_atomic_uint64_set(&pEngineNode->fadeSettings.fadeLengthInFrames, ~(ma_uint64)0);
+        }
+    }
+
     isPitchingEnabled        = ma_engine_node_is_pitching_enabled(pEngineNode);
     isFadingEnabled          = pEngineNode->fader.volumeBeg != 1 || pEngineNode->fader.volumeEnd != 1;
     isSpatializationEnabled  = ma_engine_node_is_spatialization_enabled(pEngineNode);
@@ -74178,10 +74202,10 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
         the output buffer and then do all effects from that point directly in the output buffer
         in-place.
 
-        Note that we're always running the resampler. If we try to be clever and skip resampling
-        when the pitch is 1, we'll get a glitch when we move away from 1, back to 1, and then
-        away from 1 again. We'll want to implement any pitch=1 optimizations in the resampler
-        itself.
+        Note that we're always running the resampler if pitching is enabled, even when the pitch
+        is 1. If we try to be clever and skip resampling when the pitch is 1, we'll get a glitch
+        when we move away from 1, back to 1, and then away from 1 again. We'll want to implement
+        any pitch=1 optimizations in the resampler itself.
 
         There's a small optimization here that we'll utilize since it might be a fairly common
         case. When the input and output channel counts are the same, we'll read straight into the
@@ -74679,6 +74703,10 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     pEngineNode->isPitchDisabled             = pConfig->isPitchDisabled;
     pEngineNode->isSpatializationDisabled    = pConfig->isSpatializationDisabled;
     pEngineNode->pinnedListenerIndex         = pConfig->pinnedListenerIndex;
+    ma_atomic_float_set(&pEngineNode->fadeSettings.volumeBeg, 1);
+    ma_atomic_float_set(&pEngineNode->fadeSettings.volumeEnd, 1);
+    ma_atomic_uint64_set(&pEngineNode->fadeSettings.fadeLengthInFrames, (~(ma_uint64)0));
+    ma_atomic_uint64_set(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames, (~(ma_uint64)0));   /* <-- Indicates that the fade should start immediately. */
 
     channelsIn  = (pConfig->channelsIn  != 0) ? pConfig->channelsIn  : ma_engine_get_channels(pConfig->pEngine);
     channelsOut = (pConfig->channelsOut != 0) ? pConfig->channelsOut : ma_engine_get_channels(pConfig->pEngine);
@@ -76546,7 +76574,7 @@ MA_API void ma_sound_set_fade_in_pcm_frames(ma_sound* pSound, float volumeBeg, f
         return;
     }
 
-    ma_fader_set_fade(&pSound->engineNode.fader, volumeBeg, volumeEnd, fadeLengthInFrames);
+    ma_sound_set_fade_start_in_pcm_frames(pSound, volumeBeg, volumeEnd, fadeLengthInFrames, (~(ma_uint64)0));
 }
 
 MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds)
@@ -76556,6 +76584,36 @@ MA_API void ma_sound_set_fade_in_milliseconds(ma_sound* pSound, float volumeBeg,
     }
 
     ma_sound_set_fade_in_pcm_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * pSound->engineNode.fader.config.sampleRate) / 1000);
+}
+
+MA_API void ma_sound_set_fade_start_in_pcm_frames(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInFrames, ma_uint64 absoluteGlobalTimeInFrames)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    /*
+    We don't want to update the fader at this point because we need to use the engine's current time
+    to derive the fader's start offset. The timer is being updated on the audio thread so in order to
+    do this as accurately as possible we'll need to defer this to the audio thread.
+    */
+    ma_atomic_float_set(&pSound->engineNode.fadeSettings.volumeBeg, volumeBeg);
+    ma_atomic_float_set(&pSound->engineNode.fadeSettings.volumeEnd, volumeEnd);
+    ma_atomic_uint64_set(&pSound->engineNode.fadeSettings.fadeLengthInFrames, fadeLengthInFrames);
+    ma_atomic_uint64_set(&pSound->engineNode.fadeSettings.absoluteGlobalTimeInFrames, absoluteGlobalTimeInFrames);
+}
+
+MA_API void ma_sound_set_fade_start_in_milliseconds(ma_sound* pSound, float volumeBeg, float volumeEnd, ma_uint64 fadeLengthInMilliseconds, ma_uint64 absoluteGlobalTimeInMilliseconds)
+{
+    ma_uint32 sampleRate;
+
+    if (pSound == NULL) {
+        return;
+    }
+
+    sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+
+    ma_sound_set_fade_start_in_pcm_frames(pSound, volumeBeg, volumeEnd, (fadeLengthInMilliseconds * sampleRate) / 1000, (absoluteGlobalTimeInMilliseconds * sampleRate) / 1000);
 }
 
 MA_API float ma_sound_get_current_fade_volume(const ma_sound* pSound)
