@@ -13,6 +13,7 @@ v0.11.18 - TBD
 * ALSA: Fix a possible error when stopping and restarting a device.
 * PulseAudio: Minor changes to stream flags.
 * Win32: Fix an error where `CoUninialize()` is being called when the corresponding `CoInitializeEx()` fails.
+* Web / Emscripten: Add support for AudioWorklets. This is opt-in and can be enabled by defining `MA_ENABLE_AUDIO_WORKLETS`. You must compile with `-sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY` for this to work. Requires at least Emscripten v3.1.32.
 
 
 v0.11.17 - 2023-05-27
