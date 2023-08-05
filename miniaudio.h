@@ -538,6 +538,20 @@ you'll need to disable run-time linking with `MA_NO_RUNTIME_LINKING` and link wi
 The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box.
 You cannot use `-std=c*` compiler flags, nor `-ansi`.
 
+You can enable the use of AudioWorkets by defining `MA_ENABLE_AUDIO_WORKLETS` and then compiling
+with the following options:
+
+    -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
+
+An example for compiling with AudioWorklet support might look like this:
+
+    emcc program.c -o bin/program.html -DMA_ENABLE_AUDIO_WORKLETS -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
+
+To run locally, you'll need to use emrun:
+    
+    emrun bin/program.html
+
+
 
 2.7. Build Options
 ------------------
