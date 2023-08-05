@@ -39879,6 +39879,11 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     (void)paramCount;
     (void)pParams;
 
+    if (ma_device_get_state(pDevice) != ma_device_state_started) {
+        return EM_TRUE;
+    }
+
+
     /*
     The Emscripten documentation says that it'll always be 128 frames being passed in. Hard coding it like that feels
     like a very bad idea to me. Even if it's hard coded in the backend, the API and documentation should always refer
@@ -39895,8 +39900,8 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
         ma_uint32 framesToProcessThisIteration = frameCount - framesProcessed;
 
         if (inputCount > 0) {
-            if (framesToProcessThisIteration > pDevice->webaudio.intermediaryBufferSizeInFramesPlayback) {
-                framesToProcessThisIteration = pDevice->webaudio.intermediaryBufferSizeInFramesPlayback;
+            if (framesToProcessThisIteration > pDevice->webaudio.intermediaryBufferSizeInFramesCapture) {
+                framesToProcessThisIteration = pDevice->webaudio.intermediaryBufferSizeInFramesCapture;
             }
 
             /* Input data needs to be interleaved before we hand it to the client. */
@@ -39907,9 +39912,7 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
             }
 
             ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcessThisIteration, pDevice->webaudio.pIntermediaryBufferCapture);
-        }
-
-        if (outputCount > 0) {
+        } else if (outputCount > 0) {
             ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcessThisIteration, pDevice->webaudio.pIntermediaryBufferPlayback);
 
             /* We've read the data from the client. Now we need to deinterleave the buffer and output to the output buffer. */
@@ -39979,7 +39982,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
                     */
                 })
                 .catch(function(error) {
-
+                    console.log("navigator.mediaDevices.getUserMedia Failed: " + error);
                 });
         }, workletNode, audioContext);
     } else {
@@ -40046,13 +40049,29 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
 
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "periodSizeInFrames = %d\n", (int)periodSizeInFrames);
 
-#if defined(MA_USE_AUDIO_WORKLETS)
+    #if defined(MA_USE_AUDIO_WORKLETS)
     {
         ma_audio_worklet_thread_initialized_data* pInitParameters;
         EmscriptenWebAudioCreateAttributes audioContextAttributes;
 
-        audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE;
-        audioContextAttributes.sampleRate  = sampleRate;
+        if (pConfig->performanceProfile == ma_performance_profile_conservative) {
+            audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_PLAYBACK;
+        } else {
+            audioContextAttributes.latencyHint = MA_WEBAUDIO_LATENCY_HINT_INTERACTIVE;
+        }
+
+        /*
+        In my testing, Firefox does not seem to capture audio data properly if the sample rate is set
+        to anything other than 48K. This does not seem to be the case for other browsers. For this reason,
+        if the device type is anything other than playback, we'll leave the sample rate as-is and let the
+        browser pick the appropriate rate for us.
+        */
+        if (deviceType == ma_device_type_playback) {
+            audioContextAttributes.sampleRate = sampleRate;
+        } else {
+            audioContextAttributes.sampleRate = 0;
+        }
+        
 
         /* It's not clear if this can return an error. None of the tests in the Emscripten repository check for this, so neither am I for now. */
         audioContext = emscripten_create_audio_context(&audioContextAttributes);
@@ -40128,210 +40147,215 @@ static ma_result ma_device_init_by_type__webaudio(ma_device* pDevice, const ma_d
             }, audioContext);
         }
 
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "TRACE: INITIALIZED. channels = %u\n", channels);
-    }
-#else
-    /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
-    int deviceIndex = EM_ASM_INT({
-        var channels             = $0;
-        var sampleRate           = $1;
-        var bufferSize           = $2;    /* In PCM frames. */
-        var isCapture            = $3;
-        var pDevice              = $4;
-        var pAllocationCallbacks = $5;
+        /* Grab the sample rate straight from the context. */
+        sampleRate = (ma_uint32)EM_ASM_INT({
+            return emscriptenGetAudioObject($0).sampleRate;
+        }, audioContext);
 
-        if (typeof(window.miniaudio) === 'undefined') {
-            return -1;  /* Context not initialized. */
-        }
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "TRACE: INITIALIZED. channels = %u; sampleRate = %u\n", channels, sampleRate);
 
-        var device = {};
-
-        /* The AudioContext must be created in a suspended state. */
-        device.webaudio = new (window.AudioContext || window.webkitAudioContext)({sampleRate:sampleRate});
-        device.webaudio.suspend();
-        device.state = 1; /* ma_device_state_stopped */
-
-        /* We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. */
-        device.intermediaryBufferSizeInBytes = channels * bufferSize * 4;
-        device.intermediaryBuffer = _ma_malloc_emscripten(device.intermediaryBufferSizeInBytes, pAllocationCallbacks);
-        device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
-
-        /*
-        Both playback and capture devices use a ScriptProcessorNode for performing per-sample operations.
-
-        ScriptProcessorNode is actually deprecated so this is likely to be temporary. The way this works for playback is very simple. You just set a callback
-        that's periodically fired, just like a normal audio callback function. But apparently this design is "flawed" and is now deprecated in favour of
-        something called AudioWorklets which _forces_ you to load a _separate_ .js file at run time... nice... Hopefully ScriptProcessorNode will continue to
-        work for years to come, but this may need to change to use AudioSourceBufferNode instead, which I think is what Emscripten uses for it's built-in SDL
-        implementation. I'll be avoiding that insane AudioWorklet API like the plague...
-
-        For capture it is a bit unintuitive. We use the ScriptProccessorNode _only_ to get the raw PCM data. It is connected to an AudioContext just like the
-        playback case, however we just output silence to the AudioContext instead of passing any real data. It would make more sense to me to use the
-        MediaRecorder API, but unfortunately you need to specify a MIME time (Opus, Vorbis, etc.) for the binary blob that's returned to the client, but I've
-        been unable to figure out how to get this as raw PCM. The closest I can think is to use the MIME type for WAV files and just parse it, but I don't know
-        how well this would work. Although ScriptProccessorNode is deprecated, in practice it seems to have pretty good browser support so I'm leaving it like
-        this for now. If anyone knows how I could get raw PCM data using the MediaRecorder API please let me know!
-        */
-        device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, (isCapture) ? channels : 0, (isCapture) ? 0 : channels);
-
-        if (isCapture) {
-            device.scriptNode.onaudioprocess = function(e) {
-                if (device.intermediaryBuffer === undefined) {
-                    return; /* This means the device has been uninitialized. */
-                }
-
-                if (device.intermediaryBufferView.length == 0) {
-                    /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
-                    device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
-                }
-
-                /* Make sure silence it output to the AudioContext destination. Not doing this will cause sound to come out of the speakers! */
-                for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                    e.outputBuffer.getChannelData(iChannel).fill(0.0);
-                }
-
-                /* There are some situations where we may want to send silence to the client. */
-                var sendSilence = false;
-                if (device.streamNode === undefined) {
-                    sendSilence = true;
-                }
-
-                /* Sanity check. This will never happen, right? */
-                if (e.inputBuffer.numberOfChannels != channels) {
-                    console.log("Capture: Channel count mismatch. " + e.inputBufer.numberOfChannels + " != " + channels + ". Sending silence.");
-                    sendSilence = true;
-                }
-
-                /* This looped design guards against the situation where e.inputBuffer is a different size to the original buffer size. Should never happen in practice. */
-                var totalFramesProcessed = 0;
-                while (totalFramesProcessed < e.inputBuffer.length) {
-                    var framesRemaining = e.inputBuffer.length - totalFramesProcessed;
-                    var framesToProcess = framesRemaining;
-                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
-                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
-                    }
-
-                    /* We need to do the reverse of the playback case. We need to interleave the input data and copy it into the intermediary buffer. Then we send it to the client. */
-                    if (sendSilence) {
-                        device.intermediaryBufferView.fill(0.0);
-                    } else {
-                        for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
-                            for (var iChannel = 0; iChannel < e.inputBuffer.numberOfChannels; ++iChannel) {
-                                device.intermediaryBufferView[iFrame*channels + iChannel] = e.inputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame];
-                            }
-                        }
-                    }
-
-                    /* Send data to the client from our intermediary buffer. */
-                    _ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
-
-                    totalFramesProcessed += framesToProcess;
-                }
-            };
-
-            navigator.mediaDevices.getUserMedia({audio:true, video:false})
-                .then(function(stream) {
-                    device.streamNode = device.webaudio.createMediaStreamSource(stream);
-                    device.streamNode.connect(device.scriptNode);
-                    device.scriptNode.connect(device.webaudio.destination);
-                })
-                .catch(function(error) {
-                    /* I think this should output silence... */
-                    device.scriptNode.connect(device.webaudio.destination);
-                });
+        if (deviceType == ma_device_type_capture) {
+            pDevice->webaudio.audioContextCapture = audioContext;
+            pDevice->webaudio.pStackBufferCapture = pStackBuffer;
+            pDevice->webaudio.intermediaryBufferSizeInFramesCapture = intermediaryBufferSizeInFrames;
+            pDevice->webaudio.pIntermediaryBufferCapture = pIntermediaryBuffer;
         } else {
-            device.scriptNode.onaudioprocess = function(e) {
-                if (device.intermediaryBuffer === undefined) {
-                    return; /* This means the device has been uninitialized. */
-                }
+            pDevice->webaudio.audioContextPlayback = audioContext;
+            pDevice->webaudio.pStackBufferPlayback = pStackBuffer;
+            pDevice->webaudio.intermediaryBufferSizeInFramesPlayback = intermediaryBufferSizeInFrames;
+            pDevice->webaudio.pIntermediaryBufferPlayback = pIntermediaryBuffer;
+        }
+    }
+    #else
+    {
+        /* We create the device on the JavaScript side and reference it using an index. We use this to make it possible to reference the device between JavaScript and C. */
+        int deviceIndex = EM_ASM_INT({
+            var channels             = $0;
+            var sampleRate           = $1;
+            var bufferSize           = $2;    /* In PCM frames. */
+            var isCapture            = $3;
+            var pDevice              = $4;
+            var pAllocationCallbacks = $5;
 
-                if(device.intermediaryBufferView.length == 0) {
-                    /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
-                    device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
-                }
+            if (typeof(window.miniaudio) === 'undefined') {
+                return -1;  /* Context not initialized. */
+            }
 
-                var outputSilence = false;
+            var device = {};
 
-                /* Sanity check. This will never happen, right? */
-                if (e.outputBuffer.numberOfChannels != channels) {
-                    console.log("Playback: Channel count mismatch. " + e.outputBufer.numberOfChannels + " != " + channels + ". Outputting silence.");
-                    outputSilence = true;
-                    return;
-                }
+            /*
+            When testing in Firefox, I've seen it where capture mode fails if the sample rate is changed to anything other than it's
+            native rate. For this reason we're leaving the sample rate untouched for capture devices.
+            */
+            var options = {};
+            if (!isCapture) {
+                options.sampleRate = sampleRate;
+            }
 
-                /* This looped design guards against the situation where e.outputBuffer is a different size to the original buffer size. Should never happen in practice. */
-                var totalFramesProcessed = 0;
-                while (totalFramesProcessed < e.outputBuffer.length) {
-                    var framesRemaining = e.outputBuffer.length - totalFramesProcessed;
-                    var framesToProcess = framesRemaining;
-                    if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
-                        framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
+            device.webaudio = new (window.AudioContext || window.webkitAudioContext)(options);
+            device.webaudio.suspend();  /* The AudioContext must be created in a suspended state. */
+            device.state = 1; /* ma_device_state_stopped */
+
+            /* We need an intermediary buffer which we use for JavaScript and C interop. This buffer stores interleaved f32 PCM data. */
+            device.intermediaryBufferSizeInBytes = channels * bufferSize * 4;
+            device.intermediaryBuffer = _ma_malloc_emscripten(device.intermediaryBufferSizeInBytes, pAllocationCallbacks);
+            device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
+
+            /*
+            Both playback and capture devices use a ScriptProcessorNode for performing per-sample operations which is deprecated, but
+            thanks to Emscripten it can now work nicely with miniaudio. Therefore, this code will be considered legacy once the
+            AudioWorklet implementation is enabled by default in miniaudio.
+
+            The use of ScriptProcessorNode is quite simple - you simply provide a callback and do your audio processing in there. For
+            capture it's slightly unintuitive because you need to attach your node to the destination in order to capture anything.
+            Therefore, the output channel count needs to be set for capture devices or else you'll get errors by the browser. In the
+            callback we just output silence to ensure nothing comes out of the speakers.
+            */
+            device.scriptNode = device.webaudio.createScriptProcessor(bufferSize, (isCapture) ? channels : 0, channels);    /* Always set the output channel count, even for capture mode. */
+
+            if (isCapture) {
+                device.scriptNode.onaudioprocess = function(e) {
+                    if (device.intermediaryBuffer === undefined) {
+                        return; /* This means the device has been uninitialized. */
                     }
 
-                    /* Read data from the client into our intermediary buffer. */
-                    _ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
+                    if (device.intermediaryBufferView.length == 0) {
+                        /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
+                        device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
+                    }
 
-                    /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
-                    if (outputSilence) {
-                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                            e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                    /* Make sure silence it output to the AudioContext destination. Not doing this will cause sound to come out of the speakers! */
+                    for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                        e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                    }
+
+                    /* There are some situations where we may want to send silence to the client. */
+                    var sendSilence = false;
+                    if (device.streamNode === undefined) {
+                        sendSilence = true;
+                    }
+
+                    /* Sanity check. This will never happen, right? */
+                    if (e.inputBuffer.numberOfChannels != channels) {
+                        console.log("Capture: Channel count mismatch. " + e.inputBufer.numberOfChannels + " != " + channels + ". Sending silence.");
+                        sendSilence = true;
+                    }
+
+                    /* This looped design guards against the situation where e.inputBuffer is a different size to the original buffer size. Should never happen in practice. */
+                    var totalFramesProcessed = 0;
+                    while (totalFramesProcessed < e.inputBuffer.length) {
+                        var framesRemaining = e.inputBuffer.length - totalFramesProcessed;
+                        var framesToProcess = framesRemaining;
+                        if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
+                            framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
                         }
-                    } else {
-                        for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
-                            var outputBuffer = e.outputBuffer.getChannelData(iChannel);
-                            var intermediaryBuffer = device.intermediaryBufferView;
+
+                        /* We need to do the reverse of the playback case. We need to interleave the input data and copy it into the intermediary buffer. Then we send it to the client. */
+                        if (sendSilence) {
+                            device.intermediaryBufferView.fill(0.0);
+                        } else {
                             for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
-                                outputBuffer[totalFramesProcessed + iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
+                                for (var iChannel = 0; iChannel < e.inputBuffer.numberOfChannels; ++iChannel) {
+                                    device.intermediaryBufferView[iFrame*channels + iChannel] = e.inputBuffer.getChannelData(iChannel)[totalFramesProcessed + iFrame];
+                                }
                             }
                         }
+
+                        /* Send data to the client from our intermediary buffer. */
+                        _ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
+
+                        totalFramesProcessed += framesToProcess;
+                    }
+                };
+
+                navigator.mediaDevices.getUserMedia({audio:true, video:false})
+                    .then(function(stream) {
+                        device.streamNode = device.webaudio.createMediaStreamSource(stream);
+                        device.streamNode.connect(device.scriptNode);
+                        device.scriptNode.connect(device.webaudio.destination);
+                    })
+                    .catch(function(error) {
+                        /* I think this should output silence... */
+                        device.scriptNode.connect(device.webaudio.destination);
+                    });
+            } else {
+                device.scriptNode.onaudioprocess = function(e) {
+                    if (device.intermediaryBuffer === undefined) {
+                        return; /* This means the device has been uninitialized. */
                     }
 
-                    totalFramesProcessed += framesToProcess;
-                }
-            };
+                    if(device.intermediaryBufferView.length == 0) {
+                        /* Recreate intermediaryBufferView when losing reference to the underlying buffer, probably due to emscripten resizing heap. */
+                        device.intermediaryBufferView = new Float32Array(Module.HEAPF32.buffer, device.intermediaryBuffer, device.intermediaryBufferSizeInBytes);
+                    }
 
-            device.scriptNode.connect(device.webaudio.destination);
+                    var outputSilence = false;
+
+                    /* Sanity check. This will never happen, right? */
+                    if (e.outputBuffer.numberOfChannels != channels) {
+                        console.log("Playback: Channel count mismatch. " + e.outputBufer.numberOfChannels + " != " + channels + ". Outputting silence.");
+                        outputSilence = true;
+                        return;
+                    }
+
+                    /* This looped design guards against the situation where e.outputBuffer is a different size to the original buffer size. Should never happen in practice. */
+                    var totalFramesProcessed = 0;
+                    while (totalFramesProcessed < e.outputBuffer.length) {
+                        var framesRemaining = e.outputBuffer.length - totalFramesProcessed;
+                        var framesToProcess = framesRemaining;
+                        if (framesToProcess > (device.intermediaryBufferSizeInBytes/channels/4)) {
+                            framesToProcess = (device.intermediaryBufferSizeInBytes/channels/4);
+                        }
+
+                        /* Read data from the client into our intermediary buffer. */
+                        _ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcess, device.intermediaryBuffer);
+
+                        /* At this point we'll have data in our intermediary buffer which we now need to deinterleave and copy over to the output buffers. */
+                        if (outputSilence) {
+                            for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                                e.outputBuffer.getChannelData(iChannel).fill(0.0);
+                            }
+                        } else {
+                            for (var iChannel = 0; iChannel < e.outputBuffer.numberOfChannels; ++iChannel) {
+                                var outputBuffer = e.outputBuffer.getChannelData(iChannel);
+                                var intermediaryBuffer = device.intermediaryBufferView;
+                                for (var iFrame = 0; iFrame < framesToProcess; ++iFrame) {
+                                    outputBuffer[totalFramesProcessed + iFrame] = intermediaryBuffer[iFrame*channels + iChannel];
+                                }
+                            }
+                        }
+
+                        totalFramesProcessed += framesToProcess;
+                    }
+                };
+
+                device.scriptNode.connect(device.webaudio.destination);
+            }
+
+            return miniaudio.track_device(device);
+        }, channels, sampleRate, periodSizeInFrames, deviceType == ma_device_type_capture, pDevice, &pDevice->pContext->allocationCallbacks);
+
+        if (deviceIndex < 0) {
+            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
         }
 
-        return miniaudio.track_device(device);
-    }, channels, sampleRate, periodSizeInFrames, deviceType == ma_device_type_capture, pDevice, &pDevice->pContext->allocationCallbacks);
+        if (deviceType == ma_device_type_capture) {
+            pDevice->webaudio.indexCapture  = deviceIndex;
+        } else {
+            pDevice->webaudio.indexPlayback = deviceIndex;
+        }
 
-    if (deviceIndex < 0) {
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        /* Grab the actual sample rate from the context. This will become the internal sample rate for use by miniaudio. */
+        sampleRate = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
     }
-#endif
-
-#if defined(MA_USE_AUDIO_WORKLETS)
-    if (deviceType == ma_device_type_capture) {
-        pDevice->webaudio.audioContextCapture = audioContext;
-        pDevice->webaudio.pStackBufferCapture = pStackBuffer;
-        pDevice->webaudio.intermediaryBufferSizeInFramesCapture = intermediaryBufferSizeInFrames;
-        pDevice->webaudio.pIntermediaryBufferCapture = pIntermediaryBuffer;
-    } else {
-        pDevice->webaudio.audioContextPlayback = audioContext;
-        pDevice->webaudio.pStackBufferPlayback = pStackBuffer;
-        pDevice->webaudio.intermediaryBufferSizeInFramesPlayback = intermediaryBufferSizeInFrames;
-        pDevice->webaudio.pIntermediaryBufferPlayback = pIntermediaryBuffer;
-    }
-#else
-    if (deviceType == ma_device_type_capture) {
-        pDevice->webaudio.indexCapture  = deviceIndex;
-    } else {
-        pDevice->webaudio.indexPlayback = deviceIndex;
-    }
-#endif
+    #endif
 
     pDescriptor->format             = ma_format_f32;
     pDescriptor->channels           = channels;
+    pDescriptor->sampleRate         = sampleRate;
     ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pDescriptor->channelMap, ma_countof(pDescriptor->channelMap), pDescriptor->channels);
     pDescriptor->periodSizeInFrames = periodSizeInFrames;
     pDescriptor->periodCount        = 1;
-
-#if defined(MA_USE_AUDIO_WORKLETS)
-    pDescriptor->sampleRate = sampleRate;   /* Is this good enough to be used in the general case? */
-#else
-    pDescriptor->sampleRate = EM_ASM_INT({ return miniaudio.get_device_by_index($0).webaudio.sampleRate; }, deviceIndex);
-#endif
 
     return MA_SUCCESS;
 }
@@ -74184,7 +74208,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             float fadeVolumeBeg = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeBeg);
             float fadeVolumeEnd = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeEnd);
             ma_int64 fadeStartOffsetInFrames = (ma_int64)ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames);
-            if (fadeStartOffsetInFrames == ~(ma_uint64)0) {
+            if (fadeStartOffsetInFrames == (ma_int64)(~(ma_uint64)0)) {
                 fadeStartOffsetInFrames = 0;
             } else {
                 fadeStartOffsetInFrames -= ma_engine_get_time(pEngineNode->pEngine);

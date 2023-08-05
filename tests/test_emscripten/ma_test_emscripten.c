@@ -1,3 +1,4 @@
+#define MA_DEBUG_OUTPUT
 #define MA_NO_DECODING
 #define MA_NO_ENCODING
 #define MINIAUDIO_IMPLEMENTATION
@@ -73,12 +74,13 @@ static void do_duplex()
 
     deviceConfig = ma_device_config_init(ma_device_type_duplex);
     deviceConfig.capture.pDeviceID  = NULL;
-    deviceConfig.capture.format     = ma_format_s16;
+    deviceConfig.capture.format     = DEVICE_FORMAT;
     deviceConfig.capture.channels   = 2;
     deviceConfig.capture.shareMode  = ma_share_mode_shared;
     deviceConfig.playback.pDeviceID = NULL;
-    deviceConfig.playback.format    = ma_format_s16;
+    deviceConfig.playback.format    = DEVICE_FORMAT;
     deviceConfig.playback.channels  = 2;
+    deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
     deviceConfig.dataCallback       = data_callback_duplex;
     result = ma_device_init(NULL, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
