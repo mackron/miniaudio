@@ -5050,7 +5050,7 @@ MA_API ma_result ma_fader_init(const ma_fader_config* pConfig, ma_fader* pFader)
 MA_API ma_result ma_fader_process_pcm_frames(ma_fader* pFader, void* pFramesOut, const void* pFramesIn, ma_uint64 frameCount);
 MA_API void ma_fader_get_data_format(const ma_fader* pFader, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate);
 MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames);
-MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_uint64 startOffsetInFrames);
+MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_int64 startOffsetInFrames);
 MA_API float ma_fader_get_current_volume(const ma_fader* pFader);
 
 
@@ -11277,6 +11277,8 @@ MA_API ma_engine* ma_sound_get_engine(const ma_sound* pSound);
 MA_API ma_data_source* ma_sound_get_data_source(const ma_sound* pSound);
 MA_API ma_result ma_sound_start(ma_sound* pSound);
 MA_API ma_result ma_sound_stop(ma_sound* pSound);
+MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames);     /* Will overwrite any scheduled stop and fade. */
+MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInFrames);   /* Will overwrite any scheduled stop and fade. */
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume);
 MA_API float ma_sound_get_volume(const ma_sound* pSound);
 MA_API void ma_sound_set_pan(ma_sound* pSound, float pan);
@@ -11326,6 +11328,8 @@ MA_API void ma_sound_set_start_time_in_pcm_frames(ma_sound* pSound, ma_uint64 ab
 MA_API void ma_sound_set_start_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
 MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInFrames);
 MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds);
+MA_API void ma_sound_set_stop_time_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 stopAbsoluteGlobalTimeInFrames, ma_uint64 fadeLengthInFrames);
+MA_API void ma_sound_set_stop_time_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 stopAbsoluteGlobalTimeInMilliseconds, ma_uint64 fadeLengthInMilliseconds);
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound);
 MA_API ma_uint64 ma_sound_get_time_in_pcm_frames(const ma_sound* pSound);
 MA_API ma_uint64 ma_sound_get_time_in_milliseconds(const ma_sound* pSound);
@@ -49448,7 +49452,7 @@ MA_API void ma_fader_set_fade(ma_fader* pFader, float volumeBeg, float volumeEnd
     ma_fader_set_fade_ex(pFader, volumeBeg, volumeEnd, lengthInFrames, 0);
 }
 
-MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_uint64 startOffsetInFrames)
+MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volumeEnd, ma_uint64 lengthInFrames, ma_int64 startOffsetInFrames)
 {
     if (pFader == NULL) {
         return;
@@ -49475,7 +49479,7 @@ MA_API void ma_fader_set_fade_ex(ma_fader* pFader, float volumeBeg, float volume
     pFader->volumeBeg      = volumeBeg;
     pFader->volumeEnd      = volumeEnd;
     pFader->lengthInFrames = lengthInFrames;
-    pFader->cursorInFrames = -(ma_int64)startOffsetInFrames;
+    pFader->cursorInFrames = -startOffsetInFrames;
 }
 
 MA_API float ma_fader_get_current_volume(const ma_fader* pFader)
@@ -74179,7 +74183,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
         if (fadeLengthInFrames != ~(ma_uint64)0) {
             float fadeVolumeBeg = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeBeg);
             float fadeVolumeEnd = ma_atomic_float_get(&pEngineNode->fadeSettings.volumeEnd);
-            ma_uint64 fadeStartOffsetInFrames = ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames);
+            ma_int64 fadeStartOffsetInFrames = (ma_int64)ma_atomic_uint64_get(&pEngineNode->fadeSettings.absoluteGlobalTimeInFrames);
             if (fadeStartOffsetInFrames == ~(ma_uint64)0) {
                 fadeStartOffsetInFrames = 0;
             } else {
@@ -76182,6 +76186,31 @@ MA_API ma_result ma_sound_stop(ma_sound* pSound)
     return MA_SUCCESS;
 }
 
+MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 fadeLengthInFrames)
+{
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* Stopping with a fade out requires us to schedule the stop into the future by the fade length. */
+    ma_sound_set_stop_time_with_fade_in_pcm_frames(pSound, ma_engine_get_time(ma_sound_get_engine(pSound)) + fadeLengthInFrames, fadeLengthInFrames);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_sound_stop_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 fadeLengthInMilliseconds)
+{
+    ma_uint64 sampleRate;
+
+    if (pSound == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+
+    return ma_sound_stop_with_fade_in_pcm_frames(pSound, (fadeLengthInMilliseconds * sampleRate) / 1000);
+}
+
 MA_API void ma_sound_set_volume(ma_sound* pSound, float volume)
 {
     if (pSound == NULL) {
@@ -76658,7 +76687,7 @@ MA_API void ma_sound_set_stop_time_in_pcm_frames(ma_sound* pSound, ma_uint64 abs
         return;
     }
 
-    ma_node_set_state_time(pSound, ma_node_state_stopped, absoluteGlobalTimeInFrames);
+    ma_sound_set_stop_time_with_fade_in_pcm_frames(pSound, absoluteGlobalTimeInFrames, 0);
 }
 
 MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 absoluteGlobalTimeInMilliseconds)
@@ -76668,6 +76697,36 @@ MA_API void ma_sound_set_stop_time_in_milliseconds(ma_sound* pSound, ma_uint64 a
     }
 
     ma_sound_set_stop_time_in_pcm_frames(pSound, absoluteGlobalTimeInMilliseconds * ma_engine_get_sample_rate(ma_sound_get_engine(pSound)) / 1000);
+}
+
+MA_API void ma_sound_set_stop_time_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint64 stopAbsoluteGlobalTimeInFrames, ma_uint64 fadeLengthInFrames)
+{
+    if (pSound == NULL) {
+        return;
+    }
+
+    if (fadeLengthInFrames > 0) {
+        if (fadeLengthInFrames > stopAbsoluteGlobalTimeInFrames) {
+            fadeLengthInFrames = stopAbsoluteGlobalTimeInFrames;
+        }
+
+        ma_sound_set_fade_start_in_pcm_frames(pSound, -1, 0, fadeLengthInFrames, stopAbsoluteGlobalTimeInFrames - fadeLengthInFrames);
+    }
+
+    ma_node_set_state_time(pSound, ma_node_state_stopped, stopAbsoluteGlobalTimeInFrames);
+}
+
+MA_API void ma_sound_set_stop_time_with_fade_in_milliseconds(ma_sound* pSound, ma_uint64 stopAbsoluteGlobalTimeInMilliseconds, ma_uint64 fadeLengthInMilliseconds)
+{
+    ma_uint32 sampleRate;
+
+    if (pSound == NULL) {
+        return;
+    }
+
+    sampleRate = ma_engine_get_sample_rate(ma_sound_get_engine(pSound));
+
+    ma_sound_set_stop_time_with_fade_in_pcm_frames(pSound, (stopAbsoluteGlobalTimeInMilliseconds * sampleRate) / 1000, (fadeLengthInMilliseconds * sampleRate) / 1000);
 }
 
 MA_API ma_bool32 ma_sound_is_playing(const ma_sound* pSound)
