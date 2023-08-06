@@ -7966,10 +7966,6 @@ struct ma_device
             /* AudioWorklets path. */
             /* EMSCRIPTEN_WEBAUDIO_T */ int audioContext;
             /* EMSCRIPTEN_WEBAUDIO_T */ int audioWorklet;
-            size_t intermediaryBufferSizeInFramesPlayback;
-            size_t intermediaryBufferSizeInFramesCapture;
-            float* pIntermediaryBufferPlayback; /* An offset of pIntermediaryBuffer. */
-            float* pIntermediaryBufferCapture;  /* An offset of pIntermediaryBuffer. */
             float* pIntermediaryBuffer;
             void* pStackBuffer;
             ma_result initResult;   /* Set to MA_BUSY while initialization is in progress. */
@@ -39852,7 +39848,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
 {
     ma_device* pDevice = (ma_device*)pUserData;
     ma_uint32 frameCount;
-    ma_uint32 framesProcessed;
 
     (void)paramCount;
     (void)pParams;
@@ -39860,7 +39855,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     if (ma_device_get_state(pDevice) != ma_device_state_started) {
         return EM_TRUE;
     }
-
 
     /*
     The Emscripten documentation says that it'll always be 128 frames being passed in. Hard coding it like that feels
@@ -39872,43 +39866,31 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     */
     frameCount = 128;
 
-    /* Run the conversion logic in a loop for robustness. */
-    framesProcessed = 0;
-    while (framesProcessed < frameCount) {
-        ma_uint32 framesToProcessThisIteration = frameCount - framesProcessed;
-
-        if (inputCount > 0) {
-            if (framesToProcessThisIteration > pDevice->webaudio.intermediaryBufferSizeInFramesCapture) {
-                framesToProcessThisIteration = pDevice->webaudio.intermediaryBufferSizeInFramesCapture;
-            }
-
-            /* Input data needs to be interleaved before we hand it to the client. */
-            for (ma_uint32 iFrame = 0; iFrame < framesToProcessThisIteration; iFrame += 1) {
-                for (ma_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; iChannel += 1) {
-                    pDevice->webaudio.pIntermediaryBufferCapture[iFrame*pDevice->capture.internalChannels + iChannel] = pInputs[0].data[frameCount*iChannel + framesProcessed + iFrame];
-                }
-            }
-
-            ma_device_process_pcm_frames_capture__webaudio(pDevice, framesToProcessThisIteration, pDevice->webaudio.pIntermediaryBufferCapture);
-        }
-        
-        if (outputCount > 0) {
-            /* If it's a capture-only device, we'll need to output silence. */
-            if (pDevice->type == ma_device_type_capture) {
-                MA_ZERO_MEMORY(pOutputs[0].data + (framesProcessed * pDevice->playback.internalChannels), framesToProcessThisIteration * pDevice->playback.internalChannels * sizeof(float));
-            } else {
-                ma_device_process_pcm_frames_playback__webaudio(pDevice, framesToProcessThisIteration, pDevice->webaudio.pIntermediaryBufferPlayback);
-
-                /* We've read the data from the client. Now we need to deinterleave the buffer and output to the output buffer. */
-                for (ma_uint32 iFrame = 0; iFrame < framesToProcessThisIteration; iFrame += 1) {
-                    for (ma_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; iChannel += 1) {
-                        pOutputs[0].data[frameCount*iChannel + framesProcessed + iFrame] = pDevice->webaudio.pIntermediaryBufferPlayback[iFrame*pDevice->playback.internalChannels + iChannel];
-                    }
-                }
+    if (inputCount > 0) {
+        /* Input data needs to be interleaved before we hand it to the client. */
+        for (ma_uint32 iChannel = 0; iChannel < pDevice->capture.internalChannels; iChannel += 1) {
+            for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                pDevice->webaudio.pIntermediaryBuffer[iFrame*pDevice->capture.internalChannels + iChannel] = pInputs[0].data[frameCount*iChannel + iFrame];
             }
         }
 
-        framesProcessed += framesToProcessThisIteration;
+        ma_device_process_pcm_frames_capture__webaudio(pDevice, frameCount, pDevice->webaudio.pIntermediaryBuffer);
+    }
+
+    if (outputCount > 0) {
+        /* If it's a capture-only device, we'll need to output silence. */
+        if (pDevice->type == ma_device_type_capture) {
+            MA_ZERO_MEMORY(pOutputs[0].data, frameCount * pDevice->playback.internalChannels * sizeof(float));
+        } else {
+            ma_device_process_pcm_frames_playback__webaudio(pDevice, frameCount, pDevice->webaudio.pIntermediaryBuffer);
+
+            /* We've read the data from the client. Now we need to deinterleave the buffer and output to the output buffer. */
+            for (ma_uint32 iChannel = 0; iChannel < pDevice->playback.internalChannels; iChannel += 1) {
+                for (ma_uint32 iFrame = 0; iFrame < frameCount; iFrame += 1) {
+                    pOutputs[0].data[frameCount*iChannel + iFrame] = pDevice->webaudio.pIntermediaryBuffer[iFrame*pDevice->playback.internalChannels + iChannel];
+                }
+            }
+        }
     }
 
     return EM_TRUE;
@@ -39919,12 +39901,8 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 {
     ma_audio_worklet_thread_initialized_data* pParameters = (ma_audio_worklet_thread_initialized_data*)pUserData;
     EmscriptenAudioWorkletNodeCreateOptions audioWorkletOptions;
-    ma_uint32 channelsCapture;
-    ma_uint32 channelsPlayback;
-    int outputChannelCount = 0;
+    int channels = 0;
     size_t intermediaryBufferSizeInFrames;
-    size_t intermediaryBufferSizeInSamplesCapture  = 0;
-    size_t intermediaryBufferSizeInSamplesPlayback = 0;
     int sampleRate;
 
     if (success == EM_FALSE) {
@@ -39932,36 +39910,6 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
         ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
         return;
     }
-
-
-    /*
-    We need an intermediary buffer for data conversion. WebAudio reports data in uninterleaved
-    format whereas we require it to be interleaved. We'll do this in chunks of 128 frames.
-    */
-    intermediaryBufferSizeInFrames = 128;
-
-    if (pParameters->pConfig->deviceType == ma_device_type_capture || pParameters->pConfig->deviceType == ma_device_type_duplex) {
-        channelsCapture = (pParameters->pDescriptorCapture->channels > 0) ? pParameters->pDescriptorCapture->channels : MA_DEFAULT_CHANNELS;
-        intermediaryBufferSizeInSamplesCapture = intermediaryBufferSizeInFrames * channelsCapture;
-    }
-
-    if (pParameters->pConfig->deviceType == ma_device_type_playback || pParameters->pConfig->deviceType == ma_device_type_duplex) {
-        channelsPlayback = (pParameters->pDescriptorPlayback->channels > 0) ? pParameters->pDescriptorPlayback->channels : MA_DEFAULT_CHANNELS;
-        intermediaryBufferSizeInSamplesPlayback = intermediaryBufferSizeInFrames * channelsPlayback;
-    }
-
-    pParameters->pDevice->webaudio.pIntermediaryBuffer = (float*)ma_malloc((intermediaryBufferSizeInSamplesCapture + intermediaryBufferSizeInSamplesPlayback) * sizeof(float), &pParameters->pDevice->pContext->allocationCallbacks);
-    if (pParameters->pDevice->webaudio.pIntermediaryBuffer == NULL) {
-        pParameters->pDevice->webaudio.initResult = MA_OUT_OF_MEMORY;
-        ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
-        return;
-    }
-
-    pParameters->pDevice->webaudio.pIntermediaryBufferCapture  = pParameters->pDevice->webaudio.pIntermediaryBuffer;
-    pParameters->pDevice->webaudio.pIntermediaryBufferPlayback = pParameters->pDevice->webaudio.pIntermediaryBuffer + intermediaryBufferSizeInSamplesCapture;
-    pParameters->pDevice->webaudio.intermediaryBufferSizeInFramesCapture  = intermediaryBufferSizeInFrames;
-    pParameters->pDevice->webaudio.intermediaryBufferSizeInFramesPlayback = intermediaryBufferSizeInFrames;
-
 
     /* The next step is to initialize the audio worklet node. */
     MA_ZERO_OBJECT(&audioWorkletOptions);
@@ -39974,10 +39922,10 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     proper control over the channel count. In the capture case, we'll have to output silence to it's output node.
     */
     if (pParameters->pConfig->deviceType == ma_device_type_capture) {
-        outputChannelCount = (int)channelsCapture;
+        channels = (int)((pParameters->pDescriptorCapture->channels > 0) ? pParameters->pDescriptorCapture->channels : MA_DEFAULT_CHANNELS);
         audioWorkletOptions.numberOfInputs = 1;
     } else {
-        outputChannelCount = (int)channelsPlayback;
+        channels = (int)((pParameters->pDescriptorPlayback->channels > 0) ? pParameters->pDescriptorPlayback->channels : MA_DEFAULT_CHANNELS);
 
         if (pParameters->pConfig->deviceType == ma_device_type_duplex) {
             audioWorkletOptions.numberOfInputs = 1;
@@ -39987,10 +39935,24 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     }
 
     audioWorkletOptions.numberOfOutputs = 1;
-    audioWorkletOptions.outputChannelCounts = &outputChannelCount;
+    audioWorkletOptions.outputChannelCounts = &channels;
+
+
+    /*
+    Now that we know the channel count to use we can allocate the intermediary buffer. The
+    intermediary buffer is used for interleaving and deinterleaving.
+    */
+    intermediaryBufferSizeInFrames = 128;
+
+    pParameters->pDevice->webaudio.pIntermediaryBuffer = (float*)ma_malloc(intermediaryBufferSizeInFrames * (ma_uint32)channels * sizeof(float), &pParameters->pDevice->pContext->allocationCallbacks);
+    if (pParameters->pDevice->webaudio.pIntermediaryBuffer == NULL) {
+        pParameters->pDevice->webaudio.initResult = MA_OUT_OF_MEMORY;
+        ma_free(pParameters, &pParameters->pDevice->pContext->allocationCallbacks);
+        return;
+    }
+
 
     pParameters->pDevice->webaudio.audioWorklet = emscripten_create_wasm_audio_worklet_node(audioContext, "miniaudio", &audioWorkletOptions, &ma_audio_worklet_process_callback__webaudio, pParameters->pDevice);
-
 
     /* With the audio worklet initialized we can now attach it to the graph. */
     if (pParameters->pConfig->deviceType == ma_device_type_capture || pParameters->pConfig->deviceType == ma_device_type_duplex) {
@@ -40045,7 +40007,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 
     if (pParameters->pDescriptorCapture != NULL) {
         pParameters->pDescriptorCapture->format              = ma_format_f32;
-        pParameters->pDescriptorCapture->channels            = (ma_uint32)outputChannelCount;
+        pParameters->pDescriptorCapture->channels            = (ma_uint32)channels;
         pParameters->pDescriptorCapture->sampleRate          = (ma_uint32)sampleRate;
         ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorCapture->channelMap, ma_countof(pParameters->pDescriptorCapture->channelMap), pParameters->pDescriptorCapture->channels);
         pParameters->pDescriptorCapture->periodSizeInFrames  = intermediaryBufferSizeInFrames;
@@ -40054,7 +40016,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 
     if (pParameters->pDescriptorPlayback != NULL) {
         pParameters->pDescriptorPlayback->format             = ma_format_f32;
-        pParameters->pDescriptorPlayback->channels           = (ma_uint32)outputChannelCount;
+        pParameters->pDescriptorPlayback->channels           = (ma_uint32)channels;
         pParameters->pDescriptorPlayback->sampleRate         = (ma_uint32)sampleRate;
         ma_channel_map_init_standard(ma_standard_channel_map_webaudio, pParameters->pDescriptorPlayback->channelMap, ma_countof(pParameters->pDescriptorPlayback->channelMap), pParameters->pDescriptorPlayback->channels);
         pParameters->pDescriptorPlayback->periodSizeInFrames = intermediaryBufferSizeInFrames;
