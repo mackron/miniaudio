@@ -104,6 +104,12 @@ static EM_BOOL on_canvas_click(int eventType, const EmscriptenMouseEvent* pMouse
         }
 
         isRunning = MA_TRUE;
+    } else {
+        if (ma_device_get_state(&device) == ma_device_state_started) {
+            ma_device_stop(&device);
+        } else {
+            ma_device_start(&device);
+        }
     }
 
     (void)eventType;
