@@ -1,3 +1,8 @@
+v0.11.19 - TBD
+=====================
+* Remove the use of some deprecated functions.
+
+
 v0.11.18 - 2023-08-07
 =====================
 * Fix some AIFF compatibility issues.
