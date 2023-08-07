@@ -7051,6 +7051,15 @@ typedef struct ma_device_config         ma_device_config;
 typedef struct ma_device_backend_vtable ma_device_backend_vtable;
 typedef struct ma_backend_callbacks     ma_backend_callbacks;
 
+/* For defining vtables, configs and user data pointers for custom backends. */
+typedef struct
+{
+    const ma_device_backend_vtable* pVTable;    /* The vtable of the backend. */
+    const void* pConfig;                        /* Contextual based on whether or not this is being used for a context or device. The object this points to depends on the backend. */
+    void* pUserData;                            /* User data pointer passed into each callback in the vtable. */
+} ma_device_backend_spec;
+
+
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
 
 #ifndef MA_MAX_DEVICE_NAME_LENGTH
@@ -7152,6 +7161,11 @@ struct ma_device_config
         ma_bool32 noAutoStartAfterReroute;
         ma_bool32 enableCompatibilityWorkarounds;
     } aaudio;
+    struct
+    {
+        ma_device_backend_spec* pBackends;
+        size_t count;
+    } custom;
 };
 
 
@@ -7336,8 +7350,7 @@ struct ma_context_config
     } jack;
     struct
     {
-        ma_device_backend_vtable** ppVTables;
-        void** ppUserDatas;
+        ma_device_backend_spec* pBackends;
         size_t count;
     } custom;
 };
@@ -7371,7 +7384,7 @@ typedef struct
 struct ma_context
 {
     ma_backend_callbacks callbacks;     /* Old system. Will be removed when all stock backends have been converted over to the new system. */
-    ma_device_backend_vtable* pVTable;  /* New system. */
+    const ma_device_backend_vtable* pVTable;  /* New system. */
     void* pVTableUserData;
     void* pBackendData;                 /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
@@ -8100,6 +8113,19 @@ ma_context_init()
 */
 MA_API ma_context_config ma_context_config_init(void);
 
+
+/*
+Helper function for retrieving a pointer to a custom backend's context config.
+
+
+Remarks
+-------
+This should only ever be used by custom backend implementations. It's used for retrieving the
+pConfig pointer that has been associated with the specified backend vtable.
+*/
+MA_API const void* ma_context_config_find_custom_backend_config(const ma_context_config* pConfig, const ma_device_backend_vtable* pVTable);
+
+
 /*
 Initializes a context.
 
@@ -8606,6 +8632,18 @@ ma_device_init()
 ma_device_init_ex()
 */
 MA_API ma_device_config ma_device_config_init(ma_device_type deviceType);
+
+
+/*
+Helper function for retrieving a pointer to a custom backend's context config.
+
+
+Remarks
+-------
+This should only ever be used by custom backend implementations. It's used for retrieving the
+pConfig pointer that has been associated with the specified backend vtable.
+*/
+MA_API const void* ma_device_config_find_custom_backend_config(const ma_device_config* pConfig, const ma_device_backend_vtable* pVTable);
 
 
 /*
@@ -41310,6 +41348,23 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
 }
 
 
+static const void* ma_find_device_backend_config(const ma_device_backend_spec* pBackends, size_t count, const ma_device_backend_vtable* pVTable)
+{
+    size_t iBackend;
+
+    if (pBackends == NULL || count == 0) {
+        return NULL;
+    }
+
+    for (iBackend = 0; iBackend < count; iBackend += 1) {
+        if (pBackends[iBackend].pVTable == pVTable) {
+            return pBackends[iBackend].pConfig;
+        }
+    }
+
+    return NULL;
+}
+
 
 MA_API ma_context_config ma_context_config_init(void)
 {
@@ -41318,6 +41373,16 @@ MA_API ma_context_config ma_context_config_init(void)
 
     return config;
 }
+
+MA_API const void* ma_context_config_find_custom_backend_config(const ma_context_config* pConfig, const ma_device_backend_vtable* pVTable)
+{
+    if (pVTable == NULL || pConfig == NULL) {
+        return NULL;
+    }
+
+    return ma_find_device_backend_config(pConfig->custom.pBackends, pConfig->custom.count, pVTable);
+}
+
 
 MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendCount, const ma_context_config* pConfig, ma_context* pContext)
 {
@@ -41508,27 +41573,22 @@ MA_API ma_result ma_context_init(const ma_backend backends[], ma_uint32 backendC
         /* Special case for custom backends. */
         if (backend == ma_backend_custom) {
             /* It's a custom backend. We need to iterate over each vtable and use the first one that works. */
-            if (pConfig->custom.ppVTables != NULL && pConfig->custom.count > 0) {
-                size_t iVTable;
-                for (iVTable = 0; iVTable < pConfig->custom.count; iVTable += 1) {
-                    void* pUserData = NULL;
-                    if (pConfig->custom.ppUserDatas != NULL) {
-                        pUserData = pConfig->custom.ppUserDatas[iVTable];
-                    }
-
-                    pContext->pVTable         = pConfig->custom.ppVTables[iVTable];
-                    pContext->pVTableUserData = pUserData;
+            if (pConfig->custom.pBackends != NULL && pConfig->custom.count > 0) {
+                size_t iCustomBackend;
+                for (iCustomBackend = 0; iCustomBackend < pConfig->custom.count; iCustomBackend += 1) {
+                    pContext->pVTable         = pConfig->custom.pBackends[iCustomBackend].pVTable;
+                    pContext->pVTableUserData = pConfig->custom.pBackends[iCustomBackend].pUserData;
 
                     if (pContext->pVTable != NULL) {
                         MA_ASSERT(pContext->pVTable->onContextInit != NULL);    /* onContextInit() must always be specified. */
 
-                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize custom backend %d...\n", (int)iVTable);
+                        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Attempting to initialize custom backend %d...\n", (int)iCustomBackend);
 
                         result = pContext->pVTable->onContextInit(pContext->pVTableUserData, pContext, pConfig);
                         if (result == MA_SUCCESS) {
                             break;
                         } else {
-                            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Failed to initialize custom backend %d.\n", (int)iVTable);
+                            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "Failed to initialize custom backend %d.\n", (int)iCustomBackend);
                         }
                     }
                 }
@@ -41798,6 +41858,16 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
 
     return config;
 }
+
+MA_API const void* ma_device_config_find_custom_backend_config(const ma_device_config* pConfig, const ma_device_backend_vtable* pVTable)
+{
+    if (pVTable == NULL || pConfig == NULL) {
+        return NULL;
+    }
+
+    return ma_find_device_backend_config(pConfig->custom.pBackends, pConfig->custom.count, pVTable);
+}
+
 
 MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pConfig, ma_device* pDevice)
 {
