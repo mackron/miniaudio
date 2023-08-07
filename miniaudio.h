@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.18 - TBD
+miniaudio - v0.11.18 - 2023-08-07
 
 David Reid - mackron@gmail.com
 
@@ -548,7 +548,7 @@ An example for compiling with AudioWorklet support might look like this:
     emcc program.c -o bin/program.html -DMA_ENABLE_AUDIO_WORKLETS -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
 
 To run locally, you'll need to use emrun:
-    
+
     emrun bin/program.html
 
 
@@ -22162,7 +22162,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
 
                 MA_COPY_MEMORY(&wf, pNativeFormat, cbSize);
             }
-            
+
             result = MA_SUCCESS;
         }
 
@@ -28064,12 +28064,12 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
             ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Preparing capture device successful.\n");
         }
 
-	/* Clear the wakeupfd. */
-	resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, 1, 0);
-	if (resultPoll > 0) {
-	    ma_uint64 t;
-	    read(((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture)[0].fd, &t, sizeof(t));
-	}
+    /* Clear the wakeupfd. */
+    resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture, 1, 0);
+    if (resultPoll > 0) {
+        ma_uint64 t;
+        read(((struct pollfd*)pDevice->alsa.pPollDescriptorsCapture)[0].fd, &t, sizeof(t));
+    }
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
@@ -28086,11 +28086,11 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
         }
 
         /* Clear the wakeupfd. */
-	resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, 1, 0);
-	if (resultPoll > 0) {
-	    ma_uint64 t;
-	    read(((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback)[0].fd, &t, sizeof(t));
-	}
+    resultPoll = poll((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback, 1, 0);
+    if (resultPoll > 0) {
+        ma_uint64 t;
+        read(((struct pollfd*)pDevice->alsa.pPollDescriptorsPlayback)[0].fd, &t, sizeof(t));
+    }
 
     }
 
@@ -28139,7 +28139,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
             ma_snd_pcm_state_t state = ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM);
             if (state == MA_SND_PCM_STATE_XRUN) {
                 /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
-	    } else {		    
+        } else {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d\n", ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM));
             }
         }
@@ -40402,7 +40402,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
             window.miniaudio.device_state.started = $4;
 
             /* Device cache for mapping devices to indexes for JavaScript/C interop. */
-            miniaudio.devices = [];   
+            miniaudio.devices = [];
 
             miniaudio.track_device = function(device) {
                 /* Try inserting into a free slot first. */
@@ -44636,7 +44636,7 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
         } else if (ditherMode == ma_dither_mode_rectangle) {
             float d0v[4];
             float d1v[4];
-            
+
             d0v[0] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_rectangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_rectangle(ditherMin, ditherMax);
@@ -44651,7 +44651,7 @@ static MA_INLINE void ma_pcm_f32_to_s16__neon(void* dst, const void* src, ma_uin
         } else {
             float d0v[4];
             float d1v[4];
-            
+
             d0v[0] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[1] = ma_dither_f32_triangle(ditherMin, ditherMax);
             d0v[2] = ma_dither_f32_triangle(ditherMin, ditherMax);
@@ -56524,7 +56524,7 @@ static ma_result ma_pcm_rb_data_source__on_read(ma_data_source* pDataSource, voi
         if (framesToRead > 0xFFFFFFFF) {
             framesToRead = 0xFFFFFFFF;
         }
-        
+
         mappedFrameCount = (ma_uint32)framesToRead;
         result = ma_pcm_rb_acquire_read(pRB, &mappedFrameCount, &pMappedBuffer);
         if (result != MA_SUCCESS) {
@@ -56574,7 +56574,7 @@ static ma_result ma_pcm_rb_data_source__on_get_data_format(ma_data_source* pData
     return MA_SUCCESS;
 }
 
-static ma_data_source_vtable ma_gRBDataSourceVTable = 
+static ma_data_source_vtable ma_gRBDataSourceVTable =
 {
     ma_pcm_rb_data_source__on_read,
     NULL,   /* onSeek */
@@ -57638,7 +57638,7 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
     pDataSourceBase->loopBegInFrames = 0;
     pDataSourceBase->loopEndInFrames = ~((ma_uint64)0);
 
-    
+
     /*
     Seek to within range. Note that our seek positions here are relative to the new range. We don't want
     do do this if we failed to retrieve the cursor earlier on because it probably means the data source
@@ -64686,7 +64686,7 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
 static ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
-    
+
     result = ma_decoder__preinit(NULL, NULL, NULL, NULL, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
@@ -64836,7 +64836,7 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
 static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
-    
+
     result = ma_decoder__preinit(NULL, NULL, NULL, NULL, pConfig, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
@@ -75419,7 +75419,7 @@ MA_API ma_result ma_engine_set_gain_db(ma_engine* pEngine, float gainDB)
 
 MA_API float ma_engine_get_gain_db(ma_engine* pEngine)
 {
-    return ma_volume_linear_to_db(ma_engine_get_volume(pEngine));   
+    return ma_volume_linear_to_db(ma_engine_get_volume(pEngine));
 }
 
 

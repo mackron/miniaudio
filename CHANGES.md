@@ -1,4 +1,4 @@
-v0.11.18 - TBD
+v0.11.18 - 2023-08-07
 =====================
 * Fix some AIFF compatibility issues.
 * Fix an error where the cursor of a Vorbis stream is incorrectly incremented.
