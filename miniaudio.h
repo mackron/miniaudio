@@ -4004,6 +4004,66 @@ typedef ma_uint16   ma_wchar_win32;
 
 
 /*
+Basic Functions
+===============
+These are mainly for custom backends so they can make use of some useful functionality without having
+to reimplement it themselves.
+*/
+#define ma_countof(x)                   (sizeof(x) / sizeof(x[0]))
+#define ma_max(x, y)                    (((x) > (y)) ? (x) : (y))
+#define ma_min(x, y)                    (((x) < (y)) ? (x) : (y))
+#define ma_abs(x)                       (((x) > 0) ? (x) : -(x))
+#define ma_clamp(x, lo, hi)             (ma_max(lo, ma_min(x, hi)))
+#define ma_offset_ptr(p, offset)        (((ma_uint8*)(p)) + (offset))
+#define ma_align(x, a)                  ((x + (a-1)) & ~(a-1))
+#define ma_align_64(x)                  ma_align(x, 8)
+
+MA_API MA_NO_INLINE int ma_strncpy_s(char* dst, size_t dstSizeInBytes, const char* src, size_t count);
+
+/* Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2 */
+static MA_INLINE unsigned int ma_next_power_of_2(unsigned int x)
+{
+    x--;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+    x++;
+
+    return x;
+}
+
+
+
+
+/*
+Default Data Formats
+====================
+These are made public for custom backends so they can consistently make use of standard defaults. The only
+time you should be using these are within the implementations of custom backends. It's not recommended to
+use these directly in a device config. Instead set them to ma_format_f32 (for format) and 0 for channels and
+sample rate.
+*/
+
+/* The default format when ma_format_unknown (0) is requested when initializing a device. */
+#ifndef MA_DEFAULT_FORMAT
+#define MA_DEFAULT_FORMAT       ma_format_f32
+#endif
+
+/* The default channel count to use when 0 is used when initializing a device. */
+#ifndef MA_DEFAULT_CHANNELS
+#define MA_DEFAULT_CHANNELS     2
+#endif
+
+/* The default sample rate to use when 0 is used when initializing a device. */
+#ifndef MA_DEFAULT_SAMPLE_RATE
+#define MA_DEFAULT_SAMPLE_RATE  48000
+#endif
+
+
+
+/*
 Logging Levels
 ==============
 Log levels are only used to give logging callbacks some context as to the severity of a log message
@@ -4520,6 +4580,20 @@ MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callba
 MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage);
 MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, va_list args);
 MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...) MA_ATTRIBUTE_FORMAT(3, 4);
+
+
+
+/**************************************************************************************************************************************************************
+
+Dynamic Linking
+
+These functions are available for use by custom backends so they can dynamically link to their backend libraries at runtime.
+
+**************************************************************************************************************************************************************/
+MA_API ma_handle ma_dlopen(ma_log* pLog, const char* filename);
+MA_API void ma_dlclose(ma_log* pLog, ma_handle handle);
+MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol);
+
 
 
 /**************************************************************************************************************************************************************
@@ -7713,7 +7787,7 @@ struct ma_device
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     void* pUserData;                            /* Application defined data. */
-    void* pBackendData;                         /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
+    void* pBackendData;                         /* This is not used by miniaudio, but is a way for custom backends to associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
@@ -12049,21 +12123,6 @@ int ma_android_sdk_version()
 #endif
 
 
-/* The default format when ma_format_unknown (0) is requested when initializing a device. */
-#ifndef MA_DEFAULT_FORMAT
-#define MA_DEFAULT_FORMAT                                   ma_format_f32
-#endif
-
-/* The default channel count to use when 0 is used when initializing a device. */
-#ifndef MA_DEFAULT_CHANNELS
-#define MA_DEFAULT_CHANNELS                                 2
-#endif
-
-/* The default sample rate to use when 0 is used when initializing a device. */
-#ifndef MA_DEFAULT_SAMPLE_RATE
-#define MA_DEFAULT_SAMPLE_RATE                              48000
-#endif
-
 /* Default periods when none is specified in ma_device_init(). More periods means more work on the CPU. */
 #ifndef MA_DEFAULT_PERIODS
 #define MA_DEFAULT_PERIODS                                  3
@@ -12199,7 +12258,6 @@ static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
     }
 }
 
-
 #ifndef MA_ZERO_MEMORY
 #define MA_ZERO_MEMORY(p, sz)           ma_zero_memory_default((p), (sz))
 #endif
@@ -12211,15 +12269,6 @@ static MA_INLINE void ma_zero_memory_default(void* p, size_t sz)
 #endif
 
 #define MA_ZERO_OBJECT(p)               MA_ZERO_MEMORY((p), sizeof(*(p)))
-
-#define ma_countof(x)                   (sizeof(x) / sizeof(x[0]))
-#define ma_max(x, y)                    (((x) > (y)) ? (x) : (y))
-#define ma_min(x, y)                    (((x) < (y)) ? (x) : (y))
-#define ma_abs(x)                       (((x) > 0) ? (x) : -(x))
-#define ma_clamp(x, lo, hi)             (ma_max(lo, ma_min(x, hi)))
-#define ma_offset_ptr(p, offset)        (((ma_uint8*)(p)) + (offset))
-#define ma_align(x, a)                  ((x + (a-1)) & ~(a-1))
-#define ma_align_64(x)                  ma_align(x, 8)
 
 #define ma_buffer_frame_capacity(buffer, channels, format) (sizeof(buffer) / ma_get_bytes_per_sample(format) / (channels))
 
@@ -13264,19 +13313,6 @@ static MA_INLINE void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
 }
 
 
-/* Thanks to good old Bit Twiddling Hacks for this one: http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2 */
-static MA_INLINE unsigned int ma_next_power_of_2(unsigned int x)
-{
-    x--;
-    x |= x >> 1;
-    x |= x >> 2;
-    x |= x >> 4;
-    x |= x >> 8;
-    x |= x >> 16;
-    x++;
-
-    return x;
-}
 
 static MA_INLINE unsigned int ma_prev_power_of_2(unsigned int x)
 {
