@@ -1,9 +1,19 @@
-v0.11.18 - TBD
+v0.11.18 - 2023-08-07
 =====================
 * Fix some AIFF compatibility issues.
+* Fix an error where the cursor of a Vorbis stream is incorrectly incremented.
 * Add support for setting a callback on an `ma_engine` object that get's fired after it processes a chunk of audio. This allows applications to do things such as apply a post-processing effect or output the audio to a file.
 * Add `ma_engine_get_volume()`.
+* Add `ma_sound_get_time_in_milliseconds()`.
+* Decouple `MA_API` and `MA_PRIVATE`. This relaxes applications from needing to define both of them if they're only wanting to redefine one.
+* Decoding backends will now have their onInitFile/W and onInitMemory initialization routines used where appropriate if they're defined.
+* Increase the accuracy of the linear resampler when setting the ratio with `ma_linear_resampler_set_rate_ratio()`.
+* Fix erroneous output with the linear resampler when in/out rates are the same.
 * AAudio: Fix an error where the buffer size is not configured correctly which sometimes results in excessively high latency.
+* ALSA: Fix a possible error when stopping and restarting a device.
+* PulseAudio: Minor changes to stream flags.
+* Win32: Fix an error where `CoUninialize()` is being called when the corresponding `CoInitializeEx()` fails.
+* Web / Emscripten: Add support for AudioWorklets. This is opt-in and can be enabled by defining `MA_ENABLE_AUDIO_WORKLETS`. You must compile with `-sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY` for this to work. Requires at least Emscripten v3.1.32.
 
 
 v0.11.17 - 2023-05-27
