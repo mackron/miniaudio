@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.18 - 2023-08-07
+miniaudio - v0.11.19 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -3716,7 +3716,7 @@ extern "C" {
 
 #define MA_VERSION_MAJOR    0
 #define MA_VERSION_MINOR    11
-#define MA_VERSION_REVISION 18
+#define MA_VERSION_REVISION 19
 #define MA_VERSION_STRING   MA_XSTRINGIFY(MA_VERSION_MAJOR) "." MA_XSTRINGIFY(MA_VERSION_MINOR) "." MA_XSTRINGIFY(MA_VERSION_REVISION)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -74116,7 +74116,7 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             if (fadeStartOffsetInFrames == (ma_int64)(~(ma_uint64)0)) {
                 fadeStartOffsetInFrames = 0;
             } else {
-                fadeStartOffsetInFrames -= ma_engine_get_time(pEngineNode->pEngine);
+                fadeStartOffsetInFrames -= ma_engine_get_time_in_pcm_frames(pEngineNode->pEngine);
             }
 
             ma_fader_set_fade_ex(&pEngineNode->fader, fadeVolumeBeg, fadeVolumeEnd, fadeLengthInFrames, fadeStartOffsetInFrames);
@@ -76158,7 +76158,7 @@ MA_API ma_result ma_sound_stop_with_fade_in_pcm_frames(ma_sound* pSound, ma_uint
     }
 
     /* Stopping with a fade out requires us to schedule the stop into the future by the fade length. */
-    ma_sound_set_stop_time_with_fade_in_pcm_frames(pSound, ma_engine_get_time(ma_sound_get_engine(pSound)) + fadeLengthInFrames, fadeLengthInFrames);
+    ma_sound_set_stop_time_with_fade_in_pcm_frames(pSound, ma_engine_get_time_in_pcm_frames(ma_sound_get_engine(pSound)) + fadeLengthInFrames, fadeLengthInFrames);
 
     return MA_SUCCESS;
 }
