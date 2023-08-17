@@ -138,7 +138,7 @@ where you may want to save the device ID to permanent storage so it can be store
 
 Implementations need to do their own data conversion between the device's native data configuration
 and the requested configuration. In this case, when the format, channels and rate are specified in
-the config, they should be unchanged when osaudio_open() returns. If this is not possible, the
+the config, they should be unchanged when osaudio_open() returns. If this is not possible,
 osaudio_open() will return OSAUDIO_FORMAT_NOT_SUPPORTED. However, there are cases where it's useful
 for a program to use the device's native configuration instead of some fixed configuration. This is
 achieved by setting the format, channels and rate to 0. Below is an example:
@@ -147,8 +147,7 @@ achieved by setting the format, channels and rate to 0. Below is an example:
     osaudio_t audio;
     osaudio_config_t config;
 
-    memset(&config, 0, sizeof(config));
-    config.direction = OSAUDIO_OUTPUT;
+    osaudio_config_init(&config, OSAUDIO_OUTPUT);
 
     result = osaudio_open(&audio, &config);
     if (result != OSAUDIO_SUCCESS) {
