@@ -619,9 +619,9 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     NULL    /* onDeviceGetInfo */
 };
 
-MA_API const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL = &ma_gDeviceBackendVTable_SDL;
+const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL = &ma_gDeviceBackendVTable_SDL;
 #else
-MA_API const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL = NULL;
+const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL = NULL;
 #endif  /* MA_HAS_SDL */
 
 
