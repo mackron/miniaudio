@@ -18452,7 +18452,7 @@ Timing
 *******************************************************************************/
 #if defined(MA_WIN32) && !defined(MA_POSIX)
     static LARGE_INTEGER g_ma_TimerFrequency;   /* <-- Initialized to zero since it's static. */
-    void ma_timer_init(ma_timer* pTimer)
+    static void ma_timer_init(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
 
@@ -18464,7 +18464,7 @@ Timing
         pTimer->counter = counter.QuadPart;
     }
 
-    double ma_timer_get_time_in_seconds(ma_timer* pTimer)
+    static double ma_timer_get_time_in_seconds(ma_timer* pTimer)
     {
         LARGE_INTEGER counter;
         if (!QueryPerformanceCounter(&counter)) {
@@ -18637,27 +18637,27 @@ static void ma_device__on_notification(ma_device_notification notification)
     }
 }
 
-void ma_device__on_notification_started(ma_device* pDevice)
+static void ma_device__on_notification_started(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_started));
 }
 
-void ma_device__on_notification_stopped(ma_device* pDevice)
+static void ma_device__on_notification_stopped(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_stopped));
 }
 
-void ma_device__on_notification_rerouted(ma_device* pDevice)
+static void ma_device__on_notification_rerouted(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_rerouted));
 }
 
-void ma_device__on_notification_interruption_began(ma_device* pDevice)
+static void ma_device__on_notification_interruption_began(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_began));
 }
 
-void ma_device__on_notification_interruption_ended(ma_device* pDevice)
+static void ma_device__on_notification_interruption_ended(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_ended));
 }
@@ -19115,10 +19115,10 @@ static MA_INLINE void ma_device__set_state(ma_device* pDevice, ma_device_state n
 
 
 #if defined(MA_WIN32)
-    GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-    /*GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
-    /*GUID MA_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
+    static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_PCM        = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+    /*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_ALAW       = {0x00000006, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
+    /*static GUID MA_GUID_KSDATAFORMAT_SUBTYPE_MULAW      = {0x00000007, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};*/
 #endif
 
 
