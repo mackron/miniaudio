@@ -64826,7 +64826,7 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
         /* Probably no implementation for loading from a file path. Use miniaudio's file IO instead. */
         result = ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
         if (result != MA_SUCCESS) {
-            return MA_SUCCESS;
+            return result;
         }
     }
 
@@ -64976,7 +64976,7 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
         /* Probably no implementation for loading from a file path. Use miniaudio's file IO instead. */
         result = ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
         if (result != MA_SUCCESS) {
-            return MA_SUCCESS;
+            return result;
         }
     }
 
