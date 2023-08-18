@@ -1,5 +1,6 @@
 v0.11.19 - TBD
 =====================
+* Fix a bug where `ma_decoder_init_file()` can incorrectly return successfully.
 * Remove the use of some deprecated functions.
 
 
