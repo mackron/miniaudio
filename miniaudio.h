@@ -76062,6 +76062,13 @@ MA_API ma_result ma_sound_start(ma_sound* pSound)
         return MA_INVALID_ARGS;
     }
 
+    /* Fix: Issue #717. */
+    ma_device* device=ma_engine_get_device(pSound->engineNode.pEngine);
+    if (!device) return MA_INVALID_DEVICE_CONFIG;
+
+    ma_device_state state=ma_device_get_state(device);
+    if (state!=ma_device_state_started) return MA_DEVICE_NOT_STARTED;
+
     /* If the sound is already playing, do nothing. */
     if (ma_sound_is_playing(pSound)) {
         return MA_SUCCESS;
