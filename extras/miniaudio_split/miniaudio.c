@@ -41417,7 +41417,7 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                 for (iFrame = 0; iFrame < unrolledFrameCount; iFrame += 1) {
                                     __m128 in0 = _mm_set1_ps(pFramesIn[iFrame*2 + 0]);
                                     __m128 in1 = _mm_set1_ps(pFramesIn[iFrame*2 + 1]);
-                                    _mm_storeu_ps(&pFramesOut[iFrame*4 + 0], _mm_shuffle_ps(in1, in0, _MM_SHUFFLE(0, 0, 0, 0)));
+                                    _mm_storeu_ps(&pFramesOut[iFrame*4 + 0], _mm_shuffle_ps(in0, in1, _MM_SHUFFLE(0, 0, 0, 0)));
                                 }
 
                                 /* Tail. */
@@ -41443,7 +41443,7 @@ static ma_result ma_channel_map_apply_mono_in_f32(float* MA_RESTRICT pFramesOut,
                                     __m128 in1 = _mm_set1_ps(pFramesIn[iFrame*2 + 1]);
 
                                     _mm_storeu_ps(&pFramesOut[iFrame*12 + 0], in0);
-                                    _mm_storeu_ps(&pFramesOut[iFrame*12 + 4], _mm_shuffle_ps(in1, in0, _MM_SHUFFLE(0, 0, 0, 0)));
+                                    _mm_storeu_ps(&pFramesOut[iFrame*12 + 4], _mm_shuffle_ps(in0, in1, _MM_SHUFFLE(0, 0, 0, 0)));
                                     _mm_storeu_ps(&pFramesOut[iFrame*12 + 8], in1);
                                 }
 
