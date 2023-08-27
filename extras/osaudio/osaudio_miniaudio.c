@@ -70,6 +70,7 @@ static ma_format osaudio_format_to_miniaudio(osaudio_format_t format)
     switch (format)
     {
         case OSAUDIO_FORMAT_F32: return ma_format_f32;
+        case OSAUDIO_FORMAT_U8:  return ma_format_u8;
         case OSAUDIO_FORMAT_S16: return ma_format_s16;
         case OSAUDIO_FORMAT_S24: return ma_format_s24;
         case OSAUDIO_FORMAT_S32: return ma_format_s32;
@@ -82,6 +83,7 @@ static osaudio_format_t osaudio_format_from_miniaudio(ma_format format)
     switch (format)
     {
         case ma_format_f32: return OSAUDIO_FORMAT_F32;
+        case ma_format_u8:  return OSAUDIO_FORMAT_U8;
         case ma_format_s16: return OSAUDIO_FORMAT_S16;
         case ma_format_s24: return OSAUDIO_FORMAT_S24;
         case ma_format_s32: return OSAUDIO_FORMAT_S32;
@@ -887,7 +889,7 @@ osaudio_result_t osaudio_pause(osaudio_t audio)
             ma_atomic_bool32_set(&audio->isPaused, MA_TRUE);
 
             /* No need to stop the device if it's not active. */
-            if (ma_atomic_bool32_get(&audio->isActive) == MA_FALSE) {
+            if (ma_atomic_bool32_get(&audio->isActive)) {
                 result = osaudio_result_from_miniaudio(ma_device_stop(&audio->device));
             }
         }

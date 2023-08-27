@@ -240,6 +240,17 @@ I'm looking for feedback on the following:
 extern "C" {
 #endif
 
+/*
+Support far pointers on relevant platforms (DOS, in particular). The version of this file
+distributed with an operating system wouldn't need this because they would just have an
+OS-specific version of this file, but as a reference it's useful to use far pointers here.
+*/
+#if defined(__MSDOS__) || defined(_MSDOS) || defined(__DOS__)
+    #define OSAUDIO_FAR far
+#else
+    #define OSAUDIO_FAR
+#endif
+
 typedef struct _osaudio_t*                      osaudio_t;
 typedef struct osaudio_config_t                 osaudio_config_t;
 typedef struct osaudio_id_t                     osaudio_id_t;
@@ -508,7 +519,7 @@ Use osaudio_get_avail() to determine how much data can be written without blocki
 
 Returns 0 on success, < 0 on failure.
 */
-osaudio_result_t osaudio_write(osaudio_t audio, const void* data, unsigned int frame_count);
+osaudio_result_t osaudio_write(osaudio_t audio, const void OSAUDIO_FAR* data, unsigned int frame_count);
 
 /*
 Reads audio data from the device.
@@ -524,7 +535,7 @@ Use osaudio_get_avail() to determine how much data can be read without blocking.
 
 Returns 0 on success, < 0 on failure.
 */
-osaudio_result_t osaudio_read(osaudio_t audio, void* data, unsigned int frame_count);
+osaudio_result_t osaudio_read(osaudio_t audio, void OSAUDIO_FAR* data, unsigned int frame_count);
 
 /*
 Drains the device.
