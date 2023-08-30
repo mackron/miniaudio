@@ -10171,7 +10171,7 @@ MA_API ma_noise_config ma_noise_config_init(ma_format format, ma_uint32 channels
 
 typedef struct
 {
-    ma_data_source_vtable ds;
+    ma_data_source_base ds;
     ma_noise_config config;
     ma_lcg lcg;
     union
