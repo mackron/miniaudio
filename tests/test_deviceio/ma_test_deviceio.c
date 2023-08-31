@@ -344,13 +344,15 @@ void on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uin
     {
         case ma_device_type_playback:
         {
-            /* In the playback case we just read from our input source. */
+            /*
+            In the playback case we just read from our input source. We're going to use ma_data_source_read_pcm_frames() for this
+            to ensure the data source abstraction is working properly for each type. */
             if (g_State.sourceType == source_type_decoder) {
-                ma_decoder_read_pcm_frames(&g_State.decoder, pFramesOut, frameCount, NULL);
+                ma_data_source_read_pcm_frames(&g_State.decoder, pFramesOut, frameCount, NULL);
             } else if (g_State.sourceType == source_type_waveform) {
-                ma_waveform_read_pcm_frames(&g_State.waveform, pFramesOut, frameCount, NULL);
+                ma_data_source_read_pcm_frames(&g_State.waveform, pFramesOut, frameCount, NULL);
             } else if (g_State.sourceType == source_type_noise) {
-                ma_noise_read_pcm_frames(&g_State.noise, pFramesOut, frameCount, NULL);
+                ma_data_source_read_pcm_frames(&g_State.noise, pFramesOut, frameCount, NULL);
             }
         } break;
 
