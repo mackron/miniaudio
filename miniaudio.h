@@ -42105,6 +42105,11 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         ma_device_stop(pDevice);
     }
 
+    /* Wait for the stop event, otherwise we could potentially run into synchronisation issues. */
+    if(ma_device_get_state(pDevice)==ma_device_state_stopping) {
+        ma_event_wait(&pDevice->stopEvent);
+    }
+
     /* Putting the device into an uninitialized state will make the worker thread return. */
     ma_device__set_state(pDevice, ma_device_state_uninitialized);
 
