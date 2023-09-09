@@ -87,7 +87,7 @@ device on the stack, but you could allocate it on the heap if that suits your si
 
         // Do something here. Probably your program's main loop.
 
-        ma_device_uninit(&device);    // This will stop the device so no need to do that manually.
+        ma_device_uninit(&device);
         return 0;
     }
     ```
@@ -9132,8 +9132,6 @@ the resuming it with ma_device_start() (which you might do when your program los
 speakers or received from the microphone which can in turn result in de-syncs.
 
 Do not call this in any callback.
-
-This will be called implicitly by `ma_device_uninit()`.
 
 
 See Also
@@ -42100,10 +42098,23 @@ MA_API void ma_device_uninit(ma_device* pDevice)
         return;
     }
 
-    /* Make sure the device is stopped first. The backends will probably handle this naturally, but I like to do it explicitly for my own sanity. */
-    if (ma_device_is_started(pDevice)) {
-        ma_device_stop(pDevice);
+    /*
+    It's possible for the miniaudio side of the device and the backend to not be in sync due to
+    system-level situations such as the computer being put into sleep mode and the backend not
+    notifying miniaudio of the fact the device has stopped. It's possible for this to result in a
+    deadlock due to miniaudio thinking the device is in a running state, when in fact it's not
+    running at all. For this reason I am no longer explicitly stopping the device. I don't think
+    this should affect anyone in practice since uninitializing the backend will naturally stop the
+    device anyway.
+    */
+    #if 0
+    {
+        /* Make sure the device is stopped first. The backends will probably handle this naturally, but I like to do it explicitly for my own sanity. */
+        if (ma_device_is_started(pDevice)) {
+            ma_device_stop(pDevice);
+        }
     }
+    #endif
 
     /* Putting the device into an uninitialized state will make the worker thread return. */
     ma_device__set_state(pDevice, ma_device_state_uninitialized);
