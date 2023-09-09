@@ -598,9 +598,15 @@ int main(int argc, char** argv)
         }
         if (c == 'p' || c == 'P') {
             if (ma_device_is_started(&g_State.device)) {
-                ma_device_stop(&g_State.device);
+                result = ma_device_stop(&g_State.device);
+                if (result != MA_SUCCESS) {
+                    printf("ERROR: Error when stopping the device: %s\n", ma_result_description(result));
+                }
             } else {
-                ma_device_start(&g_State.device);
+                result = ma_device_start(&g_State.device);
+                if (result != MA_SUCCESS) {
+                    printf("ERROR: Error when starting the device: %s\n", ma_result_description(result));
+                }
             }
         }
     }
