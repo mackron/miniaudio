@@ -16178,7 +16178,15 @@ static void ma_thread_wait__posix(ma_thread* pThread)
 
 static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
 {
-    int result = pthread_mutex_init((pthread_mutex_t*)pMutex, NULL);
+    int result;
+    
+    if (pMutex == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pMutex);
+
+    result = pthread_mutex_init((pthread_mutex_t*)pMutex, NULL);
     if (result != 0) {
         return ma_result_from_errno(result);
     }
