@@ -59720,7 +59720,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  12
+#define MA_DR_WAV_VERSION_REVISION  13
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -77212,8 +77212,8 @@ code below please report the bug to the respective repository for the relevant p
 #define ma_dr_wav_clamp(x, lo, hi)             (ma_dr_wav_max((lo), ma_dr_wav_min((hi), (x))))
 #define ma_dr_wav_offset_ptr(p, offset)        (((ma_uint8*)(p)) + (offset))
 #define MA_DR_WAV_MAX_SIMD_VECTOR_SIZE         32
-#define MA_DR_WAV_INT64_MIN   ((ma_int64)0x80000000  << 32)
-#define MA_DR_WAV_INT64_MAX ((((ma_int64)0x7FFFFFFF) << 32) | 0xFFFFFFFF)
+#define MA_DR_WAV_INT64_MIN ((ma_int64) ((ma_uint64)0x80000000 << 32))
+#define MA_DR_WAV_INT64_MAX ((ma_int64)(((ma_uint64)0x7FFFFFFF << 32) | 0xFFFFFFFF))
 #if defined(_MSC_VER) && _MSC_VER >= 1400
     #define MA_DR_WAV_HAS_BYTESWAP16_INTRINSIC
     #define MA_DR_WAV_HAS_BYTESWAP32_INTRINSIC
