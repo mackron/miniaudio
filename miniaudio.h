@@ -18658,6 +18658,8 @@ static void ma_device__on_notification_rerouted(ma_device* pDevice)
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_rerouted));
 }
 
+/* Interruptions are only used on some platforms. */
+#if defined(MA_APPLE_MOBILE)
 static void ma_device__on_notification_interruption_began(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_began));
@@ -18667,6 +18669,7 @@ static void ma_device__on_notification_interruption_ended(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_ended));
 }
+#endif
 
 
 static void ma_device__on_data_inner(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
