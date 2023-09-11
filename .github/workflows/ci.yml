@@ -22,9 +22,40 @@ jobs:
           ls -al engine_hello_world
       - name: compile binary with clang
         run: |
-          cd examples/
-          clang-15 -O3 -g -fPIC -Wall -Wextra -pedantic engine_hello_world.c -lm -o engine_hello_world
-          ls -al engine_hello_world
+            cd examples/
+            clang-15 -O3 -g -std=c99 -fPIC \
+            -Wall \
+            -Wextra \
+            -Weverything \
+            -Wno-cast-align \
+            -Wno-conversion \
+            -Wno-covered-switch-default \
+            -Wno-disabled-macro-expansion \
+            -Wno-documentation-deprecated-sync \
+            -Wno-format-nonliteral \
+            -Wno-missing-field-initializers \
+            -Wno-padded \
+            -Wno-reserved-id-macro \
+            -Wno-sign-compare \
+            -Wno-thread-safety-analysis \
+            -Wno-type-limits \
+            -Wno-unused-parameter \
+            -Wno-used-but-marked-unused \
+            -Wno-vla \
+            -Wno-documentation-unknown-command \
+            \
+            -Wno-missing-variable-declarations \
+            -Wno-missing-prototypes \
+            -Wno-error=deprecated-declarations \
+            -Wno-error=unused-macros \
+            -Wno-error=float-equal \
+            -Wno-error=cast-qual \
+            -Wno-error=strict-prototypes \
+            -Wno-error=gnu-statement-expression \
+            -Wno-documentation \
+            -Werror \
+            engine_hello_world.c -lm -o engine_hello_world
+            ls -al engine_hello_world
   compile:
     name: debian test
     runs-on: ubuntu-latest
