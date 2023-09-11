@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: install dependencies
+        run: |
+          sudo apt-get update && \
+          sudo DEBIAN_FRONTEND=noninteractive \
+          apt-get install -y --no-install-recommends \
+          ca-certificates clang-15 clang-format-15 clang-tidy-15
+      - name: compile binary
+        run: |
+          cd examples/
+          gcc -O3 -g -fPIC -Wall -Wextra -pedantic engine_hello_world.c -lm -o engine_hello_world
+          ls -al engine_hello_world
+      - name: compile binary with clang
+        run: |
+          cd examples/
+          clang-15 -O3 -g -fPIC -Wall -Wextra -pedantic engine_hello_world.c -lm -o engine_hello_world
+          ls -al engine_hello_world
+  compile:
+    name: debian test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run test
+        uses: addnab/docker-run-action@v3
+        with:
+            image: debian:latest
+            options: -v ${{ github.workspace }}:/work
+            run: |
+                apt-get update; DEBIAN_FRONTEND=noninteractive apt-get install -y gcc libpthread-stubs0-dev
+                id;ls -al /work/;cd /work/examples/
+                gcc -O3 -g -fPIC -Wall -Wextra -pedantic engine_hello_world.c -lm -o engine_hello_world
+                ls -al engine_hello_world
