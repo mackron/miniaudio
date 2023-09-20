@@ -18653,10 +18653,13 @@ static void ma_device__on_notification_stopped(ma_device* pDevice)
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_stopped));
 }
 
+/* Not all platforms support reroute notifications. */
+#if !defined(MA_EMSCRIPTEN)
 static void ma_device__on_notification_rerouted(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_rerouted));
 }
+#endif
 
 /* Interruptions are only used on some platforms. */
 #if defined(MA_APPLE_MOBILE)
@@ -39965,7 +39968,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 
     /* With the audio worklet initialized we can now attach it to the graph. */
     if (pParameters->pConfig->deviceType == ma_device_type_capture || pParameters->pConfig->deviceType == ma_device_type_duplex) {
-        ma_result attachmentResult = EM_ASM_INT({
+        ma_result attachmentResult = (ma_result)EM_ASM_INT({
             var getUserMediaResult = 0;
             var audioWorklet = emscriptenGetAudioObject($0);
             var audioContext = emscriptenGetAudioObject($1);
@@ -39996,7 +39999,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
 
     /* If it's playback only we can now attach the worklet node to the graph. This has already been done for the duplex case. */
     if (pParameters->pConfig->deviceType == ma_device_type_playback) {
-        ma_result attachmentResult = EM_ASM_INT({
+        ma_result attachmentResult = (ma_result)EM_ASM_INT({
             var audioWorklet = emscriptenGetAudioObject($0);
             var audioContext = emscriptenGetAudioObject($1);
             audioWorklet.connect(audioContext.destination);
