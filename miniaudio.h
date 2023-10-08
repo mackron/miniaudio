@@ -75534,6 +75534,10 @@ MA_API void ma_engine_listener_get_cone(const ma_engine* pEngine, ma_uint32 list
         *pOuterGain = 0;
     }
 
+    if (pEngine == NULL || listenerIndex >= pEngine->listenerCount) {
+        return;
+    }
+
     ma_spatializer_listener_get_cone(&pEngine->listeners[listenerIndex], pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
