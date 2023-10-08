@@ -76480,6 +76480,10 @@ MA_API void ma_sound_get_cone(const ma_sound* pSound, float* pInnerAngleInRadian
         *pOuterGain = 0;
     }
 
+    if (pSound == NULL) {
+        return;
+    }
+
     ma_spatializer_get_cone(&pSound->engineNode.spatializer, pInnerAngleInRadians, pOuterAngleInRadians, pOuterGain);
 }
 
