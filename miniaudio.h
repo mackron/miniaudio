@@ -34846,7 +34846,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
 #endif
 
 #if !defined(MA_NO_RUNTIME_LINKING) && !defined(MA_APPLE_MOBILE)
-    pContext->coreaudio.hCoreFoundation = ma_dlopen(ma_context_get_log(pContext), "CoreFoundation.framework/CoreFoundation");
+    pContext->coreaudio.hCoreFoundation = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation");
     if (pContext->coreaudio.hCoreFoundation == NULL) {
         return MA_API_NOT_FOUND;
     }
@@ -34855,7 +34855,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     pContext->coreaudio.CFRelease          = ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation, "CFRelease");
 
 
-    pContext->coreaudio.hCoreAudio = ma_dlopen(ma_context_get_log(pContext), "CoreAudio.framework/CoreAudio");
+    pContext->coreaudio.hCoreAudio = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/CoreAudio.framework/CoreAudio");
     if (pContext->coreaudio.hCoreAudio == NULL) {
         ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
         return MA_API_NOT_FOUND;
@@ -34873,7 +34873,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     The way it'll work is that it'll first try AudioUnit, and if the required symbols are not present there we'll fall back to
     AudioToolbox.
     */
-    pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "AudioUnit.framework/AudioUnit");
+    pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/AudioUnit.framework/AudioUnit");
     if (pContext->coreaudio.hAudioUnit == NULL) {
         ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
         ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
@@ -34883,7 +34883,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
     if (ma_dlsym(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit, "AudioComponentFindNext") == NULL) {
         /* Couldn't find the required symbols in AudioUnit, so fall back to AudioToolbox. */
         ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hAudioUnit);
-        pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "AudioToolbox.framework/AudioToolbox");
+        pContext->coreaudio.hAudioUnit = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox");
         if (pContext->coreaudio.hAudioUnit == NULL) {
             ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreAudio);
             ma_dlclose(ma_context_get_log(pContext), pContext->coreaudio.hCoreFoundation);
