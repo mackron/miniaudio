@@ -40214,7 +40214,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
 
             /* First thing we need is an AudioContext. */
             var audioContextOptions = {};
-            if (deviceType == window.miniaudio.device_type.playback) {
+            if (deviceType == window.miniaudio.device_type.playback && sampleRate != 0) {
                 audioContextOptions.sampleRate = sampleRate;
             }
 
