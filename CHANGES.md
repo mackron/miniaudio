@@ -2,7 +2,12 @@ v0.11.19 - TBD
 =====================
 * Fix a bug where `ma_decoder_init_file()` can incorrectly return successfully.
 * Fix a crash when using a node with more than 2 outputs.
+* Fix a bug where `ma_standard_sample_rate_11025` uses the incorrect rate.
+* Fix a bug in `ma_noise` where only white noise would be generated even when specifying pink or Brownian.
+* Fix an SSE related bug when converting from mono streams.
 * Remove the use of some deprecated functions.
+* Improvements to runtime linking on Apple platforms.
+* Web / Emscripten: Fix an error when using a sample rate of 0 in the device config.
 
 
 v0.11.18 - 2023-08-07
