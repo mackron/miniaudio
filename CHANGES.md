@@ -1,6 +1,7 @@
 v0.11.19 - TBD
 =====================
 * Fix a bug where `ma_decoder_init_file()` can incorrectly return successfully.
+* Fix a crash when using a node with more than 2 outputs.
 * Remove the use of some deprecated functions.
 
 

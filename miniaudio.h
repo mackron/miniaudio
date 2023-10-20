@@ -72041,7 +72041,7 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
     }
 
     if (heapLayout.outputBusOffset != MA_SIZE_MAX) {
-        pNodeBase->pOutputBuses = (ma_node_output_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
+        pNodeBase->pOutputBuses = (ma_node_output_bus*)ma_offset_ptr(pHeap, heapLayout.outputBusOffset);
     } else {
         pNodeBase->pOutputBuses = pNodeBase->_outputBuses;
     }
