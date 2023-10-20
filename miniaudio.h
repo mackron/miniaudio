@@ -1675,7 +1675,7 @@ an example for initializing a data source:
 
     // ...
 
-    ma_resource_manager_data_source_uninit(pResourceManager, &dataSource);
+    ma_resource_manager_data_source_uninit(&dataSource);
     ```
 
 The `flags` parameter specifies how you want to perform loading of the sound file. It can be a
@@ -1912,10 +1912,10 @@ once after the other:
 
     ```c
     ma_resource_manager_data_source_init(pResourceManager, "my_file", ..., &myDataBuffer0); // Refcount = 1. Initial load.
-    ma_resource_manager_data_source_uninit(pResourceManager, &myDataBuffer0);               // Refcount = 0. Unloaded.
+    ma_resource_manager_data_source_uninit(&myDataBuffer0);                                 // Refcount = 0. Unloaded.
 
     ma_resource_manager_data_source_init(pResourceManager, "my_file", ..., &myDataBuffer1); // Refcount = 1. Reloaded because previous uninit() unloaded it.
-    ma_resource_manager_data_source_uninit(pResourceManager, &myDataBuffer1);               // Refcount = 0. Unloaded.
+    ma_resource_manager_data_source_uninit(&myDataBuffer1);                                 // Refcount = 0. Unloaded.
     ```
 
 A binary search tree (BST) is used for storing data buffers as it has good balance between
