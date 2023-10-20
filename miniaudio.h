@@ -76790,6 +76790,8 @@ MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, 
 
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor)
 {
+    ma_uint64 seekTarget;
+
     if (pSound == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -76799,7 +76801,12 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
         return MA_INVALID_OPERATION;
     }
 
-    return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
+    seekTarget = ma_atomic_load_64(&pSound->seekTarget);
+    if (seekTarget != MA_SEEK_TARGET_NONE) {
+        *pCursor = seekTarget;
+    } else {
+        return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
+    }
 }
 
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength)
@@ -76818,16 +76825,28 @@ MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* 
 
 MA_API ma_result ma_sound_get_cursor_in_seconds(ma_sound* pSound, float* pCursor)
 {
-    if (pSound == NULL) {
-        return MA_INVALID_ARGS;
+    ma_result result;
+    ma_uint64 cursorInPCMFrames;
+    ma_uint32 sampleRate;
+
+    if (pCursor != NULL) {
+        *pCursor = 0;
     }
 
-    /* The notion of a cursor is only valid for sounds that are backed by a data source. */
-    if (pSound->pDataSource == NULL) {
-        return MA_INVALID_OPERATION;
+    result = ma_sound_get_cursor_in_pcm_frames(pSound, &cursorInPCMFrames);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
-    return ma_data_source_get_cursor_in_seconds(pSound->pDataSource, pCursor);
+    result = ma_sound_get_data_format(pSound, NULL, NULL, &sampleRate, NULL, 0);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /* VC6 does not support division of unsigned 64-bit integers with floating point numbers. Need to use a signed number. This shouldn't effect anything in practice. */
+    *pCursor = (ma_int64)cursorInPCMFrames / (float)sampleRate;
+
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_sound_get_length_in_seconds(ma_sound* pSound, float* pLength)
