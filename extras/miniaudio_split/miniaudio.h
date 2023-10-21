@@ -1694,7 +1694,7 @@ MA_API void ma_resampler_uninit(ma_resampler* pResampler, const ma_allocation_ca
 /*
 Converts the given input data.
 
-Both the input and output frames must be in the format specified in the config when the resampler was initilized.
+Both the input and output frames must be in the format specified in the config when the resampler was initialized.
 
 On input, [pFrameCountOut] contains the number of output frames to process. On output it contains the number of output frames that
 were actually processed, which may be less than the requested amount which will happen if there's not enough input data. You can use
@@ -6873,7 +6873,7 @@ typedef struct
     /*
     Extended processing callback. This callback is used for effects that process input and output
     at different rates (i.e. they perform resampling). This is similar to the simple version, only
-    they take two seperate frame counts: one for input, and one for output.
+    they take two separate frame counts: one for input, and one for output.
 
     On input, `pFrameCountOut` is equal to the capacity of the output buffer for each bus, whereas
     `pFrameCountIn` will be equal to the number of PCM frames in each of the buffers in `ppFramesIn`.

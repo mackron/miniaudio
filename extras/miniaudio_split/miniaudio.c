@@ -2221,7 +2221,7 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         /* First try formatting into our fixed sized stack allocated buffer. If this is too small we'll fallback to a heap allocation. */
         length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args);
         if (length < 0) {
-            return MA_INVALID_OPERATION;    /* An error occured when trying to convert the buffer. */
+            return MA_INVALID_OPERATION;    /* An error occurred when trying to convert the buffer. */
         }
 
         if ((size_t)length < sizeof(pFormattedMessageStack)) {
@@ -11852,7 +11852,7 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
 
                     /* At this point we should be able to loop back to the start of the loop and try retrieving a data buffer again. */
                 } else {
-                    /* An error occured and we need to abort. */
+                    /* An error occurred and we need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.\n", (int)hr);
                     result = ma_result_from_HRESULT(hr);
                     break;
@@ -57326,7 +57326,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
     async = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0;
 
     /*
-    Fences need to be acquired before doing anything. These must be aquired and released outside of
+    Fences need to be acquired before doing anything. These must be acquired and released outside of
     the node to ensure there's no holes where ma_fence_wait() could prematurely return before the
     data buffer has completed initialization.
 
@@ -61089,11 +61089,11 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
     /*
     At this point we know that we are inside our start/stop times. However, we may need to adjust
-    our frame count and output pointer to accomodate since we could be straddling the time period
+    our frame count and output pointer to accommodate since we could be straddling the time period
     that this function is getting called for.
 
     It's possible (and likely) that the start time does not line up with the output buffer. We
-    therefore need to offset it by a number of frames to accomodate. The same thing applies for
+    therefore need to offset it by a number of frames to accommodate. The same thing applies for
     the stop time.
     */
     timeOffsetBeg = (globalTimeBeg < startTime) ? (ma_uint32)(globalTimeEnd - startTime) : 0;
