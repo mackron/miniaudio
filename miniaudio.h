@@ -76809,6 +76809,7 @@ MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* 
     seekTarget = ma_atomic_load_64(&pSound->seekTarget);
     if (seekTarget != MA_SEEK_TARGET_NONE) {
         *pCursor = seekTarget;
+        return MA_SUCCESS;
     } else {
         return ma_data_source_get_cursor_in_pcm_frames(pSound->pDataSource, pCursor);
     }
