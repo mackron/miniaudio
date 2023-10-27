@@ -40902,6 +40902,11 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
             ma_device__on_notification_stopped(pDevice);
         }
 
+        /* If we stopped because the device has been uninitialized, abort now. */
+        if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
+            break;
+        }
+
         /* A function somewhere is waiting for the device to have stopped for real so we need to signal an event to allow it to continue. */
         ma_device__set_state(pDevice, ma_device_state_stopped);
         ma_event_signal(&pDevice->stopEvent);
