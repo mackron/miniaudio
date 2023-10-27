@@ -2675,8 +2675,15 @@ outputting any audio data. To output audio data, use `ma_encoder_write_pcm_frame
 example below:
 
     ```c
-    framesWritten = ma_encoder_write_pcm_frames(&encoder, pPCMFramesToWrite, framesToWrite);
+    ma_uint64 framesWritten;
+    result = ma_encoder_write_pcm_frames(&encoder, pPCMFramesToWrite, framesToWrite, &framesWritten);
+    if (result != MA_SUCCESS) {
+        ... handle error ...
+    }
     ```
+
+The `framesWritten` variable will contain the number of PCM frames that were actually written. This
+is optionally and you can pass in `NULL` if you need this.
 
 Encoders must be uninitialized with `ma_encoder_uninit()`.
 
