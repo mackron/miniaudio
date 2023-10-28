@@ -8,6 +8,7 @@ v0.11.19 - TBD
 * Documentation fixes.
 * Remove the use of some deprecated functions.
 * Improvements to runtime linking on Apple platforms.
+* Web / Emscripten: Audio will no longer attempt to unlock in response to the "touchstart" event. This addresses an issue with iOS and Safari. This results in a change of behavior if you were previously depending on starting audio when the user's finger first touches the screen. Audio will now only unlock when the user's finger is lifted. See this discussion for details: https://github.com/mackron/miniaudio/issues/759
 * Web / Emscripten: Fix an error when using a sample rate of 0 in the device config.
 
 
