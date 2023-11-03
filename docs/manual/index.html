@@ -353,7 +353,7 @@ device on the stack, but you could allocate it on the heap if that suits your si
 
     <span style="color:#009900">// Do something here. Probably your program&#39;s main loop.</span>
 
-    ma_device_uninit(&amp;device);    <span style="color:#009900">// This will stop the device so no need to do that manually.</span>
+    ma_device_uninit(&amp;device);
     <span style="color:#0033ff">return</span> 0;
 }
 </pre></div><p>
@@ -1051,6 +1051,34 @@ you&#39;ll need to disable run-time linking with <span style="font-family:monosp
 <p>
 The Emscripten build emits Web Audio JavaScript directly and should compile cleanly out of the box.
 You cannot use <span style="font-family:monospace;">-std=c*</span> compiler flags, nor <span style="font-family:monospace;">-ansi</span>.
+</p>
+<p>
+
+You can enable the use of AudioWorkets by defining <span style="font-family:monospace;">MA_ENABLE_AUDIO_WORKLETS</span> and then compiling
+with the following options:
+</p>
+<ul style="overflow:hidden;">
+<li>
+AUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY</li>
+</ul>
+<p>
+
+An example for compiling with AudioWorklet support might look like this:
+</p>
+<p>
+
+    emcc program.c -o bin/program.html -DMA_ENABLE_AUDIO_WORKLETS -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY
+</p>
+<p>
+
+To run locally, you&#39;ll need to use emrun:
+</p>
+<p>
+
+    emrun bin/program.html
+</p>
+<p>
+
 </p>
 <p>
 
@@ -2913,7 +2941,7 @@ result = ma_data_source_read_pcm_frames(&amp;dataSource, pDecodedData, frameCoun
 
 <span style="color:#009900">// ...</span>
 
-ma_resource_manager_data_source_uninit(pResourceManager, &amp;dataSource);
+ma_resource_manager_data_source_uninit(&amp;dataSource);
 </pre></div><p>
 
 The <span style="font-family:monospace;">flags</span> parameter specifies how you want to perform loading of the sound file. It can be a
@@ -3220,10 +3248,10 @@ once after the other:
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 ma_resource_manager_data_source_init(pResourceManager, <span style="color:#cc3300">&quot;my_file&quot;</span>, ..., &amp;myDataBuffer0); <span style="color:#009900">// Refcount = 1. Initial load.</span>
-ma_resource_manager_data_source_uninit(pResourceManager, &amp;myDataBuffer0);               <span style="color:#009900">// Refcount = 0. Unloaded.</span>
+ma_resource_manager_data_source_uninit(&amp;myDataBuffer0);                                 <span style="color:#009900">// Refcount = 0. Unloaded.</span>
 
 ma_resource_manager_data_source_init(pResourceManager, <span style="color:#cc3300">&quot;my_file&quot;</span>, ..., &amp;myDataBuffer1); <span style="color:#009900">// Refcount = 1. Reloaded because previous uninit() unloaded it.</span>
-ma_resource_manager_data_source_uninit(pResourceManager, &amp;myDataBuffer1);               <span style="color:#009900">// Refcount = 0. Unloaded.</span>
+ma_resource_manager_data_source_uninit(&amp;myDataBuffer1);                                 <span style="color:#009900">// Refcount = 0. Unloaded.</span>
 </pre></div><p>
 
 A binary search tree (BST) is used for storing data buffers as it has good balance between
@@ -4325,8 +4353,17 @@ example below:
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-framesWritten = ma_encoder_write_pcm_frames(&amp;encoder, pPCMFramesToWrite, framesToWrite);
+<span style="color:#0099cc">ma_uint64</span> framesWritten;
+result = ma_encoder_write_pcm_frames(&amp;encoder, pPCMFramesToWrite, framesToWrite, &amp;framesWritten);
+<span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+    ... handle error ...
+}
 </pre></div><p>
+
+The <span style="font-family:monospace;">framesWritten</span> variable will contain the number of PCM frames that were actually written. This
+is optionally and you can pass in <span style="font-family:monospace;">NULL</span> if you need this.
+</p>
+<p>
 
 Encoders must be uninitialized with <span style="font-family:monospace;">ma_encoder_uninit()</span>.
 </p>
@@ -5695,7 +5732,7 @@ you internally. Memory management is flexible and should support most use cases.
 </p>
 <p>
 
-Audio buffers are initialised using the standard configuration system used everywhere in miniaudio:
+Audio buffers are initialized using the standard configuration system used everywhere in miniaudio:
 </p>
 <p>
 
