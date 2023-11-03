@@ -41,7 +41,7 @@ ma_result do_conversion(ma_decoder* pDecoder, ma_encoder* pEncoder)
     MA_ASSERT(pEncoder != NULL);
 
     /*
-    All we do is read from the decoder and then write straight to the encoder. All of the neccessary data conversion
+    All we do is read from the decoder and then write straight to the encoder. All of the necessary data conversion
     will happen internally.
     */
     for (;;) {

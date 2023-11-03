@@ -9,7 +9,7 @@ extern "C" {
 typedef struct
 {
     ma_node_config nodeConfig;
-    ma_uint32 channels;         /* The number of channels of the source, which will be the same as the output. Must be 1 or 2. The excite bus must always have one channel. */
+    ma_uint32 channels;
 } ma_channel_combiner_node_config;
 
 MA_API ma_channel_combiner_node_config ma_channel_combiner_node_config_init(ma_uint32 channels);

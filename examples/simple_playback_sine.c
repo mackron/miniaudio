@@ -83,6 +83,7 @@ int main(int argc, char** argv)
 #endif
     
     ma_device_uninit(&device);
+    ma_waveform_uninit(&sineWave);  /* Uninitialize the waveform after the device so we don't pull it from under the device while it's being reference in the data callback. */
     
     (void)argc;
     (void)argv;
