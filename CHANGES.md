@@ -1,7 +1,7 @@
-v0.11.20 - TBD
+v0.11.20 - 2023-11-10
 =====================
-* Fix an error when dynamically linking libraries when forcing the UWP build on desktop.
 * Fix a compilation error with iOS.
+* Fix an error when dynamically linking libraries when forcing the UWP build on desktop.
 
 
 v0.11.19 - 2023-11-04
