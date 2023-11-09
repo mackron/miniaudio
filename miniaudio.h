@@ -18668,19 +18668,6 @@ static void ma_device__on_notification_rerouted(ma_device* pDevice)
 }
 #endif
 
-/* Interruptions are only used on some platforms. */
-#if defined(MA_APPLE_MOBILE)
-static void ma_device__on_notification_interruption_began(ma_device* pDevice)
-{
-    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_began));
-}
-
-static void ma_device__on_notification_interruption_ended(ma_device* pDevice)
-{
-    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_ended));
-}
-#endif
-
 
 static void ma_device__on_data_inner(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -31881,6 +31868,18 @@ address with the kAudioHardwarePropertyDevices selector and the kAudioObjectProp
 size, allocate a block of memory of that size and then call AudioObjectGetPropertyData(). The data is just a list of
 AudioDeviceID's so just do "dataSize/sizeof(AudioDeviceID)" to know the device count.
 */
+
+#if defined(MA_APPLE_MOBILE)
+static void ma_device__on_notification_interruption_began(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_began));
+}
+
+static void ma_device__on_notification_interruption_ended(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_interruption_ended));
+}
+#endif
 
 static ma_result ma_result_from_OSStatus(OSStatus status)
 {
