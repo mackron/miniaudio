@@ -1,3 +1,9 @@
+v0.11.20 - 2023-11-10
+=====================
+* Fix a compilation error with iOS.
+* Fix an error when dynamically linking libraries when forcing the UWP build on desktop.
+
+
 v0.11.19 - 2023-11-04
 =====================
 * Fix a bug where `ma_decoder_init_file()` can incorrectly return successfully.
