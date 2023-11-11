@@ -32754,7 +32754,7 @@ static ma_result ma_find_AudioObjectID(ma_context* pContext, ma_device_type devi
 }
 
 
-static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const AudioStreamBasicDescription* pOrigFormat, AudioStreamBasicDescription* pFormat)
+static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjectID deviceObjectID, ma_device_type deviceType, ma_format in_format, ma_uint32 channels, ma_uint32 sampleRate, const AudioStreamBasicDescription* pOrigFormat, AudioStreamBasicDescription* pFormat)
 {
     UInt32 deviceFormatDescriptionCount;
     AudioStreamRangedDescription* pDeviceFormatDescriptions;
@@ -32781,7 +32781,7 @@ static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjec
         desiredChannelCount = pOrigFormat->mChannelsPerFrame;
     }
 
-    desiredFormat = format;
+    desiredFormat = in_format;
     if (desiredFormat == ma_format_unknown) {
         result = ma_format_from_AudioStreamBasicDescription(pOrigFormat, &desiredFormat);
         if (result != MA_SUCCESS || desiredFormat == ma_format_unknown) {
