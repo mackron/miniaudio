@@ -7245,6 +7245,14 @@ static void ma_device__on_notification_rerouted(ma_device* pDevice)
 }
 #endif
 
+#if defined(MA_EMSCRIPTEN)
+EMSCRIPTEN_KEEPALIVE
+void ma_device__on_notification_unlocked(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_unlocked));
+}
+#endif
+
 
 static void ma_device__on_data_inner(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
@@ -28377,6 +28385,7 @@ static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
             */
             device.webaudio.close();
             device.webaudio = undefined;
+            device.pDevice = undefined;
         }, pDevice->webaudio.deviceIndex);
     }
     #endif
@@ -28872,6 +28881,8 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
                 device.scriptNode.connect(device.webaudio.destination);
             }
 
+            device.pDevice = pDevice;
+
             return miniaudio.track_device(device);
         }, pConfig->deviceType, channels, sampleRate, periodSizeInFrames, pDevice->webaudio.pIntermediaryBuffer, pDevice);
 
@@ -29044,8 +29055,15 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
             miniaudio.unlock = function() {
                 for(var i = 0; i < miniaudio.devices.length; ++i) {
                     var device = miniaudio.devices[i];
-                    if (device != null && device.webaudio != null && device.state === 2 /* ma_device_state_started */) {
-                        device.webaudio.resume();
+                    if (device != null &&
+                        device.webaudio != null &&
+                        device.state === window.miniaudio.device_state.started) {
+
+                        device.webaudio.resume().then(() => {
+                                Module._ma_device__on_notification_unlocked(device.pDevice);
+                            },
+                            (error) => {console.error("Failed to resume audiocontext", error);
+                            });
                     }
                 }
                 miniaudio.unlock_event_types.map(function(event_type) {
