@@ -39823,6 +39823,10 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__webaudio(co
     */
     ma_uint32 periodSizeInFrames;
 
+    if (nativeSampleRate == 0) {
+        nativeSampleRate = MA_DEFAULT_SAMPLE_RATE;
+    }
+
     if (pDescriptor->periodSizeInFrames == 0) {
         if (pDescriptor->periodSizeInMilliseconds == 0) {
             if (performanceProfile == ma_performance_profile_low_latency) {
