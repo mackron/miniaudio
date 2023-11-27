@@ -1,6 +1,6 @@
 /*
 Audio playback and capture library. Choice of public domain or MIT-0. See license statements at the end of this file.
-miniaudio - v0.11.21 - 2023-11-15
+miniaudio - v0.11.22 - TBD
 
 David Reid - mackron@gmail.com
 
@@ -7249,6 +7249,10 @@ struct ma_context_config
     ma_allocation_callbacks allocationCallbacks;
     struct
     {
+        ma_handle hWnd; /* HWND. Optional window handle to pass into SetCooperativeLevel(). Will default to the foreground window, and if that fails, the desktop window. */
+    } dsound;
+    struct
+    {
         ma_bool32 useVerboseDeviceEnumeration;
     } alsa;
     struct
@@ -7336,6 +7340,7 @@ struct ma_context
 #ifdef MA_SUPPORT_DSOUND
         struct
         {
+            ma_handle hWnd; /* Can be null. */
             ma_handle hDSoundDLL;
             ma_proc DirectSoundCreate;
             ma_proc DirectSoundEnumerateA;
@@ -24024,9 +24029,12 @@ static ma_result ma_context_create_IDirectSound__dsound(ma_context* pContext, ma
     }
 
     /* The cooperative level must be set before doing anything else. */
-    hWnd = ((MA_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
+    hWnd = (HWND)pContext->dsound.hWnd;
     if (hWnd == 0) {
-        hWnd = ((MA_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
+        hWnd = ((MA_PFN_GetForegroundWindow)pContext->win32.GetForegroundWindow)();
+        if (hWnd == 0) {
+            hWnd = ((MA_PFN_GetDesktopWindow)pContext->win32.GetDesktopWindow)();
+        }
     }
 
     hr = ma_IDirectSound_SetCooperativeLevel(pDirectSound, hWnd, (shareMode == ma_share_mode_exclusive) ? MA_DSSCL_EXCLUSIVE : MA_DSSCL_PRIORITY);
@@ -25342,6 +25350,8 @@ static ma_result ma_context_init__dsound(ma_context* pContext, const ma_context_
         pContext->dsound.DirectSoundCaptureEnumerateA == NULL) {
         return MA_API_NOT_FOUND;
     }
+
+    pContext->dsound.hWnd = pConfig->dsound.hWnd;
 
     pCallbacks->onContextInit             = ma_context_init__dsound;
     pCallbacks->onContextUninit           = ma_context_uninit__dsound;

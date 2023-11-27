@@ -1,3 +1,8 @@
+v0.11.22 - TBD
+=====================
+* DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
+
+
 v0.11.21 - 2023-11-15
 =====================
 * Add new ma_device_notification_type_unlocked notification. This is used on Web and will be fired after the user has performed a gesture and thus unlocked the ability to play audio.
