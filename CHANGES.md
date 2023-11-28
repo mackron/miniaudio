@@ -1,5 +1,6 @@
 v0.11.22 - TBD
 =====================
+* ALSA: Fix some warnings relating to unhandled return value of `read()`.
 * DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
 
 
