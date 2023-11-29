@@ -1,3 +1,17 @@
+v0.11.22 - TBD
+=====================
+* ALSA: Fix some warnings relating to unhandled return value of `read()`.
+* DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
+* Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.
+
+
+v0.11.21 - 2023-11-15
+=====================
+* Add new ma_device_notification_type_unlocked notification. This is used on Web and will be fired after the user has performed a gesture and thus unlocked the ability to play audio.
+* Web: Fix an error where the buffer size is incorrectly calculated.
+* Core Audio: Fix a -Wshadow warning.
+
+
 v0.11.20 - 2023-11-10
 =====================
 * Fix a compilation error with iOS.
