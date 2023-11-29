@@ -18675,11 +18675,16 @@ static void ma_device__on_notification_rerouted(ma_device* pDevice)
 #endif
 
 #if defined(MA_EMSCRIPTEN)
-EMSCRIPTEN_KEEPALIVE
-void ma_device__on_notification_unlocked(ma_device* pDevice)
+#ifdef __cplusplus
+extern "C" {
+#endif
+void EMSCRIPTEN_KEEPALIVE ma_device__on_notification_unlocked(ma_device* pDevice)
 {
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_unlocked));
 }
+#ifdef __cplusplus
+}
+#endif
 #endif
 
 
