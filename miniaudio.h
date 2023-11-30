@@ -72296,7 +72296,7 @@ static ma_result ma_node_detach_full(ma_node* pNode)
         linked list logic. We don't need to worry about the audio thread referencing these because the step
         above severed the connection to the graph.
         */
-        for (pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pOutputBus->pNext)) {
+        for (pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext)) {
             ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);   /* This won't do any waiting in practice and should be efficient. */
         }
     }
