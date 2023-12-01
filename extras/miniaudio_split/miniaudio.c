@@ -62900,6 +62900,11 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
             ma_panner_process_pcm_frames(&pEngineNode->panner, pRunningFramesOut, pRunningFramesOut, framesJustProcessedOut);   /* In-place processing. */
         }
 
+        /* User callback to do processing on the data*/
+        if(pEngineNode->dspProc != NULL) {
+            pEngineNode->dspProc(pEngineNode, pRunningFramesOut, pRunningFramesOut, framesJustProcessedOut, channelsOut);
+        }
+
         /* We're done for this chunk. */
         totalFramesProcessedIn  += framesJustProcessedIn;
         totalFramesProcessedOut += framesJustProcessedOut;
