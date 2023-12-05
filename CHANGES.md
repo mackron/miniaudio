@@ -3,6 +3,7 @@ v0.11.22 - TBD
 * ALSA: Fix some warnings relating to unhandled return value of `read()`.
 * DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
 * Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.
+* Web: Fix an error with the unlocked notification when compiling as C++.
 
 
 v0.11.21 - 2023-11-15
