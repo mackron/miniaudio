@@ -17944,6 +17944,10 @@ DEVICE I/O
     #endif
 #endif
 
+/* This must be set to at least 26. */
+#ifndef MA_AAUDIO_MIN_ANDROID_SDK_VERSION
+#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26
+#endif
 
 
 MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 flags)
@@ -18090,7 +18094,7 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #if defined(MA_HAS_AAUDIO)
             #if defined(MA_ANDROID)
             {
-                return ma_android_sdk_version() >= 26;
+                return ma_android_sdk_version() >= MA_AAUDIO_MIN_ANDROID_SDK_VERSION;
             }
             #else
                 return MA_FALSE;
