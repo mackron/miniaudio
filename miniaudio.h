@@ -17946,7 +17946,7 @@ DEVICE I/O
 
 /* This must be set to at least 26. */
 #ifndef MA_AAUDIO_MIN_ANDROID_SDK_VERSION
-#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26
+#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 27
 #endif
 
 
