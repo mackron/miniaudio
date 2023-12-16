@@ -33,14 +33,7 @@ void main_loop__em()
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_waveform* pSineWave;
-
-    MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
-
-    pSineWave = (ma_waveform*)pDevice->pUserData;
-    MA_ASSERT(pSineWave != NULL);
-
-    ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
+    ma_waveform_read_pcm_frames((ma_waveform*)pDevice->pUserData, pOutput, frameCount, NULL);
 
     (void)pInput;   /* Unused. */
 }

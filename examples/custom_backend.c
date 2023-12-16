@@ -180,9 +180,6 @@ static ma_result ma_context_enumerate_devices__sdl(ma_context* pContext, ma_enum
     ma_bool32 cbResult;
     int iDevice;
 
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
     /* Playback */
     if (!isTerminated) {
         int deviceCount = ((MA_PFN_SDL_GetNumAudioDevices)pContextEx->sdl.SDL_GetNumAudioDevices)(0);
@@ -240,8 +237,6 @@ static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device
     MA_SDL_AudioDeviceID tempDeviceID;
     const char* pDeviceName;
 #endif
-
-    MA_ASSERT(pContext != NULL);
 
     if (pDeviceID == NULL) {
         if (deviceType == ma_device_type_playback) {
@@ -322,16 +317,12 @@ void ma_audio_callback_capture__sdl(void* pUserData, ma_uint8* pBuffer, int buff
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
 
-    MA_ASSERT(pDeviceEx != NULL);
-
     ma_device_handle_backend_data_callback((ma_device*)pDeviceEx, NULL, pBuffer, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx->device.capture.internalFormat, pDeviceEx->device.capture.internalChannels));
 }
 
 void ma_audio_callback_playback__sdl(void* pUserData, ma_uint8* pBuffer, int bufferSizeInBytes)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
-
-    MA_ASSERT(pDeviceEx != NULL);
 
     ma_device_handle_backend_data_callback((ma_device*)pDeviceEx, pBuffer, NULL, (ma_uint32)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx->device.playback.internalFormat, pDeviceEx->device.playback.internalChannels));
 }
@@ -343,9 +334,6 @@ static ma_result ma_device_init_internal__sdl(ma_device_ex* pDeviceEx, const ma_
     MA_SDL_AudioSpec obtainedSpec;
     const char* pDeviceName;
     int deviceID;
-
-    MA_ASSERT(pDeviceEx  != NULL);
-    MA_ASSERT(pDescriptor != NULL);
 
     /*
     SDL is a little bit awkward with specifying the buffer size, You need to specify the size of the buffer in frames, but since we may
@@ -430,8 +418,6 @@ static ma_result ma_device_init__sdl(ma_device* pDevice, const ma_device_config*
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
     ma_result result;
 
-    MA_ASSERT(pDevice != NULL);
-    
     /* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it's requested. */
     if (pConfig->deviceType == ma_device_type_loopback) {
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -463,8 +449,6 @@ static ma_result ma_device_uninit__sdl(ma_device* pDevice)
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
 
-    MA_ASSERT(pDevice != NULL);
-
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_CloseAudioDevice)pContextEx->sdl.SDL_CloseAudioDevice)(pDeviceEx->sdl.deviceIDCapture);
     }
@@ -480,8 +464,6 @@ static ma_result ma_device_start__sdl(ma_device* pDevice)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
-
-    MA_ASSERT(pDevice != NULL);
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx->sdl.SDL_PauseAudioDevice)(pDeviceEx->sdl.deviceIDCapture, 0);
@@ -499,8 +481,6 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice->pContext;
 
-    MA_ASSERT(pDevice != NULL);
-
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx->sdl.SDL_PauseAudioDevice)(pDeviceEx->sdl.deviceIDCapture, 1);
     }
@@ -515,8 +495,6 @@ static ma_result ma_device_stop__sdl(ma_device* pDevice)
 static ma_result ma_context_uninit__sdl(ma_context* pContext)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
-
-    MA_ASSERT(pContext != NULL);
 
     ((MA_PFN_SDL_QuitSubSystem)pContextEx->sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
 
@@ -544,8 +522,6 @@ static ma_result ma_context_init__sdl(ma_context* pContext, const ma_context_con
         "libSDL2-2.0.so.0"
 #endif
     };
-
-    MA_ASSERT(pContext != NULL);
 
     (void)pConfig;
 
@@ -641,15 +617,8 @@ Main program starts here.
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
-
     if (pDevice->type == ma_device_type_playback)  {
-        ma_waveform* pSineWave;
-
-        pSineWave = (ma_waveform*)pDevice->pUserData;
-        MA_ASSERT(pSineWave != NULL);
-
-        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
+        ma_waveform_read_pcm_frames((ma_waveform*)pDevice->pUserData, pOutput, frameCount, NULL);
     }
 
     if (pDevice->type == ma_device_type_duplex) {

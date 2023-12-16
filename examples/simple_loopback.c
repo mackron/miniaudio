@@ -18,10 +18,7 @@ properties. The output buffer in the callback will be null whereas the input buf
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_encoder* pEncoder = (ma_encoder*)pDevice->pUserData;
-    MA_ASSERT(pEncoder != NULL);
-
-    ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount, NULL);
+    ma_encoder_write_pcm_frames((ma_encoder*)pDevice->pUserData, pInput, frameCount, NULL);
 
     (void)pOutput;
 }
