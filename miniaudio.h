@@ -16147,9 +16147,9 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
                 if (priority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
                 } else if (priority == ma_thread_priority_realtime) {
-                    #if defined(MA_PTHREAD_REALTTIME_THREAD_PRIORITY)
+                    #if defined(MA_PTHREAD_REALTIME_THREAD_PRIORITY)
                     {
-                        sched.sched_priority = MA_PTHREAD_REALTTIME_THREAD_PRIORITY;
+                        sched.sched_priority = MA_PTHREAD_REALTIME_THREAD_PRIORITY;
                     }
                     #else
                     {
