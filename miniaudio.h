@@ -16147,15 +16147,24 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
                 if (priority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
                 } else if (priority == ma_thread_priority_realtime) {
-                    sched.sched_priority = priorityMax;
-                } else {
-                    sched.sched_priority += ((int)priority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
-                    if (sched.sched_priority < priorityMin) {
-                        sched.sched_priority = priorityMin;
+                    #if defined(MA_PTHREAD_REALTTIME_THREAD_PRIORITY)
+                    {
+                        sched.sched_priority = MA_PTHREAD_REALTTIME_THREAD_PRIORITY;
                     }
-                    if (sched.sched_priority > priorityMax) {
+                    #else
+                    {
                         sched.sched_priority = priorityMax;
                     }
+                    #endif
+                } else {
+                    sched.sched_priority += ((int)priority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
+                }
+
+                if (sched.sched_priority < priorityMin) {
+                    sched.sched_priority = priorityMin;
+                }
+                if (sched.sched_priority > priorityMax) {
+                    sched.sched_priority = priorityMax;
                 }
 
                 /* I'm not treating a failure of setting the priority as a critical error so not aborting on failure here. */
