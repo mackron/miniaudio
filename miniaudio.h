@@ -9989,6 +9989,12 @@ Retrieves the decoder's output data format.
 MA_API ma_result ma_decoder_get_data_format(ma_decoder* pDecoder, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 
 /*
+Retrieves the decoder's encoding data format.
+*/
+MA_API ma_result ma_decoder_get_encoding_format(ma_decoder* pDecoder, ma_encoding_format* pFormat);
+
+
+/*
 Retrieves the current position of the read cursor in PCM frames.
 */
 MA_API ma_result ma_decoder_get_cursor_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pCursor);
@@ -65326,6 +65332,45 @@ MA_API ma_result ma_decoder_get_data_format(ma_decoder* pDecoder, ma_format* pFo
         ma_data_converter_get_output_channel_map(&pDecoder->converter, pChannelMap, channelMapCap);
     }
 
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_decoder_get_encoding_format(ma_decoder* pDecoder, ma_encoding_format* pFormat) 
+{
+    if (pDecoder == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFormat == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+#ifdef MA_HAS_WAV
+    if(pDecoder->pBackendVTable == &g_ma_decoding_backend_vtable_wav){
+        *pFormat = ma_encoding_format_wav;
+        return MA_SUCCESS;
+    }
+#endif
+#ifdef MA_HAS_FLAC
+    if(pDecoder->pBackendVTable == &g_ma_decoding_backend_vtable_flac){
+        *pFormat = ma_encoding_format_flac;
+        return MA_SUCCESS;
+    }
+#endif
+#ifdef MA_HAS_MP3
+    if(pDecoder->pBackendVTable == &g_ma_decoding_backend_vtable_mp3){
+        *pFormat = ma_encoding_format_mp3;
+        return MA_SUCCESS;
+    }
+#endif
+#ifdef MA_HAS_VORBIS
+    if(pDecoder->pBackendVTable == &g_ma_decoding_backend_vtable_vorbis){
+        *pFormat = ma_encoding_format_vorbis;
+        return MA_SUCCESS;
+    }
+#endif
+
+    *pFormat = ma_encoding_format_unknown;
     return MA_SUCCESS;
 }
 
