@@ -11211,12 +11211,12 @@ MA_API ma_engine_config ma_engine_config_init(void);
 
 struct ma_engine
 {
-    ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
+    ma_node_graph nodeGraph;                        /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;
 #endif
 #if !defined(MA_NO_DEVICE_IO)
-    ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
+    ma_device* pDevice;                             /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
 #endif
     ma_log* pLog;
     ma_uint32 sampleRate;
@@ -11225,10 +11225,10 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;               /* For synchronizing access so the inlined sound list. */
-    ma_sound_inlined* pInlinedSoundHead;        /* The first inlined sound. Inlined sounds are tracked in a linked list. */
-    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
-    ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. */
+    ma_spinlock inlinedSoundLock;                   /* For synchronizing access so the inlined sound list. */
+    ma_sound_inlined* pInlinedSoundHead;            /* The first inlined sound. Inlined sounds are tracked in a linked list. */
+    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;      /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_engine_process_proc onProcess;
@@ -23680,6 +23680,13 @@ DirectSound Backend
 #define MA_DSBPLAY_TERMINATEBY_DISTANCE 0x00000010
 #define MA_DSBPLAY_TERMINATEBY_PRIORITY 0x00000020
 
+#define MA_DSBSTATUS_PLAYING            0x00000001
+#define MA_DSBSTATUS_BUFFERLOST         0x00000002
+#define MA_DSBSTATUS_LOOPING            0x00000004
+#define MA_DSBSTATUS_LOCHARDWARE        0x00000008
+#define MA_DSBSTATUS_LOCSOFTWARE        0x00000010
+#define MA_DSBSTATUS_TERMINATED         0x00000020
+
 #define MA_DSCBSTART_LOOPING            0x00000001
 
 typedef struct
@@ -24842,6 +24849,7 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
     ma_bool32 isPlaybackDeviceStarted = MA_FALSE;
     ma_uint32 framesWrittenToPlaybackDevice = 0;   /* For knowing whether or not the playback device needs to be started. */
     ma_uint32 waitTimeInMilliseconds = 1;
+    DWORD playbackBufferStatus = 0;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -25168,6 +25176,21 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
                 hr = ma_IDirectSoundBuffer_GetCurrentPosition((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
                 if (FAILED(hr)) {
                     break;
+                }
+
+                hr = ma_IDirectSoundBuffer_GetStatus((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &playbackBufferStatus);
+                if (SUCCEEDED(hr) && (playbackBufferStatus & MA_DSBSTATUS_PLAYING) == 0 && isPlaybackDeviceStarted)
+                {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[DirectSound] Attempting to resume audio due to state: %d.", (int)playbackBufferStatus);
+                    hr = ma_IDirectSoundBuffer_Play((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
+                    if (FAILED(hr)) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed after attempting to resume from state %d.", (int)playbackBufferStatus);
+                        return ma_result_from_HRESULT(hr);
+                    }
+
+                    isPlaybackDeviceStarted = MA_TRUE;
+                    ma_sleep(waitTimeInMilliseconds);
+                    continue;
                 }
 
                 if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
