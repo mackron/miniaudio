@@ -18827,7 +18827,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
         unsigned int prevDenormalState = ma_device_disable_denormals(pDevice);
         {
             /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
-            if (pFramesIn != NULL && masterVolumeFactor < 1) {
+            if (pFramesIn != NULL && masterVolumeFactor != 1) {
                 ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                 ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                 ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
@@ -18850,7 +18850,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
 
             /* Volume control and clipping for playback devices. */
             if (pFramesOut != NULL) {
-                if (masterVolumeFactor < 1) {
+                if (masterVolumeFactor != 1) {
                     if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
                         ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
                     }
