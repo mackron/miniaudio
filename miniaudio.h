@@ -59221,7 +59221,7 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         result = ma_SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
     } else if (ma_SetFilePointer != NULL) {
         /* No SetFilePointerEx() so restrict to 31 bits. */
-        if (origin > 0x7FFFFFFF) {
+        if (offset > 0x7FFFFFFF) {
             return MA_OUT_OF_RANGE;
         }
 
