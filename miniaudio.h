@@ -39711,7 +39711,7 @@ TODO: Version 0.12: Swap this logic around so that AudioWorklets are used by def
 
 /* The thread stack size must be a multiple of 16. */
 #ifndef MA_AUDIO_WORKLETS_THREAD_STACK_SIZE
-#define MA_AUDIO_WORKLETS_THREAD_STACK_SIZE 16384
+#define MA_AUDIO_WORKLETS_THREAD_STACK_SIZE     131072
 #endif
 
 #if defined(MA_USE_AUDIO_WORKLETS)
