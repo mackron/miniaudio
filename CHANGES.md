@@ -6,6 +6,7 @@ v0.11.22 - TBD
 * DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
 * Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.
 * Web: Fix an error with the unlocked notification when compiling as C++.
+* Web: Fix a JavaScript error when initializing and then uninitializing a context before any interactivity.
 * AAudio: The default minimum SDK version has been increased from 26 to 27 when enabling AAudio. If you need to support version 26, you can use `#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26`.
 
 
