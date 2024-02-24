@@ -81,8 +81,6 @@ static int              g_soundNodeCount;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    MA_ASSERT(pDevice->playback.channels == CHANNELS);
-
     /*
     Hearing the output of the node graph is as easy as reading straight into the output buffer. You just need to
     make sure you use a consistent data format or else you'll need to do your own conversion.

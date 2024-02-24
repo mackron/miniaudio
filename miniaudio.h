@@ -11306,12 +11306,12 @@ MA_API ma_engine_config ma_engine_config_init(void);
 
 struct ma_engine
 {
-    ma_node_graph nodeGraph;                /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
+    ma_node_graph nodeGraph;                        /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;
 #endif
 #if !defined(MA_NO_DEVICE_IO)
-    ma_device* pDevice;                     /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
+    ma_device* pDevice;                             /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
 #endif
     ma_log* pLog;
     ma_uint32 sampleRate;
@@ -11320,10 +11320,10 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;               /* For synchronizing access so the inlined sound list. */
-    ma_sound_inlined* pInlinedSoundHead;        /* The first inlined sound. Inlined sounds are tracked in a linked list. */
-    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;  /* The total number of allocated inlined sound objects. Used for debugging. */
-    ma_uint32 gainSmoothTimeInFrames;           /* The number of frames to interpolate the gain of spatialized sounds across. */
+    ma_spinlock inlinedSoundLock;                   /* For synchronizing access so the inlined sound list. */
+    ma_sound_inlined* pInlinedSoundHead;            /* The first inlined sound. Inlined sounds are tracked in a linked list. */
+    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;      /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_engine_process_proc onProcess;
@@ -16201,19 +16201,34 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
                 if (priority == ma_thread_priority_idle) {
                     sched.sched_priority = priorityMin;
                 } else if (priority == ma_thread_priority_realtime) {
-                    sched.sched_priority = priorityMax;
-                } else {
-                    sched.sched_priority += ((int)priority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
-                    if (sched.sched_priority < priorityMin) {
-                        sched.sched_priority = priorityMin;
+                    #if defined(MA_PTHREAD_REALTIME_THREAD_PRIORITY)
+                    {
+                        sched.sched_priority = MA_PTHREAD_REALTIME_THREAD_PRIORITY;
                     }
-                    if (sched.sched_priority > priorityMax) {
+                    #else
+                    {
                         sched.sched_priority = priorityMax;
                     }
+                    #endif
+                } else {
+                    sched.sched_priority += ((int)priority + 5) * priorityStep;  /* +5 because the lowest priority is -5. */
                 }
 
-                /* I'm not treating a failure of setting the priority as a critical error so not checking the return value here. */
-                pthread_attr_setschedparam(&attr, &sched);
+                if (sched.sched_priority < priorityMin) {
+                    sched.sched_priority = priorityMin;
+                }
+                if (sched.sched_priority > priorityMax) {
+                    sched.sched_priority = priorityMax;
+                }
+
+                /* I'm not treating a failure of setting the priority as a critical error so not aborting on failure here. */
+                if (pthread_attr_setschedparam(&attr, &sched) == 0) {
+                    #if !defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+                    {
+                        pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+                    }
+                    #endif
+                }
             }
         }
     }
@@ -17998,6 +18013,10 @@ DEVICE I/O
     #endif
 #endif
 
+/* This must be set to at least 26. */
+#ifndef MA_AAUDIO_MIN_ANDROID_SDK_VERSION
+#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 27
+#endif
 
 
 
@@ -18354,7 +18373,7 @@ MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
         #if defined(MA_HAS_AAUDIO)
             #if defined(MA_ANDROID)
             {
-                return ma_android_sdk_version() >= 26;
+                return ma_android_sdk_version() >= MA_AAUDIO_MIN_ANDROID_SDK_VERSION;
             }
             #else
                 return MA_FALSE;
@@ -19071,7 +19090,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
         unsigned int prevDenormalState = ma_device_disable_denormals(pDevice);
         {
             /* Volume control of input makes things a bit awkward because the input buffer is read-only. We'll need to use a temp buffer and loop in this case. */
-            if (pFramesIn != NULL && masterVolumeFactor < 1) {
+            if (pFramesIn != NULL && masterVolumeFactor != 1) {
                 ma_uint8 tempFramesIn[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
                 ma_uint32 bpfCapture  = ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
                 ma_uint32 bpfPlayback = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
@@ -19094,7 +19113,7 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
 
             /* Volume control and clipping for playback devices. */
             if (pFramesOut != NULL) {
-                if (masterVolumeFactor < 1) {
+                if (masterVolumeFactor != 1) {
                     if (pFramesIn == NULL) {    /* <-- In full-duplex situations, the volume will have been applied to the input samples before the data callback. Applying it again post-callback will incorrectly compound it. */
                         ma_apply_volume_factor_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels, masterVolumeFactor);
                     }
@@ -23922,6 +23941,13 @@ DirectSound Backend
 #define MA_DSBPLAY_TERMINATEBY_DISTANCE 0x00000010
 #define MA_DSBPLAY_TERMINATEBY_PRIORITY 0x00000020
 
+#define MA_DSBSTATUS_PLAYING            0x00000001
+#define MA_DSBSTATUS_BUFFERLOST         0x00000002
+#define MA_DSBSTATUS_LOOPING            0x00000004
+#define MA_DSBSTATUS_LOCHARDWARE        0x00000008
+#define MA_DSBSTATUS_LOCSOFTWARE        0x00000010
+#define MA_DSBSTATUS_TERMINATED         0x00000020
+
 #define MA_DSCBSTART_LOOPING            0x00000001
 
 typedef struct
@@ -25084,6 +25110,7 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
     ma_bool32 isPlaybackDeviceStarted = MA_FALSE;
     ma_uint32 framesWrittenToPlaybackDevice = 0;   /* For knowing whether or not the playback device needs to be started. */
     ma_uint32 waitTimeInMilliseconds = 1;
+    DWORD playbackBufferStatus = 0;
 
     MA_ASSERT(pDevice != NULL);
 
@@ -25410,6 +25437,20 @@ static ma_result ma_device_data_loop__dsound(ma_device* pDevice)
                 hr = ma_IDirectSoundBuffer_GetCurrentPosition((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &physicalPlayCursorInBytes, &physicalWriteCursorInBytes);
                 if (FAILED(hr)) {
                     break;
+                }
+
+                hr = ma_IDirectSoundBuffer_GetStatus((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, &playbackBufferStatus);
+                if (SUCCEEDED(hr) && (playbackBufferStatus & MA_DSBSTATUS_PLAYING) == 0 && isPlaybackDeviceStarted) {
+                    ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[DirectSound] Attempting to resume audio due to state: %d.", (int)playbackBufferStatus);
+                    hr = ma_IDirectSoundBuffer_Play((ma_IDirectSoundBuffer*)pDevice->dsound.pPlaybackBuffer, 0, 0, MA_DSBPLAY_LOOPING);
+                    if (FAILED(hr)) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[DirectSound] IDirectSoundBuffer_Play() failed after attempting to resume from state %d.", (int)playbackBufferStatus);
+                        return ma_result_from_HRESULT(hr);
+                    }
+
+                    isPlaybackDeviceStarted = MA_TRUE;
+                    ma_sleep(waitTimeInMilliseconds);
+                    continue;
                 }
 
                 if (physicalPlayCursorInBytes < prevPlayCursorInBytesPlayback) {
@@ -39894,7 +39935,7 @@ TODO: Version 0.12: Swap this logic around so that AudioWorklets are used by def
 
 /* The thread stack size must be a multiple of 16. */
 #ifndef MA_AUDIO_WORKLETS_THREAD_STACK_SIZE
-#define MA_AUDIO_WORKLETS_THREAD_STACK_SIZE 16384
+#define MA_AUDIO_WORKLETS_THREAD_STACK_SIZE     131072
 #endif
 
 #if defined(MA_USE_AUDIO_WORKLETS)
@@ -40637,6 +40678,10 @@ static ma_result ma_context_uninit__webaudio(ma_context* pContext)
     /* Remove the global miniaudio object from window if there are no more references to it. */
     EM_ASM({
         if (typeof(window.miniaudio) !== 'undefined') {
+            miniaudio.unlock_event_types.map(function(event_type) {
+                document.removeEventListener(event_type, miniaudio.unlock, true);
+            });
+
             window.miniaudio.referenceCount -= 1;
             if (window.miniaudio.referenceCount === 0) {
                 delete window.miniaudio;
@@ -59336,7 +59381,7 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
         result = ma_SetFilePointerEx((HANDLE)file, liDistanceToMove, NULL, dwMoveMethod);
     } else if (ma_SetFilePointer != NULL) {
         /* No SetFilePointerEx() so restrict to 31 bits. */
-        if (origin > 0x7FFFFFFF) {
+        if (offset > 0x7FFFFFFF) {
             return MA_OUT_OF_RANGE;
         }
 
@@ -59939,7 +59984,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  13
+#define MA_DR_WAV_VERSION_REVISION  14
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -72457,7 +72502,7 @@ static ma_result ma_node_detach_full(ma_node* pNode)
         linked list logic. We don't need to worry about the audio thread referencing these because the step
         above severed the connection to the graph.
         */
-        for (pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pOutputBus->pNext)) {
+        for (pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext); pOutputBus != NULL; pOutputBus = (ma_node_output_bus*)ma_atomic_load_ptr(&pInputBus->head.pNext)) {
             ma_node_detach_output_bus(pOutputBus->pNode, pOutputBus->outputBusIndex);   /* This won't do any waiting in practice and should be efficient. */
         }
     }
@@ -78720,7 +78765,6 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         }
         if (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx) {
             if (ma_dr_wav_bytes_to_u32_ex(chunkSizeBytes, pWav->container) < 36) {
-                return MA_FALSE;
             }
         } else if (pWav->container == ma_dr_wav_container_rf64) {
             if (ma_dr_wav_bytes_to_u32_le(chunkSizeBytes) != 0xFFFFFFFF) {
@@ -79047,9 +79091,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             }
         }
         if (isProcessingMetadata) {
-            ma_uint64 metadataBytesRead;
-            metadataBytesRead = ma_dr_wav__metadata_process_chunk(&metadataParser, &header, ma_dr_wav_metadata_type_all_including_unknown);
-            MA_DR_WAV_ASSERT(metadataBytesRead <= header.sizeInBytes);
+            ma_dr_wav__metadata_process_chunk(&metadataParser, &header, ma_dr_wav_metadata_type_all_including_unknown);
             if (ma_dr_wav__seek_from_start(pWav->onSeek, cursor, pWav->pUserData) == MA_FALSE) {
                 break;
             }

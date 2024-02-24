@@ -49,7 +49,9 @@ ma_decoder* g_pDecoders;
 
 static ma_data_source* next_callback_tail(ma_data_source* pDataSource)
 {
-    MA_ASSERT(g_decoderCount > 0);  /* <-- We check for this in main() so should never happen. */
+    if (g_decoderCount > 0) {   /* <-- We check for this in main() so should never happen. */
+        return NULL;
+    }
 
     /*
     This will be fired when the last item in the chain has reached the end. In this example we want

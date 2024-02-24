@@ -32,8 +32,6 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
     This function is intended to be used when the format and channel count of the data source is
     known beforehand. The idea is to avoid overhead due to redundant calls to ma_data_source_get_data_format().
     */
-    MA_ASSERT(pDataSource != NULL);
-
     if (dataSourceFormat == ma_format_f32) {
         /* Fast path. No conversion necessary. */
         return ma_data_source_read_pcm_frames(pDataSource, pFramesOut, frameCount, pFramesRead);
@@ -136,10 +134,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     */
     ma_uint32 iDataSource;
 
-    MA_ASSERT(pDevice->playback.format == ma_format_f32);
-
-    (void)pInput;   /* Unused. */
-
     /*
     If the device was configured with noPreSilencedOutputBuffer then you would need to silence the
     buffer here, or make sure the first data source to be mixed is copied rather than mixed.
@@ -150,12 +144,15 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     for (iDataSource = 0; iDataSource < g_dataSourceCount; iDataSource += 1) {
         ma_data_source_read_pcm_frames_and_mix_f32(&g_dataSources[iDataSource], (float*)pOutput, frameCount, NULL, /* volume = */1);
     }
+
+    /* Unused. */
+    (void)pInput;
+    (void)pDevice;
 }
 
 static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
 {
     ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
-    MA_ASSERT(pResourceManager != NULL);
 
     for (;;) {
         ma_result result;
@@ -191,8 +188,8 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
         event is received which means the `result != MA_SUCCESS` logic above will catch it. If you do not check the
         return value of ma_resource_manager_next_job() you will want to check for MA_RESOURCE_MANAGER_JOB_QUIT like the code below.
         */
-        if (job.toc.breakup.code == MA_RESOURCE_MANAGER_JOB_QUIT) {
-            printf("CUSTOM JOB THREAD TERMINATING VIA MA_RESOURCE_MANAGER_JOB_QUIT... ");
+        if (job.toc.breakup.code == MA_JOB_TYPE_QUIT) {
+            printf("CUSTOM JOB THREAD TERMINATING VIA MA_JOB_TYPE_QUIT... ");
             break;
         }
 

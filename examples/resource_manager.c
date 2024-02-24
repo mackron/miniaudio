@@ -33,7 +33,6 @@ set, each sound will have their own formats and you'll need to do the necessary 
 void main_loop__em(void* pUserData)
 {
     ma_resource_manager* pResourceManager = (ma_resource_manager*)pUserData;
-    MA_ASSERT(pResourceManager != NULL);
 
     /*
     The Emscripten build does not support threading which means we need to process jobs manually. If

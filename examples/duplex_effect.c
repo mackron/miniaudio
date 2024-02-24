@@ -12,7 +12,7 @@ effect.
 
 #include <stdio.h>
 
-#define DEVICE_FORMAT      ma_format_f32;   /* Must always be f32 for this example because the node graph system only works with this. */
+#define DEVICE_FORMAT      ma_format_f32    /* Must always be f32 for this example because the node graph system only works with this. */
 #define DEVICE_CHANNELS    1                /* For this example, always set to 1. */
 
 static ma_waveform         g_sourceData;    /* The underlying data source of the source node. */
@@ -24,8 +24,13 @@ static ma_node_graph       g_nodeGraph;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    MA_ASSERT(pDevice->capture.format == pDevice->playback.format);
-    MA_ASSERT(pDevice->capture.channels == pDevice->playback.channels);
+    /*
+    This example assumes the playback and capture sides use the same format and channel count. The
+    format must be f32.
+    */
+    if (pDevice->capture.format != DEVICE_FORMAT || pDevice->playback.format != DEVICE_FORMAT || pDevice->capture.channels != pDevice->playback.channels) {
+        return;
+    }
 
     /*
     The node graph system is a pulling style of API. At the lowest level of the chain will be a 

@@ -41,7 +41,6 @@ will receive the captured audio.
 If multiple backends are specified, the priority will be based on the order in which you specify them. If multiple waveform or noise types
 are specified the last one on the command line will have priority.
 */
-#define MA_FORCE_UWP
 #include "../test_common/ma_test_common.c"
 
 typedef enum

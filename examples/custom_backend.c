@@ -34,15 +34,8 @@ Main program starts here.
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    MA_ASSERT(pDevice->playback.channels == DEVICE_CHANNELS);
-
     if (pDevice->type == ma_device_type_playback)  {
-        ma_waveform* pSineWave;
-
-        pSineWave = (ma_waveform*)pDevice->pUserData;
-        MA_ASSERT(pSineWave != NULL);
-
-        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
+        ma_waveform_read_pcm_frames((ma_waveform*)pDevice->pUserData, pOutput, frameCount, NULL);
     }
 
     if (pDevice->type == ma_device_type_duplex) {
