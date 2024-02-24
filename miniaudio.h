@@ -6182,6 +6182,12 @@ MA_API ma_result ma_event_wait(ma_event* pEvent);
 Signals the specified auto-reset event.
 */
 MA_API ma_result ma_event_signal(ma_event* pEvent);
+
+
+MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore);
+MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore);
+MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore);
+MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore);
 #endif  /* MA_NO_THREADING */
 
 
