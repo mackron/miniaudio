@@ -4435,6 +4435,10 @@ typedef ma_uint32 ma_spinlock;
     #elif defined(MA_WIN32)
         typedef ma_handle ma_semaphore;
     #endif
+
+    MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore);
+    MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore);
+    MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore);
 #else
     /* MA_NO_THREADING is set which means threading is disabled. Threading is required by some API families. If any of these are enabled we need to throw an error. */
     #ifndef MA_NO_DEVICE_IO
