@@ -22,21 +22,20 @@ would support variable sized updates which would avoid this whole mess entirely.
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
+#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. That dependency needs to be removed from Steam Audio - use IPLuint32 or "unsigned int" instead! */
 
 #include <phonon.h> /* Steam Audio */
-#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. That dependency needs to be removed from Steam Audio - use IPLuint32 or "unsigned int" instead! */
 
 #define FORMAT      ma_format_f32   /* Must be floating point. */
 #define CHANNELS    2               /* Must be stereo for this example. */
 #define SAMPLE_RATE 48000
 
-
 static ma_result ma_result_from_IPLerror(IPLerror error)
 {
     switch (error)
     {
-        case IPL_STATUS_SUCCESS:     return MA_SUCCESS;
-        case IPL_STATUS_OUTOFMEMORY: return MA_OUT_OF_MEMORY;
+    case IPL_STATUS_SUCCESS:      return MA_SUCCESS;
+    case IPL_STATUS_OUTOFMEMORY:  return MA_OUT_OF_MEMORY;
         case IPL_STATUS_INITIALIZATION:
         case IPL_STATUS_FAILURE:
         default: return MA_ERROR;
@@ -104,7 +103,7 @@ static void ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, const
     binauralParams.interpolation = IPL_HRTFINTERPOLATION_NEAREST;
     binauralParams.spatialBlend  = 1.0f;
     binauralParams.hrtf          = pBinauralNode->iplHRTF;
-
+    binauralParams.peakDelays = NULL;
     inputBufferDesc.numChannels = (IPLint32)ma_node_get_input_channels(pNode, 0);
 
     /* We'll run this in a loop just in case our deinterleaved buffers are too small. */
@@ -147,7 +146,7 @@ static ma_node_vtable g_ma_steamaudio_binaural_node_vtable =
     ma_steamaudio_binaural_node_process_pcm_frames,
     NULL,
     1,  /* 1 input channel. */
-    1,  /* 1 output channel. */
+1    ,  /* 1 output channel. */
     0
 };
 
@@ -276,7 +275,6 @@ int main(int argc, char** argv)
     IPLContext iplContext;
     IPLHRTFSettings iplHRTFSettings;
     IPLHRTF iplHRTF;
-
     if (argc < 2) {
         printf("No input file.");
         return -1;
@@ -312,7 +310,6 @@ int main(int argc, char** argv)
     /* IPLContext */
     MA_ZERO_OBJECT(&iplContextSettings);
     iplContextSettings.version = STEAMAUDIO_VERSION;
-    
     result = ma_result_from_IPLerror(iplContextCreate(&iplContextSettings, &iplContext));
     if (result != MA_SUCCESS) {
         ma_engine_uninit(&g_engine);
@@ -323,6 +320,7 @@ int main(int argc, char** argv)
     /* IPLHRTF */
     MA_ZERO_OBJECT(&iplHRTFSettings);
     iplHRTFSettings.type = IPL_HRTFTYPE_DEFAULT;
+    iplHRTFSettings.volume = 1.0f;
 
     result = ma_result_from_IPLerror(iplHRTFCreate(iplContext, &iplAudioSettings, &iplHRTFSettings, &iplHRTF));
     if (result != MA_SUCCESS) {
@@ -342,15 +340,13 @@ int main(int argc, char** argv)
 
         soundConfig = ma_sound_config_init();
         soundConfig.pFilePath   = argv[1];
-        soundConfig.flags       = MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;  /* We'll attach this to the graph later. */
-
+        soundConfig.flags = MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;
         result = ma_sound_init_ex(&g_engine, &soundConfig, &g_sound);
         if (result != MA_SUCCESS) {
             return result;
         }
 
         /* We'll let the Steam Audio binaural effect do the directional attenuation for us. */
-        ma_sound_set_directional_attenuation_factor(&g_sound, 0);
 
         /* Loop the sound so we can get a continuous sound. */
         ma_sound_set_looping(&g_sound, MA_TRUE);
@@ -386,12 +382,14 @@ int main(int argc, char** argv)
         }
 
         /* Connect the output of the delay node to the input of the endpoint. */
-        ma_node_attach_output_bus(&g_binauralNode, 0, ma_engine_get_endpoint(&g_engine), 0);
     }
+    ma_node_attach_output_bus(&g_binauralNode, 0, ma_engine_get_endpoint(&g_engine), 0);
 
 
     /* We can now wire up the sound to the binaural node and start it. */
     ma_node_attach_output_bus(&g_sound, 0, &g_binauralNode, 0);
+
+    ma_sound_set_directional_attenuation_factor(&g_sound, 0);
     ma_sound_start(&g_sound);
 
 #if 1
@@ -408,15 +406,13 @@ int main(int argc, char** argv)
             double x = ma_cosd(angle) - ma_sind(angle);
             double y = ma_sind(angle) + ma_cosd(angle);
             ma_vec3f direction;
-
             ma_sound_set_position(&g_sound, (float)x * distance, 0, (float)y * distance);
             direction = ma_sound_get_direction_to_listener(&g_sound);
 
             /* Update the direction of the sound. */
             ma_steamaudio_binaural_node_set_direction(&g_binauralNode, direction.x, direction.y, direction.z);
             angle += stepAngle;
-
-            ma_sleep(1);
+            Sleep(1);
         }
     }
 #else
