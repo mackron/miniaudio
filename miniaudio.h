@@ -81647,7 +81647,7 @@ MA_API void ma_dr_wav_f32_to_s32(ma_int32* pOut, const float* pIn, size_t sample
         return;
     }
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = (ma_int32)(2147483648.0 * pIn[i]);
+        *pOut++ = (ma_int32)(2147483648.0f * pIn[i]);
     }
 }
 MA_API void ma_dr_wav_f64_to_s32(ma_int32* pOut, const double* pIn, size_t sampleCount)
@@ -91135,8 +91135,8 @@ static ma_int16 ma_dr_mp3d_scale_pcm(float sample)
     s32 -= (s32 < 0);
     s = (ma_int16)ma_dr_mp3_clip_int16_arm(s32);
 #else
-    if (sample >=  32766.5) return (ma_int16) 32767;
-    if (sample <= -32767.5) return (ma_int16)-32768;
+    if (sample >=  32766.5f) return (ma_int16) 32767;
+    if (sample <= -32767.5f) return (ma_int16)-32768;
     s = (ma_int16)(sample + .5f);
     s -= (s < 0);
 #endif
@@ -91522,9 +91522,9 @@ MA_API void ma_dr_mp3dec_f32_to_s16(const float *in, ma_int16 *out, size_t num_s
     for(; i < num_samples; i++)
     {
         float sample = in[i] * 32768.0f;
-        if (sample >=  32766.5)
+        if (sample >=  32766.5f)
             out[i] = (ma_int16) 32767;
-        else if (sample <= -32767.5)
+        else if (sample <= -32767.5f)
             out[i] = (ma_int16)-32768;
         else
         {
