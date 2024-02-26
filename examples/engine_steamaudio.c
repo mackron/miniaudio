@@ -34,8 +34,8 @@ static ma_result ma_result_from_IPLerror(IPLerror error)
 {
     switch (error)
     {
-    case IPL_STATUS_SUCCESS:      return MA_SUCCESS;
-    case IPL_STATUS_OUTOFMEMORY:  return MA_OUT_OF_MEMORY;
+        case IPL_STATUS_SUCCESS: return MA_SUCCESS;
+        case IPL_STATUS_OUTOFMEMORY: return MA_OUT_OF_MEMORY;
         case IPL_STATUS_INITIALIZATION:
         case IPL_STATUS_FAILURE:
         default: return MA_ERROR;
@@ -146,7 +146,7 @@ static ma_node_vtable g_ma_steamaudio_binaural_node_vtable =
     ma_steamaudio_binaural_node_process_pcm_frames,
     NULL,
     1,  /* 1 input channel. */
-1    ,  /* 1 output channel. */
+    1    ,  /* 1 output channel. */
     0
 };
 
@@ -412,7 +412,7 @@ int main(int argc, char** argv)
             /* Update the direction of the sound. */
             ma_steamaudio_binaural_node_set_direction(&g_binauralNode, direction.x, direction.y, direction.z);
             angle += stepAngle;
-            Sleep(1);
+            ma_sleep(1);
         }
     }
 #else
