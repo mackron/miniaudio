@@ -23,8 +23,8 @@ would support variable sized updates which would avoid this whole mess entirely.
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
+#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there's a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */
 #include <phonon.h> /* Steam Audio */
-#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. That dependency needs to be removed from Steam Audio - use IPLuint32 or "unsigned int" instead! */
 
 #define FORMAT      ma_format_f32   /* Must be floating point. */
 #define CHANNELS    2               /* Must be stereo for this example. */
@@ -98,6 +98,7 @@ static void ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, const
     ma_uint32 totalFramesToProcess = *pFrameCountOut;
     ma_uint32 totalFramesProcessed = 0;
 
+    MA_ZERO_OBJECT(&binauralParams);
     binauralParams.direction.x   = pBinauralNode->direction.x;
     binauralParams.direction.y   = pBinauralNode->direction.y;
     binauralParams.direction.z   = pBinauralNode->direction.z;
@@ -322,7 +323,8 @@ int main(int argc, char** argv)
 
     /* IPLHRTF */
     MA_ZERO_OBJECT(&iplHRTFSettings);
-    iplHRTFSettings.type = IPL_HRTFTYPE_DEFAULT;
+    iplHRTFSettings.type   = IPL_HRTFTYPE_DEFAULT;
+    iplHRTFSettings.volume = 1;
 
     result = ma_result_from_IPLerror(iplHRTFCreate(iplContext, &iplAudioSettings, &iplHRTFSettings, &iplHRTF));
     if (result != MA_SUCCESS) {
