@@ -10558,6 +10558,16 @@ Node Graph
 /* Use this when the bus count is determined by the node instance rather than the vtable. */
 #define MA_NODE_BUS_COUNT_UNKNOWN   255
 
+
+/* For some internal memory management of ma_node_graph. */
+typedef struct
+{
+    size_t offset;
+    size_t sizeInBytes;
+    unsigned char _data[1];
+} ma_stack;
+
+
 typedef struct ma_node_graph ma_node_graph;
 typedef void ma_node;
 
@@ -10685,8 +10695,6 @@ struct ma_node_base
     /* These variables are set once at startup. */
     ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
-    float* pPreMixBuffer;                   /* When data is read from an input bus, it's read into this buffer which will then be mixed into another buffer. Must be allocated on the heap in order to support processingSizeInFrames. If allocated on the heap, it would need to be broken down into smaller parts. */
-    ma_uint32 preMixBufferCapInFrames;      /* The capacity of the pre-mix buffer. */
     ma_uint32 processingSizeInFrames;
     float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
     ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
@@ -10740,6 +10748,7 @@ typedef struct
 {
     ma_uint32 channels;
     ma_uint32 processingSizeInFrames;   /* This is the preferred processing size for node processing callbacks unless overridden by a node itself. Can be 0 in which case it will be based on the frame count passed into ma_node_graph_read_pcm_frames(), but will not be well defined. */
+    size_t preMixStackSizeInBytes;      /* Defaults to 512KB per channel. Reducing this will save memory, but the depth of your node graph will be more restricted. */
 } ma_node_graph_config;
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
@@ -10756,6 +10765,9 @@ struct ma_node_graph
 
     /* Read and written by multiple threads. */
     MA_ATOMIC(4, ma_bool32) isReading;
+
+    /* Modified only by the audio thread. */
+    ma_stack* pPreMixStack;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -11209,6 +11221,7 @@ typedef struct
     ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 gainSmoothTimeInMilliseconds;         /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;   /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. High values means more smoothing at the expense of high latency (will take longer to reach the new volume). */
+    ma_uint32 preMixStackSizeInBytes;               /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                          /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_bool32 noDevice;                             /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
@@ -71153,9 +71166,73 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
 
 
 #ifndef MA_NO_NODE_GRAPH
+
+static ma_stack* ma_stack_init(size_t sizeInBytes, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_stack* pStack;
+
+    if (sizeInBytes == 0) {
+        return NULL;
+    }
+
+    pStack = (ma_stack*)ma_malloc(sizeof(*pStack) - sizeof(pStack->_data) + sizeInBytes, pAllocationCallbacks);
+    if (pStack == NULL) {
+        return NULL;
+    }
+
+    pStack->offset = 0;
+    pStack->sizeInBytes = sizeInBytes;
+
+    return pStack;
+}
+
+static void ma_stack_uninit(ma_stack* pStack, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pStack == NULL) {
+        return;
+    }
+
+    ma_free(pStack, pAllocationCallbacks);
+}
+
+static void* ma_stack_alloc(ma_stack* pStack, size_t sz)
+{
+    /* The size of the allocation is stored in the memory directly before the pointer. This needs to include padding to keep it aligned to ma_uintptr */
+    void* p = (void*)((char*)pStack->_data + pStack->offset);
+    size_t* pSize = (size_t*)p;
+
+    sz = (sz + (sizeof(ma_uintptr) - 1)) & ~(sizeof(ma_uintptr) - 1);  /* Padding. */
+    if (pStack->offset + sz + sizeof(size_t) > pStack->sizeInBytes) {
+        return NULL;    /* Out of memory. */
+    }
+
+    pStack->offset += sz + sizeof(size_t);
+
+    *pSize = sz;
+    return (void*)((char*)p + sizeof(size_t));
+}
+
+static void ma_stack_free(ma_stack* pStack, void* p)
+{
+    size_t* pSize;
+
+    if (p == NULL) {
+        return;
+    }
+
+    pSize = (size_t*)p - 1;
+    pStack->offset -= *pSize + sizeof(size_t);
+}
+
+
+
 /* 10ms @ 48K = 480. Must never exceed 65535. */
 #ifndef MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS
 #define MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS 480
+#endif
+
+#ifndef MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL
+#define MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL    524288
 #endif
 
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
@@ -71321,6 +71398,28 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
 
+    /*
+    We need a pre-mix stack. The size of this stack is configurable via the config. The default value depends on the channel count.
+    */
+    {
+        size_t preMixStackSizeInBytes = pConfig->preMixStackSizeInBytes;
+        if (preMixStackSizeInBytes == 0) {
+            preMixStackSizeInBytes = pConfig->channels * MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL;
+        }
+
+        pNodeGraph->pPreMixStack = ma_stack_init(preMixStackSizeInBytes, pAllocationCallbacks);
+        if (pNodeGraph->pPreMixStack == NULL) {
+            ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
+            if (pNodeGraph->pProcessingCache != NULL) {
+                ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
+            }
+
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+
     return MA_SUCCESS;
 }
 
@@ -71336,6 +71435,11 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     if (pNodeGraph->pProcessingCache != NULL) {
         ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
         pNodeGraph->pProcessingCache = NULL;
+    }
+
+    if (pNodeGraph->pPreMixStack != NULL) {
+        ma_stack_uninit(pNodeGraph->pPreMixStack, pAllocationCallbacks);
+        pNodeGraph->pPreMixStack = NULL;
     }
 }
 
@@ -71821,8 +71925,6 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     ma_uint32 inputChannels;
     ma_bool32 doesOutputBufferHaveContent = MA_FALSE;
 
-    (void)pInputNode;   /* Not currently used. */
-
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
     this function will not perfom any locking, whereas attaching and detaching will, but crafted in
@@ -71871,19 +71973,12 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
         if (pFramesOut != NULL) {
             /* Read. */
-            float*    temp            = ((ma_node_base*)pOutputBus->pNode)->pPreMixBuffer;
-            ma_uint32 tempCapInFrames = ((ma_node_base*)pOutputBus->pNode)->preMixBufferCapInFrames;
-
             while (framesProcessed < frameCount) {
                 float* pRunningFramesOut;
                 ma_uint32 framesToRead;
-                ma_uint32 framesJustRead;
+                ma_uint32 framesJustRead = 0;
 
                 framesToRead = frameCount - framesProcessed;
-                if (framesToRead > tempCapInFrames) {
-                    framesToRead = tempCapInFrames;
-                }
-
                 pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, inputChannels);
 
                 if (doesOutputBufferHaveContent == MA_FALSE) {
@@ -71891,11 +71986,32 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
-                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
-                    if (result == MA_SUCCESS || result == MA_AT_END) {
-                        if (isSilentOutput == MA_FALSE) {   /* Don't mix if the node outputs silence. */
-                            ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
+                    ma_uint32 preMixBufferCapInFrames = ((ma_node_base*)pInputNode)->cachedDataCapInFramesPerBus;
+                    float* pPreMixBuffer = (float*)ma_stack_alloc(((ma_node_base*)pInputNode)->pNodeGraph->pPreMixStack, preMixBufferCapInFrames * inputChannels * sizeof(float));
+
+                    if (pPreMixBuffer == NULL) {
+                        /*
+                        If you're hitting this assert it means you've got an unusually deep chain of nodes, you've got an excessively large processing
+                        size, or you have a combination of both, and as a result have run out of stack space. You can increase this using the
+                        preMixStackSizeInBytes variable in ma_node_graph_config. If you're using ma_engine, you can do it via the preMixStackSizeInBytes
+                        variable in ma_engine_config. It defaults to 512KB per output channel.
+                        */
+                        MA_ASSERT(MA_FALSE);
+                    } else {
+                        if (framesToRead > preMixBufferCapInFrames) {
+                            framesToRead = preMixBufferCapInFrames;
                         }
+
+                        result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pPreMixBuffer, framesToRead, &framesJustRead, globalTime + framesProcessed);
+                        if (result == MA_SUCCESS || result == MA_AT_END) {
+                            if (isSilentOutput == MA_FALSE) {   /* Don't mix if the node outputs silence. */
+                                ma_mix_pcm_frames_f32(pRunningFramesOut, pPreMixBuffer, framesJustRead, inputChannels, /*volume*/1);
+                            }
+                        }
+
+                        /* The pre-mix buffer is no longer required. */
+                        ma_stack_free(((ma_node_base*)pInputNode)->pNodeGraph->pPreMixStack, pPreMixBuffer);
+                        pPreMixBuffer = NULL;
                     }
                 }
 
@@ -72019,10 +72135,8 @@ typedef struct
     size_t inputBusOffset;
     size_t outputBusOffset;
     size_t cachedDataOffset;
-    size_t preMixBufferDataOffset;
     ma_uint32 inputBusCount;    /* So it doesn't have to be calculated twice. */
     ma_uint32 outputBusCount;   /* So it doesn't have to be calculated twice. */
-    ma_uint32 preMixBufferCapInFrames;
 } ma_node_heap_layout;
 
 static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_uint32* pInputBusCount, ma_uint32* pOutputBusCount)
@@ -72090,7 +72204,6 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     ma_result result;
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
-    ma_uint32 preMixBufferCapInFrames;
 
     MA_ASSERT(pHeapLayout != NULL);
 
@@ -72165,38 +72278,11 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
 
 
     /*
-    We need a buffer for storing the input data just before it's mixed. The size of this buffer needs
-    to be based on the preferred processing size. If that's unset, we default to a constant value. We
-    only ever process a single input bus at a time so we can size this based on the input bus that has
-    the most channels.
-    */
-    {
-        size_t preMixBufferSizeInBytes;
-        ma_uint32 maxChannelCount = 0;
-        ma_uint32 iBus;
-
-        for (iBus = 0; iBus < inputBusCount; iBus += 1) {
-            if (maxChannelCount < pConfig->pInputChannels[iBus]) {
-                maxChannelCount = pConfig->pInputChannels[iBus];
-            }
-        }
-
-        preMixBufferCapInFrames = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
-        preMixBufferSizeInBytes = maxChannelCount * sizeof(float) * preMixBufferCapInFrames;
-
-        pHeapLayout->preMixBufferDataOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += ma_align_64(preMixBufferSizeInBytes);
-    }
-
-
-
-    /*
     Not technically part of the heap, but we can output the input and output bus counts so we can
     avoid a redundant call to ma_node_translate_bus_counts().
     */
     pHeapLayout->inputBusCount  = inputBusCount;
     pHeapLayout->outputBusCount = outputBusCount;
-    pHeapLayout->preMixBufferCapInFrames = preMixBufferCapInFrames;
 
     /* Make sure allocation size is aligned. */
     pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
@@ -72255,7 +72341,6 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
     pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
     pNodeBase->inputBusCount           = heapLayout.inputBusCount;
     pNodeBase->outputBusCount          = heapLayout.outputBusCount;
-    pNodeBase->preMixBufferCapInFrames = heapLayout.preMixBufferCapInFrames;
 
     if (heapLayout.inputBusOffset != MA_SIZE_MAX) {
         pNodeBase->pInputBuses = (ma_node_input_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
@@ -72275,9 +72360,6 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
     } else {
         pNodeBase->pCachedData = NULL;
     }
-
-    pNodeBase->pPreMixBuffer = (float*)ma_offset_ptr(pHeap, heapLayout.preMixBufferDataOffset);
-
 
 
     /* We need to run an initialization step for each input and output bus. */
@@ -75244,6 +75326,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
     nodeGraphConfig.processingSizeInFrames = engineConfig.periodSizeInFrames;
+    nodeGraphConfig.preMixStackSizeInBytes = engineConfig.preMixStackSizeInBytes;
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
     if (result != MA_SUCCESS) {
