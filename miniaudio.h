@@ -10628,6 +10628,7 @@ typedef struct
 {
     const ma_node_vtable* vtable;       /* Should never be null. Initialization of the node will fail if so. */
     ma_node_state initialState;         /* Defaults to ma_node_state_started. */
+    ma_uint32 processingSizeInFrames;   /* The preferred processing size in frames per instantiation of the processing callback. You should leave this set to 0 unless your node needs to process in chunks of a specific size. */
     ma_uint32 inputBusCount;            /* Only used if the vtable specifies an input bus count of `MA_NODE_BUS_COUNT_UNKNOWN`, otherwise must be set to `MA_NODE_BUS_COUNT_UNKNOWN` (default). */
     ma_uint32 outputBusCount;           /* Only used if the vtable specifies an output bus count of `MA_NODE_BUS_COUNT_UNKNOWN`, otherwise  be set to `MA_NODE_BUS_COUNT_UNKNOWN` (default). */
     const ma_uint32* pInputChannels;    /* The number of elements are determined by the input bus count as determined by the vtable, or `inputBusCount` if the vtable specifies `MA_NODE_BUS_COUNT_UNKNOWN`. */
@@ -10684,6 +10685,9 @@ struct ma_node_base
     /* These variables are set once at startup. */
     ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
+    float* pPreMixBuffer;                   /* When data is read from an input bus, it's read into this buffer which will then be mixed into another buffer. Must be allocated on the heap in order to support processingSizeInFrames. If allocated on the heap, it would need to be broken down into smaller parts. */
+    ma_uint32 preMixBufferCapInFrames;      /* The capacity of the pre-mix buffer. */
+    ma_uint32 processingSizeInFrames;
     float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
     ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
 
@@ -10735,7 +10739,7 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 typedef struct
 {
     ma_uint32 channels;
-    ma_uint16 nodeCacheCapInFrames;
+    ma_uint32 processingSizeInFrames;   /* This is the preferred processing size for node processing callbacks unless overridden by a node itself. Can be 0 in which case it will be based on the frame count passed into ma_node_graph_read_pcm_frames(), but will not be well defined. */
 } ma_node_graph_config;
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
@@ -10746,7 +10750,9 @@ struct ma_node_graph
     /* Immutable. */
     ma_node_base base;                  /* The node graph itself is a node so it can be connected as an input to different node graph. This has zero inputs and calls ma_node_graph_read_pcm_frames() to generate it's output. */
     ma_node_base endpoint;              /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
-    ma_uint16 nodeCacheCapInFrames;
+    float* pProcessingCache;            /* This will be allocated when processingSizeInFrames is non-zero. This is needed because ma_node_graph_read_pcm_frames() can be called with a variable number of frames, and we may need to do some buffering in situations where the caller requests a frame count that's not a multiple of processingSizeInFrames. */
+    ma_uint32 processingCacheFramesRemaining;
+    ma_uint32 processingSizeInFrames;
 
     /* Read and written by multiple threads. */
     MA_ATOMIC(4, ma_bool32) isReading;
@@ -71152,7 +71158,6 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
 #define MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS 480
 #endif
 
-
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
 MA_API void ma_debug_fill_pcm_frames_with_sine_wave(float* pFramesOut, ma_uint32 frameCount, ma_format format, ma_uint32 channels, ma_uint32 sampleRate)
@@ -71191,8 +71196,8 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
     ma_node_graph_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.channels             = channels;
-    config.nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+    config.channels               = channels;
+    config.processingSizeInFrames = 0;
 
     return config;
 }
@@ -71279,11 +71284,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
-    pNodeGraph->nodeCacheCapInFrames = pConfig->nodeCacheCapInFrames;
-    if (pNodeGraph->nodeCacheCapInFrames == 0) {
-        pNodeGraph->nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
-    }
-
+    pNodeGraph->processingSizeInFrames = pConfig->processingSizeInFrames;
 
     /* Base node so we can use the node graph as a node into another graph. */
     baseConfig = ma_node_config_init();
@@ -71308,6 +71309,18 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
         return result;
     }
 
+
+    /* Processing cache. */
+    if (pConfig->processingSizeInFrames > 0) {
+        pNodeGraph->pProcessingCache = (float*)ma_malloc(pConfig->processingSizeInFrames * pConfig->channels * sizeof(float), pAllocationCallbacks);
+        if (pNodeGraph->pProcessingCache == NULL) {
+            ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+
     return MA_SUCCESS;
 }
 
@@ -71318,6 +71331,12 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     }
 
     ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+    ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
+
+    if (pNodeGraph->pProcessingCache != NULL) {
+        ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
+        pNodeGraph->pProcessingCache = NULL;
+    }
 }
 
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph)
@@ -71350,27 +71369,72 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
     totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
         ma_uint32 framesJustRead;
-        ma_uint64 framesToRead = frameCount - totalFramesRead;
+        ma_uint64 framesToRead;
+        float* pRunningFramesOut;
 
+        framesToRead = frameCount - totalFramesRead;
         if (framesToRead > 0xFFFFFFFF) {
             framesToRead = 0xFFFFFFFF;
         }
 
-        ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
-        {
-            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), (ma_uint32)framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
-        }
-        ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+        pRunningFramesOut = (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels);
 
-        totalFramesRead += framesJustRead;
+        /* If there's anything in the cache, consume that first. */
+        if (pNodeGraph->processingCacheFramesRemaining > 0) {
+            ma_uint32 framesToReadFromCache;
 
-        if (result != MA_SUCCESS) {
-            break;
-        }
+            framesToReadFromCache = (ma_uint32)framesToRead;
+            if (framesToReadFromCache > pNodeGraph->processingCacheFramesRemaining) {
+                framesToReadFromCache = pNodeGraph->processingCacheFramesRemaining;
+            }
 
-        /* Abort if we weren't able to read any frames or else we risk getting stuck in a loop. */
-        if (framesJustRead == 0) {
-            break;
+            MA_COPY_MEMORY(pRunningFramesOut, pNodeGraph->pProcessingCache, framesToReadFromCache * channels * sizeof(float));
+            MA_MOVE_MEMORY(pNodeGraph->pProcessingCache, pNodeGraph->pProcessingCache + (framesToReadFromCache * channels), (pNodeGraph->processingCacheFramesRemaining - framesToReadFromCache) * channels * sizeof(float));
+            pNodeGraph->processingCacheFramesRemaining -= framesToReadFromCache;
+
+            totalFramesRead += framesToReadFromCache;
+            continue;
+        } else {
+            /*
+            If processingSizeInFrames is non-zero, we need to make sure we always read in chunks of that size. If the frame count is less than
+            that, we need to read into the cache and then continue on.
+            */
+            float* pReadDst = pRunningFramesOut;
+
+            if (pNodeGraph->processingSizeInFrames > 0) {
+                if (framesToRead < pNodeGraph->processingSizeInFrames) {
+                    pReadDst = pNodeGraph->pProcessingCache;    /* We need to read into the cache because otherwise we'll overflow the output buffer. */
+                }
+
+                framesToRead = pNodeGraph->processingSizeInFrames;
+            }
+
+            ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
+            {
+                result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, pReadDst, (ma_uint32)framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
+            }
+            ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+
+            /*
+            Do not increment the total frames read counter if we read into the cache. We use this to determine how many frames have
+            been written to the final output buffer.
+            */
+            if (pReadDst == pNodeGraph->pProcessingCache) {
+                /* We read into the cache. */
+                pNodeGraph->processingCacheFramesRemaining = framesJustRead;
+            } else {
+                /* We read straight into the output buffer. */
+                totalFramesRead += framesJustRead;
+            }
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+
+            /* Abort if we weren't able to read any frames or else we risk getting stuck in a loop. */
+            if (framesJustRead == 0) {
+                break;
+            }
         }
     }
 
@@ -71807,8 +71871,8 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
         if (pFramesOut != NULL) {
             /* Read. */
-            float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
-            ma_uint32 tempCapInFrames = ma_countof(temp) / inputChannels;
+            float*    temp            = ((ma_node_base*)pOutputBus->pNode)->pPreMixBuffer;
+            ma_uint32 tempCapInFrames = ((ma_node_base*)pOutputBus->pNode)->preMixBufferCapInFrames;
 
             while (framesProcessed < frameCount) {
                 float* pRunningFramesOut;
@@ -71886,6 +71950,25 @@ MA_API ma_node_config ma_node_config_init(void)
     return config;
 }
 
+static ma_uint16 ma_node_config_get_cache_size_in_frames(const ma_node_config* pConfig, const ma_node_graph* pNodeGraph)
+{
+    ma_uint32 cacheSizeInFrames;
+
+    if (pConfig->processingSizeInFrames > 0) {
+        cacheSizeInFrames = pConfig->processingSizeInFrames;
+    } else if (pNodeGraph->processingSizeInFrames > 0) {
+        cacheSizeInFrames = pNodeGraph->processingSizeInFrames;
+    } else {
+        cacheSizeInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+    }
+
+    if (cacheSizeInFrames > 0xFFFF) {
+        cacheSizeInFrames = 0xFFFF;
+    }
+
+    return (ma_uint16)cacheSizeInFrames;
+}
+
 
 
 static ma_result ma_node_detach_full(ma_node* pNode);
@@ -71936,8 +72019,10 @@ typedef struct
     size_t inputBusOffset;
     size_t outputBusOffset;
     size_t cachedDataOffset;
+    size_t preMixBufferDataOffset;
     ma_uint32 inputBusCount;    /* So it doesn't have to be calculated twice. */
     ma_uint32 outputBusCount;   /* So it doesn't have to be calculated twice. */
+    ma_uint32 preMixBufferCapInFrames;
 } ma_node_heap_layout;
 
 static ma_result ma_node_translate_bus_counts(const ma_node_config* pConfig, ma_uint32* pInputBusCount, ma_uint32* pOutputBusCount)
@@ -72005,6 +72090,7 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     ma_result result;
     ma_uint32 inputBusCount;
     ma_uint32 outputBusCount;
+    ma_uint32 preMixBufferCapInFrames;
 
     MA_ASSERT(pHeapLayout != NULL);
 
@@ -72040,7 +72126,7 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     /*
     Cached audio data.
 
-    We need to allocate memory for a caching both input and output data. We have an optimization
+    We need to allocate memory for caching both input and output data. We have an optimization
     where no caching is necessary for specific conditions:
 
         - The node has 0 inputs and 1 output.
@@ -72059,14 +72145,18 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     } else {
         /* Slow path. Cache needed. */
         size_t cachedDataSizeInBytes = 0;
+        ma_uint32 cacheCapInFrames;
         ma_uint32 iBus;
 
+        /* The capacity of the cache is based on our callback processing size. */
+        cacheCapInFrames = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
+
         for (iBus = 0; iBus < inputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
+            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
         }
 
         for (iBus = 0; iBus < outputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
+            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
         }
 
         pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
@@ -72075,11 +72165,38 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
 
 
     /*
+    We need a buffer for storing the input data just before it's mixed. The size of this buffer needs
+    to be based on the preferred processing size. If that's unset, we default to a constant value. We
+    only ever process a single input bus at a time so we can size this based on the input bus that has
+    the most channels.
+    */
+    {
+        size_t preMixBufferSizeInBytes;
+        ma_uint32 maxChannelCount = 0;
+        ma_uint32 iBus;
+
+        for (iBus = 0; iBus < inputBusCount; iBus += 1) {
+            if (maxChannelCount < pConfig->pInputChannels[iBus]) {
+                maxChannelCount = pConfig->pInputChannels[iBus];
+            }
+        }
+
+        preMixBufferCapInFrames = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
+        preMixBufferSizeInBytes = maxChannelCount * sizeof(float) * preMixBufferCapInFrames;
+
+        pHeapLayout->preMixBufferDataOffset = pHeapLayout->sizeInBytes;
+        pHeapLayout->sizeInBytes += ma_align_64(preMixBufferSizeInBytes);
+    }
+
+
+
+    /*
     Not technically part of the heap, but we can output the input and output bus counts so we can
     avoid a redundant call to ma_node_translate_bus_counts().
     */
     pHeapLayout->inputBusCount  = inputBusCount;
     pHeapLayout->outputBusCount = outputBusCount;
+    pHeapLayout->preMixBufferCapInFrames = preMixBufferCapInFrames;
 
     /* Make sure allocation size is aligned. */
     pHeapLayout->sizeInBytes = ma_align_64(pHeapLayout->sizeInBytes);
@@ -72130,13 +72247,15 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
     pNodeBase->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    pNodeBase->pNodeGraph     = pNodeGraph;
-    pNodeBase->vtable         = pConfig->vtable;
-    pNodeBase->state          = pConfig->initialState;
+    pNodeBase->pNodeGraph              = pNodeGraph;
+    pNodeBase->vtable                  = pConfig->vtable;
+    pNodeBase->processingSizeInFrames  = pConfig->processingSizeInFrames;
+    pNodeBase->state                   = pConfig->initialState;
     pNodeBase->stateTimes[ma_node_state_started] = 0;
     pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
-    pNodeBase->inputBusCount  = heapLayout.inputBusCount;
-    pNodeBase->outputBusCount = heapLayout.outputBusCount;
+    pNodeBase->inputBusCount           = heapLayout.inputBusCount;
+    pNodeBase->outputBusCount          = heapLayout.outputBusCount;
+    pNodeBase->preMixBufferCapInFrames = heapLayout.preMixBufferCapInFrames;
 
     if (heapLayout.inputBusOffset != MA_SIZE_MAX) {
         pNodeBase->pInputBuses = (ma_node_input_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
@@ -72152,10 +72271,12 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
 
     if (heapLayout.cachedDataOffset != MA_SIZE_MAX) {
         pNodeBase->pCachedData = (float*)ma_offset_ptr(pHeap, heapLayout.cachedDataOffset);
-        pNodeBase->cachedDataCapInFramesPerBus = pNodeGraph->nodeCacheCapInFrames;
+        pNodeBase->cachedDataCapInFramesPerBus = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
     } else {
         pNodeBase->pCachedData = NULL;
     }
+
+    pNodeBase->pPreMixBuffer = (float*)ma_offset_ptr(pHeap, heapLayout.preMixBufferDataOffset);
 
 
 
@@ -75122,7 +75243,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
-    nodeGraphConfig.nodeCacheCapInFrames = (engineConfig.periodSizeInFrames > 0xFFFF) ? 0xFFFF : (ma_uint16)engineConfig.periodSizeInFrames;
+    nodeGraphConfig.processingSizeInFrames = engineConfig.periodSizeInFrames;
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
     if (result != MA_SUCCESS) {
