@@ -10638,7 +10638,6 @@ typedef struct
 {
     const ma_node_vtable* vtable;       /* Should never be null. Initialization of the node will fail if so. */
     ma_node_state initialState;         /* Defaults to ma_node_state_started. */
-    ma_uint32 processingSizeInFrames;   /* The preferred processing size in frames per instantiation of the processing callback. You should leave this set to 0 unless your node needs to process in chunks of a specific size. */
     ma_uint32 inputBusCount;            /* Only used if the vtable specifies an input bus count of `MA_NODE_BUS_COUNT_UNKNOWN`, otherwise must be set to `MA_NODE_BUS_COUNT_UNKNOWN` (default). */
     ma_uint32 outputBusCount;           /* Only used if the vtable specifies an output bus count of `MA_NODE_BUS_COUNT_UNKNOWN`, otherwise  be set to `MA_NODE_BUS_COUNT_UNKNOWN` (default). */
     const ma_uint32* pInputChannels;    /* The number of elements are determined by the input bus count as determined by the vtable, or `inputBusCount` if the vtable specifies `MA_NODE_BUS_COUNT_UNKNOWN`. */
@@ -10693,11 +10692,14 @@ typedef struct ma_node_base ma_node_base;
 struct ma_node_base
 {
     /* These variables are set once at startup. */
-    ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
+    ma_node_graph* pNodeGraph;                  /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
-    ma_uint32 processingSizeInFrames;
-    float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
-    ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
+    ma_uint32 inputBusCount;
+    ma_uint32 outputBusCount;
+    ma_node_input_bus* pInputBuses;
+    ma_node_output_bus* pOutputBuses;
+    float* pCachedData;                         /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
+    ma_uint16 cachedDataCapInFramesPerBus;      /* The capacity of the input data cache in frames, per bus. */
 
     /* These variables are read and written only from the audio thread. */
     ma_uint16 cachedFrameCountOut;
@@ -10705,13 +10707,9 @@ struct ma_node_base
     ma_uint16 consumedFrameCountIn;
 
     /* These variables are read and written between different threads. */
-    MA_ATOMIC(4, ma_node_state) state;      /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
-    MA_ATOMIC(8, ma_uint64) stateTimes[2];  /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
-    MA_ATOMIC(8, ma_uint64) localTime;      /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
-    ma_uint32 inputBusCount;
-    ma_uint32 outputBusCount;
-    ma_node_input_bus* pInputBuses;
-    ma_node_output_bus* pOutputBuses;
+    MA_ATOMIC(4, ma_node_state) state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
+    MA_ATOMIC(8, ma_uint64) stateTimes[2];      /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    MA_ATOMIC(8, ma_uint64) localTime;          /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
 
     /* Memory management. */
     ma_node_input_bus _inputBuses[MA_MAX_NODE_LOCAL_BUS_COUNT];
@@ -11250,7 +11248,7 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;                   /* For synchronizing access so the inlined sound list. */
+    ma_spinlock inlinedSoundLock;                   /* For synchronizing access to the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;            /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC(4, ma_uint32) inlinedSoundCount;      /* The total number of allocated inlined sound objects. Used for debugging. */
     ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. */
@@ -72070,9 +72068,7 @@ static ma_uint16 ma_node_config_get_cache_size_in_frames(const ma_node_config* p
 {
     ma_uint32 cacheSizeInFrames;
 
-    if (pConfig->processingSizeInFrames > 0) {
-        cacheSizeInFrames = pConfig->processingSizeInFrames;
-    } else if (pNodeGraph->processingSizeInFrames > 0) {
+    if (pNodeGraph->processingSizeInFrames > 0) {
         cacheSizeInFrames = pNodeGraph->processingSizeInFrames;
     } else {
         cacheSizeInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
@@ -72333,14 +72329,13 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
     pNodeBase->_pHeap = pHeap;
     MA_ZERO_MEMORY(pHeap, heapLayout.sizeInBytes);
 
-    pNodeBase->pNodeGraph              = pNodeGraph;
-    pNodeBase->vtable                  = pConfig->vtable;
-    pNodeBase->processingSizeInFrames  = pConfig->processingSizeInFrames;
-    pNodeBase->state                   = pConfig->initialState;
+    pNodeBase->pNodeGraph     = pNodeGraph;
+    pNodeBase->vtable         = pConfig->vtable;
+    pNodeBase->state          = pConfig->initialState;
     pNodeBase->stateTimes[ma_node_state_started] = 0;
     pNodeBase->stateTimes[ma_node_state_stopped] = (ma_uint64)(ma_int64)-1; /* Weird casting for VC6 compatibility. */
-    pNodeBase->inputBusCount           = heapLayout.inputBusCount;
-    pNodeBase->outputBusCount          = heapLayout.outputBusCount;
+    pNodeBase->inputBusCount  = heapLayout.inputBusCount;
+    pNodeBase->outputBusCount = heapLayout.outputBusCount;
 
     if (heapLayout.inputBusOffset != MA_SIZE_MAX) {
         pNodeBase->pInputBuses = (ma_node_input_bus*)ma_offset_ptr(pHeap, heapLayout.inputBusOffset);
@@ -72916,7 +72911,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
                 /*
                 A passthrough should never have modified the input and output frame counts. If you're
-                triggering these assers you need to fix your processing callback.
+                triggering these asserts you need to fix your processing callback.
                 */
                 MA_ASSERT(frameCountIn  == totalFramesRead);
                 MA_ASSERT(frameCountOut == totalFramesRead);
