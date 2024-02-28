@@ -30388,6 +30388,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     ma_pa_buffer_attr attr;
     const ma_pa_sample_spec* pActualSS   = NULL;
     const ma_pa_buffer_attr* pActualAttr = NULL;
+    const ma_pa_channel_map* pActualChannelMap = NULL;
     ma_uint32 iChannel;
     ma_pa_stream_flags_t streamFlags;
 
@@ -30537,7 +30538,12 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             goto on_error4;
         }
 
+
         /* Internal channel map. */
+        pActualChannelMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (pActualChannelMap == NULL) {
+            pActualChannelMap = &cmap;  /* Fallback just in case. */
+        }
 
         /*
         Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
@@ -30547,8 +30553,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         fixed sooner than later. I might remove this hack later.
         */
         if (pDescriptorCapture->channels > 2) {
-            for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
-                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            for (iChannel = 0; iChannel < pDescriptorCapture->channels; iChannel += 1) {
+                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(pActualChannelMap->map[iChannel]);
             }
         } else {
             /* Hack for mono and stereo. */
@@ -30689,7 +30695,12 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             goto on_error4;
         }
 
+
         /* Internal channel map. */
+        pActualChannelMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pActualChannelMap == NULL) {
+            pActualChannelMap = &cmap;  /* Fallback just in case. */
+        }
 
         /*
         Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
@@ -30699,8 +30710,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         fixed sooner than later. I might remove this hack later.
         */
         if (pDescriptorPlayback->channels > 2) {
-            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
-                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; iChannel += 1) {
+                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(pActualChannelMap->map[iChannel]);
             }
         } else {
             /* Hack for mono and stereo. */
@@ -72067,6 +72078,8 @@ MA_API ma_node_config ma_node_config_init(void)
 static ma_uint16 ma_node_config_get_cache_size_in_frames(const ma_node_config* pConfig, const ma_node_graph* pNodeGraph)
 {
     ma_uint32 cacheSizeInFrames;
+
+    (void)pConfig;
 
     if (pNodeGraph->processingSizeInFrames > 0) {
         cacheSizeInFrames = pNodeGraph->processingSizeInFrames;
