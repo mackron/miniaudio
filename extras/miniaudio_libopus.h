@@ -560,13 +560,34 @@ static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source*
     ma_free(pOpus, pAllocationCallbacks);
 }
 
+static ma_encoding_format ma_decoding_backend_get_encoding_format__libopus(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    /*
+    When pBackend is null, return ma_encoding_format_unknown if the backend supports multiple
+    formats. An example might be an FFmpeg backend. If the backend only supports a single format,
+    like this one, return the format directly (if it's not recognized by miniaudio, return
+    ma_encoding_format_unknown).
+
+    When pBackend is non-null, return the encoded format of the data source. If the format is not
+    recognized by miniaudio, return ma_encoding_format_unknown.
+
+    Since this backend only operates on Opus streams, we can just return ma_encoding_format_opus
+    in all cases.
+    */
+    return ma_encoding_format_opus;
+}
+
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
 {
     ma_decoding_backend_init__libopus,
     ma_decoding_backend_init_file__libopus,
     NULL, /* onInitFileW() */
     NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libopus
+    ma_decoding_backend_uninit__libopus,
+    ma_decoding_backend_get_encoding_format__libopus
 };
 const ma_decoding_backend_vtable* ma_decoding_backend_libopus = &g_ma_decoding_backend_vtable_libopus;
 

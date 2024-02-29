@@ -9993,7 +9993,8 @@ typedef enum
     ma_encoding_format_wav,
     ma_encoding_format_flac,
     ma_encoding_format_mp3,
-    ma_encoding_format_vorbis
+    ma_encoding_format_vorbis,
+    ma_encoding_format_opus
 } ma_encoding_format;
 #endif
 
