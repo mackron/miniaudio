@@ -3,6 +3,7 @@ v0.11.22 - TBD
 * Add `MA_SOUND_FLAG_LOOPING` and `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flags. These can be used to initialize sounds and resource managed data sources to loop by default. This is the recommended way to enable looping for streams. The `isLooping` config option in `ma_sound_config` and `ma_resource_manager_data_source_config` has been deprecated. If you are using those, you should switch to the new flag or else you'll get compiler errors when upgrading to a future version.
 * Fix a bug relating to node detachment.
 * Fix a bug where amplification with `ma_device_set_master_volume()` does not work.
+* Fix a bug where sounds loaded with `MA_SOUND_FLAG_DECODE` do not loop.
 * ALSA: Fix some warnings relating to unhandled return value of `read()`.
 * DirectSound: Add support for specifying an explicit window handle for SetCooperativeLevel().
 * Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.

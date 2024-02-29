@@ -69210,22 +69210,29 @@ MA_API ma_result ma_resource_manager_data_buffer_read_pcm_frames(ma_resource_man
         isDecodedBufferBusy = (ma_resource_manager_data_buffer_node_result(pDataBuffer->pNode) == MA_BUSY);
 
         if (ma_resource_manager_data_buffer_get_available_frames(pDataBuffer, &availableFrames) == MA_SUCCESS) {
-            /* Don't try reading more than the available frame count. */
-            if (frameCount > availableFrames) {
-                frameCount = availableFrames;
+            /* Don't try reading more than the available frame count if the data buffer node is still loading. */
+            if (isDecodedBufferBusy) {
+                if (frameCount > availableFrames) {
+                    frameCount = availableFrames;
 
-                /*
-                If there's no frames available we want to set the status to MA_AT_END. The logic below
-                will check if the node is busy, and if so, change it to MA_BUSY. The reason we do this
-                is because we don't want to call `ma_data_source_read_pcm_frames()` if the frame count
-                is 0 because that'll result in a situation where it's possible MA_AT_END won't get
-                returned.
-                */
-                if (frameCount == 0) {
-                    result = MA_AT_END;
+                    /*
+                    If there's no frames available we want to set the status to MA_AT_END. The logic below
+                    will check if the node is busy, and if so, change it to MA_BUSY. The reason we do this
+                    is because we don't want to call `ma_data_source_read_pcm_frames()` if the frame count
+                    is 0 because that'll result in a situation where it's possible MA_AT_END won't get
+                    returned.
+                    */
+                    if (frameCount == 0) {
+                        result = MA_AT_END;
+                    }
+                } else {
+                    isDecodedBufferBusy = MA_FALSE; /* We have enough frames available in the buffer to avoid a MA_BUSY status. */
                 }
             } else {
-                isDecodedBufferBusy = MA_FALSE; /* We have enough frames available in the buffer to avoid a MA_BUSY status. */
+                /*
+                Getting here means the buffer has been fully loaded. We can just pass the frame count straight
+                into ma_data_source_read_pcm_frames() below and let ma_data_source handle it.
+                */
             }
         }
     }
