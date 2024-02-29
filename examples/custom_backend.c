@@ -71,7 +71,10 @@ int main(int argc, char** argv)
     ma_context_config_sdl sdlContextConfig = ma_context_config_sdl_init();
     sdlContextConfig._unused = 0;
 
-    /* You must include an entry for each backend you're using, even if the config is NULL. This is how miniaudio knows . */
+    /*
+    You must include an entry for each backend you're using, even if the config is NULL. This is how miniaudio knows about
+    your custom backend.
+    */
     ma_device_backend_spec pCustomContextConfigs[] = {
         { MA_DEVICE_BACKEND_VTABLE_SDL, &sdlContextConfig, NULL }
     };
