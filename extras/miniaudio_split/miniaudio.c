@@ -6327,7 +6327,7 @@ MA_API ma_result ma_job_queue_next(ma_job_queue* pQueue, ma_job* pJob)
         is stored. One thread can fall through to the freeing of this item while another is still using "head" for the
         retrieval of the "next" variable.
 
-        The slot allocator might need to make use of some reference counting to ensure it's only truely freed when
+        The slot allocator might need to make use of some reference counting to ensure it's only truly freed when
         there are no more references to the item. This must be fixed before removing these locks.
         */
 
@@ -7541,7 +7541,7 @@ static void ma_device__send_frames_to_client(ma_device* pDevice, ma_uint32 frame
         ma_uint64 totalClientFramesProcessed = 0;
         const void* pRunningFramesInDeviceFormat = pFramesInDeviceFormat;
 
-        /* We just keep going until we've exhaused all of our input frames and cannot generate any more output frames. */
+        /* We just keep going until we've exhausted all of our input frames and cannot generate any more output frames. */
         for (;;) {
             ma_uint64 deviceFramesProcessedThisIteration;
             ma_uint64 clientFramesProcessedThisIteration;
@@ -7824,7 +7824,7 @@ static ma_result ma_device_audio_thread__default_read_write(ma_device* pDevice)
                         }
 
                         /*
-                        If we weren't able to generate any output frames it must mean we've exhaused all of our input. The only time this would not be the case is if capturedClientData was too small
+                        If we weren't able to generate any output frames it must mean we've exhausted all of our input. The only time this would not be the case is if capturedClientData was too small
                         which should never be the case when it's of the size MA_DATA_CONVERTER_STACK_BUFFER_SIZE.
                         */
                         if (capturedClientFramesToProcessThisIteration == 0) {
@@ -9844,7 +9844,7 @@ static ma_result ma_context_get_device_info_from_IAudioClient__wasapi(ma_context
     }
 
     /*
-    Exlcusive Mode. We repeatedly call IsFormatSupported() here. This is not currently supported on
+    Exclusive Mode. We repeatedly call IsFormatSupported() here. This is not currently supported on
     UWP. Failure to retrieve the exclusive mode format is not considered an error, so from here on
     out, MA_SUCCESS is guaranteed to be returned.
     */
@@ -10832,7 +10832,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;
 
         /*
-        If the periodicy is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
+        If the periodicity is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
         it and trying it again.
         */
         hr = E_FAIL;
@@ -10842,7 +10842,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
                 if (bufferDuration > 500*10000) {
                     break;
                 } else {
-                    if (bufferDuration == 0) {  /* <-- Just a sanity check to prevent an infinit loop. Should never happen, but it makes me feel better. */
+                    if (bufferDuration == 0) {  /* <-- Just a sanity check to prevent an infinite loop. Should never happen, but it makes me feel better. */
                         break;
                     }
 
@@ -13109,8 +13109,8 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const ma_device_conf
     }
 
     /*
-    Unfortunately DirectSound uses different APIs and data structures for playback and catpure devices. We need to initialize
-    the capture device first because we'll want to match it's buffer size and period count on the playback side if we're using
+    Unfortunately DirectSound uses different APIs and data structures for playback and capture devices. We need to initialize
+    the capture device first because we'll want to match its buffer size and period count on the playback side if we're using
     full-duplex mode.
     */
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
@@ -14246,7 +14246,7 @@ static ma_result ma_context_get_device_info_from_WAVECAPS(ma_context* pContext, 
     - If the name GUID is not present in the registry we'll also need to stick to the original 31 characters.
     - I like consistency, so I want the returned device names to be consistent with those returned by WASAPI and DirectSound. The
       problem, however is that WASAPI and DirectSound use "<component> (<name>)" format (such as "Speakers (High Definition Audio)"),
-      but WinMM does not specificy the component name. From my admittedly limited testing, I've notice the component name seems to
+      but WinMM does not specify the component name. From my admittedly limited testing, I've notice the component name seems to
       usually fit within the 31 characters of the fixed sized buffer, so what I'm going to do is parse that string for the component
       name, and then concatenate the name from the registry.
     */
@@ -14514,7 +14514,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         return MA_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-    /* No exlusive mode with WinMM. */
+    /* No exclusive mode with WinMM. */
     if (((pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) && pDescriptorPlayback->shareMode == ma_share_mode_exclusive) ||
         ((pConfig->deviceType == ma_device_type_capture  || pConfig->deviceType == ma_device_type_duplex) && pDescriptorCapture->shareMode  == ma_share_mode_exclusive)) {
         return MA_SHARE_MODE_NOT_SUPPORTED;
@@ -14536,7 +14536,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         /* We use an event to know when a new fragment needs to be enqueued. */
         pDevice->winmm.hEventCapture = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventCapture == NULL) {
-            errorMsg = "[WinMM] Failed to create event for fragment enqueing for the capture device.", errorCode = ma_result_from_GetLastError(GetLastError());
+            errorMsg = "[WinMM] Failed to create event for fragment enqueuing for the capture device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
         }
 
@@ -14574,7 +14574,7 @@ static ma_result ma_device_init__winmm(ma_device* pDevice, const ma_device_confi
         /* We use an event to know when a new fragment needs to be enqueued. */
         pDevice->winmm.hEventPlayback = (ma_handle)CreateEventA(NULL, TRUE, TRUE, NULL);
         if (pDevice->winmm.hEventPlayback == NULL) {
-            errorMsg = "[WinMM] Failed to create event for fragment enqueing for the playback device.", errorCode = ma_result_from_GetLastError(GetLastError());
+            errorMsg = "[WinMM] Failed to create event for fragment enqueuing for the playback device.", errorCode = ma_result_from_GetLastError(GetLastError());
             goto on_error;
         }
 
@@ -15696,7 +15696,7 @@ static ma_result ma_context_open_pcm__alsa(ma_context* pContext, ma_share_mode s
         /*
         We're trying to open a specific device. There's a few things to consider here:
 
-        miniaudio recongnizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
+        miniaudio recognizes a special format of device id that excludes the "hw", "dmix", etc. prefix. It looks like this: ":0,0", ":0,1", etc. When
         an ID of this format is specified, it indicates to miniaudio that it can try different combinations of plugins ("hw", "dmix", etc.) until it
         finds an appropriate one that works. This comes in very handy when trying to open a device in shared mode ("dmix"), vs exclusive mode ("hw").
         */
@@ -15795,7 +15795,7 @@ static ma_result ma_context_enumerate_devices__alsa(ma_context* pContext, ma_enu
                     /*
                     At this point, hwid looks like "hw:0,0". In simplified enumeration mode, we actually want to strip off the
                     plugin name so it looks like ":0,0". The reason for this is that this special format is detected at device
-                    initialization time and is used as an indicator to try and use the most appropriate plugin depending on the
+                    initialization time and is used as an indicator to try to use the most appropriate plugin depending on the
                     device type and sharing mode.
                     */
                     char* dst = hwid;
@@ -15974,7 +15974,7 @@ static void ma_context_iterate_rates_and_add_native_data_format__alsa(ma_context
     ((ma_snd_pcm_hw_params_get_rate_min_proc)pContext->alsa.snd_pcm_hw_params_get_rate_min)(pHWParams, &minSampleRate, &sampleRateDir);
     ((ma_snd_pcm_hw_params_get_rate_max_proc)pContext->alsa.snd_pcm_hw_params_get_rate_max)(pHWParams, &maxSampleRate, &sampleRateDir);
 
-    /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculus. */
+    /* Make sure our sample rates are clamped to sane values. Stupid devices like "pulse" will reports rates like "1" which is ridiculous. */
     minSampleRate = ma_clamp(minSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
     maxSampleRate = ma_clamp(maxSampleRate, (unsigned int)ma_standard_sample_rate_min, (unsigned int)ma_standard_sample_rate_max);
 
@@ -16050,10 +16050,10 @@ static ma_result ma_context_get_device_info__alsa(ma_context* pContext, ma_devic
     /*
     Some ALSA devices can support many permutations of formats, channels and rates. We only support
     a fixed number of permutations which means we need to employ some strategies to ensure the best
-    combinations are returned. An example is the "pulse" device which can do it's own data conversion
+    combinations are returned. An example is the "pulse" device which can do its own data conversion
     in software and as a result can support any combination of format, channels and rate.
 
-    We want to ensure the the first data formats are the best. We have a list of favored sample
+    We want to ensure that the first data formats are the best. We have a list of favored sample
     formats and sample rates, so these will be the basis of our iteration.
     */
 
@@ -17199,7 +17199,7 @@ get fun, and I don't mean that in a good way...
 
 The problems start with the very name of the API - "asynchronous". Yes, this is an asynchronous oriented API which means your commands
 don't immediately take effect. You instead need to issue your commands, and then wait for them to complete. The waiting mechanism is
-enabled through the use of a "main loop". In the asychronous API you cannot get away from the main loop, and the main loop is where almost
+enabled through the use of a "main loop". In the asynchronous API you cannot get away from the main loop, and the main loop is where almost
 all of PulseAudio's problems stem from.
 
 When you first initialize PulseAudio you need an object referred to as "main loop". You can implement this yourself by defining your own
@@ -17249,7 +17249,7 @@ because PulseAudio takes it literally, specifically the "can be". You would thin
 writing and reading data to and from the stream, and that would be right, except when it's not. When you initialize the stream, you can
 set a flag that tells PulseAudio to not start the stream automatically. This is required because miniaudio does not auto-start devices
 straight after initialization - you need to call `ma_device_start()` manually. The problem is that even when this flag is specified,
-PulseAudio will immediately fire it's write or read callback. This is *technically* correct (based on the wording in the documentation)
+PulseAudio will immediately fire its write or read callback. This is *technically* correct (based on the wording in the documentation)
 because indeed, data *can* be written at this point. The problem is that it's not *practical*. It makes sense that the write/read callback
 would be where a program will want to write or read data to or from the stream, but when it's called before the application has even
 requested that the stream be started, it's just not practical because the program probably isn't ready for any kind of data delivery at
@@ -20446,7 +20446,7 @@ that supports this level of detail. There was some public domain sample code I s
 and AudioUnit APIs, but I couldn't see anything that gave low-level control over device selection and capabilities (the
 distinction between playback and capture in particular). Therefore, miniaudio is using the AudioObject API.
 
-Most (all?) functions in the AudioObject API take a AudioObjectID as it's input. This is the device identifier. When
+Most (all?) functions in the AudioObject API take a AudioObjectID as its input. This is the device identifier. When
 retrieving global information, such as the device list, you use kAudioObjectSystemObject. When retrieving device-specific
 data, you pass in the ID for that device. In order to retrieve device-specific IDs you need to enumerate over each of the
 devices. This is done using the AudioObjectGetPropertyDataSize() and AudioObjectGetPropertyData() APIs which seem to be
@@ -22812,7 +22812,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         returning a result code of -10863. I have also tried changing the format directly on the input scope on the input bus, but
         this just results in `ca_require: IsStreamFormatWritable(inScope, inElement) NotWritable` when trying to set the format.
 
-        Something that does seem to work, however, has been setting the nominal sample rate on the deivce object. The problem with
+        Something that does seem to work, however, has been setting the nominal sample rate on the device object. The problem with
         this, however, is that it actually changes the sample rate at the operating system level and not just the application. This
         could be intrusive to the user, however, so I don't think it's wise to make this the default. Instead I'm making this a
         configuration option. When the `coreaudio.allowNominalSampleRateChange` config option is set to true, changing the sample
@@ -23198,7 +23198,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
         ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDCapture, sizeof(pDevice->capture.id.coreaudio), pDevice->capture.id.coreaudio);
 
         /*
-        If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
+        If we are using the default device we'll need to listen for changes to the system's default device so we can seamlessly
         switch the device in the background.
         */
         if (pConfig->capture.pDeviceID == NULL) {
@@ -23262,7 +23262,7 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const ma_device_c
         ma_get_AudioObject_uid(pDevice->pContext, pDevice->coreaudio.deviceObjectIDPlayback, sizeof(pDevice->playback.id.coreaudio), pDevice->playback.id.coreaudio);
 
         /*
-        If we are using the default device we'll need to listen for changes to the system's default device so we can seemlessly
+        If we are using the default device we'll need to listen for changes to the system's default device so we can seamlessly
         switch the device in the background.
         */
         if (pDescriptorPlayback->pDeviceID == NULL && (pConfig->deviceType != ma_device_type_duplex || pDescriptorCapture->pDeviceID != NULL)) {
@@ -25674,7 +25674,7 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
     }
 
     /*
-    The OSS documantation is very clear about the order we should be initializing the device's properties:
+    The OSS documentation is very clear about the order we should be initializing the device's properties:
       1) Format
       2) Channels
       3) Sample rate.
@@ -26265,11 +26265,11 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         There have been reports where setting the frames per data callback results in an error
         later on from Android. To address this, I'm experimenting with simply not setting it on
         anything from Android 11 and earlier. Suggestions welcome on how we might be able to make
-        this more targetted.
+        this more targeted.
         */
         if (!pConfig->aaudio.enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) {
             /*
-            AAudio is annoying when it comes to it's buffer calculation stuff because it doesn't let you
+            AAudio is annoying when it comes to its buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
             the buffer capacity before you open the stream... :/
 
@@ -26599,7 +26599,7 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
         return ma_result_from_aaudio(resultAA);
     }
 
-    /* Do we actually need to wait for the device to transition into it's started state? */
+    /* Do we actually need to wait for the device to transition into its started state? */
 
     /* The device should be in either a starting or started state. If it's not set to started we need to wait for it to transition. It should go from starting to started. */
     currentState = ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream);
@@ -28537,7 +28537,7 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     count from MediaStreamAudioSourceNode (what we use for capture)? The only way to have control is to configure an
     output channel count on the capture side. This is slightly confusing for capture mode because intuitively you
     wouldn't actually connect an output to an input-only node, but this is what we'll have to do in order to have
-    proper control over the channel count. In the capture case, we'll have to output silence to it's output node.
+    proper control over the channel count. In the capture case, we'll have to output silence to its output node.
     */
     if (pParameters->pConfig->deviceType == ma_device_type_capture) {
         channels = (int)((pParameters->pDescriptorCapture->channels > 0) ? pParameters->pDescriptorCapture->channels : MA_DEFAULT_CHANNELS);
@@ -28772,7 +28772,7 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
         ma_uint32 sampleRate;
         ma_uint32 periodSizeInFrames;
 
-        /* The channel count will depend on the device type. If it's a capture, use it's, otherwise use the playback side. */
+        /* The channel count will depend on the device type. If it's a capture, use its, otherwise use the playback side. */
         if (pConfig->deviceType == ma_device_type_capture) {
             channels = (pDescriptorCapture->channels  > 0) ? pDescriptorCapture->channels  : MA_DEFAULT_CHANNELS;
         } else {
@@ -29440,7 +29440,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
 #endif
 
     /*
-    When the device is being initialized it's initial state is set to ma_device_state_uninitialized. Before returning from
+    When the device is being initialized its initial state is set to ma_device_state_uninitialized. Before returning from
     ma_device_init(), the state needs to be set to something valid. In miniaudio the device's default state immediately
     after initialization is stopped, so therefore we need to mark the device as such. miniaudio will wait on the worker
     thread to signal an event to know when the worker thread is ready for action.
@@ -30558,7 +30558,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
             return result;
         }
 
-        /* Wait for the worker thread to put the device into it's stopped state for real. */
+        /* Wait for the worker thread to put the device into its stopped state for real. */
         ma_event_wait(&pDevice->stopEvent);
         MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
     } else {
@@ -30976,7 +30976,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         } else {
             /*
             Synchronous backends. The stop callback is always called from the worker thread. Do not call the stop callback here. If
-            the backend is implementing it's own audio thread loop we'll need to wake it up if required. Note that we need to make
+            the backend is implementing its own audio thread loop we'll need to wake it up if required. Note that we need to make
             sure the state of the device is *not* playing right now, which it shouldn't be since we set it above. This is super
             important though, so I'm asserting it here as well for extra safety in case we accidentally change something later.
             */
@@ -38278,7 +38278,7 @@ static float ma_attenuation_exponential(float distance, float minDistance, float
 /*
 Dopper Effect calculation taken from the OpenAL spec, with two main differences:
 
-  1) The source to listener vector will have already been calcualted at an earlier step so we can
+  1) The source to listener vector will have already been calculated at an earlier step so we can
      just use that directly. We need only the position of the source relative to the origin.
 
   2) We don't scale by a frequency because we actually just want the ratio which we'll plug straight
@@ -38651,7 +38651,7 @@ MA_API ma_spatializer_config ma_spatializer_config_init(ma_uint32 channelsIn, ma
     config.maxDistance                  = MA_FLT_MAX;
     config.rolloff                      = 1;
     config.coneInnerAngleInRadians      = 6.283185f; /* 360 degrees. */
-    config.coneOuterAngleInRadians      = 6.283185f; /* 360 degress. */
+    config.coneOuterAngleInRadians      = 6.283185f; /* 360 degrees. */
     config.coneOuterGain                = 0.0f;
     config.dopplerFactor                = 1;
     config.directionalAttenuationFactor = 1;
@@ -38885,7 +38885,7 @@ static float ma_calculate_angular_gain(ma_vec3f dirA, ma_vec3f dirB, float coneI
     To do cone attenuation, I'm just using the same math that we'd use to implement a basic spotlight in OpenGL. We
     just need to get the direction from the source to the listener and then do a dot product against that and the
     direction of the spotlight. Then we just compare that dot product against the cosine of the inner and outer
-    angles. If the dot product is greater than the the outer angle, we just use coneOuterGain. If it's less than
+    angles. If the dot product is greater than the outer angle, we just use coneOuterGain. If it's less than
     the inner angle, we just use a gain of 1. Otherwise we linearly interpolate between 1 and coneOuterGain.
     */
     if (coneInnerAngleInRadians < 6.283185f) {
@@ -39036,11 +39036,11 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         To do cone attenuation, I'm just using the same math that we'd use to implement a basic spotlight in OpenGL. We
         just need to get the direction from the source to the listener and then do a dot product against that and the
         direction of the spotlight. Then we just compare that dot product against the cosine of the inner and outer
-        angles. If the dot product is greater than the the outer angle, we just use coneOuterGain. If it's less than
+        angles. If the dot product is greater than the outer angle, we just use coneOuterGain. If it's less than
         the inner angle, we just use a gain of 1. Otherwise we linearly interpolate between 1 and coneOuterGain.
         */
         if (distance > 0) {
-            /* Source anglular gain. */
+            /* Source angular gain. */
             float spatializerConeInnerAngle;
             float spatializerConeOuterAngle;
             float spatializerConeOuterGain;
@@ -39552,7 +39552,7 @@ MA_API void ma_spatializer_get_relative_position_and_direction(const ma_spatiali
         listenerDirection    = ma_spatializer_listener_get_direction(pListener);
 
         /*
-        We need to calcualte the right vector from our forward and up vectors. This is done with
+        We need to calculate the right vector from our forward and up vectors. This is done with
         a cross product.
         */
         axisZ = ma_vec3f_normalize(listenerDirection);                                  /* Normalization required here because we can't trust the caller. */
@@ -39698,7 +39698,7 @@ static ma_result ma_linear_resampler_set_rate_internal(ma_linear_resampler* pRes
     lpfConfig = ma_lpf_config_init(pResampler->config.format, pResampler->config.channels, lpfSampleRate, lpfCutoffFrequency, pResampler->config.lpfOrder);
 
     /*
-    If the resampler is alreay initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
+    If the resampler is already initialized we don't want to do a fresh initialization of the low-pass filter because it will result in the cached frames
     getting cleared. Instead we re-initialize the filter which will maintain any cached frames.
     */
     if (isResamplerAlreadyInitialized) {
@@ -40393,7 +40393,7 @@ MA_API ma_result ma_linear_resampler_get_expected_output_frame_count(const ma_li
     preliminaryInputFrameCount         = (pResampler->inTimeInt  + outputFrameCount*pResampler->inAdvanceInt ) + preliminaryInputFrameCountFromFrac;
 
     /*
-    If the total number of *whole* input frames that would be required to generate our preliminary output frame count is greather than
+    If the total number of *whole* input frames that would be required to generate our preliminary output frame count is greater than
     the amount of whole input frames we have available as input we need to *not* add an extra output frame as there won't be enough data
     to actually process. Otherwise we need to add the extra output frame.
     */
@@ -40431,7 +40431,7 @@ MA_API ma_result ma_linear_resampler_reset(ma_linear_resampler* pResampler)
         }
     }
 
-    /* The low pass filter needs to have it's cache reset. */
+    /* The low pass filter needs to have its cache reset. */
     ma_lpf_clear_cache(&pResampler->lpf);
 
     return MA_SUCCESS;
@@ -40948,19 +40948,19 @@ static float ma_calculate_channel_position_rectangular_weight(ma_channel channel
     of contribution to apply to the side/left and back/left speakers, however, is a bit more complicated.
 
     Imagine the front/left speaker as emitting audio from two planes - the front plane and the left plane. You can think of the front/left
-    speaker emitting half of it's total volume from the front, and the other half from the left. Since part of it's volume is being emitted
+    speaker emitting half of its total volume from the front, and the other half from the left. Since part of its volume is being emitted
     from the left side, and the side/left and back/left channels also emit audio from the left plane, one would expect that they would
     receive some amount of contribution from front/left speaker. The amount of contribution depends on how many planes are shared between
     the two speakers. Note that in the examples below I've added a top/front/left speaker as an example just to show how the math works
     across 3 spatial dimensions.
 
     The first thing to do is figure out how each speaker's volume is spread over each of plane:
-     - front/left:     2 planes (front and left)      = 1/2 = half it's total volume on each plane
+     - front/left:     2 planes (front and left)      = 1/2 = half its total volume on each plane
      - side/left:      1 plane (left only)            = 1/1 = entire volume from left plane
-     - back/left:      2 planes (back and left)       = 1/2 = half it's total volume on each plane
-     - top/front/left: 3 planes (top, front and left) = 1/3 = one third it's total volume on each plane
+     - back/left:      2 planes (back and left)       = 1/2 = half its total volume on each plane
+     - top/front/left: 3 planes (top, front and left) = 1/3 = one third its total volume on each plane
 
-    The amount of volume each channel contributes to each of it's planes is what controls how much it is willing to given and take to other
+    The amount of volume each channel contributes to each of its planes is what controls how much it is willing to given and take to other
     channels on the same plane. The volume that is willing to the given by one channel is multiplied by the volume that is willing to be
     taken by the other to produce the final contribution.
     */
@@ -41103,8 +41103,8 @@ static ma_result ma_channel_map_build_shuffle_table(const ma_channel* pChannelMa
     }
 
     /*
-    When building the shuffle table we just do a 1:1 mapping based on the first occurance of a channel. If the
-    input channel has more than one occurance of a channel position, the second one will be ignored.
+    When building the shuffle table we just do a 1:1 mapping based on the first occurrence of a channel. If the
+    input channel has more than one occurrence of a channel position, the second one will be ignored.
     */
     for (iChannelOut = 0; iChannelOut < channelCountOut; iChannelOut += 1) {
         ma_channel channelOut;
@@ -43399,7 +43399,7 @@ static ma_result ma_data_converter_process_pcm_frames__channels_first(ma_data_co
         Before doing any processing we need to determine how many frames we should try processing
         this iteration, for both input and output. The resampler requires us to perform format and
         channel conversion before passing any data into it. If we get our input count wrong, we'll
-        end up peforming redundant pre-processing. This isn't the end of the world, but it does
+        end up performing redundant pre-processing. This isn't the end of the world, but it does
         result in some inefficiencies proportionate to how far our estimates are off.
 
         If the resampler has a means to calculate exactly how much we'll need, we'll use that.
@@ -45923,7 +45923,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
         totalFramesProcessed += framesProcessed;
 
         /*
-        If we encounted an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
+        If we encountered an error from the read callback, make sure it's propagated to the caller. The caller may need to know whether or not MA_BUSY is returned which is
         not necessarily considered an error.
         */
         if (result != MA_SUCCESS && result != MA_AT_END) {
@@ -46251,7 +46251,7 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
 
     /*
     We may need to adjust the position of the cursor to ensure it's clamped to the range. Grab it now
-    so we can calculate it's absolute position before we change the range.
+    so we can calculate its absolute position before we change the range.
     */
     result = ma_data_source_get_cursor_in_pcm_frames(pDataSource, &relativeCursor);
     if (result == MA_SUCCESS) {
@@ -46285,7 +46285,7 @@ MA_API ma_result ma_data_source_set_range_in_pcm_frames(ma_data_source* pDataSou
 
     /*
     Seek to within range. Note that our seek positions here are relative to the new range. We don't want
-    do do this if we failed to retrieve the cursor earlier on because it probably means the data source
+    to do this if we failed to retrieve the cursor earlier on because it probably means the data source
     has no notion of a cursor. In practice the seek would probably fail (which we silently ignore), but
     I'm just not even going to attempt it.
     */
@@ -51807,7 +51807,7 @@ MA_API ma_result ma_stbvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
     #if !defined(MA_NO_VORBIS)
     {
         /*
-        stb_vorbis lacks a callback based API for it's pulling API which means we're stuck with the
+        stb_vorbis lacks a callback based API for its pulling API which means we're stuck with the
         pushing API. In order for us to be able to successfully initialize the decoder we need to
         supply it with enough data. We need to keep loading data until we have enough.
         */
@@ -51888,7 +51888,7 @@ MA_API ma_result ma_stbvorbis_init_memory(const void* pData, size_t dataSize, co
     {
         (void)pAllocationCallbacks;
 
-        /* stb_vorbis uses an int as it's size specifier, restricting it to 32-bit even on 64-bit systems. *sigh*. */
+        /* stb_vorbis uses an int as its size specifier, restricting it to 32-bit even on 64-bit systems. *sigh*. */
         if (dataSize > INT_MAX) {
             return MA_TOO_BIG;
         }
@@ -51978,7 +51978,7 @@ MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFram
                     /* The first thing to do is read from any already-cached frames. */
                     ma_uint32 framesToReadFromCache = (ma_uint32)ma_min(pVorbis->push.framesRemaining, (frameCount - totalFramesRead));  /* Safe cast because pVorbis->framesRemaining is 32-bit. */
 
-                    /* The output pointer can be null in which case we just treate it as a seek. */
+                    /* The output pointer can be null in which case we just treat it as a seek. */
                     if (pFramesOut != NULL) {
                         ma_uint64 iFrame;
                         for (iFrame = 0; iFrame < framesToReadFromCache; iFrame += 1) {
@@ -52052,7 +52052,7 @@ MA_API ma_result ma_stbvorbis_read_pcm_frames(ma_stbvorbis* pVorbis, void* pFram
                         }
                     }
 
-                    /* If we don't have a success code at this point it means we've encounted an error or the end of the file has been reached (probably the latter). */
+                    /* If we don't have a success code at this point it means we've encountered an error or the end of the file has been reached (probably the latter). */
                     if (result != MA_SUCCESS) {
                         break;
                     }
@@ -53682,7 +53682,7 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
     } else {
         /*
         Getting here means we need to do data conversion. If we're seeking forward and are _not_ doing resampling we can run this in a fast path. If we're doing resampling we
-        need to run through each sample because we need to ensure it's internal cache is updated.
+        need to run through each sample because we need to ensure its internal cache is updated.
         */
         if (pFramesOut == NULL && pDecoder->converter.hasResampler == MA_FALSE) {
             result = ma_data_source_read_pcm_frames(pDecoder->pBackend, NULL, frameCount, &totalFramesReadOut);
@@ -56300,7 +56300,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
         pResourceManager->config.pVFS = &pResourceManager->defaultVFS;
     }
 
-    /* If threading has been disabled at compile time, enfore it at run time as well. */
+    /* If threading has been disabled at compile time, enforce it at run time as well. */
     #ifdef MA_NO_THREADING
     {
         pResourceManager->config.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
@@ -56409,7 +56409,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
 
     /*
     Job threads need to be killed first. To do this we need to post a quit message to the message queue and then wait for the thread. The quit message will never be removed from the
-    queue which means it will never not be returned after being encounted for the first time which means all threads will eventually receive it.
+    queue which means it will never not be returned after being encountered for the first time which means all threads will eventually receive it.
     */
     ma_resource_manager_post_job_quit(pResourceManager);
 
@@ -57020,7 +57020,7 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
                 if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                     ma_resource_manager_inline_notification_uninit(pInitNotification);
                 } else {
-                    /* These will have been freed by the job thread, but with WAIT_INIT they will already have happend sinced the job has already been handled. */
+                    /* These will have been freed by the job thread, but with WAIT_INIT they will already have happened since the job has already been handled. */
                     ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
                     ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
                 }
@@ -57397,7 +57397,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
 
     These fences are always released at the "done" tag at the end of this function. They'll be
     acquired a second if loading asynchronously. This double acquisition system is just done to
-    simplify code maintanence.
+    simplify code maintenance.
     */
     ma_resource_manager_pipeline_notifications_acquire_all_fences(&notifications);
     {
@@ -57442,7 +57442,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
 
             /*
             The status of the data buffer needs to be set to MA_BUSY before posting the job so that the
-            worker thread is aware of it's busy state. If the LOAD_DATA_BUFFER job sees a status other
+            worker thread is aware of its busy state. If the LOAD_DATA_BUFFER job sees a status other
             than MA_BUSY, it'll assume an error and fall through to an early exit.
             */
             ma_atomic_exchange_i32(&pDataBuffer->result, MA_BUSY);
@@ -60086,7 +60086,7 @@ static void ma_node_input_bus_detach__no_output_bus_lock(ma_node_input_bus* pInp
     *not* using a lock when iterating over the list in the audio thread. We therefore need to craft
     this in a way such that the iteration on the audio thread doesn't break.
 
-    The the first thing to do is swap out the "next" pointer of the previous output bus with the
+    The first thing to do is swap out the "next" pointer of the previous output bus with the
     new "next" output bus. This is the operation that matters for iteration on the audio thread.
     After that, the previous pointer on the new "next" pointer needs to be updated, after which
     point the linked list will be in a good state.
@@ -60179,7 +60179,7 @@ static void ma_node_input_bus_attach(ma_node_input_bus* pInputBus, ma_node_outpu
         /*
         Now we need to attach the output bus to the linked list. This involves updating two pointers on
         two different output buses so I'm going to go ahead and keep this simple and just use a lock.
-        There are ways to do this without a lock, but it's just too hard to maintain for it's value.
+        There are ways to do this without a lock, but it's just too hard to maintain for its value.
 
         Although we're locking here, it's important to remember that we're *not* locking when iterating
         and reading audio data since that'll be running on the audio thread. As a result we need to be
@@ -60276,7 +60276,7 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
-    this function will not perfom any locking, whereas attaching and detaching will, but crafted in
+    this function will not perform any locking, whereas attaching and detaching will, but crafted in
     such a way that we don't need to perform any locking here. The important thing to remember is
     to always iterate in a forward direction.
 
@@ -60847,7 +60847,7 @@ static ma_result ma_node_detach_full(ma_node* pNode)
 
     /*
     At this point all output buses will have been detached from the graph and we can be guaranteed
-    that none of it's input nodes will be getting processed by the graph. We can detach these
+    that none of its input nodes will be getting processed by the graph. We can detach these
     without needing to worry about the audio thread touching them.
     */
     for (iInputBus = 0; iInputBus < ma_node_get_input_bus_count(pNode); iInputBus += 1) {
@@ -60884,7 +60884,7 @@ MA_API ma_result ma_node_detach_output_bus(ma_node* pNode, ma_uint32 outputBusIn
         return MA_INVALID_ARGS; /* Invalid output bus index. */
     }
 
-    /* We need to lock the output bus because we need to inspect the input node and grab it's input bus. */
+    /* We need to lock the output bus because we need to inspect the input node and grab its input bus. */
     ma_node_output_bus_lock(&pNodeBase->pOutputBuses[outputBusIndex]);
     {
         pInputNodeBase = (ma_node_base*)pNodeBase->pOutputBuses[outputBusIndex].pInputNode;
@@ -61050,7 +61050,7 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
 
     /*
     Getting here means the node is marked as started, but it may still not be truly started due to
-    it's start time not having been reached yet. Also, the stop time may have also been reached in
+    its start time not having been reached yet. Also, the stop time may have also been reached in
     which case it'll be considered stopped.
     */
     if (ma_node_get_state_time(pNode, ma_node_state_started) > globalTimeBeg) {
@@ -61061,7 +61061,7 @@ MA_API ma_node_state ma_node_get_state_by_time_range(const ma_node* pNode, ma_ui
         return ma_node_state_stopped;   /* Stop time has been reached. */
     }
 
-    /* Getting here means the node is marked as started and is within it's start/stop times. */
+    /* Getting here means the node is marked as started and is within its start/stop times. */
     return ma_node_state_started;
 }
 
@@ -61223,12 +61223,12 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                 frameCountOut = totalFramesRead;
 
                 if (totalFramesRead > 0) {
-                    ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);  /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                    ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);  /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Explicit cast to silence the warning. */
                 }
 
                 /*
                 A passthrough should never have modified the input and output frame counts. If you're
-                triggering these assers you need to fix your processing callback.
+                triggering these asserts you need to fix your processing callback.
                 */
                 MA_ASSERT(frameCountIn  == totalFramesRead);
                 MA_ASSERT(frameCountOut == totalFramesRead);
@@ -61406,7 +61406,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
                         frames available right now.
                         */
                         if (frameCountIn > 0 || (pNodeBase->vtable->flags & MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES) != 0) {
-                            ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Excplicit cast to silence the warning. */
+                            ma_node_process_pcm_frames_internal(pNode, (const float**)ppFramesIn, &frameCountIn, ppFramesOut, &frameCountOut);    /* From GCC: expected 'const float **' but argument is of type 'float **'. Shouldn't this be implicit? Explicit cast to silence the warning. */
                         } else {
                             frameCountOut = 0;  /* No data was processed. */
                         }
@@ -62643,7 +62643,7 @@ static ma_bool32 ma_engine_node_is_pitching_enabled(const ma_engine_node* pEngin
 {
     MA_ASSERT(pEngineNode != NULL);
 
-    /* Don't try to be clever by skiping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
+    /* Don't try to be clever by skipping resampling in the pitch=1 case or else you'll glitch when moving away from 1. */
     return !ma_atomic_load_explicit_32(&pEngineNode->isPitchDisabled, ma_atomic_memory_order_acquire);
 }
 
@@ -63635,7 +63635,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 
 
-    /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
+    /* The engine is a node graph. This needs to be initialized after we have the device so we can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
     nodeGraphConfig.nodeCacheCapInFrames = (engineConfig.periodSizeInFrames > 0xFFFF) ? 0xFFFF : (ma_uint16)engineConfig.periodSizeInFrames;
 
@@ -64654,7 +64654,7 @@ MA_API ma_result ma_sound_init_ex(ma_engine* pEngine, const ma_sound_config* pCo
     {
         /*
         Getting here means we're not loading from a file. We may be loading from an already-initialized
-        data source, or none at all. If we aren't specifying any data source, we'll be initializing the
+        data source, or none at all. If we aren't specifying any data source, we'll be initializing
         the equivalent to a group. ma_data_source_init_from_data_source_internal() will deal with this
         for us, so no special treatment required here.
         */
