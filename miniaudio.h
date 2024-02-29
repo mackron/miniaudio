@@ -10246,7 +10246,8 @@ typedef enum
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE         = 0x00000002,   /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC          = 0x00000004,   /* When set, the resource manager will load the data source asynchronously. */
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT      = 0x00000008,   /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010    /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010,   /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING        = 0x00000020    /* When set, configures the data source to loop by default. */
 } ma_resource_manager_data_source_flags;
 
 
@@ -10314,8 +10315,8 @@ typedef struct
     ma_uint64 rangeEndInPCMFrames;
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
-    ma_bool32 isLooping;
     ma_uint32 flags;
+    ma_bool32 isLooping;    /* Deprecated. Use the MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING flag in `flags` instead. */
 } ma_resource_manager_data_source_config;
 
 MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init(void);
@@ -11050,6 +11051,7 @@ typedef enum
     MA_SOUND_FLAG_ASYNC                 = 0x00000004,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC */
     MA_SOUND_FLAG_WAIT_INIT             = 0x00000008,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT */
     MA_SOUND_FLAG_UNKNOWN_LENGTH        = 0x00000010,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH */
+    MA_SOUND_FLAG_LOOPING               = 0x00000020,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING */
 
     /* ma_sound specific flags. */
     MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00001000,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
@@ -11149,13 +11151,13 @@ typedef struct
     ma_uint64 rangeEndInPCMFrames;
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
-    ma_bool32 isLooping;
     ma_sound_end_proc endCallback;              /* Fired when the sound reaches the end. Will be fired from the audio thread. Do not restart, uninitialize or otherwise change the state of the sound from here. Instead fire an event or set a variable to indicate to a different thread to change the start of the sound. Will not be fired in response to a scheduled stop with ma_sound_set_stop_time_*(). */
     void* pEndCallbackUserData;
 #ifndef MA_NO_RESOURCE_MANAGER
     ma_resource_manager_pipeline_notifications initNotifications;
 #endif
     ma_fence* pDoneFence;                       /* Deprecated. Use initNotifications instead. Released when the resource manager has finished decoding the entire sound. Not used with streams. */
+    ma_bool32 isLooping;                        /* Deprecated. Use the MA_SOUND_FLAG_LOOPING flag in `flags` instead. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(void);                  /* Deprecated. Will be removed in version 0.12. Use ma_sound_config_2() instead. */
@@ -68898,6 +68900,10 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         flags &= ~MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC;
     }
 
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
+
     async = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0;
 
     /*
@@ -68974,7 +68980,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             job.data.resourceManager.loadDataBuffer.rangeEndInPCMFrames     = pConfig->rangeEndInPCMFrames;
             job.data.resourceManager.loadDataBuffer.loopPointBegInPCMFrames = pConfig->loopPointBegInPCMFrames;
             job.data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames = pConfig->loopPointEndInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.isLooping               = pConfig->isLooping;
+            job.data.resourceManager.loadDataBuffer.isLooping               = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
             /* If we need to wait for initialization to complete we can just process the job in place. */
             if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
@@ -69610,6 +69616,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
     ma_resource_manager_pipeline_notifications notifications;
+    ma_uint32 flags;
 
     if (pDataStream == NULL) {
         if (pConfig != NULL && pConfig->pNotifications != NULL) {
@@ -69640,13 +69647,18 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         return result;
     }
 
+    flags = pConfig->flags;
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
+
     pDataStream->pResourceManager = pResourceManager;
     pDataStream->flags            = pConfig->flags;
     pDataStream->result           = MA_BUSY;
 
     ma_data_source_set_range_in_pcm_frames(pDataStream, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
     ma_data_source_set_loop_point_in_pcm_frames(pDataStream, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
-    ma_data_source_set_looping(pDataStream, pConfig->isLooping);
+    ma_data_source_set_looping(pDataStream, (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0);
 
     if (pResourceManager == NULL || (pConfig->pFilePath == NULL && pConfig->pFilePathW == NULL)) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -69834,7 +69846,7 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
     ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
 }
 
-static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream)
+static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream, ma_bool32 isInitialFill)
 {
     ma_uint32 iPage;
 
@@ -70268,6 +70280,9 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
     }
 
     pDataSource->flags = pConfig->flags;
+    if (pConfig->isLooping) {
+        pDataSource->flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
 
     return MA_SUCCESS;
 }
@@ -70998,7 +71013,7 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
 
     /* We have our decoder and our page buffer, so now we need to fill our pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
+    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_TRUE);
 
     /* And now we're done. We want to make sure the result is MA_SUCCESS. */
     result = MA_SUCCESS;
@@ -71124,7 +71139,7 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.seekDataStream.frameIndex);
 
     /* After seeking we'll need to reload the pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
+    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_FALSE);
 
     /* We need to let the public API know that we're done seeking. */
     ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
@@ -76147,7 +76162,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
         ma_data_source_set_range_in_pcm_frames(ma_sound_get_data_source(pSound), pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
     }
 
-    ma_sound_set_looping(pSound, pConfig->isLooping);
+    ma_sound_set_looping(pSound, pConfig->isLooping || ((pConfig->flags & MA_SOUND_FLAG_LOOPING) != 0));
 
     return MA_SUCCESS;
 }
@@ -76171,6 +76186,9 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     it and can avoid accessing the sound from within the notification.
     */
     flags = pConfig->flags | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
 
     pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
     if (pSound->pResourceManagerDataSource == NULL) {
@@ -76199,7 +76217,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         resourceManagerDataSourceConfig.rangeEndInPCMFrames         = pConfig->rangeEndInPCMFrames;
         resourceManagerDataSourceConfig.loopPointBegInPCMFrames     = pConfig->loopPointBegInPCMFrames;
         resourceManagerDataSourceConfig.loopPointEndInPCMFrames     = pConfig->loopPointEndInPCMFrames;
-        resourceManagerDataSourceConfig.isLooping                   = pConfig->isLooping;
+        resourceManagerDataSourceConfig.isLooping                   = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
         result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, pSound->pResourceManagerDataSource);
         if (result != MA_SUCCESS) {
