@@ -10459,7 +10459,6 @@ typedef struct
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     ma_uint32 flags;
-    ma_bool32 isLooping;    /* Deprecated. Use the MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING flag in `flags` instead. */
 } ma_resource_manager_data_source_config;
 
 MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init(void);
@@ -11285,23 +11284,22 @@ MA_API ma_sound_notifications ma_sound_notifications_init(void);
 
 typedef struct
 {
-    const char* pFilePath;                      /* Set this to load from the resource manager. */
-    const wchar_t* pFilePathW;                  /* Set this to load from the resource manager. */
-    ma_data_source* pDataSource;                /* Set this to load from an existing data source. */
-    ma_node* pInitialAttachment;                /* If set, the sound will be attached to an input of this node. This can be set to a ma_sound. If set to NULL, the sound will be attached directly to the endpoint unless MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT is set in `flags`. */
-    ma_uint32 initialAttachmentInputBusIndex;   /* The index of the input bus of pInitialAttachment to attach the sound to. */
-    ma_uint32 channelsIn;                       /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
-    ma_uint32 channelsOut;                      /* Set this to 0 (default) to use the engine's channel count. Set to MA_SOUND_SOURCE_CHANNEL_COUNT to use the data source's channel count (only used if using a data source as input). */
-    ma_mono_expansion_mode monoExpansionMode;   /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
-    ma_uint32 flags;                            /* A combination of MA_SOUND_FLAG_* flags. */
-    ma_uint32 volumeSmoothTimeInPCMFrames;      /* The number of frames to smooth over volume changes. Defaults to 0 in which case no smoothing is used. */
-    ma_uint64 initialSeekPointInPCMFrames;      /* Initializes the sound such that it's seeked to this location by default. */
+    const char* pFilePath;                          /* Set this to load from the resource manager. */
+    const wchar_t* pFilePathW;                      /* Set this to load from the resource manager. */
+    ma_data_source* pDataSource;                    /* Set this to load from an existing data source. */
+    ma_node* pInitialAttachment;                    /* If set, the sound will be attached to an input of this node. This can be set to a ma_sound. If set to NULL, the sound will be attached directly to the endpoint unless MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT is set in `flags`. */
+    ma_uint32 initialAttachmentInputBusIndex;       /* The index of the input bus of pInitialAttachment to attach the sound to. */
+    ma_uint32 channelsIn;                           /* Ignored if using a data source as input (the data source's channel count will be used always). Otherwise, setting to 0 will cause the engine's channel count to be used. */
+    ma_uint32 channelsOut;                          /* Set this to 0 (default) to use the engine's channel count. Set to MA_SOUND_SOURCE_CHANNEL_COUNT to use the data source's channel count (only used if using a data source as input). */
+    ma_mono_expansion_mode monoExpansionMode;       /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
+    ma_uint32 flags;                                /* A combination of MA_SOUND_FLAG_* flags. */
+    ma_uint32 volumeSmoothTimeInPCMFrames;          /* The number of frames to smooth over volume changes. Defaults to 0 in which case no smoothing is used. */
+    ma_uint64 initialSeekPointInPCMFrames;          /* Initializes the sound such that it's seeked to this location by default. */
     ma_uint64 rangeBegInPCMFrames;
     ma_uint64 rangeEndInPCMFrames;
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
     const ma_sound_notifications* pNotifications;   /* A pointer to an object containing callbacks for when a sound has finished loading, reached the end, etc. A copy of this structure will be made internally. */
-    ma_bool32 isLooping;                        /* Deprecated. Use the MA_SOUND_FLAG_LOOPING flag in `flags` instead. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
@@ -67669,7 +67667,6 @@ MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_co
     config.rangeEndInPCMFrames     = MA_DATA_SOURCE_DEFAULT_RANGE_END;
     config.loopPointBegInPCMFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_BEG;
     config.loopPointEndInPCMFrames = MA_DATA_SOURCE_DEFAULT_LOOP_POINT_END;
-    config.isLooping               = MA_FALSE;
 
     return config;
 }
@@ -67819,8 +67816,8 @@ static ma_result ma_resource_manager_data_buffer_init_connector(ma_resource_mana
             ma_data_source_set_loop_point_in_pcm_frames(pDataBuffer, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
         }
 
-        if (pConfig->isLooping != MA_FALSE) {
-            ma_data_source_set_looping(pDataBuffer, pConfig->isLooping);
+        if ((pConfig->flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0) {
+            ma_data_source_set_looping(pDataBuffer, MA_TRUE);
         }
 
         ma_atomic_bool32_set(&pDataBuffer->isConnectorInitialized, MA_TRUE);
@@ -68578,10 +68575,6 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         flags &= ~MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC;
     }
 
-    if (pConfig->isLooping) {
-        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
-    }
-
     async = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0;
 
     /*
@@ -69326,9 +69319,6 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     }
 
     flags = pConfig->flags;
-    if (pConfig->isLooping) {
-        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
-    }
 
     pDataStream->pResourceManager = pResourceManager;
     pDataStream->flags            = pConfig->flags;
@@ -69958,9 +69948,6 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
     }
 
     pDataSource->flags = pConfig->flags;
-    if (pConfig->isLooping) {
-        pDataSource->flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
-    }
 
     return MA_SUCCESS;
 }
@@ -70537,7 +70524,10 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
             dataSourceConfig.rangeEndInPCMFrames     = pJob->data.resourceManager.loadDataBuffer.rangeEndInPCMFrames;
             dataSourceConfig.loopPointBegInPCMFrames = pJob->data.resourceManager.loadDataBuffer.loopPointBegInPCMFrames;
             dataSourceConfig.loopPointEndInPCMFrames = pJob->data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames;
-            dataSourceConfig.isLooping               = pJob->data.resourceManager.loadDataBuffer.isLooping;
+
+            if (pJob->data.resourceManager.loadDataBuffer.isLooping) {
+                dataSourceConfig.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+            }
 
             result = ma_resource_manager_data_buffer_init_connector(pDataBuffer, &dataSourceConfig, pJob->data.resourceManager.loadDataBuffer.pInitNotification, pJob->data.resourceManager.loadDataBuffer.pInitFence);
             if (result != MA_SUCCESS) {
@@ -75835,7 +75825,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
         ma_data_source_set_range_in_pcm_frames(ma_sound_get_data_source(pSound), pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
     }
 
-    ma_sound_set_looping(pSound, pConfig->isLooping || ((pConfig->flags & MA_SOUND_FLAG_LOOPING) != 0));
+    ma_sound_set_looping(pSound, (pConfig->flags & MA_SOUND_FLAG_LOOPING) != 0);
 
     return MA_SUCCESS;
 }
@@ -75869,9 +75859,6 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     it and can avoid accessing the sound from within the notification.
     */
     flags = pConfig->flags | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
-    if (pConfig->isLooping) {
-        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
-    }
 
     pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
     if (pSound->pResourceManagerDataSource == NULL) {
@@ -75906,7 +75893,6 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         resourceManagerDataSourceConfig.rangeEndInPCMFrames         = pConfig->rangeEndInPCMFrames;
         resourceManagerDataSourceConfig.loopPointBegInPCMFrames     = pConfig->loopPointBegInPCMFrames;
         resourceManagerDataSourceConfig.loopPointEndInPCMFrames     = pConfig->loopPointEndInPCMFrames;
-        resourceManagerDataSourceConfig.isLooping                   = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
         result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, pSound->pResourceManagerDataSource);
         if (result != MA_SUCCESS) {
