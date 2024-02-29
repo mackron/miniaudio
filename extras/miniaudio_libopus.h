@@ -1,8 +1,11 @@
 /*
 This implements a data source that decodes Opus streams via libopus + libopusfile
 
-This object can be plugged into any `ma_data_source_*()` API and can also be used as a custom
-decoding backend. See the custom_decoder example.
+The `ma_libopus` object can be plugged into any `ma_data_source_*()` API.
+
+This can also be used as a custom decoding backend for `ma_decoder`. Use `ma_decoding_backend_libopus`
+to wire up the custom decoding backend to `ma_decoder`. See the custom_decoder example for an example
+of how to do this.
 
 You need to include this file after miniaudio.h.
 */
@@ -38,6 +41,9 @@ MA_API ma_result ma_libopus_seek_to_pcm_frame(ma_libopus* pOpus, ma_uint64 frame
 MA_API ma_result ma_libopus_get_data_format(ma_libopus* pOpus, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_libopus_get_cursor_in_pcm_frames(ma_libopus* pOpus, ma_uint64* pCursor);
 MA_API ma_result ma_libopus_get_length_in_pcm_frames(ma_libopus* pOpus, ma_uint64* pLength);
+
+/* Decoding backend vtable. This is what you'll plug into ma_decoder_config.pBackendVTables. No user data required. */
+extern const ma_decoding_backend_vtable* ma_decoding_backend_libopus;
 
 #ifdef __cplusplus
 }
@@ -492,5 +498,85 @@ MA_API ma_result ma_libopus_get_length_in_pcm_frames(ma_libopus* pOpus, ma_uint6
     }
     #endif
 }
+
+
+
+/*
+The code below defines the vtable that you'll plug into your `ma_decoder_config` object.
+*/
+static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libopus* pOpus;
+
+    (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libopus* pOpus;
+
+    (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (void)pUserData;
+
+    ma_libopus_uninit(pOpus, pAllocationCallbacks);
+    ma_free(pOpus, pAllocationCallbacks);
+}
+
+static ma_result ma_decoding_backend_get_channel_map__libopus(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (void)pUserData;
+
+    return ma_libopus_get_data_format(pOpus, NULL, NULL, NULL, pChannelMap, channelMapCap);
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
+{
+    ma_decoding_backend_init__libopus,
+    ma_decoding_backend_init_file__libopus,
+    NULL, /* onInitFileW() */
+    NULL, /* onInitMemory() */
+    ma_decoding_backend_uninit__libopus
+};
+const ma_decoding_backend_vtable* ma_decoding_backend_libopus = &g_ma_decoding_backend_vtable_libopus;
 
 #endif
