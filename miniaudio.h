@@ -10160,6 +10160,12 @@ MA_API ma_result ma_decode_from_vfs(ma_vfs* pVFS, const char* pFilePath, ma_deco
 MA_API ma_result ma_decode_file(const char* pFilePath, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder_config* pConfig, ma_uint64* pFrameCountOut, void** ppPCMFramesOut);
 
+
+/* Expose our decoding backend vtables so they can be plugged into a priority list. */
+extern const ma_decoding_backend_vtable* ma_decoding_backend_wav;
+extern const ma_decoding_backend_vtable* ma_decoding_backend_flac;
+extern const ma_decoding_backend_vtable* ma_decoding_backend_mp3;
+
 #endif  /* MA_NO_DECODING */
 
 
@@ -61946,6 +61952,8 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
     ma_decoding_backend_init_memory__wav,
     ma_decoding_backend_uninit__wav
 };
+const ma_decoding_backend_vtable* ma_decoding_backend_wav = &g_ma_decoding_backend_vtable_wav;
+
 
 static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
@@ -62568,6 +62576,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
     ma_decoding_backend_init_memory__flac,
     ma_decoding_backend_uninit__flac
 };
+const ma_decoding_backend_vtable* ma_decoding_backend_flag = &g_ma_decoding_backend_vtable_flac;
 
 static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
@@ -63248,6 +63257,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
     ma_decoding_backend_init_memory__mp3,
     ma_decoding_backend_uninit__mp3
 };
+const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &g_ma_decoding_backend_vtable_mp3;
 
 static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
