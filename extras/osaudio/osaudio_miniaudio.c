@@ -122,7 +122,7 @@ static osaudio_result_t osaudio_determine_miniaudio_backend(ma_backend* pBackend
     /*
     To do this we initialize a dummy device. We allow the caller to make use of this device as an optimization. This is
     only used by osaudio_enumerate_devices() because that can make use of the context from the dummy device rather than
-    having to create it's own. pDummyDevice can be null.
+    having to create its own. pDummyDevice can be null.
     */
     if (pDummyDevice == NULL) {
         pDummyDevice = &dummyDevice;
@@ -135,7 +135,7 @@ static osaudio_result_t osaudio_determine_miniaudio_backend(ma_backend* pBackend
     if (result != MA_SUCCESS || pDummyDevice->pContext->backend == ma_backend_null) {
         /* Failed to open a default playback device. Try capture. */
         if (result == MA_SUCCESS) {
-            /* This means we successfully initialize a device, but it's backend is null. It could be that there's no playback devices attached. Try capture. */
+            /* This means we successfully initialize a device, but its backend is null. It could be that there's no playback devices attached. Try capture. */
             ma_device_uninit(pDummyDevice);
         }
 
@@ -607,7 +607,7 @@ osaudio_result_t osaudio_open(osaudio_t* audio, osaudio_config_t* config)
     }
 
 
-    /* The device object needs to have a it's local info built. We can get the ID and name from miniaudio. */
+    /* The device object needs to have its local info built. We can get the ID and name from miniaudio. */
     result = osaudio_result_from_miniaudio(ma_device_get_info(&(*audio)->device, (*audio)->device.type, &deviceInfo));
     if (result == MA_SUCCESS) {
         memcpy((*audio)->info.id.data, &deviceInfo.id, sizeof((*audio)->info.id.data));
@@ -630,7 +630,7 @@ osaudio_result_t osaudio_open(osaudio_t* audio, osaudio_config_t* config)
         return result;
     }
 
-    /* Now we need a semaphore to control access to the ring buffer to to block read/write when necessary. */
+    /* Now we need a semaphore to control access to the ring buffer to block read/write when necessary. */
     result = osaudio_result_from_miniaudio(ma_semaphore_init((config->direction == OSAUDIO_OUTPUT) ? periodCount : 0, &(*audio)->bufferSemaphore));
     if (result != OSAUDIO_SUCCESS) {
         ma_pcm_rb_uninit(&(*audio)->buffer);
