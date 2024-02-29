@@ -8,23 +8,17 @@ By implementing this as a node, it can be plugged into any position within the g
 channel count of this node is always stereo.
 
 Steam Audio requires fixed sized processing, the size of which must be specified at initialization
-time of the IPLBinauralEffect and IPLHRTF objects. This creates a problem because the node graph
-will at times need to break down processing into smaller chunks for it's internal processing. The
-node graph internally will read into a temporary buffer which is then mixed into the final output
-buffer. This temporary buffer is allocated on the stack and is a fixed size. However, variability
-comes into play because the channel count of the node is variable. It's not safe to just blindly
-process the effect with the frame count specified in miniaudio's node processing callback. Doing so
-results in glitching. To work around this, this example is just setting the update size to a known
-value that works (256). If it's set to something too big it'll exceed miniaudio's processing size
-used by the node graph. Alternatively you could use some kind of intermediary cache which
-accumulates input data until enough is available and then do the processing. Ideally, Steam Audio
-would support variable sized updates which would avoid this whole mess entirely.
+time of the IPLBinauralEffect and IPLHRTF objects. To ensure miniaudio and Steam Audio are
+consistent, you must set the period size in the engine config to be consistent with the frame size
+you specify in your IPLAudioSettings object. If for some reason you want the period size of the
+engine to be different to that of your Steam Audio configuration, you'll need to implement a sort
+of buffering solution to your node.
 */
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
+#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there's a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */
 #include <phonon.h> /* Steam Audio */
-#include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION. That dependency needs to be removed from Steam Audio - use IPLuint32 or "unsigned int" instead! */
 
 #define FORMAT      ma_format_f32   /* Must be floating point. */
 #define CHANNELS    2               /* Must be stereo for this example. */
@@ -98,6 +92,7 @@ static void ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, const
     ma_uint32 totalFramesToProcess = *pFrameCountOut;
     ma_uint32 totalFramesProcessed = 0;
 
+    MA_ZERO_OBJECT(&binauralParams);
     binauralParams.direction.x   = pBinauralNode->direction.x;
     binauralParams.direction.y   = pBinauralNode->direction.y;
     binauralParams.direction.z   = pBinauralNode->direction.z;
@@ -284,8 +279,16 @@ int main(int argc, char** argv)
 
     /* The engine needs to be initialized first. */
     engineConfig = ma_engine_config_init();
-    engineConfig.channels           = CHANNELS;
-    engineConfig.sampleRate         = SAMPLE_RATE;
+    engineConfig.channels   = CHANNELS;
+    engineConfig.sampleRate = SAMPLE_RATE;
+
+    /*
+    Steam Audio requires processing in fixed sized chunks. Setting the period size in the engine config will
+    ensure our updates happen in predicably sized chunks as required by Steam Audio.
+
+    Note that the configuration of Steam Audio below (IPLAudioSettings) will use this variable to specify the
+    update size to ensure it remains consistent.
+    */
     engineConfig.periodSizeInFrames = 256;
 
     result = ma_engine_init(&engineConfig, &g_engine);
@@ -305,6 +308,9 @@ int main(int argc, char** argv)
     be documented. If this is for some kind of buffer management with FFT or something, then this
     need not be exposed to the public API. There should be no need for the public API to require a
     fixed sized update.
+
+    It's important that this be set to the periodSizeInFrames specified in the engine config above.
+    This ensures updates on both the miniaudio side and the Steam Audio side are consistent.
     */
     iplAudioSettings.frameSize = engineConfig.periodSizeInFrames;
 
@@ -322,7 +328,8 @@ int main(int argc, char** argv)
 
     /* IPLHRTF */
     MA_ZERO_OBJECT(&iplHRTFSettings);
-    iplHRTFSettings.type = IPL_HRTFTYPE_DEFAULT;
+    iplHRTFSettings.type   = IPL_HRTFTYPE_DEFAULT;
+    iplHRTFSettings.volume = 1;
 
     result = ma_result_from_IPLerror(iplHRTFCreate(iplContext, &iplAudioSettings, &iplHRTFSettings, &iplHRTF));
     if (result != MA_SUCCESS) {

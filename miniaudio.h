@@ -1686,6 +1686,7 @@ combination of the following flags:
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING
     ```
 
 When no flags are specified (set to 0), the sound will be fully loaded into memory, but not
@@ -1705,6 +1706,14 @@ can instead stream audio data which you can do by specifying the
 `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` flag. When streaming, data will be decoded in 1
 second pages. When a new page needs to be decoded, a job will be posted to the job queue and then
 subsequently processed in a job thread.
+
+The `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flag can be used so that the sound will loop
+when it reaches the end by default. It's recommended you use this flag when you want to have a
+looping streaming sound. If you try loading a very short sound as a stream, you will get a glitch.
+This is because the resource manager needs to pre-fill the initial buffer at initialization time,
+and if you don't specify the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flag, the resource
+manager will assume the sound is not looping and will stop filling the buffer when it reaches the
+end, therefore resulting in a discontinuous buffer.
 
 For in-memory sounds, reference counting is used to ensure the data is loaded only once. This means
 multiple calls to `ma_resource_manager_data_source_init()` with the same file path will result in
@@ -6250,6 +6259,12 @@ MA_API ma_result ma_event_wait(ma_event* pEvent);
 Signals the specified auto-reset event.
 */
 MA_API ma_result ma_event_signal(ma_event* pEvent);
+
+
+MA_API ma_result ma_semaphore_init(int initialValue, ma_semaphore* pSemaphore);
+MA_API void ma_semaphore_uninit(ma_semaphore* pSemaphore);
+MA_API ma_result ma_semaphore_wait(ma_semaphore* pSemaphore);
+MA_API ma_result ma_semaphore_release(ma_semaphore* pSemaphore);
 #endif  /* MA_NO_THREADING */
 
 
@@ -10356,7 +10371,8 @@ typedef enum
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE         = 0x00000002,   /* Decode data before storing in memory. When set, decoding is done at the resource manager level rather than the mixing thread. Results in faster mixing, but higher memory usage. */
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC          = 0x00000004,   /* When set, the resource manager will load the data source asynchronously. */
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT      = 0x00000008,   /* When set, waits for initialization of the underlying data source before returning from ma_resource_manager_data_source_init(). */
-    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010    /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH = 0x00000010,   /* Gives the resource manager a hint that the length of the data source is unknown and calling `ma_data_source_get_length_in_pcm_frames()` should be avoided. */
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING        = 0x00000020    /* When set, configures the data source to loop by default. */
 } ma_resource_manager_data_source_flags;
 
 
@@ -10404,8 +10420,8 @@ typedef struct
     ma_uint64 rangeEndInPCMFrames;
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
-    ma_bool32 isLooping;
     ma_uint32 flags;
+    ma_bool32 isLooping;    /* Deprecated. Use the MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING flag in `flags` instead. */
 } ma_resource_manager_data_source_config;
 
 MA_API ma_resource_manager_data_source_config ma_resource_manager_data_source_config_init(void);
@@ -10648,6 +10664,16 @@ Node Graph
 /* Use this when the bus count is determined by the node instance rather than the vtable. */
 #define MA_NODE_BUS_COUNT_UNKNOWN   255
 
+
+/* For some internal memory management of ma_node_graph. */
+typedef struct
+{
+    size_t offset;
+    size_t sizeInBytes;
+    unsigned char _data[1];
+} ma_stack;
+
+
 typedef struct ma_node_graph ma_node_graph;
 typedef void ma_node;
 
@@ -10772,10 +10798,14 @@ typedef struct ma_node_base ma_node_base;
 struct ma_node_base
 {
     /* These variables are set once at startup. */
-    ma_node_graph* pNodeGraph;              /* The graph this node belongs to. */
+    ma_node_graph* pNodeGraph;                  /* The graph this node belongs to. */
     const ma_node_vtable* vtable;
-    float* pCachedData;                     /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
-    ma_uint16 cachedDataCapInFramesPerBus;  /* The capacity of the input data cache in frames, per bus. */
+    ma_uint32 inputBusCount;
+    ma_uint32 outputBusCount;
+    ma_node_input_bus* pInputBuses;
+    ma_node_output_bus* pOutputBuses;
+    float* pCachedData;                         /* Allocated on the heap. Fixed size. Needs to be stored on the heap because reading from output buses is done in separate function calls. */
+    ma_uint16 cachedDataCapInFramesPerBus;      /* The capacity of the input data cache in frames, per bus. */
 
     /* These variables are read and written only from the audio thread. */
     ma_uint16 cachedFrameCountOut;
@@ -10783,13 +10813,9 @@ struct ma_node_base
     ma_uint16 consumedFrameCountIn;
 
     /* These variables are read and written between different threads. */
-    MA_ATOMIC(4, ma_node_state) state;      /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
-    MA_ATOMIC(8, ma_uint64) stateTimes[2];  /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
-    MA_ATOMIC(8, ma_uint64) localTime;      /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
-    ma_uint32 inputBusCount;
-    ma_uint32 outputBusCount;
-    ma_node_input_bus* pInputBuses;
-    ma_node_output_bus* pOutputBuses;
+    MA_ATOMIC(4, ma_node_state) state;          /* When set to stopped, nothing will be read, regardless of the times in stateTimes. */
+    MA_ATOMIC(8, ma_uint64) stateTimes[2];      /* Indexed by ma_node_state. Specifies the time based on the global clock that a node should be considered to be in the relevant state. */
+    MA_ATOMIC(8, ma_uint64) localTime;          /* The node's local clock. This is just a running sum of the number of output frames that have been processed. Can be modified by any thread with `ma_node_set_time()`. */
 
     /* Memory management. */
     ma_node_input_bus _inputBuses[MA_MAX_NODE_LOCAL_BUS_COUNT];
@@ -10825,7 +10851,8 @@ MA_API ma_result ma_node_set_time(ma_node* pNode, ma_uint64 localTime);
 typedef struct
 {
     ma_uint32 channels;
-    ma_uint16 nodeCacheCapInFrames;
+    ma_uint32 processingSizeInFrames;   /* This is the preferred processing size for node processing callbacks unless overridden by a node itself. Can be 0 in which case it will be based on the frame count passed into ma_node_graph_read_pcm_frames(), but will not be well defined. */
+    size_t preMixStackSizeInBytes;      /* Defaults to 512KB per channel. Reducing this will save memory, but the depth of your node graph will be more restricted. */
 } ma_node_graph_config;
 
 MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels);
@@ -10837,10 +10864,15 @@ struct ma_node_graph
 
     /* Immutable. */
     ma_node_base endpoint; /* Special node that all nodes eventually connect to. Data is read from this node in ma_node_graph_read_pcm_frames(). */
-    ma_uint16 nodeCacheCapInFrames;
+    float* pProcessingCache;            /* This will be allocated when processingSizeInFrames is non-zero. This is needed because ma_node_graph_read_pcm_frames() can be called with a variable number of frames, and we may need to do some buffering in situations where the caller requests a frame count that's not a multiple of processingSizeInFrames. */
+    ma_uint32 processingCacheFramesRemaining;
+    ma_uint32 processingSizeInFrames;
 
     /* Read and written by multiple threads. */
     MA_ATOMIC(4, ma_bool32) isReading;
+
+    /* Modified only by the audio thread. */
+    ma_stack* pPreMixStack;
 };
 
 MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_node_graph* pNodeGraph);
@@ -11121,6 +11153,7 @@ typedef enum
     MA_SOUND_FLAG_ASYNC                 = 0x00000004,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC */
     MA_SOUND_FLAG_WAIT_INIT             = 0x00000008,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT */
     MA_SOUND_FLAG_UNKNOWN_LENGTH        = 0x00000010,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_UNKNOWN_LENGTH */
+    MA_SOUND_FLAG_LOOPING               = 0x00000020,   /* MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING */
 
     /* ma_sound specific flags. */
     MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT = 0x00001000,   /* Do not attach to the endpoint by default. Useful for when setting up nodes in a complex graph system. */
@@ -11229,8 +11262,8 @@ typedef struct
     ma_uint64 rangeEndInPCMFrames;
     ma_uint64 loopPointBegInPCMFrames;
     ma_uint64 loopPointEndInPCMFrames;
-    ma_bool32 isLooping;
     const ma_sound_notifications* pNotifications;   /* A pointer to an object containing callbacks for when a sound has finished loading, reached the end, etc. A copy of this structure will be made internally. */
+    ma_bool32 isLooping;                        /* Deprecated. Use the MA_SOUND_FLAG_LOOPING flag in `flags` instead. */
 } ma_sound_config;
 
 MA_API ma_sound_config ma_sound_config_init(ma_engine* pEngine);
@@ -11292,6 +11325,7 @@ typedef struct
     ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 gainSmoothTimeInMilliseconds;         /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;   /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. High values means more smoothing at the expense of high latency (will take longer to reach the new volume). */
+    ma_uint32 preMixStackSizeInBytes;               /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                          /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
     ma_bool32 noDevice;                             /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
@@ -11320,7 +11354,7 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;                   /* For synchronizing access so the inlined sound list. */
+    ma_spinlock inlinedSoundLock;                   /* For synchronizing access to the inlined sound list. */
     ma_sound_inlined* pInlinedSoundHead;            /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC(4, ma_uint32) inlinedSoundCount;      /* The total number of allocated inlined sound objects. Used for debugging. */
     ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. */
@@ -30589,6 +30623,7 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
     ma_pa_buffer_attr attr;
     const ma_pa_sample_spec* pActualSS   = NULL;
     const ma_pa_buffer_attr* pActualAttr = NULL;
+    const ma_pa_channel_map* pActualChannelMap = NULL;
     ma_uint32 iChannel;
     ma_pa_stream_flags_t streamFlags;
 
@@ -30738,7 +30773,12 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             goto on_error4;
         }
 
+
         /* Internal channel map. */
+        pActualChannelMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamCapture);
+        if (pActualChannelMap == NULL) {
+            pActualChannelMap = &cmap;  /* Fallback just in case. */
+        }
 
         /*
         Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
@@ -30748,8 +30788,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         fixed sooner than later. I might remove this hack later.
         */
         if (pDescriptorCapture->channels > 2) {
-            for (iChannel = 0; iChannel < pDescriptorCapture->channels; ++iChannel) {
-                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            for (iChannel = 0; iChannel < pDescriptorCapture->channels; iChannel += 1) {
+                pDescriptorCapture->channelMap[iChannel] = ma_channel_position_from_pulse(pActualChannelMap->map[iChannel]);
             }
         } else {
             /* Hack for mono and stereo. */
@@ -30890,7 +30930,12 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             goto on_error4;
         }
 
+
         /* Internal channel map. */
+        pActualChannelMap = ((ma_pa_stream_get_channel_map_proc)pDevice->pContext->pulse.pa_stream_get_channel_map)((ma_pa_stream*)pDevice->pulse.pStreamPlayback);
+        if (pActualChannelMap == NULL) {
+            pActualChannelMap = &cmap;  /* Fallback just in case. */
+        }
 
         /*
         Bug in PipeWire. There have been reports that PipeWire is returning AUX channels when reporting
@@ -30900,8 +30945,8 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         fixed sooner than later. I might remove this hack later.
         */
         if (pDescriptorPlayback->channels > 2) {
-            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; ++iChannel) {
-                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(cmap.map[iChannel]);
+            for (iChannel = 0; iChannel < pDescriptorPlayback->channels; iChannel += 1) {
+                pDescriptorPlayback->channelMap[iChannel] = ma_channel_position_from_pulse(pActualChannelMap->map[iChannel]);
             }
         } else {
             /* Hack for mono and stereo. */
@@ -59984,7 +60029,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  14
+#define MA_DR_WAV_VERSION_REVISION  16
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -60691,7 +60736,7 @@ extern "C" {
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
 #define MA_DR_MP3_VERSION_MINOR     6
-#define MA_DR_MP3_VERSION_REVISION  38
+#define MA_DR_MP3_VERSION_REVISION  39
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
@@ -69007,6 +69052,10 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
         flags &= ~MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC;
     }
 
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
+
     async = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC) != 0;
 
     /*
@@ -69083,7 +69132,7 @@ static ma_result ma_resource_manager_data_buffer_init_ex_internal(ma_resource_ma
             job.data.resourceManager.loadDataBuffer.rangeEndInPCMFrames     = pConfig->rangeEndInPCMFrames;
             job.data.resourceManager.loadDataBuffer.loopPointBegInPCMFrames = pConfig->loopPointBegInPCMFrames;
             job.data.resourceManager.loadDataBuffer.loopPointEndInPCMFrames = pConfig->loopPointEndInPCMFrames;
-            job.data.resourceManager.loadDataBuffer.isLooping               = pConfig->isLooping;
+            job.data.resourceManager.loadDataBuffer.isLooping               = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
             /* If we need to wait for initialization to complete we can just process the job in place. */
             if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
@@ -69719,6 +69768,7 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
     ma_bool32 waitBeforeReturning = MA_FALSE;
     ma_resource_manager_inline_notification waitNotification;
     ma_resource_manager_pipeline_notifications notifications;
+    ma_uint32 flags;
 
     if (pDataStream == NULL) {
         if (pConfig != NULL && pConfig->pNotifications != NULL) {
@@ -69749,13 +69799,18 @@ MA_API ma_result ma_resource_manager_data_stream_init_ex(ma_resource_manager* pR
         return result;
     }
 
+    flags = pConfig->flags;
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
+
     pDataStream->pResourceManager = pResourceManager;
     pDataStream->flags            = pConfig->flags;
     pDataStream->result           = MA_BUSY;
 
     ma_data_source_set_range_in_pcm_frames(pDataStream, pConfig->rangeBegInPCMFrames, pConfig->rangeEndInPCMFrames);
     ma_data_source_set_loop_point_in_pcm_frames(pDataStream, pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
-    ma_data_source_set_looping(pDataStream, pConfig->isLooping);
+    ma_data_source_set_looping(pDataStream, (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0);
 
     if (pResourceManager == NULL || (pConfig->pFilePath == NULL && pConfig->pFilePathW == NULL)) {
         ma_resource_manager_pipeline_notifications_signal_all_notifications(&notifications);
@@ -69943,7 +69998,7 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
     ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
 }
 
-static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream)
+static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream, ma_bool32 isInitialFill)
 {
     ma_uint32 iPage;
 
@@ -70377,6 +70432,9 @@ static ma_result ma_resource_manager_data_source_preinit(ma_resource_manager* pR
     }
 
     pDataSource->flags = pConfig->flags;
+    if (pConfig->isLooping) {
+        pDataSource->flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
 
     return MA_SUCCESS;
 }
@@ -71107,7 +71165,7 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
 
     /* We have our decoder and our page buffer, so now we need to fill our pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
+    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_TRUE);
 
     /* And now we're done. We want to make sure the result is MA_SUCCESS. */
     result = MA_SUCCESS;
@@ -71233,7 +71291,7 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.seekDataStream.frameIndex);
 
     /* After seeking we'll need to reload the pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream);
+    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_FALSE);
 
     /* We need to let the public API know that we're done seeking. */
     ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
@@ -71284,11 +71342,74 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
 
 
 #ifndef MA_NO_NODE_GRAPH
+
+static ma_stack* ma_stack_init(size_t sizeInBytes, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_stack* pStack;
+
+    if (sizeInBytes == 0) {
+        return NULL;
+    }
+
+    pStack = (ma_stack*)ma_malloc(sizeof(*pStack) - sizeof(pStack->_data) + sizeInBytes, pAllocationCallbacks);
+    if (pStack == NULL) {
+        return NULL;
+    }
+
+    pStack->offset = 0;
+    pStack->sizeInBytes = sizeInBytes;
+
+    return pStack;
+}
+
+static void ma_stack_uninit(ma_stack* pStack, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    if (pStack == NULL) {
+        return;
+    }
+
+    ma_free(pStack, pAllocationCallbacks);
+}
+
+static void* ma_stack_alloc(ma_stack* pStack, size_t sz)
+{
+    /* The size of the allocation is stored in the memory directly before the pointer. This needs to include padding to keep it aligned to ma_uintptr */
+    void* p = (void*)((char*)pStack->_data + pStack->offset);
+    size_t* pSize = (size_t*)p;
+
+    sz = (sz + (sizeof(ma_uintptr) - 1)) & ~(sizeof(ma_uintptr) - 1);  /* Padding. */
+    if (pStack->offset + sz + sizeof(size_t) > pStack->sizeInBytes) {
+        return NULL;    /* Out of memory. */
+    }
+
+    pStack->offset += sz + sizeof(size_t);
+
+    *pSize = sz;
+    return (void*)((char*)p + sizeof(size_t));
+}
+
+static void ma_stack_free(ma_stack* pStack, void* p)
+{
+    size_t* pSize;
+
+    if (p == NULL) {
+        return;
+    }
+
+    pSize = (size_t*)p - 1;
+    pStack->offset -= *pSize + sizeof(size_t);
+}
+
+
+
 /* 10ms @ 48K = 480. Must never exceed 65535. */
 #ifndef MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS
 #define MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS 480
 #endif
 
+#ifndef MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL
+#define MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL    524288
+#endif
 
 static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusIndex, float* pFramesOut, ma_uint32 frameCount, ma_uint32* pFramesRead, ma_uint64 globalTime);
 
@@ -71328,8 +71449,8 @@ MA_API ma_node_graph_config ma_node_graph_config_init(ma_uint32 channels)
     ma_node_graph_config config;
 
     MA_ZERO_OBJECT(&config);
-    config.channels             = channels;
-    config.nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+    config.channels               = channels;
+    config.processingSizeInFrames = 0;
 
     return config;
 }
@@ -71434,11 +71555,7 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
     }
 
     MA_ZERO_OBJECT(pNodeGraph);
-    pNodeGraph->nodeCacheCapInFrames = pConfig->nodeCacheCapInFrames;
-    if (pNodeGraph->nodeCacheCapInFrames == 0) {
-        pNodeGraph->nodeCacheCapInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
-    }
-
+    pNodeGraph->processingSizeInFrames = pConfig->processingSizeInFrames;
 
     /* Data source. */
     dataSourceConfig = ma_data_source_config_init();
@@ -71462,6 +71579,40 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
         return result;
     }
 
+
+    /* Processing cache. */
+    if (pConfig->processingSizeInFrames > 0) {
+        pNodeGraph->pProcessingCache = (float*)ma_malloc(pConfig->processingSizeInFrames * pConfig->channels * sizeof(float), pAllocationCallbacks);
+        if (pNodeGraph->pProcessingCache == NULL) {
+            ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+
+    /*
+    We need a pre-mix stack. The size of this stack is configurable via the config. The default value depends on the channel count.
+    */
+    {
+        size_t preMixStackSizeInBytes = pConfig->preMixStackSizeInBytes;
+        if (preMixStackSizeInBytes == 0) {
+            preMixStackSizeInBytes = pConfig->channels * MA_DEFAULT_PREMIX_STACK_SIZE_PER_CHANNEL;
+        }
+
+        pNodeGraph->pPreMixStack = ma_stack_init(preMixStackSizeInBytes, pAllocationCallbacks);
+        if (pNodeGraph->pPreMixStack == NULL) {
+            ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
+            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
+            if (pNodeGraph->pProcessingCache != NULL) {
+                ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
+            }
+
+            return MA_OUT_OF_MEMORY;
+        }
+    }
+
+
     return MA_SUCCESS;
 }
 
@@ -71472,7 +71623,17 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     }
 
     ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
-    ma_data_source_uninit(&pNodeGraph->ds);
+    ma_data_source_uninit(&pNodeGraph->ds)
+
+    if (pNodeGraph->pProcessingCache != NULL) {
+        ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
+        pNodeGraph->pProcessingCache = NULL;
+    }
+
+    if (pNodeGraph->pPreMixStack != NULL) {
+        ma_stack_uninit(pNodeGraph->pPreMixStack, pAllocationCallbacks);
+        pNodeGraph->pPreMixStack = NULL;
+    }
 }
 
 MA_API ma_node* ma_node_graph_get_endpoint(ma_node_graph* pNodeGraph)
@@ -71505,27 +71666,72 @@ MA_API ma_result ma_node_graph_read_pcm_frames(ma_node_graph* pNodeGraph, void* 
     totalFramesRead = 0;
     while (totalFramesRead < frameCount) {
         ma_uint32 framesJustRead;
-        ma_uint64 framesToRead = frameCount - totalFramesRead;
+        ma_uint64 framesToRead;
+        float* pRunningFramesOut;
 
+        framesToRead = frameCount - totalFramesRead;
         if (framesToRead > 0xFFFFFFFF) {
             framesToRead = 0xFFFFFFFF;
         }
 
-        ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
-        {
-            result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), (ma_uint32)framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
-        }
-        ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+        pRunningFramesOut = (float*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels);
 
-        totalFramesRead += framesJustRead;
+        /* If there's anything in the cache, consume that first. */
+        if (pNodeGraph->processingCacheFramesRemaining > 0) {
+            ma_uint32 framesToReadFromCache;
 
-        if (result != MA_SUCCESS) {
-            break;
-        }
+            framesToReadFromCache = (ma_uint32)framesToRead;
+            if (framesToReadFromCache > pNodeGraph->processingCacheFramesRemaining) {
+                framesToReadFromCache = pNodeGraph->processingCacheFramesRemaining;
+            }
 
-        /* Abort if we weren't able to read any frames or else we risk getting stuck in a loop. */
-        if (framesJustRead == 0) {
-            break;
+            MA_COPY_MEMORY(pRunningFramesOut, pNodeGraph->pProcessingCache, framesToReadFromCache * channels * sizeof(float));
+            MA_MOVE_MEMORY(pNodeGraph->pProcessingCache, pNodeGraph->pProcessingCache + (framesToReadFromCache * channels), (pNodeGraph->processingCacheFramesRemaining - framesToReadFromCache) * channels * sizeof(float));
+            pNodeGraph->processingCacheFramesRemaining -= framesToReadFromCache;
+
+            totalFramesRead += framesToReadFromCache;
+            continue;
+        } else {
+            /*
+            If processingSizeInFrames is non-zero, we need to make sure we always read in chunks of that size. If the frame count is less than
+            that, we need to read into the cache and then continue on.
+            */
+            float* pReadDst = pRunningFramesOut;
+
+            if (pNodeGraph->processingSizeInFrames > 0) {
+                if (framesToRead < pNodeGraph->processingSizeInFrames) {
+                    pReadDst = pNodeGraph->pProcessingCache;    /* We need to read into the cache because otherwise we'll overflow the output buffer. */
+                }
+
+                framesToRead = pNodeGraph->processingSizeInFrames;
+            }
+
+            ma_node_graph_set_is_reading(pNodeGraph, MA_TRUE);
+            {
+                result = ma_node_read_pcm_frames(&pNodeGraph->endpoint, 0, pReadDst, (ma_uint32)framesToRead, &framesJustRead, ma_node_get_time(&pNodeGraph->endpoint));
+            }
+            ma_node_graph_set_is_reading(pNodeGraph, MA_FALSE);
+
+            /*
+            Do not increment the total frames read counter if we read into the cache. We use this to determine how many frames have
+            been written to the final output buffer.
+            */
+            if (pReadDst == pNodeGraph->pProcessingCache) {
+                /* We read into the cache. */
+                pNodeGraph->processingCacheFramesRemaining = framesJustRead;
+            } else {
+                /* We read straight into the output buffer. */
+                totalFramesRead += framesJustRead;
+            }
+
+            if (result != MA_SUCCESS) {
+                break;
+            }
+
+            /* Abort if we weren't able to read any frames or else we risk getting stuck in a loop. */
+            if (framesJustRead == 0) {
+                break;
+            }
         }
     }
 
@@ -71912,8 +72118,6 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
     ma_uint32 inputChannels;
     ma_bool32 doesOutputBufferHaveContent = MA_FALSE;
 
-    (void)pInputNode;   /* Not currently used. */
-
     /*
     This will be called from the audio thread which means we can't be doing any locking. Basically,
     this function will not perfom any locking, whereas attaching and detaching will, but crafted in
@@ -71962,19 +72166,12 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
 
         if (pFramesOut != NULL) {
             /* Read. */
-            float temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE / sizeof(float)];
-            ma_uint32 tempCapInFrames = ma_countof(temp) / inputChannels;
-
             while (framesProcessed < frameCount) {
                 float* pRunningFramesOut;
                 ma_uint32 framesToRead;
-                ma_uint32 framesJustRead;
+                ma_uint32 framesJustRead = 0;
 
                 framesToRead = frameCount - framesProcessed;
-                if (framesToRead > tempCapInFrames) {
-                    framesToRead = tempCapInFrames;
-                }
-
                 pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(pFramesOut, framesProcessed, inputChannels);
 
                 if (doesOutputBufferHaveContent == MA_FALSE) {
@@ -71982,11 +72179,32 @@ static ma_result ma_node_input_bus_read_pcm_frames(ma_node* pInputNode, ma_node_
                     result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pRunningFramesOut, framesToRead, &framesJustRead, globalTime + framesProcessed);
                 } else {
                     /* Slow path. Not the first attachment. Mixing required. */
-                    result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, temp, framesToRead, &framesJustRead, globalTime + framesProcessed);
-                    if (result == MA_SUCCESS || result == MA_AT_END) {
-                        if (isSilentOutput == MA_FALSE) {   /* Don't mix if the node outputs silence. */
-                            ma_mix_pcm_frames_f32(pRunningFramesOut, temp, framesJustRead, inputChannels, /*volume*/1);
+                    ma_uint32 preMixBufferCapInFrames = ((ma_node_base*)pInputNode)->cachedDataCapInFramesPerBus;
+                    float* pPreMixBuffer = (float*)ma_stack_alloc(((ma_node_base*)pInputNode)->pNodeGraph->pPreMixStack, preMixBufferCapInFrames * inputChannels * sizeof(float));
+
+                    if (pPreMixBuffer == NULL) {
+                        /*
+                        If you're hitting this assert it means you've got an unusually deep chain of nodes, you've got an excessively large processing
+                        size, or you have a combination of both, and as a result have run out of stack space. You can increase this using the
+                        preMixStackSizeInBytes variable in ma_node_graph_config. If you're using ma_engine, you can do it via the preMixStackSizeInBytes
+                        variable in ma_engine_config. It defaults to 512KB per output channel.
+                        */
+                        MA_ASSERT(MA_FALSE);
+                    } else {
+                        if (framesToRead > preMixBufferCapInFrames) {
+                            framesToRead = preMixBufferCapInFrames;
                         }
+
+                        result = ma_node_read_pcm_frames(pOutputBus->pNode, pOutputBus->outputBusIndex, pPreMixBuffer, framesToRead, &framesJustRead, globalTime + framesProcessed);
+                        if (result == MA_SUCCESS || result == MA_AT_END) {
+                            if (isSilentOutput == MA_FALSE) {   /* Don't mix if the node outputs silence. */
+                                ma_mix_pcm_frames_f32(pRunningFramesOut, pPreMixBuffer, framesJustRead, inputChannels, /*volume*/1);
+                            }
+                        }
+
+                        /* The pre-mix buffer is no longer required. */
+                        ma_stack_free(((ma_node_base*)pInputNode)->pNodeGraph->pPreMixStack, pPreMixBuffer);
+                        pPreMixBuffer = NULL;
                     }
                 }
 
@@ -72039,6 +72257,25 @@ MA_API ma_node_config ma_node_config_init(void)
     config.outputBusCount = MA_NODE_BUS_COUNT_UNKNOWN;
 
     return config;
+}
+
+static ma_uint16 ma_node_config_get_cache_size_in_frames(const ma_node_config* pConfig, const ma_node_graph* pNodeGraph)
+{
+    ma_uint32 cacheSizeInFrames;
+
+    (void)pConfig;
+
+    if (pNodeGraph->processingSizeInFrames > 0) {
+        cacheSizeInFrames = pNodeGraph->processingSizeInFrames;
+    } else {
+        cacheSizeInFrames = MA_DEFAULT_NODE_CACHE_CAP_IN_FRAMES_PER_BUS;
+    }
+
+    if (cacheSizeInFrames > 0xFFFF) {
+        cacheSizeInFrames = 0xFFFF;
+    }
+
+    return (ma_uint16)cacheSizeInFrames;
 }
 
 
@@ -72195,7 +72432,7 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     /*
     Cached audio data.
 
-    We need to allocate memory for a caching both input and output data. We have an optimization
+    We need to allocate memory for caching both input and output data. We have an optimization
     where no caching is necessary for specific conditions:
 
         - The node has 0 inputs and 1 output.
@@ -72214,14 +72451,18 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
     } else {
         /* Slow path. Cache needed. */
         size_t cachedDataSizeInBytes = 0;
+        ma_uint32 cacheCapInFrames;
         ma_uint32 iBus;
 
+        /* The capacity of the cache is based on our callback processing size. */
+        cacheCapInFrames = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
+
         for (iBus = 0; iBus < inputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
+            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
         }
 
         for (iBus = 0; iBus < outputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += pNodeGraph->nodeCacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
+            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
         }
 
         pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
@@ -72307,11 +72548,10 @@ MA_API ma_result ma_node_init_preallocated(ma_node_graph* pNodeGraph, const ma_n
 
     if (heapLayout.cachedDataOffset != MA_SIZE_MAX) {
         pNodeBase->pCachedData = (float*)ma_offset_ptr(pHeap, heapLayout.cachedDataOffset);
-        pNodeBase->cachedDataCapInFramesPerBus = pNodeGraph->nodeCacheCapInFrames;
+        pNodeBase->cachedDataCapInFramesPerBus = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
     } else {
         pNodeBase->pCachedData = NULL;
     }
-
 
 
     /* We need to run an initialization step for each input and output bus. */
@@ -72868,7 +73108,7 @@ static ma_result ma_node_read_pcm_frames(ma_node* pNode, ma_uint32 outputBusInde
 
                 /*
                 A passthrough should never have modified the input and output frame counts. If you're
-                triggering these assers you need to fix your processing callback.
+                triggering these asserts you need to fix your processing callback.
                 */
                 MA_ASSERT(frameCountIn  == totalFramesRead);
                 MA_ASSERT(frameCountOut == totalFramesRead);
@@ -75263,7 +75503,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
     /* The engine is a node graph. This needs to be initialized after we have the device so we can can determine the channel count. */
     nodeGraphConfig = ma_node_graph_config_init(engineConfig.channels);
-    nodeGraphConfig.nodeCacheCapInFrames = (engineConfig.periodSizeInFrames > 0xFFFF) ? 0xFFFF : (ma_uint16)engineConfig.periodSizeInFrames;
+    nodeGraphConfig.processingSizeInFrames = engineConfig.periodSizeInFrames;
+    nodeGraphConfig.preMixStackSizeInBytes = engineConfig.preMixStackSizeInBytes;
 
     result = ma_node_graph_init(&nodeGraphConfig, &pEngine->allocationCallbacks, &pEngine->nodeGraph);
     if (result != MA_SUCCESS) {
@@ -76070,7 +76311,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
         ma_data_source_set_range_in_pcm_frames(ma_sound_get_data_source(pSound), pConfig->loopPointBegInPCMFrames, pConfig->loopPointEndInPCMFrames);
     }
 
-    ma_sound_set_looping(pSound, pConfig->isLooping);
+    ma_sound_set_looping(pSound, pConfig->isLooping || ((pConfig->flags & MA_SOUND_FLAG_LOOPING) != 0));
 
     return MA_SUCCESS;
 }
@@ -76104,6 +76345,9 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
     it and can avoid accessing the sound from within the notification.
     */
     flags = pConfig->flags | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
+    if (pConfig->isLooping) {
+        flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+    }
 
     pSound->pResourceManagerDataSource = (ma_resource_manager_data_source*)ma_malloc(sizeof(*pSound->pResourceManagerDataSource), &pEngine->allocationCallbacks);
     if (pSound->pResourceManagerDataSource == NULL) {
@@ -76138,7 +76382,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
         resourceManagerDataSourceConfig.rangeEndInPCMFrames         = pConfig->rangeEndInPCMFrames;
         resourceManagerDataSourceConfig.loopPointBegInPCMFrames     = pConfig->loopPointBegInPCMFrames;
         resourceManagerDataSourceConfig.loopPointEndInPCMFrames     = pConfig->loopPointEndInPCMFrames;
-        resourceManagerDataSourceConfig.isLooping                   = pConfig->isLooping;
+        resourceManagerDataSourceConfig.isLooping                   = (flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING) != 0;
 
         result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, pSound->pResourceManagerDataSource);
         if (result != MA_SUCCESS) {
@@ -81854,7 +82098,7 @@ MA_API void ma_dr_wav_f32_to_s32(ma_int32* pOut, const float* pIn, size_t sample
         return;
     }
     for (i = 0; i < sampleCount; ++i) {
-        *pOut++ = (ma_int32)(2147483648.0 * pIn[i]);
+        *pOut++ = (ma_int32)(2147483648.0f * pIn[i]);
     }
 }
 MA_API void ma_dr_wav_f64_to_s32(ma_int32* pOut, const double* pIn, size_t sampleCount)
@@ -91342,8 +91586,8 @@ static ma_int16 ma_dr_mp3d_scale_pcm(float sample)
     s32 -= (s32 < 0);
     s = (ma_int16)ma_dr_mp3_clip_int16_arm(s32);
 #else
-    if (sample >=  32766.5) return (ma_int16) 32767;
-    if (sample <= -32767.5) return (ma_int16)-32768;
+    if (sample >=  32766.5f) return (ma_int16) 32767;
+    if (sample <= -32767.5f) return (ma_int16)-32768;
     s = (ma_int16)(sample + .5f);
     s -= (s < 0);
 #endif
@@ -91729,9 +91973,9 @@ MA_API void ma_dr_mp3dec_f32_to_s16(const float *in, ma_int16 *out, size_t num_s
     for(; i < num_samples; i++)
     {
         float sample = in[i] * 32768.0f;
-        if (sample >=  32766.5)
+        if (sample >=  32766.5f)
             out[i] = (ma_int16) 32767;
-        else if (sample <= -32767.5)
+        else if (sample <= -32767.5f)
             out[i] = (ma_int16)-32768;
         else
         {

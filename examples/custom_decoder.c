@@ -176,7 +176,6 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
 
 
 
-
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
     ma_data_source* pDataSource = (ma_data_source*)pDevice->pUserData;
@@ -219,7 +218,7 @@ int main(int argc, char** argv)
     
     /* Initialize the decoder. */
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pCustomBackendUserData = NULL;  /* In this example our backend objects are contained within a ma_decoder_ex object to avoid a malloc. Our vtables need to know about this. */
+    decoderConfig.pCustomBackendUserData = NULL;  /* None of our decoders require user data, so this can be set to null. */
     decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
     decoderConfig.customBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
     

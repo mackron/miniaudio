@@ -88,6 +88,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     ma_node_graph_read_pcm_frames(&g_nodeGraph, pOutput, frameCount, NULL);
 
     (void)pInput;   /* Unused. */
+    (void)pDevice;  /* Unused. */
 }
 
 int main(int argc, char** argv)
