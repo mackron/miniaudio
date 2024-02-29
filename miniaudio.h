@@ -10069,7 +10069,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
-    ma_decoding_backend_vtable** ppBackendVTables;
+    const ma_decoding_backend_vtable** ppBackendVTables;
     void** ppBackendUserData;
     ma_uint32 backendCount;
 } ma_decoder_config;
@@ -10175,6 +10175,14 @@ If the total length of the decoder cannot be retrieved, such as with Vorbis deco
 returned.
 */
 MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64* pAvailableFrames);
+
+/*
+Retrieves the encoding format of the given decoder.
+
+This is just a hint, and some decoding backends may return `ma_encoding_format_unknown`. This is not an error as
+it may just mean the decoding backend is a format not recognized by the enumeration in miniaudio.
+*/
+MA_API ma_encoding_format ma_decoder_get_encoding_format(const ma_decoder* pDecoder);
 
 /*
 Helper for opening and decoding a file into a heap allocated block of memory. Free the returned pointer with ma_free(). On input,
@@ -10581,7 +10589,7 @@ typedef struct
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
-    ma_decoding_backend_vtable** ppDecodingBackendVTables;
+    const ma_decoding_backend_vtable** ppDecodingBackendVTables;
     ma_uint32 decodingBackendCount;
     void** ppDecodingBackendUserData;
 } ma_resource_manager_config;
@@ -65143,6 +65151,15 @@ MA_API ma_result ma_decoder_get_available_frames(ma_decoder* pDecoder, ma_uint64
     return MA_SUCCESS;
 }
 
+MA_API ma_encoding_format ma_decoder_get_encoding_format(const ma_decoder* pDecoder)
+{
+    if (pDecoder == NULL || pDecoder->pBackendVTable == NULL || pDecoder->pBackendVTable->onGetEncodingFormat == NULL) {
+        return ma_encoding_format_unknown;
+    }
+
+    return pDecoder->pBackendVTable->onGetEncodingFormat(pDecoder->pBackendUserData, pDecoder->pBackend);
+}
+
 
 static ma_result ma_decoder__full_decode_and_uninit(ma_decoder* pDecoder, ma_decoder_config* pConfigOut, ma_uint64* pFrameCountOut, void** ppPCMFramesOut)
 {
@@ -67508,7 +67525,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             vtableUserDataSizeInBytes = 0;  /* No vtable user data present. No need for an allocation. */
         }
 
-        pResourceManager->config.ppDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
+        pResourceManager->config.ppDecodingBackendVTables = (const ma_decoding_backend_vtable**)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
