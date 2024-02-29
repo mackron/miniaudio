@@ -180,7 +180,7 @@ Documentation
 Online documentation can be found here: https://miniaud.io/docs/
 
 Documentation can also be found at the top of [miniaudio.h](https://raw.githubusercontent.com/mackron/miniaudio/master/miniaudio.h)
-which is always the most up-to-date and authoritive source of information on how to use miniaudio. All other
+which is always the most up-to-date and authoritative source of information on how to use miniaudio. All other
 documentation is generated from this in-code documentation.
 
 

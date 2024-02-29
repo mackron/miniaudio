@@ -261,7 +261,7 @@ static ma_result ma_context_get_device_info__sdl(ma_context* pContext, ma_device
     of the device's _actual_ ideal format.
     
     Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
-    desiredSpec will be used by SDL since it uses it just does it's own format conversion internally. Therefore, from what
+    desiredSpec will be used by SDL since it uses it just does its own format conversion internally. Therefore, from what
     I can tell, there's no real way to know the device's actual format which means I'm just going to fall back to the full
     range of channels and sample rates on Emscripten builds.
     */

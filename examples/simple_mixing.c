@@ -4,7 +4,7 @@ Demonstrates one way to load multiple files and play them all back at the same t
 When mixing multiple sounds together, you should not create multiple devices. Instead you should create only a single
 device and then mix your sounds together which you can do by simply summing their samples together. The simplest way to
 do this is to use floating point samples and use miniaudio's built-in clipper to handling clipping for you. (Clipping
-is when sample are clampled to their minimum and maximum range, which for floating point is -1..1.)
+is when sample are clamped to their minimum and maximum range, which for floating point is -1..1.)
 
 ```
 Usage:   simple_mixing [input file 0] [input file 1] ... [input file n]

@@ -21,7 +21,7 @@ significant work without talking to me first. If I don't like it, it won't be me
 [Discord](https://discord.gg/9vpqbjU) and [Twitter](https://twitter.com/mackron).
 
 Always base your pull request branch on the "dev" branch. The master branch contains the latest release, which
-means your pull request may not be including the lastest in-development changes which may result in unnecessary
+means your pull request may not be including the latest in-development changes which may result in unnecessary
 conflicts.
 
 I need to review your pull requests before merging. If your pull request is non-trivial, try to break it up into
@@ -63,7 +63,7 @@ not contribute to this project.
 
 Predictable Questions
 ---------------------
-### "Would you consider splitting out [some section of code] into it's own file?"
+### "Would you consider splitting out [some section of code] into its own file?"
 No, the idea is to keep everything in one place. It would be nice in specific cases to split out specific sections
 of the code, such as the resampler, for example. However, this will completely violate one of the major goals of the
 project - to have a complete audio library contained within a single file.
