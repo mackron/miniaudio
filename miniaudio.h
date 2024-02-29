@@ -10013,19 +10013,21 @@ typedef struct ma_decoder ma_decoder;
 typedef struct
 {
     ma_format preferredFormat;
-    ma_uint32 seekPointCount;   /* Set to > 0 to generate a seektable if the decoding backend supports it. */
+    ma_uint32 seekPointCount;           /* Set to > 0 to generate a seektable if the decoding backend supports it. */
+    ma_encoding_format encodingFormat;  /* This is the encoding format that the caller wants to use. If set to ma_encoding_format_unknown, the decoding backend should try initializing from any of it's supported formats. */
 } ma_decoding_backend_config;
 
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount);
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount, ma_encoding_format encodingFormat);
 
 
 typedef struct
 {
-    ma_result (* onInit      )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
-    ma_result (* onInitFile  )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
-    ma_result (* onInitFileW )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
-    ma_result (* onInitMemory)(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
-    void      (* onUninit    )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result          (* onInit             )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
+    ma_result          (* onInitFile         )(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);               /* Optional. */
+    ma_result          (* onInitFileW        )(void* pUserData, const wchar_t* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);            /* Optional. */
+    ma_result          (* onInitMemory       )(void* pUserData, const void* pData, size_t dataSize, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);  /* Optional. */
+    void               (* onUninit           )(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_encoding_format (* onGetEncodingFormat)(void* pUserData, ma_data_source* pBackend);  /* Optional, in which case ma_encoding_format_unknown will be assumed. When pBackend is not null, return the actual encoding format of the decoder if known. If pBackend is null, return the format supported by the backend. Return ma_encoding_format_unknown if the backend supports multiple formats. */
 } ma_decoding_backend_vtable;
 
 
@@ -60851,444 +60853,6 @@ Decoding
 **************************************************************************************************************************************************************/
 #ifndef MA_NO_DECODING
 
-static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
-{
-    MA_ASSERT(pDecoder != NULL);
-
-    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead, pBytesRead);
-}
-
-static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
-{
-    MA_ASSERT(pDecoder != NULL);
-
-    return pDecoder->onSeek(pDecoder, byteOffset, origin);
-}
-
-static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
-{
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pDecoder->onTell == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    return pDecoder->onTell(pDecoder, pCursor);
-}
-
-
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount)
-{
-    ma_decoding_backend_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.preferredFormat = preferredFormat;
-    config.seekPointCount  = seekPointCount;
-
-    return config;
-}
-
-
-MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate)
-{
-    ma_decoder_config config;
-    MA_ZERO_OBJECT(&config);
-    config.format         = outputFormat;
-    config.channels       = outputChannels;
-    config.sampleRate     = outputSampleRate;
-    config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
-    config.encodingFormat = ma_encoding_format_unknown;
-
-    /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
-
-    return config;
-}
-
-MA_API ma_decoder_config ma_decoder_config_init_default()
-{
-    return ma_decoder_config_init(ma_format_unknown, 0, 0);
-}
-
-MA_API ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
-{
-    ma_decoder_config config;
-    if (pConfig != NULL) {
-        config = *pConfig;
-    } else {
-        MA_ZERO_OBJECT(&config);
-    }
-
-    return config;
-}
-
-static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
-{
-    ma_result result;
-    ma_data_converter_config converterConfig;
-    ma_format internalFormat;
-    ma_uint32 internalChannels;
-    ma_uint32 internalSampleRate;
-    ma_channel internalChannelMap[MA_MAX_CHANNELS];
-
-    MA_ASSERT(pDecoder != NULL);
-    MA_ASSERT(pConfig  != NULL);
-
-    result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, &internalSampleRate, internalChannelMap, ma_countof(internalChannelMap));
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to retrieve the internal data format. */
-    }
-
-
-    /* Make sure we're not asking for too many channels. */
-    if (pConfig->channels > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
-
-    /* The internal channels should have already been validated at a higher level, but we'll do it again explicitly here for safety. */
-    if (internalChannels > MA_MAX_CHANNELS) {
-        return MA_INVALID_ARGS;
-    }
-
-
-    /* Output format. */
-    if (pConfig->format == ma_format_unknown) {
-        pDecoder->outputFormat = internalFormat;
-    } else {
-        pDecoder->outputFormat = pConfig->format;
-    }
-
-    if (pConfig->channels == 0) {
-        pDecoder->outputChannels = internalChannels;
-    } else {
-        pDecoder->outputChannels = pConfig->channels;
-    }
-
-    if (pConfig->sampleRate == 0) {
-        pDecoder->outputSampleRate = internalSampleRate;
-    } else {
-        pDecoder->outputSampleRate = pConfig->sampleRate;
-    }
-
-    converterConfig = ma_data_converter_config_init(
-        internalFormat,     pDecoder->outputFormat,
-        internalChannels,   pDecoder->outputChannels,
-        internalSampleRate, pDecoder->outputSampleRate
-    );
-    converterConfig.pChannelMapIn          = internalChannelMap;
-    converterConfig.pChannelMapOut         = pConfig->pChannelMap;
-    converterConfig.channelMixMode         = pConfig->channelMixMode;
-    converterConfig.ditherMode             = pConfig->ditherMode;
-    converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
-    converterConfig.resampling             = pConfig->resampling;
-
-    result = ma_data_converter_init(&converterConfig, &pDecoder->allocationCallbacks, &pDecoder->converter);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    /*
-    Now that we have the decoder we need to determine whether or not we need a heap-allocated cache. We'll
-    need this if the data converter does not support calculation of the required input frame count. To
-    determine support for this we'll just run a test.
-    */
-    {
-        ma_uint64 unused;
-
-        result = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, 1, &unused);
-        if (result != MA_SUCCESS) {
-            /*
-            We were unable to calculate the required input frame count which means we'll need to use
-            a heap-allocated cache.
-            */
-            ma_uint64 inputCacheCapSizeInBytes;
-
-            pDecoder->inputCacheCap = MA_DATA_CONVERTER_STACK_BUFFER_SIZE / ma_get_bytes_per_frame(internalFormat, internalChannels);
-
-            /* Not strictly necessary, but keeping here for safety in case we change the default value of pDecoder->inputCacheCap. */
-            inputCacheCapSizeInBytes = pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels);
-            if (inputCacheCapSizeInBytes > MA_SIZE_MAX) {
-                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
-                return MA_OUT_OF_MEMORY;
-            }
-
-            pDecoder->pInputCache = ma_malloc((size_t)inputCacheCapSizeInBytes, &pDecoder->allocationCallbacks);    /* Safe cast to size_t. */
-            if (pDecoder->pInputCache == NULL) {
-                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
-                return MA_OUT_OF_MEMORY;
-            }
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-
-
-static ma_result ma_decoder_internal_on_read__custom(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, pBytesRead);
-}
-
-static ma_result ma_decoder_internal_on_seek__custom(void* pUserData, ma_int64 offset, ma_seek_origin origin)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_seek_bytes(pDecoder, offset, origin);
-}
-
-static ma_result ma_decoder_internal_on_tell__custom(void* pUserData, ma_int64* pCursor)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_tell_bytes(pDecoder, pCursor);
-}
-
-
-static ma_result ma_decoder_init_from_vtable__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInit == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount);
-
-    result = pVTable->onInit(pVTableUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_init_from_file__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInitFile == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount);
-
-    result = pVTable->onInitFile(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_init_from_file_w__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInitFileW == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount);
-
-    result = pVTable->onInitFileW(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result;
-    ma_decoding_backend_config backendConfig;
-    ma_data_source* pBackend;
-
-    MA_ASSERT(pVTable  != NULL);
-    MA_ASSERT(pConfig  != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pVTable->onInitMemory == NULL) {
-        return MA_NOT_IMPLEMENTED;
-    }
-
-    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount);
-
-    result = pVTable->onInitMemory(pVTableUserData, pData, dataSize, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
-    if (result != MA_SUCCESS) {
-        return result;  /* Failed to initialize the backend from this vtable. */
-    }
-
-    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
-    pDecoder->pBackend         = pBackend;
-    pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
-
-    return MA_SUCCESS;
-}
-
-
-
-static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = MA_NO_BACKEND;
-    size_t ivtable;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pConfig->ppBackendVTables == NULL) {
-        return MA_NO_BACKEND;
-    }
-
-    /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
-        if (pVTable != NULL) {
-            result = ma_decoder_init_from_vtable__internal(pVTable, pConfig->pBackendUserData, pConfig, pDecoder);
-            if (result == MA_SUCCESS) {
-                return MA_SUCCESS;
-            } else {
-                /* Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from the first byte of the file. */
-                result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
-                if (result != MA_SUCCESS) {
-                    return result;  /* Failed to seek back to the start. */
-                }
-            }
-        } else {
-            /* No vtable. */
-        }
-    }
-
-    /* Getting here means we couldn't find a backend. */
-    return MA_NO_BACKEND;
-}
-
-static ma_result ma_decoder_init_custom_from_file__internal(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = MA_NO_BACKEND;
-    size_t ivtable;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pConfig->ppBackendVTables == NULL) {
-        return MA_NO_BACKEND;
-    }
-
-    /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
-        if (pVTable != NULL) {
-            result = ma_decoder_init_from_file__internal(pVTable, pConfig->pBackendUserData, pFilePath, pConfig, pDecoder);
-            if (result == MA_SUCCESS) {
-                return MA_SUCCESS;
-            }
-        } else {
-            /* No vtable. */
-        }
-    }
-
-    /* Getting here means we couldn't find a backend. */
-    return MA_NO_BACKEND;
-}
-
-static ma_result ma_decoder_init_custom_from_file_w__internal(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = MA_NO_BACKEND;
-    size_t ivtable;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pConfig->ppBackendVTables == NULL) {
-        return MA_NO_BACKEND;
-    }
-
-    /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
-        if (pVTable != NULL) {
-            result = ma_decoder_init_from_file_w__internal(pVTable, pConfig->pBackendUserData, pFilePath, pConfig, pDecoder);
-            if (result == MA_SUCCESS) {
-                return MA_SUCCESS;
-            }
-        } else {
-            /* No vtable. */
-        }
-    }
-
-    /* Getting here means we couldn't find a backend. */
-    return MA_NO_BACKEND;
-}
-
-static ma_result ma_decoder_init_custom_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    ma_result result = MA_NO_BACKEND;
-    size_t ivtable;
-
-    MA_ASSERT(pConfig != NULL);
-    MA_ASSERT(pDecoder != NULL);
-
-    if (pConfig->ppBackendVTables == NULL) {
-        return MA_NO_BACKEND;
-    }
-
-    /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
-        if (pVTable != NULL) {
-            result = ma_decoder_init_from_memory__internal(pVTable, pConfig->pBackendUserData, pData, dataSize, pConfig, pDecoder);
-            if (result == MA_SUCCESS) {
-                return MA_SUCCESS;
-            }
-        } else {
-            /* No vtable. */
-        }
-    }
-
-    /* Getting here means we couldn't find a backend. */
-    return MA_NO_BACKEND;
-}
-
 
 /* WAV */
 #ifdef ma_dr_wav_h
@@ -61944,36 +61508,24 @@ static void ma_decoding_backend_uninit__wav(void* pUserData, ma_data_source* pBa
     ma_free(pWav, pAllocationCallbacks);
 }
 
+static ma_encoding_format ma_decoding_backend_get_encoding_format__wav(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    return ma_encoding_format_wav;
+}
+
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
 {
     ma_decoding_backend_init__wav,
     ma_decoding_backend_init_file__wav,
     ma_decoding_backend_init_file_w__wav,
     ma_decoding_backend_init_memory__wav,
-    ma_decoding_backend_uninit__wav
+    ma_decoding_backend_uninit__wav,
+    ma_decoding_backend_get_encoding_format__wav
 };
 const ma_decoding_backend_vtable* ma_decoding_backend_wav = &g_ma_decoding_backend_vtable_wav;
-
-
-static ma_result ma_decoder_init_wav__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_vtable__internal(&g_ma_decoding_backend_vtable_wav, NULL, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_wav_from_file__internal(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file__internal(&g_ma_decoding_backend_vtable_wav, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_wav_from_file_w__internal(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file_w__internal(&g_ma_decoding_backend_vtable_wav, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_wav_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_wav, NULL, pData, dataSize, pConfig, pDecoder);
-}
 #else
 const ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
 #endif  /* ma_dr_wav_h */
@@ -62570,35 +62122,24 @@ static void ma_decoding_backend_uninit__flac(void* pUserData, ma_data_source* pB
     ma_free(pFlac, pAllocationCallbacks);
 }
 
+static ma_encoding_format ma_decoding_backend_get_encoding_format__flac(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    return ma_encoding_format_flac;
+}
+
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
 {
     ma_decoding_backend_init__flac,
     ma_decoding_backend_init_file__flac,
     ma_decoding_backend_init_file_w__flac,
     ma_decoding_backend_init_memory__flac,
-    ma_decoding_backend_uninit__flac
+    ma_decoding_backend_uninit__flac,
+    ma_decoding_backend_get_encoding_format__flac
 };
 const ma_decoding_backend_vtable* ma_decoding_backend_flac = &g_ma_decoding_backend_vtable_flac;
-
-static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_vtable__internal(&g_ma_decoding_backend_vtable_flac, NULL, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_flac_from_file__internal(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file__internal(&g_ma_decoding_backend_vtable_flac, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_flac_from_file_w__internal(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file_w__internal(&g_ma_decoding_backend_vtable_flac, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_flac_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_flac, NULL, pData, dataSize, pConfig, pDecoder);
-}
 #else
 const ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
 #endif  /* ma_dr_flac_h */
@@ -63253,35 +62794,24 @@ static void ma_decoding_backend_uninit__mp3(void* pUserData, ma_data_source* pBa
     ma_free(pMP3, pAllocationCallbacks);
 }
 
+static ma_encoding_format ma_decoding_backend_get_encoding_format__mp3(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    return ma_encoding_format_mp3;
+}
+
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
 {
     ma_decoding_backend_init__mp3,
     ma_decoding_backend_init_file__mp3,
     ma_decoding_backend_init_file_w__mp3,
     ma_decoding_backend_init_memory__mp3,
-    ma_decoding_backend_uninit__mp3
+    ma_decoding_backend_uninit__mp3,
+    ma_decoding_backend_get_encoding_format__mp3
 };
 const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &g_ma_decoding_backend_vtable_mp3;
-
-static ma_result ma_decoder_init_mp3__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_vtable__internal(&g_ma_decoding_backend_vtable_mp3, NULL, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_mp3_from_file__internal(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file__internal(&g_ma_decoding_backend_vtable_mp3, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_mp3_from_file_w__internal(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_file_w__internal(&g_ma_decoding_backend_vtable_mp3, NULL, pFilePath, pConfig, pDecoder);
-}
-
-static ma_result ma_decoder_init_mp3_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
-{
-    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_mp3, NULL, pData, dataSize, pConfig, pDecoder);
-}
 #else
 const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
 #endif  /* ma_dr_mp3_h */
@@ -64088,35 +63618,372 @@ static void ma_decoding_backend_uninit__stbvorbis(void* pUserData, ma_data_sourc
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
+static ma_encoding_format ma_decoding_backend_get_encoding_format__stbvorbis(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    return ma_encoding_format_vorbis;
+}
+
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_stbvorbis =
 {
     ma_decoding_backend_init__stbvorbis,
     ma_decoding_backend_init_file__stbvorbis,
     NULL, /* onInitFileW() */
     ma_decoding_backend_init_memory__stbvorbis,
-    ma_decoding_backend_uninit__stbvorbis
+    ma_decoding_backend_uninit__stbvorbis,
+    ma_decoding_backend_get_encoding_format__stbvorbis
+};
+#endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
+
+
+
+static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
+{
+    MA_ASSERT(pDecoder != NULL);
+
+    return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead, pBytesRead);
+}
+
+static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
+{
+    MA_ASSERT(pDecoder != NULL);
+
+    return pDecoder->onSeek(pDecoder, byteOffset, origin);
+}
+
+static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
+{
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pDecoder->onTell == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    return pDecoder->onTell(pDecoder, pCursor);
+}
+
+
+MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount, ma_encoding_format encodingFormat)
+{
+    ma_decoding_backend_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.preferredFormat = preferredFormat;
+    config.seekPointCount  = seekPointCount;
+    config.encodingFormat  = encodingFormat;
+
+    return config;
+}
+
+
+MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint32 outputChannels, ma_uint32 outputSampleRate)
+{
+    ma_decoder_config config;
+    MA_ZERO_OBJECT(&config);
+    config.format         = outputFormat;
+    config.channels       = outputChannels;
+    config.sampleRate     = outputSampleRate;
+    config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
+    config.encodingFormat = ma_encoding_format_unknown;
+
+    /* Note that we are intentionally leaving the channel map empty here which will cause the default channel map to be used. */
+
+    return config;
+}
+
+MA_API ma_decoder_config ma_decoder_config_init_default()
+{
+    return ma_decoder_config_init(ma_format_unknown, 0, 0);
+}
+
+
+static const ma_decoding_backend_vtable* ma_DefaultDecodingBackendVTables[] =
+{
+#if defined(MA_HAS_WAV)
+    &g_ma_decoding_backend_vtable_wav,
+#else
+    NULL,
+#endif
+#if defined(MA_HAS_FLAC)
+    &g_ma_decoding_backend_vtable_flac,
+#else
+    NULL,
+#endif
+#if defined(MA_HAS_MP3)
+    &g_ma_decoding_backend_vtable_mp3,
+#else
+    NULL,
+#endif
+#if defined(MA_HAS_VORBIS)
+    &g_ma_decoding_backend_vtable_stbvorbis
+#else
+    NULL
+#endif
 };
 
-static ma_result ma_decoder_init_vorbis__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static ma_decoder_config ma_decoder_config_init_copy(const ma_decoder_config* pConfig)
 {
-    return ma_decoder_init_from_vtable__internal(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pConfig, pDecoder);
+    ma_decoder_config config;
+    if (pConfig != NULL) {
+        config = *pConfig;
+    } else {
+        MA_ZERO_OBJECT(&config);
+    }
+
+    /* Make sure we always have a valid VTable for initialization time. */
+    if (config.ppBackendVTables == NULL) {
+        config.ppBackendVTables = ma_DefaultDecodingBackendVTables;
+        config.backendCount     = ma_countof(ma_DefaultDecodingBackendVTables);
+    }
+
+    return config;
 }
 
-static ma_result ma_decoder_init_vorbis_from_file__internal(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_decoder_config* pConfig)
 {
-    return ma_decoder_init_from_file__internal(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pFilePath, pConfig, pDecoder);
+    ma_result result;
+    ma_data_converter_config converterConfig;
+    ma_format internalFormat;
+    ma_uint32 internalChannels;
+    ma_uint32 internalSampleRate;
+    ma_channel internalChannelMap[MA_MAX_CHANNELS];
+
+    MA_ASSERT(pDecoder != NULL);
+    MA_ASSERT(pConfig  != NULL);
+
+    result = ma_data_source_get_data_format(pDecoder->pBackend, &internalFormat, &internalChannels, &internalSampleRate, internalChannelMap, ma_countof(internalChannelMap));
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to retrieve the internal data format. */
+    }
+
+
+    /* Make sure we're not asking for too many channels. */
+    if (pConfig->channels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+    /* The internal channels should have already been validated at a higher level, but we'll do it again explicitly here for safety. */
+    if (internalChannels > MA_MAX_CHANNELS) {
+        return MA_INVALID_ARGS;
+    }
+
+
+    /* Output format. */
+    if (pConfig->format == ma_format_unknown) {
+        pDecoder->outputFormat = internalFormat;
+    } else {
+        pDecoder->outputFormat = pConfig->format;
+    }
+
+    if (pConfig->channels == 0) {
+        pDecoder->outputChannels = internalChannels;
+    } else {
+        pDecoder->outputChannels = pConfig->channels;
+    }
+
+    if (pConfig->sampleRate == 0) {
+        pDecoder->outputSampleRate = internalSampleRate;
+    } else {
+        pDecoder->outputSampleRate = pConfig->sampleRate;
+    }
+
+    converterConfig = ma_data_converter_config_init(
+        internalFormat,     pDecoder->outputFormat,
+        internalChannels,   pDecoder->outputChannels,
+        internalSampleRate, pDecoder->outputSampleRate
+    );
+    converterConfig.pChannelMapIn          = internalChannelMap;
+    converterConfig.pChannelMapOut         = pConfig->pChannelMap;
+    converterConfig.channelMixMode         = pConfig->channelMixMode;
+    converterConfig.ditherMode             = pConfig->ditherMode;
+    converterConfig.allowDynamicSampleRate = MA_FALSE;   /* Never allow dynamic sample rate conversion. Setting this to true will disable passthrough optimizations. */
+    converterConfig.resampling             = pConfig->resampling;
+
+    result = ma_data_converter_init(&converterConfig, &pDecoder->allocationCallbacks, &pDecoder->converter);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    /*
+    Now that we have the decoder we need to determine whether or not we need a heap-allocated cache. We'll
+    need this if the data converter does not support calculation of the required input frame count. To
+    determine support for this we'll just run a test.
+    */
+    {
+        ma_uint64 unused;
+
+        result = ma_data_converter_get_required_input_frame_count(&pDecoder->converter, 1, &unused);
+        if (result != MA_SUCCESS) {
+            /*
+            We were unable to calculate the required input frame count which means we'll need to use
+            a heap-allocated cache.
+            */
+            ma_uint64 inputCacheCapSizeInBytes;
+
+            pDecoder->inputCacheCap = MA_DATA_CONVERTER_STACK_BUFFER_SIZE / ma_get_bytes_per_frame(internalFormat, internalChannels);
+
+            /* Not strictly necessary, but keeping here for safety in case we change the default value of pDecoder->inputCacheCap. */
+            inputCacheCapSizeInBytes = pDecoder->inputCacheCap * ma_get_bytes_per_frame(internalFormat, internalChannels);
+            if (inputCacheCapSizeInBytes > MA_SIZE_MAX) {
+                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            pDecoder->pInputCache = ma_malloc((size_t)inputCacheCapSizeInBytes, &pDecoder->allocationCallbacks);    /* Safe cast to size_t. */
+            if (pDecoder->pInputCache == NULL) {
+                ma_data_converter_uninit(&pDecoder->converter, &pDecoder->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+        }
+    }
+
+    return MA_SUCCESS;
 }
 
-static ma_result ma_decoder_init_vorbis_from_file_w__internal(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+
+
+static ma_result ma_decoder_internal_on_read__custom(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
-    return ma_decoder_init_from_file_w__internal(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pFilePath, pConfig, pDecoder);
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, pBytesRead);
 }
 
-static ma_result ma_decoder_init_vorbis_from_memory__internal(const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+static ma_result ma_decoder_internal_on_seek__custom(void* pUserData, ma_int64 offset, ma_seek_origin origin)
 {
-    return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_stbvorbis, NULL, pData, dataSize, pConfig, pDecoder);
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_seek_bytes(pDecoder, offset, origin);
 }
-#endif  /* STB_VORBIS_INCLUDE_STB_VORBIS_H */
+
+static ma_result ma_decoder_internal_on_tell__custom(void* pUserData, ma_int64* pCursor)
+{
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
+    MA_ASSERT(pDecoder != NULL);
+
+    return ma_decoder_tell_bytes(pDecoder, pCursor);
+}
+
+
+static ma_result ma_decoder_init_from_vtable__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoding_backend_config backendConfig;
+    ma_data_source* pBackend;
+
+    MA_ASSERT(pVTable  != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pVTable->onInit == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
+
+    result = pVTable->onInit(pVTableUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the backend from this vtable. */
+    }
+
+    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
+    pDecoder->pBackend         = pBackend;
+    pDecoder->pBackendVTable   = pVTable;
+    pDecoder->pBackendUserData = pVTableUserData;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder_init_from_file__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoding_backend_config backendConfig;
+    ma_data_source* pBackend;
+
+    MA_ASSERT(pVTable  != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pVTable->onInitFile == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
+
+    result = pVTable->onInitFile(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the backend from this vtable. */
+    }
+
+    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
+    pDecoder->pBackend         = pBackend;
+    pDecoder->pBackendVTable   = pVTable;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder_init_from_file_w__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoding_backend_config backendConfig;
+    ma_data_source* pBackend;
+
+    MA_ASSERT(pVTable  != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pVTable->onInitFileW == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
+
+    result = pVTable->onInitFileW(pVTableUserData, pFilePath, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the backend from this vtable. */
+    }
+
+    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
+    pDecoder->pBackend         = pBackend;
+    pDecoder->pBackendVTable   = pVTable;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend_vtable* pVTable, void* pVTableUserData, const void* pData, size_t dataSize, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
+    ma_decoding_backend_config backendConfig;
+    ma_data_source* pBackend;
+
+    MA_ASSERT(pVTable  != NULL);
+    MA_ASSERT(pConfig  != NULL);
+    MA_ASSERT(pDecoder != NULL);
+
+    if (pVTable->onInitMemory == NULL) {
+        return MA_NOT_IMPLEMENTED;
+    }
+
+    backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
+
+    result = pVTable->onInitMemory(pVTableUserData, pData, dataSize, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    if (result != MA_SUCCESS) {
+        return result;  /* Failed to initialize the backend from this vtable. */
+    }
+
+    /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
+    pDecoder->pBackend         = pBackend;
+    pDecoder->pBackendVTable   = pVTable;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+
+    return MA_SUCCESS;
+}
 
 
 
@@ -64218,110 +64085,82 @@ static ma_result ma_decoder__postinit(const ma_decoder_config* pConfig, ma_decod
     return result;
 }
 
+static ma_result ma_decoder__postinit_or_uninit(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+{
+    ma_result result;
 
-static ma_result ma_decoder_init__internal(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
+    result = ma_decoder__postinit(pConfig, pDecoder);
+    if (result != MA_SUCCESS) {
+        /*
+        The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
+        due to an out of memory error. We're going to abort with an error here and not try to recover.
+        */
+        if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
+            pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
+        }
+
+        return result;
+    }
+
+    return MA_SUCCESS;
+}
+
+
+static ma_bool32 ma_can_decoding_backend_possibly_handle_encoding_format(const ma_decoding_backend_vtable* pBackendVTable, void* pBackendUserData, ma_encoding_format encodingFormat)
+{
+    ma_encoding_format backendEncodingFormat = ma_encoding_format_unknown;
+
+    if (pBackendVTable == NULL) {
+        return MA_FALSE;
+    }
+
+    if (encodingFormat == ma_encoding_format_unknown) {
+        return MA_TRUE;    /* The backend can handle anything. */
+    }
+
+    if (pBackendVTable != NULL && pBackendVTable->onGetEncodingFormat != NULL) {
+        backendEncodingFormat = pBackendVTable->onGetEncodingFormat(pBackendUserData, NULL);
+    }
+
+    if (backendEncodingFormat == ma_encoding_format_unknown) {
+        return MA_TRUE;     /* The backend does not specify an encoding format which means we must assume it can handle anything. */
+    }
+
+    return backendEncodingFormat == encodingFormat;
+}
+
+
+static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = MA_NO_BACKEND;
+    ma_uint32 iBackend;
 
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    /* Silence some warnings in the case that we don't have any decoder backends enabled. */
-    (void)onRead;
-    (void)onSeek;
-    (void)pUserData;
+    /* The backend vtable list should have been filled out by a higher level function. */
+    MA_ASSERT(pConfig->ppBackendVTables != NULL);
 
-
-    /* If we've specified a specific encoding type, try that first. */
-    if (pConfig->encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (pConfig->encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav__internal(pConfig, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (pConfig->encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac__internal(pConfig, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (pConfig->encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (pConfig->encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
-        }
-    #endif
-
-        /* If we weren't able to initialize the decoder, seek back to the start to give the next attempts a clean start. */
-        if (result != MA_SUCCESS) {
-            onSeek(pDecoder, 0, ma_seek_origin_start);
+    for (iBackend = 0; iBackend < pConfig->backendCount; iBackend += 1) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(pConfig->ppBackendVTables[iBackend], pConfig->pBackendUserData, pConfig->encodingFormat)) {
+            /* Getting here means the backend may support the encoding format. */
+            result = ma_decoder_init_from_vtable__internal(pConfig->ppBackendVTables[iBackend], pConfig->pBackendUserData, pConfig, pDecoder);
+            if (result == MA_SUCCESS) {
+                return ma_decoder__postinit_or_uninit(pConfig, pDecoder);
+            } else {
+                /* Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from the first byte of the file. */
+                result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
+                if (result != MA_SUCCESS) {
+                    return result;  /* Failed to seek back to the start. */
+                }
+            }
+        } else {
+            /* The backend does not support the specified encoding format. Skip. */
         }
     }
 
-    if (result != MA_SUCCESS) {
-        /* Getting here means we couldn't load a specific decoding backend based on the encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_custom__internal(pConfig, pDecoder);
-            if (result != MA_SUCCESS) {
-                onSeek(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (pConfig->encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-    #ifdef MA_HAS_WAV
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_wav__internal(pConfig, pDecoder);
-            if (result != MA_SUCCESS) {
-                onSeek(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_flac__internal(pConfig, pDecoder);
-            if (result != MA_SUCCESS) {
-                onSeek(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_mp3__internal(pConfig, pDecoder);
-            if (result != MA_SUCCESS) {
-                onSeek(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_vorbis__internal(pConfig, pDecoder);
-            if (result != MA_SUCCESS) {
-                onSeek(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    }
-
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return ma_decoder__postinit(pConfig, pDecoder);
+    /* Getting here means we couldn't find a backend. */
+    return MA_NO_BACKEND;
 }
 
 MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_proc onSeek, void* pUserData, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -64336,7 +64175,7 @@ MA_API ma_result ma_decoder_init(ma_decoder_read_proc onRead, ma_decoder_seek_pr
         return result;
     }
 
-    return ma_decoder_init__internal(onRead, onSeek, pUserData, &config, pDecoder);
+    return ma_decoder_init__internal(&config, pDecoder);
 }
 
 
@@ -64447,6 +64286,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
 {
     ma_result result;
     ma_decoder_config config;
+    ma_uint32 iBackend;
 
     config = ma_decoder_config_init_copy(pConfig);
 
@@ -64459,107 +64299,39 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
         return MA_INVALID_ARGS;
     }
 
-    /* If the backend has support for loading from a file path we'll want to use that. If that all fails we'll fall back to the VFS path. */
-    result = MA_NO_BACKEND;
+    for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+            /* Getting here means the backend may support the encoding format. */
+            result = ma_decoder_init_from_memory__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pData, dataSize, &config, pDecoder);
+            if (result == MA_SUCCESS) {
+                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+            } else {
+                /*
+                Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
+                try again using callbacks.
+                */
+                if (result == MA_NOT_IMPLEMENTED) {
+                    /* Probably no implementation of onInitMemory. Use miniaudio's abstraction instead. */
+                    result = ma_decoder__preinit_memory_wrapper(pData, dataSize, &config, pDecoder);
+                    if (result != MA_SUCCESS) {
+                        return result;
+                    }
 
-    if (config.encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (config.encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav_from_memory__internal(pData, dataSize, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (config.encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac_from_memory__internal(pData, dataSize, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (config.encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3_from_memory__internal(pData, dataSize, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (config.encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis_from_memory__internal(pData, dataSize, &config, pDecoder);
-        }
-    #endif
-    }
-
-    if (result != MA_SUCCESS) {
-        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        result = ma_decoder_init_custom_from_memory__internal(pData, dataSize, &config, pDecoder);
-
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (result != MA_SUCCESS && config.encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-        /* Use trial and error for stock decoders. */
-        if (result != MA_SUCCESS) {
-        #ifdef MA_HAS_WAV
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_wav_from_memory__internal(pData, dataSize, &config, pDecoder);
+                    result = ma_decoder_init__internal(&config, pDecoder);
+                    if (result == MA_SUCCESS) {
+                        return ma_decoder__postinit_or_uninit(&config, pDecoder);
+                    }
+                } else {
+                    /* Initialization failed. Probably an unsupported format. Skip. */
+                }
             }
-        #endif
-        #ifdef MA_HAS_FLAC
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_flac_from_memory__internal(pData, dataSize, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_MP3
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_mp3_from_memory__internal(pData, dataSize, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_VORBIS
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_vorbis_from_memory__internal(pData, dataSize, &config, pDecoder);
-            }
-        #endif
+        } else {
+            /* The backend does not support the specified encoding format. Skip. */
         }
     }
 
-    /*
-    If at this point we still haven't successfully initialized the decoder it most likely means
-    the backend doesn't have an implementation for loading from a file path. We'll try using
-    miniaudio's built-in file IO for loading file.
-    */
-    if (result == MA_SUCCESS) {
-        /* Initialization was successful. Finish up. */
-        result = ma_decoder__postinit(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
-            return result;
-        }
-    } else {
-        /* Probably no implementation for loading from a block of memory. Use miniaudio's abstraction instead. */
-        result = ma_decoder__preinit_memory_wrapper(pData, dataSize, &config, pDecoder);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        result = ma_decoder_init__internal(ma_decoder__on_read_memory, ma_decoder__on_seek_memory, NULL, &config, pDecoder);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
+    /* Getting here means we couldn't find a backend. */
+    return MA_NO_BACKEND;
 }
 
 
@@ -64795,98 +64567,20 @@ MA_API ma_result ma_decoder_init_vfs(ma_vfs* pVFS, const char* pFilePath, const 
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
+
     result = ma_decoder__preinit_vfs(pVFS, pFilePath, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = MA_NO_BACKEND;
-
-    if (config.encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (config.encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (config.encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (config.encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (config.encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-        }
-    #endif
-
-        /* Make sure we seek back to the start if we didn't initialize a decoder successfully so the next attempts have a fresh start. */
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-        }
+    result = ma_decoder_init__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit_or_uninit(&config, pDecoder);
     }
 
+    /* If we failed to initialize a decoder make sure our file handle is closed. */
     if (result != MA_SUCCESS) {
-        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_custom__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (config.encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-    #ifdef MA_HAS_WAV
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
-            result = ma_decoder_init_wav__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "flac")) {
-            result = ma_decoder_init_flac__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "mp3")) {
-            result = ma_decoder_init_mp3__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    }
-
-    /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init__internal(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, &config, pDecoder);
-    } else {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        if (pDecoder->data.vfs.file != NULL) {   /* <-- Will be reset to NULL if ma_decoder_uninit() is called in one of the steps above which allows us to avoid a double close of the file. */
+        if (pDecoder->data.vfs.file != NULL) {
             ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
         }
 
@@ -64928,98 +64622,23 @@ MA_API ma_result ma_decoder_init_vfs_w(ma_vfs* pVFS, const wchar_t* pFilePath, c
     ma_decoder_config config;
 
     config = ma_decoder_config_init_copy(pConfig);
+
     result = ma_decoder__preinit_vfs_w(pVFS, pFilePath, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    result = MA_NO_BACKEND;
-
-    if (config.encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (config.encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (config.encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (config.encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3__internal(&config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (config.encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis__internal(&config, pDecoder);
-        }
-    #endif
-
-        /* Make sure we seek back to the start if we didn't initialize a decoder successfully so the next attempts have a fresh start. */
-        if (result != MA_SUCCESS) {
-            ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-        }
+    result = ma_decoder_init__internal(&config, pDecoder);
+    if (result == MA_SUCCESS) {
+        result = ma_decoder__postinit_or_uninit(&config, pDecoder);
     }
 
+    /* If we failed to initialize a decoder make sure our file handle is closed. */
     if (result != MA_SUCCESS) {
-        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        if (result != MA_SUCCESS) {
-            result = ma_decoder_init_custom__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
+        if (pDecoder->data.vfs.file != NULL) {
+            ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
         }
 
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (config.encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-    #ifdef MA_HAS_WAV
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
-            result = ma_decoder_init_wav__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"flac")) {
-            result = ma_decoder_init_flac__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"mp3")) {
-            result = ma_decoder_init_mp3__internal(&config, pDecoder);
-            if (result != MA_SUCCESS) {
-                ma_decoder__on_seek_vfs(pDecoder, 0, ma_seek_origin_start);
-            }
-        }
-    #endif
-    }
-
-    /* If we still haven't got a result just use trial and error. Otherwise we can finish up. */
-    if (result != MA_SUCCESS) {
-        result = ma_decoder_init__internal(ma_decoder__on_read_vfs, ma_decoder__on_seek_vfs, NULL, &config, pDecoder);
-    } else {
-        result = ma_decoder__postinit(&config, pDecoder);
-    }
-
-    if (result != MA_SUCCESS) {
-        ma_vfs_or_default_close(pVFS, pDecoder->data.vfs.file);
         return result;
     }
 
@@ -65047,134 +64666,45 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
 {
     ma_result result;
     ma_decoder_config config;
+    ma_uint32 iBackend;
 
     config = ma_decoder_config_init_copy(pConfig);
+
     result = ma_decoder__preinit_file(pFilePath, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    /* If the backend has support for loading from a file path we'll want to use that. If that all fails we'll fall back to the VFS path. */
-    result = MA_NO_BACKEND;
-
-    if (config.encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (config.encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (config.encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (config.encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (config.encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    }
-
-    if (result != MA_SUCCESS) {
-        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        result = ma_decoder_init_custom_from_file__internal(pFilePath, &config, pDecoder);
-
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (result != MA_SUCCESS && config.encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-        /* First try loading based on the file extension so we don't waste time opening and closing files. */
-    #ifdef MA_HAS_WAV
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "wav")) {
-            result = ma_decoder_init_wav_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "flac")) {
-            result = ma_decoder_init_flac_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "mp3")) {
-            result = ma_decoder_init_mp3_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (result != MA_SUCCESS && ma_path_extension_equal(pFilePath, "ogg")) {
-            result = ma_decoder_init_vorbis_from_file__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-
-        /*
-        If we still haven't got a result just use trial and error. Custom decoders have already been attempted, so here we
-        need only iterate over our stock decoders.
-        */
-        if (result != MA_SUCCESS) {
-        #ifdef MA_HAS_WAV
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_wav_from_file__internal(pFilePath, &config, pDecoder);
+    for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+            /* Getting here means the backend may support the encoding format. */
+            result = ma_decoder_init_from_file__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pFilePath, &config, pDecoder);
+            if (result == MA_SUCCESS) {
+                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+            } else {
+                /*
+                Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
+                try again using callbacks.
+                */
+                if (result == MA_NOT_IMPLEMENTED) {
+                    /* Probably no implementation onInitFile. Use miniaudio's file IO instead. */
+                    result = ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
+                    if (result == MA_SUCCESS) {
+                        return MA_SUCCESS;
+                    } else {
+                        /* Initialization failed. Probably an unsupported format. Skip. */
+                    }
+                } else {
+                    /* Initialization failed. Probably an unsupported format. Skip. */
+                }
             }
-        #endif
-        #ifdef MA_HAS_FLAC
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_flac_from_file__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_MP3
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_mp3_from_file__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_VORBIS
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_vorbis_from_file__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
+        } else {
+            /* The backend does not support the specified encoding format. Skip. */
         }
     }
 
-    /*
-    If at this point we still haven't successfully initialized the decoder it most likely means
-    the backend doesn't have an implementation for loading from a file path. We'll try using
-    miniaudio's built-in file IO for loading file.
-    */
-    if (result == MA_SUCCESS) {
-        /* Initialization was successful. Finish up. */
-        result = ma_decoder__postinit(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
-            return result;
-        }
-    } else {
-        /* Probably no implementation for loading from a file path. Use miniaudio's file IO instead. */
-        result = ma_decoder_init_vfs(NULL, pFilePath, pConfig, pDecoder);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
+    /* Getting here means we couldn't find a backend. */
+    return MA_NO_BACKEND;
 }
 
 static ma_result ma_decoder__preinit_file_w(const wchar_t* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
@@ -65197,134 +64727,45 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
 {
     ma_result result;
     ma_decoder_config config;
+    ma_uint32 iBackend;
 
     config = ma_decoder_config_init_copy(pConfig);
+
     result = ma_decoder__preinit_file_w(pFilePath, &config, pDecoder);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    /* If the backend has support for loading from a file path we'll want to use that. If that all fails we'll fall back to the VFS path. */
-    result = MA_NO_BACKEND;
-
-    if (config.encodingFormat != ma_encoding_format_unknown) {
-    #ifdef MA_HAS_WAV
-        if (config.encodingFormat == ma_encoding_format_wav) {
-            result = ma_decoder_init_wav_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (config.encodingFormat == ma_encoding_format_flac) {
-            result = ma_decoder_init_flac_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (config.encodingFormat == ma_encoding_format_mp3) {
-            result = ma_decoder_init_mp3_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (config.encodingFormat == ma_encoding_format_vorbis) {
-            result = ma_decoder_init_vorbis_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    }
-
-    if (result != MA_SUCCESS) {
-        /* Getting here means we weren't able to initialize a decoder of a specific encoding format. */
-
-        /*
-        We use trial and error to open a decoder. We prioritize custom decoders so that if they
-        implement the same encoding format they take priority over the built-in decoders.
-        */
-        result = ma_decoder_init_custom_from_file_w__internal(pFilePath, &config, pDecoder);
-
-        /*
-        If we get to this point and we still haven't found a decoder, and the caller has requested a
-        specific encoding format, there's no hope for it. Abort.
-        */
-        if (result != MA_SUCCESS && config.encodingFormat != ma_encoding_format_unknown) {
-            return MA_NO_BACKEND;
-        }
-
-        /* First try loading based on the file extension so we don't waste time opening and closing files. */
-    #ifdef MA_HAS_WAV
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"wav")) {
-            result = ma_decoder_init_wav_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_FLAC
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"flac")) {
-            result = ma_decoder_init_flac_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_MP3
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"mp3")) {
-            result = ma_decoder_init_mp3_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-    #ifdef MA_HAS_VORBIS
-        if (result != MA_SUCCESS && ma_path_extension_equal_w(pFilePath, L"ogg")) {
-            result = ma_decoder_init_vorbis_from_file_w__internal(pFilePath, &config, pDecoder);
-        }
-    #endif
-
-        /*
-        If we still haven't got a result just use trial and error. Custom decoders have already been attempted, so here we
-        need only iterate over our stock decoders.
-        */
-        if (result != MA_SUCCESS) {
-        #ifdef MA_HAS_WAV
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_wav_from_file_w__internal(pFilePath, &config, pDecoder);
+    for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+            /* Getting here means the backend may support the encoding format. */
+            result = ma_decoder_init_from_file_w__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pFilePath, &config, pDecoder);
+            if (result == MA_SUCCESS) {
+                return ma_decoder__postinit_or_uninit(&config, pDecoder);
+            } else {
+                /*
+                Initialization failed, but it could just be because the backend does not implement onInitMemory. In this case we need to
+                try again using callbacks.
+                */
+                if (result == MA_NOT_IMPLEMENTED) {
+                    /* Probably no implementation onInitFile. Use miniaudio's file IO instead. */
+                    result = ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
+                    if (result == MA_SUCCESS) {
+                        return MA_SUCCESS;
+                    } else {
+                        /* Initialization failed. Probably an unsupported format. Skip. */
+                    }
+                } else {
+                    /* Initialization failed. Probably an unsupported format. Skip. */
+                }
             }
-        #endif
-        #ifdef MA_HAS_FLAC
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_flac_from_file_w__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_MP3
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_mp3_from_file_w__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
-        #ifdef MA_HAS_VORBIS
-            if (result != MA_SUCCESS) {
-                result = ma_decoder_init_vorbis_from_file_w__internal(pFilePath, &config, pDecoder);
-            }
-        #endif
+        } else {
+            /* The backend does not support the specified encoding format. Skip. */
         }
     }
 
-    /*
-    If at this point we still haven't successfully initialized the decoder it most likely means
-    the backend doesn't have an implementation for loading from a file path. We'll try using
-    miniaudio's built-in file IO for loading file.
-    */
-    if (result == MA_SUCCESS) {
-        /* Initialization was successful. Finish up. */
-        result = ma_decoder__postinit(&config, pDecoder);
-        if (result != MA_SUCCESS) {
-            /*
-            The backend was initialized successfully, but for some reason post-initialization failed. This is most likely
-            due to an out of memory error. We're going to abort with an error here and not try to recover.
-            */
-            if (pDecoder->pBackendVTable != NULL && pDecoder->pBackendVTable->onUninit != NULL) {
-                pDecoder->pBackendVTable->onUninit(pDecoder->pBackendUserData, &pDecoder->pBackend, &pDecoder->allocationCallbacks);
-            }
-
-            return result;
-        }
-    } else {
-        /* Probably no implementation for loading from a file path. Use miniaudio's file IO instead. */
-        result = ma_decoder_init_vfs_w(NULL, pFilePath, pConfig, pDecoder);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-    }
-
-    return MA_SUCCESS;
+    /* Getting here means we couldn't find a backend. */
+    return MA_NO_BACKEND;
 }
 
 MA_API ma_result ma_decoder_uninit(ma_decoder* pDecoder)
