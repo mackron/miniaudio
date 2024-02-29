@@ -64028,22 +64028,26 @@ static ma_result ma_decoder__init_data_converter(ma_decoder* pDecoder, const ma_
 
 
 
-static ma_result ma_decoder_read_bytes(ma_decoder* pDecoder, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
+
+static ma_result ma_decoder_on_read(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
 {
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
     MA_ASSERT(pDecoder != NULL);
 
     return pDecoder->onRead(pDecoder, pBufferOut, bytesToRead, pBytesRead);
 }
 
-static ma_result ma_decoder_seek_bytes(ma_decoder* pDecoder, ma_int64 byteOffset, ma_seek_origin origin)
+static ma_result ma_decoder_on_seek(void* pUserData, ma_int64 offset, ma_seek_origin origin)
 {
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
     MA_ASSERT(pDecoder != NULL);
 
-    return pDecoder->onSeek(pDecoder, byteOffset, origin);
+    return pDecoder->onSeek(pDecoder, offset, origin);
 }
 
-static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
+static ma_result ma_decoder_on_tell(void* pUserData, ma_int64* pCursor)
 {
+    ma_decoder* pDecoder = (ma_decoder*)pUserData;
     MA_ASSERT(pDecoder != NULL);
 
     if (pDecoder->onTell == NULL) {
@@ -64051,31 +64055,6 @@ static ma_result ma_decoder_tell_bytes(ma_decoder* pDecoder, ma_int64* pCursor)
     }
 
     return pDecoder->onTell(pDecoder, pCursor);
-}
-
-
-static ma_result ma_decoder_internal_on_read__custom(void* pUserData, void* pBufferOut, size_t bytesToRead, size_t* pBytesRead)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_read_bytes(pDecoder, pBufferOut, bytesToRead, pBytesRead);
-}
-
-static ma_result ma_decoder_internal_on_seek__custom(void* pUserData, ma_int64 offset, ma_seek_origin origin)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_seek_bytes(pDecoder, offset, origin);
-}
-
-static ma_result ma_decoder_internal_on_tell__custom(void* pUserData, ma_int64* pCursor)
-{
-    ma_decoder* pDecoder = (ma_decoder*)pUserData;
-    MA_ASSERT(pDecoder != NULL);
-
-    return ma_decoder_tell_bytes(pDecoder, pCursor);
 }
 
 
@@ -64095,7 +64074,7 @@ static ma_result ma_decoder_init_from_vtable__internal(const ma_decoding_backend
 
     backendConfig = ma_decoding_backend_config_init(pConfig->format, pConfig->seekPointCount, pConfig->encodingFormat);
 
-    result = pVTable->onInit(pVTableUserData, ma_decoder_internal_on_read__custom, ma_decoder_internal_on_seek__custom, ma_decoder_internal_on_tell__custom, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
+    result = pVTable->onInit(pVTableUserData, ma_decoder_on_read, ma_decoder_on_seek, ma_decoder_on_tell, pDecoder, &backendConfig, &pDecoder->allocationCallbacks, &pBackend);
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the backend from this vtable. */
     }
@@ -64359,7 +64338,7 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
                 return ma_decoder__postinit_or_uninit(pConfig, pDecoder);
             } else {
                 /* Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from the first byte of the file. */
-                result = ma_decoder_seek_bytes(pDecoder, 0, ma_seek_origin_start);
+                result = ma_decoder_on_seek(pDecoder, 0, ma_seek_origin_start);
                 if (result != MA_SUCCESS) {
                     return result;  /* Failed to seek back to the start. */
                 }
