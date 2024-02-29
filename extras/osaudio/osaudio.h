@@ -27,7 +27,7 @@ A complete low-level audio solution requires the following:
     2) The ability to open and close a connection to a device.
     3) The ability to start and stop the device.
     4) The ability to write and read audio data to/from the device.
-    5) The ability to query the device for it's data configuration.
+    5) The ability to query the device for its data configuration.
     6) The ability to notify the application when certain events occur, such as the device being
        stopped, or rerouted.
 
@@ -131,7 +131,7 @@ is an example for how to do this:
     free(info); // The pointer returned by osaudio_enumerate() must be freed with free().
 
 The id structure is just a 256 byte array that uniquely identifies the device. Implementations may
-have different representations for device IDs, and A 256 byte array should accomodates all
+have different representations for device IDs, and A 256 byte array should accommodates all
 device ID representations. Implementations are required to zero-fill unused bytes. The osaudio_id_t
 structure can be copied which makes it suitable for serialization and deserialization in situations
 where you may want to save the device ID to permanent storage so it can be stored in a config file.
@@ -161,7 +161,7 @@ achieved by setting the format, channels and rate to 0. Below is an example:
 
 In addition to the code above, you can explicitly call `osaudio_get_info()` to retrieve the format
 configuration. If you need to know the native configuration before opening the device, you can use
-enumeration. The format, channels and rate will be contined in the first item in the configs array.
+enumeration. The format, channels and rate will be continued in the first item in the configs array.
 
 The examples above all use playback, but the same applies for capture. The only difference is that
 the direction is set to OSAUDIO_INPUT instead of OSAUDIO_OUTPUT.
@@ -268,7 +268,7 @@ typedef int osaudio_result_t;
 #define OSAUDIO_XRUN                           -102   /* An underrun or overrun occurred. Can be returned by osaudio_read() or osaudio_write(). */
 #define OSAUDIO_DEVICE_STOPPED                 -103   /* The device is stopped. Can be returned by osaudio_drain(). It is invalid to call osaudio_drain() on a device that is not running because otherwise it'll get stuck. */
 
-/* Directions. Cannot be combined. Use separate osaudio_t objects for birectional setups. */
+/* Directions. Cannot be combined. Use separate osaudio_t objects for bidirectional setups. */
 typedef int osaudio_direction_t;
 #define OSAUDIO_INPUT                           1
 #define OSAUDIO_OUTPUT                          2
@@ -480,10 +480,10 @@ The code above is equivalent to this:
 On output the config will be filled with the actual configuration. The implementation will perform
 any necessary data conversion between the requested data configuration and the device's native
 configuration. If it cannot, the function will return a OSAUDIO_FORMAT_NOT_SUPPORTED error. In this
-case the caller can decide to reinitialize the device to use it's native configuration and do it's
+case the caller can decide to reinitialize the device to use its native configuration and do its
 own data conversion, or abort if it cannot do so. Use the channel map to determine the ordering of
 your channels. Automatic channel map conversion is not performed - that must be done manually by
-the caller when transfering data to/from the device.
+the caller when transferring data to/from the device.
 
 Close the device with osaudio_close().
 
@@ -494,7 +494,7 @@ osaudio_result_t osaudio_open(osaudio_t* audio, osaudio_config_t* config);
 /*
 Closes a connection to a device.
 
-As soon as this function is called, the device should be considered invalid and unsuable. Do not
+As soon as this function is called, the device should be considered invalid and unusable. Do not
 attempt to use the audio object once this function has been called.
 
 It's invalid to call this while any other function is still running. You can use osaudio_flush() to
@@ -593,7 +593,7 @@ There will be one item in the configs array which will contain the device's curr
 the contents of which will match that of the config that was returned by osaudio_open().
 
 Returns NULL on failure. Do not free the returned pointer. It's up to the implementation to manage
-the meory of this object.
+the memory of this object.
 */
 const osaudio_info_t* osaudio_get_info(osaudio_t audio);
 

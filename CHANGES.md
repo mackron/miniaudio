@@ -183,7 +183,7 @@ v0.11.7 - 2022-02-06
 
 v0.11.6 - 2022-01-22
 ====================
-* WASAPI: Fix a bug where the device is not stopped when an error occurrs when writing to a playback device.
+* WASAPI: Fix a bug where the device is not stopped when an error occurs when writing to a playback device.
 * PulseAudio: Fix a rare crash due to a division by zero.
 * The node graph can now be used as a node. This allows node graphs to be connected to other node graphs.
 * Fix a crash with high-pass and band-pass filters.
@@ -477,7 +477,7 @@ v0.10.26 - 2020-11-24
 
 v0.10.25 - 2020-11-15
   - PulseAudio: Fix a bug where the stop callback isn't fired.
-  - WebAudio: Fix an error that occurs when Emscripten increases the size of it's heap.
+  - WebAudio: Fix an error that occurs when Emscripten increases the size of its heap.
   - Custom Backends: Change the onContextInit and onDeviceInit callbacks to take a parameter which is a pointer to the config that was
     passed into ma_context_init() and ma_device_init(). This replaces the deviceType parameter of onDeviceInit.
   - Fix compilation warnings on older versions of GCC.
