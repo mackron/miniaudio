@@ -1686,6 +1686,7 @@ combination of the following flags:
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC
     MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT
+    MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING
     ```
 
 When no flags are specified (set to 0), the sound will be fully loaded into memory, but not
@@ -1705,6 +1706,14 @@ can instead stream audio data which you can do by specifying the
 `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM` flag. When streaming, data will be decoded in 1
 second pages. When a new page needs to be decoded, a job will be posted to the job queue and then
 subsequently processed in a job thread.
+
+The `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flag can be used so that the sound will loop
+when it reaches the end by default. It's recommended you use this flag when you want to have a
+looping streaming sound. If you try loading a very short sound as a stream, you will get a glitch.
+This is because the resource manager needs to pre-fill the initial buffer at initialization time,
+and if you don't specify the `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flag, the resource
+manager will assume the sound is not looping and will stop filling the buffer when it reaches the
+end, therefore resulting in a discontinuous buffer.
 
 For in-memory sounds, reference counting is used to ensure the data is loaded only once. This means
 multiple calls to `ma_resource_manager_data_source_init()` with the same file path will result in
