@@ -5947,7 +5947,7 @@ typedef struct
 MA_API ma_result ma_audio_buffer_ref_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, const void* pData, ma_uint64 sizeInFrames, ma_audio_buffer_ref* pAudioBufferRef);
 MA_API void ma_audio_buffer_ref_uninit(ma_audio_buffer_ref* pAudioBufferRef);
 MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferRef, const void* pData, ma_uint64 sizeInFrames);
-MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
+MA_API ma_result ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_ref_map(ma_audio_buffer_ref* pAudioBufferRef, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_ref_unmap(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
@@ -5983,7 +5983,7 @@ MA_API ma_result ma_audio_buffer_init_copy(const ma_audio_buffer_config* pConfig
 MA_API ma_result ma_audio_buffer_alloc_and_init(const ma_audio_buffer_config* pConfig, ma_audio_buffer** ppAudioBuffer);  /* Always copies the data. Doesn't make sense to use this otherwise. Use ma_audio_buffer_uninit_and_free() to uninit. */
 MA_API void ma_audio_buffer_uninit(ma_audio_buffer* pAudioBuffer);
 MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer);
-MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop);
+MA_API ma_result ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex);
 MA_API ma_result ma_audio_buffer_map(ma_audio_buffer* pAudioBuffer, void** ppFramesOut, ma_uint64* pFrameCount);
 MA_API ma_result ma_audio_buffer_unmap(ma_audio_buffer* pAudioBuffer, ma_uint64 frameCount);    /* Returns MA_AT_END if the end has been reached. This should be considered successful. */
@@ -58159,18 +58159,7 @@ MA_API ma_data_source_get_next_proc ma_data_source_get_next_callback(const ma_da
 
 static ma_result ma_audio_buffer_ref__data_source_on_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_audio_buffer_ref* pAudioBufferRef = (ma_audio_buffer_ref*)pDataSource;
-    ma_uint64 framesRead = ma_audio_buffer_ref_read_pcm_frames(pAudioBufferRef, pFramesOut, frameCount, MA_FALSE);
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = framesRead;
-    }
-
-    if (framesRead < frameCount || framesRead == 0) {
-        return MA_AT_END;
-    }
-
-    return MA_SUCCESS;
+    return ma_audio_buffer_ref_read_pcm_frames((ma_audio_buffer_ref*)pDataSource, pFramesOut, frameCount, pFramesRead);
 }
 
 static ma_result ma_audio_buffer_ref__data_source_on_seek(ma_data_source* pDataSource, ma_uint64 frameIndex)
@@ -58270,47 +58259,41 @@ MA_API ma_result ma_audio_buffer_ref_set_data(ma_audio_buffer_ref* pAudioBufferR
     return MA_SUCCESS;
 }
 
-MA_API ma_uint64 ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop)
+MA_API ma_result ma_audio_buffer_ref_read_pcm_frames(ma_audio_buffer_ref* pAudioBufferRef, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
-    ma_uint64 totalFramesRead = 0;
+    ma_uint64 framesAvailable;
+    ma_uint64 framesToRead;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
 
     if (pAudioBufferRef == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
-    if (frameCount == 0) {
-        return 0;
+    framesAvailable = pAudioBufferRef->sizeInFrames - pAudioBufferRef->cursor;
+
+    framesToRead = frameCount;
+    if (framesToRead > framesAvailable) {
+        framesToRead = framesAvailable;
     }
 
-    while (totalFramesRead < frameCount) {
-        ma_uint64 framesAvailable = pAudioBufferRef->sizeInFrames - pAudioBufferRef->cursor;
-        ma_uint64 framesRemaining = frameCount - totalFramesRead;
-        ma_uint64 framesToRead;
-
-        framesToRead = framesRemaining;
-        if (framesToRead > framesAvailable) {
-            framesToRead = framesAvailable;
-        }
-
-        if (pFramesOut != NULL) {
-            ma_copy_pcm_frames(ma_offset_ptr(pFramesOut, totalFramesRead * ma_get_bytes_per_frame(pAudioBufferRef->format, pAudioBufferRef->channels)), ma_offset_ptr(pAudioBufferRef->pData, pAudioBufferRef->cursor * ma_get_bytes_per_frame(pAudioBufferRef->format, pAudioBufferRef->channels)), framesToRead, pAudioBufferRef->format, pAudioBufferRef->channels);
-        }
-
-        totalFramesRead += framesToRead;
-
-        pAudioBufferRef->cursor += framesToRead;
-        if (pAudioBufferRef->cursor == pAudioBufferRef->sizeInFrames) {
-            if (loop) {
-                pAudioBufferRef->cursor = 0;
-            } else {
-                break;  /* We've reached the end and we're not looping. Done. */
-            }
-        }
-
-        MA_ASSERT(pAudioBufferRef->cursor < pAudioBufferRef->sizeInFrames);
+    if (pFramesOut != NULL && framesToRead > 0) {
+        ma_copy_pcm_frames(pFramesOut, ma_offset_ptr(pAudioBufferRef->pData, pAudioBufferRef->cursor * ma_get_bytes_per_frame(pAudioBufferRef->format, pAudioBufferRef->channels)), framesToRead, pAudioBufferRef->format, pAudioBufferRef->channels);
     }
 
-    return totalFramesRead;
+    pAudioBufferRef->cursor += framesToRead;
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = framesToRead;
+    }
+
+    if (framesToRead == 0) {
+        return MA_AT_END;
+    } else {
+        return MA_SUCCESS;
+    }
 }
 
 MA_API ma_result ma_audio_buffer_ref_seek_to_pcm_frame(ma_audio_buffer_ref* pAudioBufferRef, ma_uint64 frameIndex)
@@ -58602,13 +58585,13 @@ MA_API void ma_audio_buffer_uninit_and_free(ma_audio_buffer* pAudioBuffer)
     ma_audio_buffer_uninit_ex(pAudioBuffer, MA_TRUE);
 }
 
-MA_API ma_uint64 ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_bool32 loop)
+MA_API ma_result ma_audio_buffer_read_pcm_frames(ma_audio_buffer* pAudioBuffer, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     if (pAudioBuffer == NULL) {
-        return 0;
+        return MA_INVALID_ARGS;
     }
 
-    return ma_audio_buffer_ref_read_pcm_frames(&pAudioBuffer->ref, pFramesOut, frameCount, loop);
+    return ma_audio_buffer_ref_read_pcm_frames(&pAudioBuffer->ref, pFramesOut, frameCount, pFramesRead);
 }
 
 MA_API ma_result ma_audio_buffer_seek_to_pcm_frame(ma_audio_buffer* pAudioBuffer, ma_uint64 frameIndex)
