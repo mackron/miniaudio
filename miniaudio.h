@@ -71585,7 +71585,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
         pNodeGraph->pProcessingCache = (float*)ma_malloc(pConfig->processingSizeInFrames * pConfig->channels * sizeof(float), pAllocationCallbacks);
         if (pNodeGraph->pProcessingCache == NULL) {
             ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
-            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
     }
@@ -71603,7 +71602,6 @@ MA_API ma_result ma_node_graph_init(const ma_node_graph_config* pConfig, const m
         pNodeGraph->pPreMixStack = ma_stack_init(preMixStackSizeInBytes, pAllocationCallbacks);
         if (pNodeGraph->pPreMixStack == NULL) {
             ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
-            ma_node_uninit(&pNodeGraph->base, pAllocationCallbacks);
             if (pNodeGraph->pProcessingCache != NULL) {
                 ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
             }
@@ -71623,7 +71621,7 @@ MA_API void ma_node_graph_uninit(ma_node_graph* pNodeGraph, const ma_allocation_
     }
 
     ma_node_uninit(&pNodeGraph->endpoint, pAllocationCallbacks);
-    ma_data_source_uninit(&pNodeGraph->ds)
+    ma_data_source_uninit(&pNodeGraph->ds);
 
     if (pNodeGraph->pProcessingCache != NULL) {
         ma_free(pNodeGraph->pProcessingCache, pAllocationCallbacks);
