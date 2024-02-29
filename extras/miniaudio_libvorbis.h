@@ -580,15 +580,6 @@ static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_sourc
     ma_free(pVorbis, pAllocationCallbacks);
 }
 
-static ma_result ma_decoding_backend_get_channel_map__libvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
-
-    (void)pUserData;
-
-    return ma_libvorbis_get_data_format(pVorbis, NULL, NULL, NULL, pChannelMap, channelMapCap);
-}
-
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
 {
     ma_decoding_backend_init__libvorbis,
