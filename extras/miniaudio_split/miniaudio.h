@@ -102,7 +102,7 @@ typedef void* ma_handle;
 typedef void* ma_ptr;
 
 /*
-ma_proc is annoying because when compiling with GCC we get pedantic warnings about converting
+ma_proc is annoying because when compiling with GCC we get pendantic warnings about converting
 between `void*` and `void (*)()`. We can't use `void (*)()` with MSVC however, because we'll get
 warning C4191 about "type cast between incompatible function types". To work around this I'm going
 to use a different data type depending on the compiler.
@@ -296,7 +296,7 @@ Special wchar_t type to ensure any structures in the public sections that refere
 consistent size across all platforms.
 
 On Windows, wchar_t is 2 bytes, whereas everywhere else it's 4 bytes. Since Windows likes to use
-wchar_t for its IDs, we need a special explicitly sized wchar type that is always 2 bytes on all
+wchar_t for it's IDs, we need a special explicitly sized wchar type that is always 2 bytes on all
 platforms.
 */
 #if !defined(MA_POSIX) && defined(MA_WIN32)
@@ -322,7 +322,7 @@ MA_LOG_LEVEL_INFO
     callback.
 
 MA_LOG_LEVEL_WARNING
-    Warnings. You should enable this in you development builds and action them when encountered. These
+    Warnings. You should enable this in you development builds and action them when encounted. These
     logs usually indicate a potential problem or misconfiguration, but still allow you to keep
     running. This will never be called from within the data callback.
 
@@ -1754,7 +1754,7 @@ input frames.
 MA_API ma_result ma_resampler_get_expected_output_frame_count(const ma_resampler* pResampler, ma_uint64 inputFrameCount, ma_uint64* pOutputFrameCount);
 
 /*
-Resets the resampler's timer and clears its internal cache.
+Resets the resampler's timer and clears it's internal cache.
 */
 MA_API ma_result ma_resampler_reset(ma_resampler* pResampler);
 
@@ -1975,7 +1975,7 @@ MA_API void ma_channel_map_init_standard(ma_standard_channel_map standardChannel
 /*
 Copies a channel map.
 
-Both input and output channel map buffers must have a capacity of at least `channels`.
+Both input and output channel map buffers must have a capacity of at at least `channels`.
 */
 MA_API void ma_channel_map_copy(ma_channel* pOut, const ma_channel* pIn, ma_uint32 channels);
 
@@ -3481,7 +3481,7 @@ and on output returns detailed information about the device in `ma_device_info`.
 case when the device ID is NULL, in which case information about the default device needs to be retrieved.
 
 Once the context has been created and the device ID retrieved (if using anything other than the default device), the device can be created.
-This is a little bit more complicated than initialization of the context due to its more complicated configuration. When initializing a
+This is a little bit more complicated than initialization of the context due to it's more complicated configuration. When initializing a
 device, a duplex device may be requested. This means a separate data format needs to be specified for both playback and capture. On input,
 the data format is set to what the application wants. On output it's set to the native format which should match as closely as possible to
 the requested format. The conversion between the format requested by the application and the device's native format will be handled
@@ -3502,10 +3502,10 @@ asynchronous reading and writing, `onDeviceStart()` and `onDeviceStop()` should 
 The handling of data delivery between the application and the device is the most complicated part of the process. To make this a bit
 easier, some helper callbacks are available. If the backend uses a blocking read/write style of API, the `onDeviceRead()` and
 `onDeviceWrite()` callbacks can optionally be implemented. These are blocking and work just like reading and writing from a file. If the
-backend uses a callback for data delivery, that callback must call `ma_device_handle_backend_data_callback()` from within its callback.
+backend uses a callback for data delivery, that callback must call `ma_device_handle_backend_data_callback()` from within it's callback.
 This allows miniaudio to then process any necessary data conversion and then pass it to the miniaudio data callback.
 
-If the backend requires absolute flexibility with its data delivery, it can optionally implement the `onDeviceDataLoop()` callback
+If the backend requires absolute flexibility with it's data delivery, it can optionally implement the `onDeviceDataLoop()` callback
 which will allow it to implement the logic that will run on the audio thread. This is much more advanced and is completely optional.
 
 The audio thread should run data delivery logic in a loop while `ma_device_get_state() == ma_device_state_started` and no errors have been
@@ -4703,7 +4703,7 @@ It is _not_ safe to assume the first device in the list is the default device.
 
 You can pass in NULL for the playback or capture lists in which case they'll be ignored.
 
-The returned pointers will become invalid upon the next call to this function, or when the context is uninitialized. Do not free the returned pointers.
+The returned pointers will become invalid upon the next call this this function, or when the context is uninitialized. Do not free the returned pointers.
 
 
 See Also
@@ -4847,7 +4847,7 @@ from a microphone. Whether or not you should send or receive data from the devic
 playback, capture, full-duplex or loopback. (Note that loopback mode is only supported on select backends.) Sending and receiving audio data to and from the
 device is done via a callback which is fired by miniaudio at periodic time intervals.
 
-The frequency at which data is delivered to and from a device depends on the size of its period. The size of the period can be defined in terms of PCM frames
+The frequency at which data is delivered to and from a device depends on the size of it's period. The size of the period can be defined in terms of PCM frames
 or milliseconds, whichever is more convenient. Generally speaking, the smaller the period, the lower the latency at the expense of higher CPU usage and
 increased risk of glitching due to the more frequent and granular data deliver intervals. The size of a period will depend on your requirements, but
 miniaudio's defaults should work fine for most scenarios. If you're building a game you should leave this fairly small, whereas if you're building a simple
@@ -4921,7 +4921,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     performanceProfile
         A hint to miniaudio as to the performance requirements of your program. Can be either `ma_performance_profile_low_latency` (default) or
-        `ma_performance_profile_conservative`. This mainly affects the size of default buffers and can usually be left at its default value.
+        `ma_performance_profile_conservative`. This mainly affects the size of default buffers and can usually be left at it's default value.
 
     noPreSilencedOutputBuffer
         When set to true, the contents of the output buffer passed into the data callback will be left undefined. When set to false (default), the contents of
@@ -4961,7 +4961,7 @@ then be set directly on the structure. Below are the members of the `ma_device_c
         A pointer that will passed to callbacks in pBackendVTable.
 
     resampling.linear.lpfOrder
-        The linear resampler applies a low-pass filter as part of its processing for anti-aliasing. This setting controls the order of the filter. The higher
+        The linear resampler applies a low-pass filter as part of it's processing for anti-aliasing. This setting controls the order of the filter. The higher
         the value, the better the quality, in general. Setting this to 0 will disable low-pass filtering altogether. The maximum value is
         `MA_MAX_FILTER_ORDER`. The default value is `min(4, MA_MAX_FILTER_ORDER)`.
 
@@ -5211,7 +5211,7 @@ Unsafe. It is not safe to call this inside any callback.
 
 Remarks
 -------
-You only need to use this function if you want to configure the context differently to its defaults. You should never use this function if you want to manage
+You only need to use this function if you want to configure the context differently to it's defaults. You should never use this function if you want to manage
 your own context.
 
 See the documentation for `ma_context_init()` for information on the different context configuration options.
@@ -6233,7 +6233,7 @@ struct ma_decoder
     void* pInputCache;              /* In input format. Can be null if it's not needed. */
     ma_uint64 inputCacheCap;        /* The capacity of the input cache. */
     ma_uint64 inputCacheConsumed;   /* The number of frames that have been consumed in the cache. Used for determining the next valid frame. */
-    ma_uint64 inputCacheRemaining;  /* The number of valid frames remaining in the cache. */
+    ma_uint64 inputCacheRemaining;  /* The number of valid frames remaining in the cahce. */
     ma_allocation_callbacks allocationCallbacks;
     union
     {
@@ -6274,7 +6274,7 @@ This is not thread safe without your own synchronization.
 MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
 
 /*
-Seeks to a PCM frame based on its absolute index.
+Seeks to a PCM frame based on it's absolute index.
 
 This is not thread safe without your own synchronization.
 */
@@ -7364,7 +7364,7 @@ MA_API ma_engine_node_config ma_engine_node_config_init(ma_engine* pEngine, ma_e
 /* Base node object for both ma_sound and ma_sound_group. */
 typedef struct
 {
-    ma_node_base baseNode;                              /* Must be the first member for compatibility with the ma_node API. */
+    ma_node_base baseNode;                              /* Must be the first member for compatiblity with the ma_node API. */
     ma_engine* pEngine;                                 /* A pointer to the engine. Set based on the value from the config. */
     ma_uint32 sampleRate;                               /* The sample rate of the input data. For sounds backed by a data source, this will be the data source's sample rate. Otherwise it'll be the engine's sample rate. */
     ma_uint32 volumeSmoothTimeInPCMFrames;
