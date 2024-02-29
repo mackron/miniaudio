@@ -1564,22 +1564,28 @@ formats through the use of custom decoders. To do so, pass in your `ma_decoding_
 vtables into the resource manager config:
 
     ```c
-    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    ma_decoding_backend_vtable* pBackendVTables[] =
     {
-        &g_ma_decoding_backend_vtable_libvorbis,
-        &g_ma_decoding_backend_vtable_libopus
+        ma_decoding_backend_libvorbis,  // Custom
+        ma_decoding_backend_libopus,    // Custom
+        ma_decoding_backend_wav,        // Stock
+        ma_decoding_backend_flac,       // Stock
+        ma_decoding_backend_mp3         // Stock
     };
 
     ...
 
-    resourceManagerConfig.ppCustomDecodingBackendVTables = pCustomBackendVTables;
-    resourceManagerConfig.customDecodingBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
-    resourceManagerConfig.pCustomDecodingBackendUserData = NULL;
+    resourceManagerConfig.ppDecodingBackendVTables = pBackendVTables;
+    resourceManagerConfig.decodingBackendCount     = sizeof(pBackendVTables) / sizeof(pBackendVTables[0]);
     ```
 
-This system can allow you to support any kind of file format. See the "Decoding" section for
-details on how to implement custom decoders. The miniaudio repository includes examples for Opus
-via libopus and libopusfile and Vorbis via libvorbis and libvorbisfile.
+Note that when specifying a decoding backend, you need to specify every backend you want to
+support, including stock backends. If `resourceManagerConfig.ppDecodingBackendVTables` is set to
+null, only stock backends will be used, and will be in a fixed order of priority. The order in
+which you list the backends in `resourceManagerConfig.ppDecodingBackendVTables` is the priority
+order. This system can allow you to support any kind of file format in any priority you like. See
+the "Decoding" section for details on how to implement custom decoders. The miniaudio repository
+includes examples for Opus via libopus and libopusfile and Vorbis via libvorbis and libvorbisfile.
 
 Asynchronicity is achieved via a job system. When an operation needs to be performed, such as the
 decoding of a page, a job will be posted to a queue which will then be processed by a job thread.
@@ -2586,19 +2592,24 @@ A custom decoder must implement a data source. A vtable called `ma_decoding_back
 to be implemented which is then passed into the decoder config:
 
     ```c
-    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    ma_decoding_backend_vtable* pBackendVTables[] =
     {
-        &g_ma_decoding_backend_vtable_libvorbis,
-        &g_ma_decoding_backend_vtable_libopus
+        ma_decoding_backend_libvorbis,
+        ma_decoding_backend_libopus,
+        ma_decoding_backend_wav,
+        ma_decoding_backend_flac,
+        ma_decoding_backend_mp3
     };
 
     ...
 
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pCustomBackendUserData = NULL;
-    decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
-    decoderConfig.customBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    decoderConfig.ppBackendVTables = pBackendVTables;
+    decoderConfig.backendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
     ```
+
+Note that when specify your own decoding backends, you must explicitly include any stock backends
+you want to use, and in the order in which you want them to be tried.
 
 The `ma_decoding_backend_vtable` vtable has the following functions:
 
@@ -2607,7 +2618,8 @@ The `ma_decoding_backend_vtable` vtable has the following functions:
     onInitFile
     onInitFileW
     onInitMemory
-    onUninit
+    onUninit,
+    onGetEncodingFormat
     ```
 
 There are only two functions that must be implemented - `onInit` and `onUninit`. The other
@@ -2639,6 +2651,14 @@ initialization routine is clean.
 
 When a decoder is uninitialized, the `onUninit` callback will be fired which will give you an
 opportunity to clean up and internal data.
+
+The `onGetEncodingFormat` function is used to retrieve the encoding format of the data source. This
+is used as a hint to help miniaudio determine which decoding backend to use. If you don't know the
+encoding format, you can return `ma_encoding_format_unknown` and miniaudio will deal with it for
+you through trial and error.
+
+The miniaudio repository includes some examples of custom decoders in the "extras" folder. The
+"custom_decoder" example demonstrates how to use a custom decoder with miniaudio.
 
 
 
@@ -10022,9 +10042,6 @@ typedef struct
     ma_encoding_format encodingFormat;  /* This is the encoding format that the caller wants to use. If set to ma_encoding_format_unknown, the decoding backend should try initializing from any of it's supported formats. */
 } ma_decoding_backend_config;
 
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount, ma_encoding_format encodingFormat);
-
-
 typedef struct
 {
     ma_result          (* onInit             )(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend);
@@ -10053,8 +10070,8 @@ typedef struct
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
     ma_decoding_backend_vtable** ppBackendVTables;
+    void** ppBackendUserData;
     ma_uint32 backendCount;
-    void* pBackendUserData;
 } ma_decoder_config;
 
 struct ma_decoder
@@ -10566,7 +10583,7 @@ typedef struct
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
     ma_decoding_backend_vtable** ppDecodingBackendVTables;
     ma_uint32 decodingBackendCount;
-    void* pDecodingBackendUserData;
+    void** ppDecodingBackendUserData;
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
@@ -63847,7 +63864,7 @@ MA_API ma_encoding_format ma_encoding_format_from_path_w(const wchar_t* pFilePat
 }
 
 
-MA_API ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount, ma_encoding_format encodingFormat)
+static ma_decoding_backend_config ma_decoding_backend_config_init(ma_format preferredFormat, ma_uint32 seekPointCount, ma_encoding_format encodingFormat)
 {
     ma_decoding_backend_config config;
 
@@ -64111,7 +64128,7 @@ static ma_result ma_decoder_init_from_file__internal(const ma_decoding_backend_v
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+    pDecoder->pBackendUserData = pVTableUserData;
 
     return MA_SUCCESS;
 }
@@ -64140,7 +64157,7 @@ static ma_result ma_decoder_init_from_file_w__internal(const ma_decoding_backend
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+    pDecoder->pBackendUserData = pVTableUserData;
 
     return MA_SUCCESS;
 }
@@ -64169,7 +64186,7 @@ static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pBackendUserData;
+    pDecoder->pBackendUserData = pVTableUserData;
 
     return MA_SUCCESS;
 }
@@ -64318,6 +64335,15 @@ static ma_bool32 ma_can_decoding_backend_possibly_handle_encoding_format(const m
     return backendEncodingFormat == encodingFormat;
 }
 
+static void* ma_decoder_config_get_backend_user_data(const ma_decoder_config* pConfig, ma_uint32 iBackend)
+{
+    if (pConfig->ppBackendUserData == NULL) {
+        return NULL;
+    }
+
+    return pConfig->ppBackendUserData[iBackend];
+}
+
 
 static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
@@ -64331,9 +64357,9 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
     MA_ASSERT(pConfig->ppBackendVTables != NULL);
 
     for (iBackend = 0; iBackend < pConfig->backendCount; iBackend += 1) {
-        if (ma_can_decoding_backend_possibly_handle_encoding_format(pConfig->ppBackendVTables[iBackend], pConfig->pBackendUserData, pConfig->encodingFormat)) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(pConfig->ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(pConfig, iBackend), pConfig->encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_vtable__internal(pConfig->ppBackendVTables[iBackend], pConfig->pBackendUserData, pConfig, pDecoder);
+            result = ma_decoder_init_from_vtable__internal(pConfig->ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(pConfig, iBackend), pConfig, pDecoder);
             if (result == MA_SUCCESS) {
                 return ma_decoder__postinit_or_uninit(pConfig, pDecoder);
             } else {
@@ -64489,9 +64515,9 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
     }
 
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
-        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_memory__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pData, dataSize, &config, pDecoder);
+            result = ma_decoder_init_from_memory__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pData, dataSize, &config, pDecoder);
             if (result == MA_SUCCESS) {
                 return ma_decoder__postinit_or_uninit(&config, pDecoder);
             } else {
@@ -64687,9 +64713,9 @@ MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_co
     }
 
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
-        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_file__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pFilePath, &config, pDecoder);
+            result = ma_decoder_init_from_file__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pFilePath, &config, pDecoder);
             if (result == MA_SUCCESS) {
                 return ma_decoder__postinit_or_uninit(&config, pDecoder);
             } else {
@@ -64748,9 +64774,9 @@ MA_API ma_result ma_decoder_init_file_w(const wchar_t* pFilePath, const ma_decod
     }
 
     for (iBackend = 0; iBackend < config.backendCount; iBackend += 1) {
-        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], config.pBackendUserData, config.encodingFormat)) {
+        if (ma_can_decoding_backend_possibly_handle_encoding_format(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), config.encodingFormat)) {
             /* Getting here means the backend may support the encoding format. */
-            result = ma_decoder_init_from_file_w__internal(config.ppBackendVTables[iBackend], config.pBackendUserData, pFilePath, &config, pDecoder);
+            result = ma_decoder_init_from_file_w__internal(config.ppBackendVTables[iBackend], ma_decoder_config_get_backend_user_data(&config, iBackend), pFilePath, &config, pDecoder);
             if (result == MA_SUCCESS) {
                 return ma_decoder__postinit_or_uninit(&config, pDecoder);
             } else {
@@ -67471,18 +67497,33 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
     /* Custom decoding backends. */
     if (pConfig->ppDecodingBackendVTables != NULL && pConfig->decodingBackendCount > 0) {
-        size_t sizeInBytes = sizeof(*pResourceManager->config.ppDecodingBackendVTables) * pConfig->decodingBackendCount;
+        size_t vtableSizeInBytes;
+        size_t vtableUserDataSizeInBytes;
 
-        pResourceManager->config.ppDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
+        vtableSizeInBytes = sizeof(*pResourceManager->config.ppDecodingBackendVTables) * pConfig->decodingBackendCount;
+
+        if (pConfig->ppDecodingBackendUserData != NULL) {
+            vtableUserDataSizeInBytes = sizeof(*pResourceManager->config.ppDecodingBackendUserData) * pConfig->decodingBackendCount;
+        } else {
+            vtableUserDataSizeInBytes = 0;  /* No vtable user data present. No need for an allocation. */
+        }
+
+        pResourceManager->config.ppDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
-        MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendVTables, pConfig->ppDecodingBackendVTables, sizeInBytes);
+        MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendVTables, pConfig->ppDecodingBackendVTables, vtableSizeInBytes);
 
-        pResourceManager->config.decodingBackendCount     = pConfig->decodingBackendCount;
-        pResourceManager->config.pDecodingBackendUserData = pConfig->pDecodingBackendUserData;
+        if (pConfig->ppDecodingBackendUserData != NULL) {
+            pResourceManager->config.ppDecodingBackendUserData = (void**)ma_offset_ptr(pResourceManager->config.ppDecodingBackendVTables, vtableSizeInBytes);
+            MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendUserData, pConfig->ppDecodingBackendUserData, vtableUserDataSizeInBytes);
+        } else {
+            pResourceManager->config.ppDecodingBackendUserData = NULL;
+        }
+
+        pResourceManager->config.decodingBackendCount = pConfig->decodingBackendCount;
     }
 
 
@@ -67584,7 +67625,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         #endif
     }
 
-    ma_free(pResourceManager->config.ppDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
+    ma_free(pResourceManager->config.ppDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);  /* <-- This also frees pResourceManager->config.ppDecodingBackendUserData because it's all in one allocation. */
 
     if (pResourceManager->config.pLog == &pResourceManager->log) {
         ma_log_uninit(&pResourceManager->log);
@@ -67625,7 +67666,7 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
     config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
     config.ppBackendVTables    = pResourceManager->config.ppDecodingBackendVTables;
     config.backendCount        = pResourceManager->config.decodingBackendCount;
-    config.pBackendUserData    = pResourceManager->config.pDecodingBackendUserData;
+    config.ppBackendUserData   = pResourceManager->config.ppDecodingBackendUserData;
 
     return config;
 }

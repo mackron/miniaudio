@@ -83,7 +83,6 @@ int main(int argc, char** argv)
     
     /* Initialize the decoder. */
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pBackendUserData = NULL;  /* None of our decoders require user data, so this can be set to null. */
     decoderConfig.ppBackendVTables = pBackendVTables;
     decoderConfig.backendCount     = sizeof(pBackendVTables) / sizeof(pBackendVTables[0]);
     
