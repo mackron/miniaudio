@@ -201,9 +201,12 @@ int main(int argc, char** argv)
 
     /*
     Add your custom backend vtables here. The order in the array defines the order of priority. The
-    vtables will be passed in via the decoder config.
+    vtables will be passed in via the decoder config. If you want to support stock backends in addition
+    to custom backends, you must add the stock backend vtables here as well. The stock backend vtables
+    are defined in miniaudio.h and are named `ma_decoding_backend_wav`, `ma_decoding_backend_flac`, etc.
+    You should list the backends in your preferred order of priority.
     */
-    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    ma_decoding_backend_vtable* pBackendVTables[] =
     {
         &g_ma_decoding_backend_vtable_libvorbis,
         &g_ma_decoding_backend_vtable_libopus
@@ -218,9 +221,9 @@ int main(int argc, char** argv)
     
     /* Initialize the decoder. */
     decoderConfig = ma_decoder_config_init_default();
-    decoderConfig.pCustomBackendUserData = NULL;  /* None of our decoders require user data, so this can be set to null. */
-    decoderConfig.ppCustomBackendVTables = pCustomBackendVTables;
-    decoderConfig.customBackendCount     = sizeof(pCustomBackendVTables) / sizeof(pCustomBackendVTables[0]);
+    decoderConfig.pBackendUserData = NULL;  /* None of our decoders require user data, so this can be set to null. */
+    decoderConfig.ppBackendVTables = pBackendVTables;
+    decoderConfig.backendCount     = sizeof(pBackendVTables) / sizeof(pBackendVTables[0]);
     
     result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {

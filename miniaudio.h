@@ -10045,9 +10045,9 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
-    ma_decoding_backend_vtable** ppCustomBackendVTables;
-    ma_uint32 customBackendCount;
-    void* pCustomBackendUserData;
+    ma_decoding_backend_vtable** ppBackendVTables;
+    ma_uint32 backendCount;
+    void* pBackendUserData;
 } ma_decoder_config;
 
 struct ma_decoder
@@ -10557,9 +10557,9 @@ typedef struct
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
-    ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
-    ma_uint32 customDecodingBackendCount;
-    void* pCustomDecodingBackendUserData;
+    ma_decoding_backend_vtable** ppDecodingBackendVTables;
+    ma_uint32 decodingBackendCount;
+    void* pDecodingBackendUserData;
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
@@ -61073,7 +61073,7 @@ static ma_result ma_decoder_init_from_vtable__internal(const ma_decoding_backend
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
 
     return MA_SUCCESS;
 }
@@ -61102,7 +61102,7 @@ static ma_result ma_decoder_init_from_file__internal(const ma_decoding_backend_v
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
 
     return MA_SUCCESS;
 }
@@ -61131,7 +61131,7 @@ static ma_result ma_decoder_init_from_file_w__internal(const ma_decoding_backend
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
 
     return MA_SUCCESS;
 }
@@ -61160,7 +61160,7 @@ static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend
     /* Getting here means we were able to initialize the backend so we can now initialize the decoder. */
     pDecoder->pBackend         = pBackend;
     pDecoder->pBackendVTable   = pVTable;
-    pDecoder->pBackendUserData = pConfig->pCustomBackendUserData;
+    pDecoder->pBackendUserData = pConfig->pBackendUserData;
 
     return MA_SUCCESS;
 }
@@ -61175,15 +61175,15 @@ static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConf
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    if (pConfig->ppCustomBackendVTables == NULL) {
+    if (pConfig->ppBackendVTables == NULL) {
         return MA_NO_BACKEND;
     }
 
     /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
+    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
+        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
         if (pVTable != NULL) {
-            result = ma_decoder_init_from_vtable__internal(pVTable, pConfig->pCustomBackendUserData, pConfig, pDecoder);
+            result = ma_decoder_init_from_vtable__internal(pVTable, pConfig->pBackendUserData, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
                 return MA_SUCCESS;
             } else {
@@ -61210,15 +61210,15 @@ static ma_result ma_decoder_init_custom_from_file__internal(const char* pFilePat
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    if (pConfig->ppCustomBackendVTables == NULL) {
+    if (pConfig->ppBackendVTables == NULL) {
         return MA_NO_BACKEND;
     }
 
     /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
+    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
+        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
         if (pVTable != NULL) {
-            result = ma_decoder_init_from_file__internal(pVTable, pConfig->pCustomBackendUserData, pFilePath, pConfig, pDecoder);
+            result = ma_decoder_init_from_file__internal(pVTable, pConfig->pBackendUserData, pFilePath, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
                 return MA_SUCCESS;
             }
@@ -61239,15 +61239,15 @@ static ma_result ma_decoder_init_custom_from_file_w__internal(const wchar_t* pFi
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    if (pConfig->ppCustomBackendVTables == NULL) {
+    if (pConfig->ppBackendVTables == NULL) {
         return MA_NO_BACKEND;
     }
 
     /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
+    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
+        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
         if (pVTable != NULL) {
-            result = ma_decoder_init_from_file_w__internal(pVTable, pConfig->pCustomBackendUserData, pFilePath, pConfig, pDecoder);
+            result = ma_decoder_init_from_file_w__internal(pVTable, pConfig->pBackendUserData, pFilePath, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
                 return MA_SUCCESS;
             }
@@ -61268,15 +61268,15 @@ static ma_result ma_decoder_init_custom_from_memory__internal(const void* pData,
     MA_ASSERT(pConfig != NULL);
     MA_ASSERT(pDecoder != NULL);
 
-    if (pConfig->ppCustomBackendVTables == NULL) {
+    if (pConfig->ppBackendVTables == NULL) {
         return MA_NO_BACKEND;
     }
 
     /* The order each backend is listed is what defines the priority. */
-    for (ivtable = 0; ivtable < pConfig->customBackendCount; ivtable += 1) {
-        const ma_decoding_backend_vtable* pVTable = pConfig->ppCustomBackendVTables[ivtable];
+    for (ivtable = 0; ivtable < pConfig->backendCount; ivtable += 1) {
+        const ma_decoding_backend_vtable* pVTable = pConfig->ppBackendVTables[ivtable];
         if (pVTable != NULL) {
-            result = ma_decoder_init_from_memory__internal(pVTable, pConfig->pCustomBackendUserData, pData, dataSize, pConfig, pDecoder);
+            result = ma_decoder_init_from_memory__internal(pVTable, pConfig->pBackendUserData, pData, dataSize, pConfig, pDecoder);
             if (result == MA_SUCCESS) {
                 return MA_SUCCESS;
             }
@@ -68012,19 +68012,19 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
 
     /* Custom decoding backends. */
-    if (pConfig->ppCustomDecodingBackendVTables != NULL && pConfig->customDecodingBackendCount > 0) {
-        size_t sizeInBytes = sizeof(*pResourceManager->config.ppCustomDecodingBackendVTables) * pConfig->customDecodingBackendCount;
+    if (pConfig->ppDecodingBackendVTables != NULL && pConfig->decodingBackendCount > 0) {
+        size_t sizeInBytes = sizeof(*pResourceManager->config.ppDecodingBackendVTables) * pConfig->decodingBackendCount;
 
-        pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
-        if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
+        pResourceManager->config.ppDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
+        if (pResourceManager->config.ppDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
-        MA_COPY_MEMORY(pResourceManager->config.ppCustomDecodingBackendVTables, pConfig->ppCustomDecodingBackendVTables, sizeInBytes);
+        MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendVTables, pConfig->ppDecodingBackendVTables, sizeInBytes);
 
-        pResourceManager->config.customDecodingBackendCount     = pConfig->customDecodingBackendCount;
-        pResourceManager->config.pCustomDecodingBackendUserData = pConfig->pCustomDecodingBackendUserData;
+        pResourceManager->config.decodingBackendCount     = pConfig->decodingBackendCount;
+        pResourceManager->config.pDecodingBackendUserData = pConfig->pDecodingBackendUserData;
     }
 
 
@@ -68126,7 +68126,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         #endif
     }
 
-    ma_free(pResourceManager->config.ppCustomDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
+    ma_free(pResourceManager->config.ppDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
 
     if (pResourceManager->config.pLog == &pResourceManager->log) {
         ma_log_uninit(&pResourceManager->log);
@@ -68164,10 +68164,10 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
     ma_decoder_config config;
 
     config = ma_decoder_config_init(pResourceManager->config.decodedFormat, pResourceManager->config.decodedChannels, pResourceManager->config.decodedSampleRate);
-    config.allocationCallbacks    = pResourceManager->config.allocationCallbacks;
-    config.ppCustomBackendVTables = pResourceManager->config.ppCustomDecodingBackendVTables;
-    config.customBackendCount     = pResourceManager->config.customDecodingBackendCount;
-    config.pCustomBackendUserData = pResourceManager->config.pCustomDecodingBackendUserData;
+    config.allocationCallbacks = pResourceManager->config.allocationCallbacks;
+    config.ppBackendVTables    = pResourceManager->config.ppDecodingBackendVTables;
+    config.backendCount        = pResourceManager->config.decodingBackendCount;
+    config.pBackendUserData    = pResourceManager->config.pDecodingBackendUserData;
 
     return config;
 }
