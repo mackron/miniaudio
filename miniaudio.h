@@ -69855,7 +69855,7 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
     ma_atomic_exchange_32(&pDataStream->isPageValid[pageIndex], MA_TRUE);
 }
 
-static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream, ma_bool32 isInitialFill)
+static void ma_resource_manager_data_stream_fill_pages(ma_resource_manager_data_stream* pDataStream)
 {
     ma_uint32 iPage;
 
@@ -71022,7 +71022,7 @@ static ma_result ma_job_process__resource_manager__load_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.loadDataStream.initialSeekPoint);
 
     /* We have our decoder and our page buffer, so now we need to fill our pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_TRUE);
+    ma_resource_manager_data_stream_fill_pages(pDataStream);
 
     /* And now we're done. We want to make sure the result is MA_SUCCESS. */
     result = MA_SUCCESS;
@@ -71148,7 +71148,7 @@ static ma_result ma_job_process__resource_manager__seek_data_stream(ma_job* pJob
     ma_decoder_seek_to_pcm_frame(&pDataStream->decoder, pJob->data.resourceManager.seekDataStream.frameIndex);
 
     /* After seeking we'll need to reload the pages. */
-    ma_resource_manager_data_stream_fill_pages(pDataStream, MA_FALSE);
+    ma_resource_manager_data_stream_fill_pages(pDataStream);
 
     /* We need to let the public API know that we're done seeking. */
     ma_atomic_fetch_sub_32(&pDataStream->seekCounter, 1);
