@@ -62576,7 +62576,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
     ma_decoding_backend_init_memory__flac,
     ma_decoding_backend_uninit__flac
 };
-const ma_decoding_backend_vtable* ma_decoding_backend_flag = &g_ma_decoding_backend_vtable_flac;
+const ma_decoding_backend_vtable* ma_decoding_backend_flac = &g_ma_decoding_backend_vtable_flac;
 
 static ma_result ma_decoder_init_flac__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
