@@ -61974,6 +61974,8 @@ static ma_result ma_decoder_init_wav_from_memory__internal(const void* pData, si
 {
     return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_wav, NULL, pData, dataSize, pConfig, pDecoder);
 }
+#else
+const ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
 #endif  /* ma_dr_wav_h */
 
 /* FLAC */
@@ -62597,6 +62599,8 @@ static ma_result ma_decoder_init_flac_from_memory__internal(const void* pData, s
 {
     return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_flac, NULL, pData, dataSize, pConfig, pDecoder);
 }
+#else
+const ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
 #endif  /* ma_dr_flac_h */
 
 /* MP3 */
@@ -63278,6 +63282,8 @@ static ma_result ma_decoder_init_mp3_from_memory__internal(const void* pData, si
 {
     return ma_decoder_init_from_memory__internal(&g_ma_decoding_backend_vtable_mp3, NULL, pData, dataSize, pConfig, pDecoder);
 }
+#else
+const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
 #endif  /* ma_dr_mp3_h */
 
 /* Vorbis */
