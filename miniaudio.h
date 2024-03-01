@@ -11343,32 +11343,32 @@ typedef void (* ma_engine_process_proc)(void* pUserData, float* pFramesOut, ma_u
 typedef struct
 {
 #if !defined(MA_NO_RESOURCE_MANAGER)
-    ma_resource_manager* pResourceManager;          /* Can be null in which case a resource manager will be created for you. */
+    ma_resource_manager* pResourceManager;                  /* Can be null in which case a resource manager will be created for you. */
 #endif
 #if !defined(MA_NO_DEVICE_IO)
     ma_context* pContext;
-    ma_device* pDevice;                             /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
-    ma_device_id* pPlaybackDeviceID;                /* The ID of the playback device to use with the default listener. */
-    ma_device_data_proc dataCallback;               /* Can be null. Can be used to provide a custom device data callback. */
+    ma_device* pDevice;                                     /* If set, the caller is responsible for calling ma_engine_data_callback() in the device's data callback. */
+    ma_device_id* pPlaybackDeviceID;                        /* The ID of the playback device to use with the default listener. */
+    ma_device_data_proc dataCallback;                       /* Can be null. Can be used to provide a custom device data callback. */
     ma_device_notification_proc notificationCallback;
 #endif
-    ma_log* pLog;                                   /* When set to NULL, will use the context's log. */
-    ma_uint32 listenerCount;                        /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
-    ma_uint32 channels;                             /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
-    ma_uint32 sampleRate;                           /* The sample rate. When set to 0 will use the native channel count of the device. */
-    ma_uint32 periodSizeInFrames;                   /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
-    ma_uint32 periodSizeInMilliseconds;             /* Used if periodSizeInFrames is unset. */
-    ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
-    ma_uint32 gainSmoothTimeInMilliseconds;         /* When set to 0, gainSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
-    ma_uint32 defaultVolumeSmoothTimeInPCMFrames;   /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. High values means more smoothing at the expense of high latency (will take longer to reach the new volume). */
-    ma_uint32 preMixStackSizeInBytes;               /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
+    ma_log* pLog;                                           /* When set to NULL, will use the context's log. */
+    ma_uint32 listenerCount;                                /* Must be between 1 and MA_ENGINE_MAX_LISTENERS. */
+    ma_uint32 channels;                                     /* The number of channels to use when mixing and spatializing. When set to 0, will use the native channel count of the device. */
+    ma_uint32 sampleRate;                                   /* The sample rate. When set to 0 will use the native channel count of the device. */
+    ma_uint32 periodSizeInFrames;                           /* If set to something other than 0, updates will always be exactly this size. The underlying device may be a different size, but from the perspective of the mixer that won't matter.*/
+    ma_uint32 periodSizeInMilliseconds;                     /* Used if periodSizeInFrames is unset. */
+    ma_uint32 spatializationVolumeSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
+    ma_uint32 spatializationVolumeSmoothTimeInMilliseconds; /* When set to 0, spatializationVolumeSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
+    ma_uint32 defaultVolumeSmoothTimeInPCMFrames;           /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. Higher values means more smoothing at the expense of higher latency (will take longer to reach the new volume). */
+    ma_uint32 preMixStackSizeInBytes;                       /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
     ma_allocation_callbacks allocationCallbacks;
-    ma_bool32 noAutoStart;                          /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
-    ma_bool32 noDevice;                             /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
-    ma_mono_expansion_mode monoExpansionMode;       /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
-    ma_vfs* pResourceManagerVFS;                    /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
-    ma_engine_process_proc onProcess;               /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
-    void* pProcessUserData;                         /* User data that's passed into onProcess. */
+    ma_bool32 noAutoStart;                                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
+    ma_bool32 noDevice;                                     /* When set to true, don't create a default device. ma_engine_read_pcm_frames() can be called manually to read data. */
+    ma_mono_expansion_mode monoExpansionMode;               /* Controls how the mono channel should be expanded to other channels when spatialization is disabled on a sound. */
+    ma_vfs* pResourceManagerVFS;                            /* A pointer to a pre-allocated VFS object to use with the resource manager. This is ignored if pResourceManager is not NULL. */
+    ma_engine_process_proc onProcess;                       /* Fired at the end of each call to ma_engine_read_pcm_frames(). For engine's that manage their own internal device (the default configuration), this will be fired from the audio thread, and you do not need to call ma_engine_read_pcm_frames() manually in order to trigger this. */
+    void* pProcessUserData;                                 /* User data that's passed into onProcess. */
 } ma_engine_config;
 
 MA_API ma_engine_config ma_engine_config_init(void);
@@ -11376,12 +11376,12 @@ MA_API ma_engine_config ma_engine_config_init(void);
 
 struct ma_engine
 {
-    ma_node_graph nodeGraph;                        /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
+    ma_node_graph nodeGraph;                            /* An engine is a node graph. It should be able to be plugged into any ma_node_graph API (with a cast) which means this must be the first member of this struct. */
 #if !defined(MA_NO_RESOURCE_MANAGER)
     ma_resource_manager* pResourceManager;
 #endif
 #if !defined(MA_NO_DEVICE_IO)
-    ma_device* pDevice;                             /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
+    ma_device* pDevice;                                 /* Optionally set via the config, otherwise allocated by the engine in ma_engine_init(). */
 #endif
     ma_log* pLog;
     ma_uint32 sampleRate;
@@ -11390,10 +11390,10 @@ struct ma_engine
     ma_allocation_callbacks allocationCallbacks;
     ma_bool8 ownsResourceManager;
     ma_bool8 ownsDevice;
-    ma_spinlock inlinedSoundLock;                   /* For synchronizing access to the inlined sound list. */
-    ma_sound_inlined* pInlinedSoundHead;            /* The first inlined sound. Inlined sounds are tracked in a linked list. */
-    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;      /* The total number of allocated inlined sound objects. Used for debugging. */
-    ma_uint32 gainSmoothTimeInFrames;               /* The number of frames to interpolate the gain of spatialized sounds across. */
+    ma_spinlock inlinedSoundLock;                       /* For synchronizing access to the inlined sound list. */
+    ma_sound_inlined* pInlinedSoundHead;                /* The first inlined sound. Inlined sounds are tracked in a linked list. */
+    MA_ATOMIC(4, ma_uint32) inlinedSoundCount;          /* The total number of allocated inlined sound objects. Used for debugging. */
+    ma_uint32 spatializationVolumeSmoothTimeInFrames;   /* The number of frames to interpolate the gain of spatialized sounds across. */
     ma_uint32 defaultVolumeSmoothTimeInPCMFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_engine_process_proc onProcess;
@@ -74699,7 +74699,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
     ensure channels counts link up correctly in the node graph.
     */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
-    spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->gainSmoothTimeInFrames;
+    spatializerConfig.gainSmoothTimeInFrames = pEngineNode->pEngine->spatializationVolumeSmoothTimeInFrames;
 
     if (spatializerConfig.channelsIn == 2) {
         spatializerConfig.pChannelMapIn = defaultStereoChannelMap;
@@ -75057,14 +75057,14 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
 
 
     /* Gain smoothing for spatialized sounds. */
-    pEngine->gainSmoothTimeInFrames = engineConfig.gainSmoothTimeInFrames;
-    if (pEngine->gainSmoothTimeInFrames == 0) {
-        ma_uint32 gainSmoothTimeInMilliseconds = engineConfig.gainSmoothTimeInMilliseconds;
-        if (gainSmoothTimeInMilliseconds == 0) {
-            gainSmoothTimeInMilliseconds = 8;
+    pEngine->spatializationVolumeSmoothTimeInFrames = engineConfig.spatializationVolumeSmoothTimeInFrames;
+    if (pEngine->spatializationVolumeSmoothTimeInFrames == 0) {
+        ma_uint32 spatializationVolumeSmoothTimeInMilliseconds = engineConfig.spatializationVolumeSmoothTimeInMilliseconds;
+        if (spatializationVolumeSmoothTimeInMilliseconds == 0) {
+            spatializationVolumeSmoothTimeInMilliseconds = 8;
         }
 
-        pEngine->gainSmoothTimeInFrames = (gainSmoothTimeInMilliseconds * ma_engine_get_sample_rate(pEngine)) / 1000;  /* 8ms by default. */
+        pEngine->spatializationVolumeSmoothTimeInFrames = (spatializationVolumeSmoothTimeInMilliseconds * ma_engine_get_sample_rate(pEngine)) / 1000;  /* 8ms by default. */
     }
 
 
