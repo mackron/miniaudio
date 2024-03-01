@@ -11360,7 +11360,7 @@ typedef struct
     ma_uint32 periodSizeInMilliseconds;                     /* Used if periodSizeInFrames is unset. */
     ma_uint32 spatializationVolumeSmoothTimeInFrames;       /* The number of frames to interpolate the gain of spatialized sounds across. If set to 0, will use gainSmoothTimeInMilliseconds. */
     ma_uint32 spatializationVolumeSmoothTimeInMilliseconds; /* When set to 0, spatializationVolumeSmoothTimeInFrames will be used. If both are set to 0, a default value will be used. */
-    ma_uint32 defaultVolumeSmoothTimeInPCMFrames;           /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. Higher values means more smoothing at the expense of higher latency (will take longer to reach the new volume). */
+    ma_uint32 defaultVolumeSmoothTimeInFrames;              /* Defaults to 0. Controls the default amount of smoothing to apply to volume changes to sounds. Higher values means more smoothing at the expense of higher latency (will take longer to reach the new volume). */
     ma_uint32 preMixStackSizeInBytes;                       /* A stack is used for internal processing in the node graph. This allows you to configure the size of this stack. Smaller values will reduce the maximum depth of your node graph. You should rarely need to modify this. */
     ma_allocation_callbacks allocationCallbacks;
     ma_bool32 noAutoStart;                                  /* When set to true, requires an explicit call to ma_engine_start(). This is false by default, meaning the engine will be started automatically in ma_engine_init(). */
@@ -11394,7 +11394,7 @@ struct ma_engine
     ma_sound_inlined* pInlinedSoundHead;                /* The first inlined sound. Inlined sounds are tracked in a linked list. */
     MA_ATOMIC(4, ma_uint32) inlinedSoundCount;          /* The total number of allocated inlined sound objects. Used for debugging. */
     ma_uint32 spatializationVolumeSmoothTimeInFrames;   /* The number of frames to interpolate the gain of spatialized sounds across. */
-    ma_uint32 defaultVolumeSmoothTimeInPCMFrames;
+    ma_uint32 defaultVolumeSmoothTimeInFrames;
     ma_mono_expansion_mode monoExpansionMode;
     ma_engine_process_proc onProcess;
     void* pProcessUserData;
@@ -74910,7 +74910,7 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
     }
 
     pEngine->monoExpansionMode = engineConfig.monoExpansionMode;
-    pEngine->defaultVolumeSmoothTimeInPCMFrames = engineConfig.defaultVolumeSmoothTimeInPCMFrames;
+    pEngine->defaultVolumeSmoothTimeInFrames = engineConfig.defaultVolumeSmoothTimeInFrames;
     pEngine->onProcess = engineConfig.onProcess;
     pEngine->pProcessUserData = engineConfig.pProcessUserData;
     ma_allocation_callbacks_init_copy(&pEngine->allocationCallbacks, &engineConfig.allocationCallbacks);
@@ -75763,7 +75763,7 @@ static ma_result ma_sound_init_from_data_source_internal(ma_engine* pEngine, con
     engineNodeConfig.monoExpansionMode           = pConfig->monoExpansionMode;
 
     if (engineNodeConfig.volumeSmoothTimeInPCMFrames == 0) {
-        engineNodeConfig.volumeSmoothTimeInPCMFrames = pEngine->defaultVolumeSmoothTimeInPCMFrames;
+        engineNodeConfig.volumeSmoothTimeInPCMFrames = pEngine->defaultVolumeSmoothTimeInFrames;
     }
 
     /* If we're loading from a data source the input channel count needs to be the data source's native channel count. */
