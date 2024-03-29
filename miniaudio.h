@@ -40488,7 +40488,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
                         device.state === window.miniaudio.device_state.started) {
 
                         device.webaudio.resume().then(() => {
-                                Module._ma_device__on_notification_unlocked(device.pDevice);
+                                Module.ma_device__on_notification_unlocked(device.pDevice);
                             },
                             (error) => {console.error("Failed to resume audiocontext", error);
                             });
