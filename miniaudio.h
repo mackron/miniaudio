@@ -28214,8 +28214,15 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
         int resultALSA;
         int resultPoll = poll(pPollDescriptors, pollDescriptorCount, -1);
         if (resultPoll < 0) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] poll() failed.\n");
-            return ma_result_from_errno(errno);
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] poll() failed.\n");
+
+            /*
+            There have been reports that poll() is returning an error randomly and that instead of
+            returning an error, simply trying again will work. I'm experimenting with adopting this
+            advice.
+            */
+            continue;
+            /*return ma_result_from_errno(errno);*/
         }
 
         /*
