@@ -430,11 +430,11 @@ Sounds and sound groups are nodes in the engine's node graph and can be plugged 
 API. This makes it possible to connect sounds and sound groups to effect nodes to produce complex
 effect chains.
 
-A sound can have it's volume changed with `ma_sound_set_volume()`. If you prefer decibel volume
+A sound can have its volume changed with `ma_sound_set_volume()`. If you prefer decibel volume
 control you can use `ma_volume_db_to_linear()` to convert from decibel representation to linear.
 
 Panning and pitching is supported with `ma_sound_set_pan()` and `ma_sound_set_pitch()`. If you know
-a sound will never have it's pitch changed with `ma_sound_set_pitch()` or via the doppler effect,
+a sound will never have its pitch changed with `ma_sound_set_pitch()` or via the doppler effect,
 you can specify the `MA_SOUND_FLAG_NO_PITCH` flag when initializing the sound for an optimization.
 
 By default, sounds and sound groups have spatialization enabled. If you don't ever want to
@@ -10617,7 +10617,7 @@ typedef struct
     void (* onProcess)(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut);
 
     /*
-    A callback for retrieving the number of a input frames that are required to output the
+    A callback for retrieving the number of input frames that are required to output the
     specified number of output frames. You would only want to implement this when the node performs
     resampling. This is optional, even for nodes that perform resampling, but it does offer a
     small reduction in latency as it allows miniaudio to calculate the exact number of input frames
@@ -19514,7 +19514,7 @@ static ma_result ma_device_do_operation__null(ma_device* pDevice, ma_uint32 oper
 
     /*
     The first thing to do is wait for an operation slot to become available. We only have a single slot for this, but we could extend this later
-    to support queing of operations.
+    to support queuing of operations.
     */
     result = ma_semaphore_wait(&pDevice->null_device.operationSemaphore);
     if (result != MA_SUCCESS) {
@@ -22319,7 +22319,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
         MA_REFERENCE_TIME bufferDuration = periodDurationInMicroseconds * pData->periodsOut * 10;
 
         /*
-        If the periodicy is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
+        If the periodicity is too small, Initialize() will fail with AUDCLNT_E_INVALID_DEVICE_PERIOD. In this case we should just keep increasing
         it and trying it again.
         */
         hr = E_FAIL;
@@ -49584,7 +49584,7 @@ MA_API float ma_fader_get_current_volume(const ma_fader* pFader)
     } else if ((ma_uint64)pFader->cursorInFrames >= pFader->lengthInFrames) {   /* Safe case because the < 0 case was checked above. */
         return pFader->volumeEnd;
     } else {
-        /* The cursor is somewhere inside the fading period. We can figure this out with a simple linear interpoluation between volumeBeg and volumeEnd based on our cursor position. */
+        /* The cursor is somewhere inside the fading period. We can figure this out with a simple linear interpolation between volumeBeg and volumeEnd based on our cursor position. */
         return ma_mix_f32_fast(pFader->volumeBeg, pFader->volumeEnd, (ma_uint32)pFader->cursorInFrames / (float)((ma_uint32)pFader->lengthInFrames));    /* Safe cast to uint32 because we clamp it in ma_fader_process_pcm_frames(). */
     }
 }
@@ -49848,7 +49848,7 @@ static void ma_get_default_channel_map_for_spatializer(ma_channel* pChannelMap, 
     Special case for stereo. Want to default the left and right speakers to side left and side
     right so that they're facing directly down the X axis rather than slightly forward. Not
     doing this will result in sounds being quieter when behind the listener. This might
-    actually be good for some scenerios, but I don't think it's an appropriate default because
+    actually be good for some scenarios, but I don't think it's an appropriate default because
     it can be a bit unexpected.
     */
     if (channelCount == 2) {
@@ -50486,7 +50486,7 @@ MA_API ma_result ma_spatializer_process_pcm_frames(ma_spatializer* pSpatializer,
         ma_vec3f relativePosNormalized;
         ma_vec3f relativePos;   /* The position relative to the listener. */
         ma_vec3f relativeDir;   /* The direction of the sound, relative to the listener. */
-        ma_vec3f listenerVel;   /* The volocity of the listener. For doppler pitch calculation. */
+        ma_vec3f listenerVel;   /* The velocity of the listener. For doppler pitch calculation. */
         float speedOfSound;
         float distance = 0;
         float gain = 1;
@@ -66785,7 +66785,7 @@ MA_API ma_result ma_noise_set_type(ma_noise* pNoise, ma_noise_type type)
 
     /*
     This function should never have been implemented in the first place. Changing the type dynamically is not
-    supported. Instead you need to uninitialize and reinitiailize a fresh `ma_noise` object. This function
+    supported. Instead you need to uninitialize and reinitialize a fresh `ma_noise` object. This function
     will be removed in version 0.12.
     */
     MA_ASSERT(MA_FALSE);
@@ -70864,7 +70864,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
     */
     result = ma_resource_manager_data_buffer_result(pDataBuffer);
     if (result != MA_BUSY) {
-        goto done;  /* <-- This will ensure the exucution pointer is incremented. */
+        goto done;  /* <-- This will ensure the execution pointer is incremented. */
     } else {
         result = MA_SUCCESS;    /* <-- Make sure this is reset. */
     }
@@ -75968,7 +75968,7 @@ MA_API ma_result ma_engine_play_sound_ex(ma_engine* pEngine, const char* pFilePa
         return MA_INVALID_ARGS;
     }
 
-    /* Attach to the endpoint node if nothing is specicied. */
+    /* Attach to the endpoint node if nothing is specified. */
     if (pNode == NULL) {
         pNode = ma_node_graph_get_endpoint(&pEngine->nodeGraph);
         nodeInputBusIndex = 0;
