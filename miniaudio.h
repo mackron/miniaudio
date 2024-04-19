@@ -3749,8 +3749,7 @@ extern "C" {
 #endif
 
 
-
-#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
+#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined(_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__) || defined(__ppc64__)
     #define MA_SIZEOF_PTR   8
 #else
     #define MA_SIZEOF_PTR   4
@@ -17977,9 +17976,13 @@ DEVICE I/O
     #endif
 #endif
 
+#ifdef MA_APPLE
+    #include <AvailabilityMacros.h>
+#endif
+
 #ifndef MA_NO_DEVICE_IO
 
-#if defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+#if defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
     #include <mach/mach_time.h> /* For mach_absolute_time() */
 #endif
 
@@ -18545,7 +18548,7 @@ Timing
 
         return (double)(counter.QuadPart - pTimer->counter) / g_ma_TimerFrequency.QuadPart;
     }
-#elif defined(MA_APPLE) && (__MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+#elif defined(MA_APPLE) && (MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
     static ma_uint64 g_ma_TimerFrequency = 0;
     static void ma_timer_init(ma_timer* pTimer)
     {
@@ -32306,6 +32309,12 @@ static ma_result ma_get_channel_map_from_AudioChannelLayout(AudioChannelLayout* 
 #else
 /* kAudioObjectPropertyElementMaster is deprecated. */
 #define AUDIO_OBJECT_PROPERTY_ELEMENT kAudioObjectPropertyElementMaster
+#endif
+
+/* kAudioDevicePropertyScope* were renamed to kAudioObjectPropertyScope* in 10.8. */
+#if !defined(MAC_OS_X_VERSION_10_8) || (MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_8)
+#define kAudioObjectPropertyScopeInput kAudioDevicePropertyScopeInput
+#define kAudioObjectPropertyScopeOutput kAudioDevicePropertyScopeOutput
 #endif
 
 static ma_result ma_get_device_object_ids__coreaudio(ma_context* pContext, UInt32* pDeviceCount, AudioObjectID** ppDeviceObjectIDs) /* NOTE: Free the returned buffer with ma_free(). */
