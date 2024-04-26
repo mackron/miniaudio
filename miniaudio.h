@@ -21574,7 +21574,7 @@ static ma_result ma_context_get_device_id_from_MMDevice__wasapi(ma_context* pCon
         size_t idlen = ma_strlen_WCHAR(pDeviceIDString);
         if (idlen+1 > ma_countof(pDeviceID->wasapi)) {
             ma_CoTaskMemFree(pContext, pDeviceIDString);
-            MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must haved change and is too long to fit in our fixed sized buffer. */
+            MA_ASSERT(MA_FALSE);  /* NOTE: If this is triggered, please report it. It means the format of the ID must have changed and is too long to fit in our fixed sized buffer. */
             return MA_ERROR;
         }
 
@@ -28705,7 +28705,7 @@ PulseAudio Backend
 ******************************************************************************/
 #ifdef MA_HAS_PULSEAUDIO
 /*
-The PulseAudio API, along with Apple's Core Audio, is the worst of the maintream audio APIs. This is a brief description of what's going on
+The PulseAudio API, along with Apple's Core Audio, is the worst of the mainstream audio APIs. This is a brief description of what's going on
 in the PulseAudio backend. I apologize if this gets a bit ranty for your liking - you might want to skip this discussion.
 
 PulseAudio has something they call the "Simple API", which unfortunately isn't suitable for miniaudio. I've not seen anywhere where it
@@ -33551,7 +33551,7 @@ static OSStatus ma_on_output__coreaudio(void* pUserData, AudioUnitRenderActionFl
         }
     } else {
         /* This is the deinterleaved case. We need to update each buffer in groups of internalChannels. This assumes each buffer is the same size. */
-        MA_ASSERT(pDevice->playback.internalChannels <= MA_MAX_CHANNELS);   /* This should heve been validated at initialization time. */
+        MA_ASSERT(pDevice->playback.internalChannels <= MA_MAX_CHANNELS);   /* This should have been validated at initialization time. */
 
         /*
         For safety we'll check that the internal channels is a multiple of the buffer count. If it's not it means something
@@ -33882,7 +33882,7 @@ static ma_result ma_context__init_device_tracking__coreaudio(ma_context* pContex
 
     ma_spinlock_lock(&g_DeviceTrackingInitLock_CoreAudio);
     {
-        /* Don't do anything if we've already initializd device tracking. */
+        /* Don't do anything if we've already initialized device tracking. */
         if (g_DeviceTrackingInitCounter_CoreAudio == 0) {
             AudioObjectPropertyAddress propAddress;
             propAddress.mScope    = kAudioObjectPropertyScopeGlobal;
@@ -67938,7 +67938,7 @@ static void ma_resource_manager_delete_all_data_buffer_nodes(ma_resource_manager
         ma_resource_manager_data_buffer_node* pDataBufferNode = pResourceManager->pRootDataBufferNode;
         ma_resource_manager_data_buffer_node_remove(pResourceManager, pDataBufferNode);
 
-        /* The data buffer has been removed from the BST, so now we need to free it's data. */
+        /* The data buffer has been removed from the BST, so now we need to free its data. */
         ma_resource_manager_data_buffer_node_free(pResourceManager, pDataBufferNode);
     }
 }
@@ -74425,7 +74425,7 @@ static ma_result ma_engine_node_set_volume(ma_engine_node* pEngineNode, float vo
 
     /* If we're not smoothing we should bypass the volume gainer entirely. */
     if (pEngineNode->volumeSmoothTimeInPCMFrames == 0) {
-        /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for hodling our volume. */
+        /* We should always have an active spatializer because it can be enabled and disabled dynamically. We can just use that for holding our volume. */
         ma_spatializer_set_master_volume(&pEngineNode->spatializer, volume);
     } else {
         /* We're using volume smoothing, so apply the master volume to the gainer. */
