@@ -37736,7 +37736,9 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
-    ma_device_handle_backend_data_callback(pDevice, NULL, pAudioData, frameCount);
+    if (frameCount > 0) {
+        ma_device_handle_backend_data_callback(pDevice, NULL, pAudioData, (ma_uint32)frameCount);
+    }
 
     (void)pStream;
     return MA_AAUDIO_CALLBACK_RESULT_CONTINUE;
@@ -37747,7 +37749,14 @@ static ma_aaudio_data_callback_result_t ma_stream_data_callback_playback__aaudio
     ma_device* pDevice = (ma_device*)pUserData;
     MA_ASSERT(pDevice != NULL);
 
-    ma_device_handle_backend_data_callback(pDevice, pAudioData, NULL, frameCount);
+    /*
+    I've had a report that AAudio can sometimes post a frame count of 0. We need to check for that here
+    so we don't get any errors at a deeper level. I'm doing the same with the capture side for safety,
+    though I've not yet had any reports about that one.
+    */
+    if (frameCount > 0) {
+        ma_device_handle_backend_data_callback(pDevice, pAudioData, NULL, (ma_uint32)frameCount);
+    }
 
     (void)pStream;
     return MA_AAUDIO_CALLBACK_RESULT_CONTINUE;
@@ -42632,6 +42641,15 @@ MA_API ma_result ma_device_handle_backend_data_callback(ma_device* pDevice, void
     }
 
     if (pOutput == NULL && pInput == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    /*
+    There is an assert deeper in the code that checks that frameCount > 0. Since this is a public facing
+    API we'll need to check for that here. I've had reports that AAudio can sometimes post a frame count
+    of 0.
+    */
+    if (frameCount == 0) {
         return MA_INVALID_ARGS;
     }
 
