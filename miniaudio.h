@@ -60754,7 +60754,7 @@ MA_API ma_decoder_config ma_decoder_config_init(ma_format outputFormat, ma_uint3
     return config;
 }
 
-MA_API ma_decoder_config ma_decoder_config_init_default()
+MA_API ma_decoder_config ma_decoder_config_init_default(void)
 {
     return ma_decoder_config_init(ma_format_unknown, 0, 0);
 }
