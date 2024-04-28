@@ -14062,7 +14062,7 @@ static MA_INLINE ma_int32 ma_dither_s32(ma_dither_mode ditherMode, ma_int32 dith
 Atomics
 
 **************************************************************************************************************************************************************/
-/* ma_atomic.h begin */
+/* c89atomic.h begin */
 #ifndef ma_atomic_h
 #if defined(__cplusplus)
 extern "C" {
@@ -14788,12 +14788,12 @@ typedef int ma_atomic_memory_order;
         typedef ma_uint8 ma_atomic_flag;
         #define ma_atomic_flag_test_and_set_explicit(ptr, order)    (ma_bool32)ma_atomic_test_and_set_explicit_8(ptr, order)
         #define ma_atomic_flag_clear_explicit(ptr, order)           ma_atomic_clear_explicit_8(ptr, order)
-        #define c89atoimc_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_8(ptr, order)
+        #define ma_atomic_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_8(ptr, order)
     #else
         typedef ma_uint32 ma_atomic_flag;
         #define ma_atomic_flag_test_and_set_explicit(ptr, order)    (ma_bool32)ma_atomic_test_and_set_explicit_32(ptr, order)
         #define ma_atomic_flag_clear_explicit(ptr, order)           ma_atomic_clear_explicit_32(ptr, order)
-        #define c89atoimc_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_32(ptr, order)
+        #define ma_atomic_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_32(ptr, order)
     #endif
 #elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
     #define MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE
@@ -14874,15 +14874,18 @@ typedef int ma_atomic_memory_order;
         __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Watomic-alignment"
     static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
     {
         __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
+    #pragma clang diagnostic pop
     typedef ma_uint8 ma_atomic_flag;
     #define ma_atomic_flag_test_and_set_explicit(dst, order)        (ma_bool32)__atomic_test_and_set(dst, order)
     #define ma_atomic_flag_clear_explicit(dst, order)               __atomic_clear(dst, order)
-    #define c89atoimc_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
+    #define ma_atomic_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
 #else
     #define ma_atomic_memory_order_relaxed  1
     #define ma_atomic_memory_order_consume  2
@@ -15396,7 +15399,7 @@ typedef int ma_atomic_memory_order;
     typedef ma_uint8 ma_atomic_flag;
     #define ma_atomic_flag_test_and_set_explicit(ptr, order)        (ma_bool32)ma_atomic_test_and_set_explicit_8(ptr, order)
     #define ma_atomic_flag_clear_explicit(ptr, order)               ma_atomic_clear_explicit_8(ptr, order)
-    #define c89atoimc_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
+    #define ma_atomic_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
 #endif
 #if !defined(MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE)
     #if defined(MA_ATOMIC_HAS_8)
@@ -15921,7 +15924,7 @@ static MA_INLINE void ma_atomic_spinlock_lock(volatile ma_atomic_spinlock* pSpin
         if (ma_atomic_flag_test_and_set_explicit(pSpinlock, ma_atomic_memory_order_acquire) == 0) {
             break;
         }
-        while (c89atoimc_flag_load_explicit(pSpinlock, ma_atomic_memory_order_relaxed) == 1) {
+        while (ma_atomic_flag_load_explicit(pSpinlock, ma_atomic_memory_order_relaxed) == 1) {
         }
     }
 }
@@ -15936,7 +15939,7 @@ static MA_INLINE void ma_atomic_spinlock_unlock(volatile ma_atomic_spinlock* pSp
 }
 #endif
 #endif
-/* ma_atomic.h end */
+/* c89atomic.h end */
 
 #define MA_ATOMIC_SAFE_TYPE_IMPL(c89TypeExtension, type) \
     static MA_INLINE ma_##type ma_atomic_##type##_get(ma_atomic_##type* x) \
