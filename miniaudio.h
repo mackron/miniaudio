@@ -42388,6 +42388,17 @@ MA_API ma_result ma_device_get_info(ma_device* pDevice, ma_device_type type, ma_
     if (type == ma_device_type_playback) {
         return ma_context_get_device_info(pDevice->pContext, type, pDevice->playback.pID, pDeviceInfo);
     } else {
+        /*
+        Here we're getting the capture side, which is the branch we'll be entering for a loopback
+        device, since loopback is capturing. However, if the device is using the default device ID,
+        it won't get the correct information because it'll think we're asking for the default
+        capture device, where in fact for loopback we want the default *playback* device. We'll do
+        a bit of a hack here to make sure we get the correct info.
+        */
+        if (pDevice->type == ma_device_type_loopback && pDevice->capture.pID == NULL) {
+            type = ma_device_type_playback;
+        }
+
         return ma_context_get_device_info(pDevice->pContext, type, pDevice->capture.pID, pDeviceInfo);
     }
 }
