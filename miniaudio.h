@@ -7268,6 +7268,7 @@ struct ma_context_config
     {
         const char* pClientName;
         ma_bool32 tryStartServer;
+        ma_bool8 noAutoConnect;
     } jack;
     ma_backend_callbacks custom;
 };
@@ -7536,6 +7537,9 @@ struct ma_context
 
             char* pClientName;
             ma_bool32 tryStartServer;
+            ma_uint32 channelsPlayback;
+            ma_uint32 channelsCapture;
+            ma_bool8 noAutoConnect;
         } jack;
 #endif
 #ifdef MA_SUPPORT_COREAUDIO
@@ -31222,7 +31226,6 @@ static ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_devic
 {
     ma_jack_client_t* pClient;
     ma_result result;
-    const char** ppPorts;
 
     MA_ASSERT(pContext != NULL);
 
@@ -31253,21 +31256,30 @@ static ma_result ma_context_get_device_info__jack(ma_context* pContext, ma_devic
     pDeviceInfo->nativeDataFormats[0].sampleRate = ((ma_jack_get_sample_rate_proc)pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pClient);
     pDeviceInfo->nativeDataFormats[0].channels   = 0;
 
-    ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ((deviceType == ma_device_type_playback) ? ma_JackPortIsInput : ma_JackPortIsOutput));
-    if (ppPorts == NULL) {
-        ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pClient);
-        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
-        return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-    }
+    if (deviceType == ma_device_type_playback && pContext->jack.channelsPlayback == 0 ||
+        deviceType == ma_device_type_capture && pContext->jack.channelsCapture == 0)
+    {
+        const char** ppPorts;
+        ppPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ((deviceType == ma_device_type_playback) ? ma_JackPortIsInput : ma_JackPortIsOutput));
+        if (ppPorts == NULL) {
+            ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pClient);
+            ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
+            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+        }
 
-    while (ppPorts[pDeviceInfo->nativeDataFormats[0].channels] != NULL) {
-        pDeviceInfo->nativeDataFormats[0].channels += 1;
+        while (ppPorts[pDeviceInfo->nativeDataFormats[0].channels] != NULL) {
+            pDeviceInfo->nativeDataFormats[0].channels += 1;
+        }
+        ((ma_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
+    } else if (deviceType == ma_device_type_playback) {
+        pDeviceInfo->nativeDataFormats[0].channels = pContext->jack.channelsPlayback;
+    } else if (deviceType == ma_device_type_capture) {
+        pDeviceInfo->nativeDataFormats[0].channels = pContext->jack.channelsCapture;
     }
 
     pDeviceInfo->nativeDataFormats[0].flags = 0;
     pDeviceInfo->nativeDataFormatCount = 1;
 
-    ((ma_jack_free_proc)pContext->jack.jack_free)((void*)ppPorts);
     ((ma_jack_client_close_proc)pContext->jack.jack_client_close)((ma_jack_client_t*)pClient);
 
     (void)pContext;
@@ -31449,44 +31461,65 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
 
     if (pConfig->deviceType == ma_device_type_capture || pConfig->deviceType == ma_device_type_duplex) {
         ma_uint32 iPort;
-        const char** ppPorts;
 
         pDescriptorCapture->format     = ma_format_f32;
-        pDescriptorCapture->channels   = 0;
         pDescriptorCapture->sampleRate = ((ma_jack_get_sample_rate_proc)pDevice->pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
         ma_channel_map_init_standard(ma_standard_channel_map_alsa, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
+        if (pDevice->pContext->jack.channelsCapture == 0) {
+            const char** ppPorts;
+            pDescriptorCapture->channels   = 0;
 
-        ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
-        if (ppPorts == NULL) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-        }
-
-        /* Need to count the number of ports first so we can allocate some memory. */
-        while (ppPorts[pDescriptorCapture->channels] != NULL) {
-            pDescriptorCapture->channels += 1;
-        }
-
-        pDevice->jack.ppPortsCapture = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsCapture) * pDescriptorCapture->channels, &pDevice->pContext->allocationCallbacks);
-        if (pDevice->jack.ppPortsCapture == NULL) {
-            return MA_OUT_OF_MEMORY;
-        }
-
-        for (iPort = 0; iPort < pDescriptorCapture->channels; iPort += 1) {
-            char name[64];
-            ma_strcpy_s(name, sizeof(name), "capture");
-            ma_itoa_s((int)iPort, name+7, sizeof(name)-7, 10); /* 7 = length of "capture" */
-
-            pDevice->jack.ppPortsCapture[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
-            if (pDevice->jack.ppPortsCapture[iPort] == NULL) {
-                ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
-                ma_device_uninit__jack(pDevice);
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+            ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
+            if (ppPorts == NULL) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
                 return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             }
-        }
 
-        ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+            /* Need to count the number of ports first so we can allocate some memory. */
+            while (ppPorts[pDescriptorCapture->channels] != NULL) {
+                pDescriptorCapture->channels += 1;
+            }
+
+            pDevice->jack.ppPortsCapture = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsCapture) * pDescriptorCapture->channels, &pDevice->pContext->allocationCallbacks);
+            if (pDevice->jack.ppPortsCapture == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            for (iPort = 0; iPort < pDescriptorCapture->channels; iPort += 1) {
+                char name[64];
+                ma_strcpy_s(name, sizeof(name), "capture");
+                ma_itoa_s((int)iPort, name+7, sizeof(name)-7, 10); /* 7 = length of "capture" */
+
+                pDevice->jack.ppPortsCapture[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
+                if (pDevice->jack.ppPortsCapture[iPort] == NULL) {
+                    ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+                    ma_device_uninit__jack(pDevice);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+                    return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                }
+            }
+
+            ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+        } else {
+            pDevice->jack.ppPortsCapture = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsCapture) * pDescriptorCapture->channels, &pDevice->pContext->allocationCallbacks);
+            if (pDevice->jack.ppPortsCapture == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            for (iPort = 0; iPort < pDescriptorCapture->channels; iPort += 1) {
+                char name[64];
+                ma_strcpy_s(name, sizeof(name), "capture");
+                ma_itoa_s((int)iPort, name+7, sizeof(name)-7, 10); /* 7 = length of "capture" */
+
+                pDevice->jack.ppPortsCapture[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsInput, 0);
+                if (pDevice->jack.ppPortsCapture[iPort] == NULL) {
+                    ma_device_uninit__jack(pDevice);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+                    return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                }
+            }
+
+        }
 
         pDescriptorCapture->periodSizeInFrames = periodSizeInFrames;
         pDescriptorCapture->periodCount        = 1; /* There's no notion of a period in JACK. Just set to 1. */
@@ -31500,45 +31533,65 @@ static ma_result ma_device_init__jack(ma_device* pDevice, const ma_device_config
 
     if (pConfig->deviceType == ma_device_type_playback || pConfig->deviceType == ma_device_type_duplex) {
         ma_uint32 iPort;
-        const char** ppPorts;
 
         pDescriptorPlayback->format     = ma_format_f32;
-        pDescriptorPlayback->channels   = 0;
         pDescriptorPlayback->sampleRate = ((ma_jack_get_sample_rate_proc)pDevice->pContext->jack.jack_get_sample_rate)((ma_jack_client_t*)pDevice->jack.pClient);
         ma_channel_map_init_standard(ma_standard_channel_map_alsa, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap), pDescriptorPlayback->channels);
 
-        ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
-        if (ppPorts == NULL) {
-            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
-            return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
-        }
-
-        /* Need to count the number of ports first so we can allocate some memory. */
-        while (ppPorts[pDescriptorPlayback->channels] != NULL) {
-            pDescriptorPlayback->channels += 1;
-        }
-
-        pDevice->jack.ppPortsPlayback = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsPlayback) * pDescriptorPlayback->channels, &pDevice->pContext->allocationCallbacks);
-        if (pDevice->jack.ppPortsPlayback == NULL) {
-            ma_free(pDevice->jack.ppPortsCapture, &pDevice->pContext->allocationCallbacks);
-            return MA_OUT_OF_MEMORY;
-        }
-
-        for (iPort = 0; iPort < pDescriptorPlayback->channels; iPort += 1) {
-            char name[64];
-            ma_strcpy_s(name, sizeof(name), "playback");
-            ma_itoa_s((int)iPort, name+8, sizeof(name)-8, 10); /* 8 = length of "playback" */
-
-            pDevice->jack.ppPortsPlayback[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
-            if (pDevice->jack.ppPortsPlayback[iPort] == NULL) {
-                ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
-                ma_device_uninit__jack(pDevice);
-                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+        if (pDevice->pContext->jack.channelsPlayback == 0) {
+            const char** ppPorts;
+            pDescriptorPlayback->channels   = 0;
+            ppPorts = ((ma_jack_get_ports_proc)pDevice->pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsInput);
+            if (ppPorts == NULL) {
+                ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to query physical ports.");
                 return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
             }
-        }
 
-        ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+            /* Need to count the number of ports first so we can allocate some memory. */
+            while (ppPorts[pDescriptorPlayback->channels] != NULL) {
+                pDescriptorPlayback->channels += 1;
+            }
+
+            pDevice->jack.ppPortsPlayback = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsPlayback) * pDescriptorPlayback->channels, &pDevice->pContext->allocationCallbacks);
+            if (pDevice->jack.ppPortsPlayback == NULL) {
+                ma_free(pDevice->jack.ppPortsCapture, &pDevice->pContext->allocationCallbacks);
+                return MA_OUT_OF_MEMORY;
+            }
+
+            for (iPort = 0; iPort < pDescriptorPlayback->channels; iPort += 1) {
+                char name[64];
+                ma_strcpy_s(name, sizeof(name), "playback");
+                ma_itoa_s((int)iPort, name+8, sizeof(name)-8, 10); /* 8 = length of "playback" */
+
+                pDevice->jack.ppPortsPlayback[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
+                if (pDevice->jack.ppPortsPlayback[iPort] == NULL) {
+                    ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+                    ma_device_uninit__jack(pDevice);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+                    return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                }
+            }
+
+            ((ma_jack_free_proc)pDevice->pContext->jack.jack_free)((void*)ppPorts);
+        } else {
+            pDevice->jack.ppPortsPlayback = (ma_ptr*)ma_malloc(sizeof(*pDevice->jack.ppPortsPlayback) * pDescriptorPlayback->channels, &pDevice->pContext->allocationCallbacks);
+            if (pDevice->jack.ppPortsPlayback == NULL) {
+                return MA_OUT_OF_MEMORY;
+            }
+
+            for (iPort = 0; iPort < pDescriptorPlayback->channels; iPort += 1) {
+                char name[64];
+                ma_strcpy_s(name, sizeof(name), "playback");
+                ma_itoa_s((int)iPort, name+8, sizeof(name)-8, 10); /* 8 = length of "playback" */
+
+                pDevice->jack.ppPortsPlayback[iPort] = ((ma_jack_port_register_proc)pDevice->pContext->jack.jack_port_register)((ma_jack_client_t*)pDevice->jack.pClient, name, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsOutput, 0);
+                if (pDevice->jack.ppPortsPlayback[iPort] == NULL) {
+                    ma_device_uninit__jack(pDevice);
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to register ports.");
+                    return MA_FAILED_TO_OPEN_BACKEND_DEVICE;
+                }
+            }
+        }
 
         pDescriptorPlayback->periodSizeInFrames = periodSizeInFrames;
         pDescriptorPlayback->periodCount        = 1;   /* There's no notion of a period in JACK. Just set to 1. */
@@ -31565,6 +31618,9 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
         ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[JACK] Failed to activate the JACK client.");
         return MA_FAILED_TO_START_BACKEND_DEVICE;
     }
+    if (pContext->jack.noAutoConnect) {
+        return MA_SUCCESS;
+    }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
         const char** ppServerPorts = ((ma_jack_get_ports_proc)pContext->jack.jack_get_ports)((ma_jack_client_t*)pDevice->jack.pClient, NULL, MA_JACK_DEFAULT_AUDIO_TYPE, ma_JackPortIsPhysical | ma_JackPortIsOutput);
@@ -31574,7 +31630,7 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
             return MA_ERROR;
         }
 
-        for (i = 0; ppServerPorts[i] != NULL; ++i) {
+        for (i = 0; ppServerPorts[i] != NULL && i < pDevice->capture.channels; ++i) {
             const char* pServerPort = ppServerPorts[i];
             const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.ppPortsCapture[i]);
 
@@ -31598,7 +31654,7 @@ static ma_result ma_device_start__jack(ma_device* pDevice)
             return MA_ERROR;
         }
 
-        for (i = 0; ppServerPorts[i] != NULL; ++i) {
+        for (i = 0; ppServerPorts[i] != NULL && i < pDevice->playback.channels; ++i) {
             const char* pServerPort = ppServerPorts[i];
             const char* pClientPort = ((ma_jack_port_name_proc)pContext->jack.jack_port_name)((ma_jack_port_t*)pDevice->jack.ppPortsPlayback[i]);
 
@@ -31733,6 +31789,8 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
         pContext->jack.pClientName = ma_copy_string(pConfig->jack.pClientName, &pContext->allocationCallbacks);
     }
     pContext->jack.tryStartServer = pConfig->jack.tryStartServer;
+    pContext->jack.noAutoConnect = pConfig->jack.noAutoConnect;
+    pContext->jack.noAutoConnect = true; // TODO I don't know how to use custom context config, it crashes
 
     /*
     Getting here means the JACK library is installed, but it doesn't necessarily mean it's usable. We need to quickly test this by connecting
@@ -41685,6 +41743,11 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         if (!ma__is_channel_map_valid(pConfig->playback.pChannelMap, pConfig->playback.channels)) {
             return MA_INVALID_ARGS;
         }
+    }
+
+    if (pContext->backend == ma_backend_jack) {
+        pContext->jack.channelsCapture = pConfig->capture.channels;
+        pContext->jack.channelsPlayback = pConfig->playback.channels;
     }
 
     pDevice->pContext = pContext;
