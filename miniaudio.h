@@ -38357,12 +38357,12 @@ static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type t
     MA_ASSERT(type        != ma_device_type_duplex);
     MA_ASSERT(pDeviceInfo != NULL);
 
-    if (type == ma_device_type_playback) {
+    if (type == ma_device_type_capture) {
         pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamCapture;
         pDeviceInfo->id.aaudio = pDevice->capture.id.aaudio;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);     /* Only supporting default devices. */
     }
-    if (type == ma_device_type_capture) {
+    if (type == ma_device_type_playback) {
         pStream = (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback;
         pDeviceInfo->id.aaudio = pDevice->playback.id.aaudio;
         ma_strncpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);    /* Only supporting default devices. */
