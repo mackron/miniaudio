@@ -21541,8 +21541,23 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
 
-    hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    if (FAILED(hr)) {
+    /*
+    This weird COM init/uninit here is a hack to work around a crash when changing devices. What is happening is
+    WASAPI fires a callback from another thread when the device is changed. It's from that thread where this
+    function is getting called. What I'm suspecting is that the other thread is not initializing COM which in turn
+    results in CoCreateInstance() failing.
+
+    The community has reported that this seems to fix the crash. There are future plans to move all WASAPI operation
+    over to a single thread to make everything safer, but in the meantime while we wait for that to come online I'm
+    happy enough to use this hack instead.
+    */
+    ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
+    {
+        hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    }
+    ma_CoUninitialize(pContext);
+
+    if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
         return ma_result_from_HRESULT(hr);
     }
