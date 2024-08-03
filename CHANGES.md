@@ -11,6 +11,7 @@ v0.11.22 - TBD
 * Web: Fix a JavaScript error when initializing and then uninitializing a context before any interactivity.
 * AAudio: The default minimum SDK version has been increased from 26 to 27 when enabling AAudio. If you need to support version 26, you can use `#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26`.
 * AAudio: Fix ma_device_get_info() implementation
+* PulseAudio: Allow setting the channel map requested from PulseAudio in device configs
 
 
 v0.11.21 - 2023-11-15
