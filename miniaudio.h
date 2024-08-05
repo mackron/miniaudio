@@ -75374,6 +75374,21 @@ static void ma_engine_data_callback_internal(ma_device* pDevice, void* pFramesOu
 
     ma_engine_read_pcm_frames(pEngine, pFramesOut, frameCount, NULL);
 }
+
+static ma_uint32 ma_device__get_processing_size_in_frames(ma_device* pDevice)
+{
+    /*
+    The processing size is the period size. The device can have a fixed sized processing size, or
+    it can be decided by the backend in which case it can be variable.
+    */
+    if (pDevice->playback.intermediaryBufferCap > 0) {
+        /* Using a fixed sized processing callback. */
+        return pDevice->playback.intermediaryBufferCap;
+    } else {
+        /* Not using a fixed sized processing callback. Need to estimate the processing size based on the backend. */
+        return pDevice->playback.internalPeriodSizeInFrames;
+    }
+}
 #endif
 
 MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEngine)
@@ -75467,6 +75482,14 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
         if (pEngine->pDevice != NULL) {
             engineConfig.channels   = pEngine->pDevice->playback.channels;
             engineConfig.sampleRate = pEngine->pDevice->sampleRate;
+
+            /*
+            The processing size used by the engine is determined by engineConfig.periodSizeInFrames. We want
+            to make this equal to what the device is using for it's period size. If we don't do that, it's
+            possible that the node graph will split it's processing into multiple passes which can introduce
+            glitching.
+            */
+            engineConfig.periodSizeInFrames = ma_device__get_processing_size_in_frames(pEngine->pDevice);
         }
     }
     #endif
