@@ -41837,9 +41837,13 @@ MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
 MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
 {
     ma_device_config config;
+
     MA_ZERO_OBJECT(&config);
     config.deviceType = deviceType;
     config.resampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate don't matter here. */
+
+    /* Use a blocking PulseAudio loop by default. Non-blocking currently results in glitches with low period sizes. */
+    config.pulse.blockingMainLoop = MA_TRUE;
 
     return config;
 }
