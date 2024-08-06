@@ -7020,6 +7020,8 @@ typedef union
     int nullbackend;                /* The null backend uses an integer for device IDs. */
 } ma_device_id;
 
+MA_API ma_bool32 ma_device_id_equal(const ma_device_id* pA, const ma_device_id* pB);
+
 
 typedef struct ma_context_config    ma_context_config;
 typedef struct ma_device_config     ma_device_config;
@@ -41413,6 +41415,24 @@ MA_API ma_result ma_device_job_thread_next(ma_device_job_thread* pJobThread, ma_
     }
 
     return ma_job_queue_next(&pJobThread->jobQueue, pJob);
+}
+
+
+MA_API ma_bool32 ma_device_id_equal(const ma_device_id* pA, const ma_device_id* pB)
+{
+    size_t i;
+
+    if (pA == NULL || pB == NULL) {
+        return MA_FALSE;
+    }
+
+    for (i = 0; i < sizeof(ma_device_id); i += 1) {
+        if (((const char*)pA)[i] != ((const char*)pB)[i]) {
+            return MA_FALSE;
+        }
+    }
+
+    return MA_TRUE;
 }
 
 
