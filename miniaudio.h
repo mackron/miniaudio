@@ -32976,7 +32976,7 @@ static ma_result ma_find_best_format__coreaudio(ma_context* pContext, AudioObjec
 
     desiredSampleRate = sampleRate;
     if (desiredSampleRate == 0) {
-        desiredSampleRate = pOrigFormat->mSampleRate;
+        desiredSampleRate = (ma_uint32)pOrigFormat->mSampleRate;
     }
 
     desiredChannelCount = channels;
@@ -34497,7 +34497,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
         }
 
         pData->channelsOut   = bestFormat.mChannelsPerFrame;
-        pData->sampleRateOut = bestFormat.mSampleRate;
+        pData->sampleRateOut = (ma_uint32)bestFormat.mSampleRate;
     }
 
     /* Clamp the channel count for safety. */
