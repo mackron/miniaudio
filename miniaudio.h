@@ -74739,7 +74739,7 @@ MA_API ma_result ma_engine_node_init_preallocated(const ma_engine_node_config* p
 
 
     /*
-    Spatialization comes next. We spatialize based ont he node's output channel count. It's up the caller to
+    Spatialization comes next. We spatialize based on the node's output channel count. It's up the caller to
     ensure channels counts link up correctly in the node graph.
     */
     spatializerConfig = ma_engine_node_spatializer_config_init(&baseNodeConfig);
