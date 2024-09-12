@@ -39997,6 +39997,8 @@ static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
                 device.streamNode.disconnect();
                 device.streamNode = undefined;
             }
+
+            device.pDevice = undefined;
         }, pDevice->webaudio.deviceIndex);
 
         emscripten_destroy_web_audio_node(pDevice->webaudio.audioWorklet);
@@ -40387,9 +40389,10 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
         pDevice->webaudio.deviceIndex = EM_ASM_INT({
             return window.miniaudio.track_device({
                 webaudio: emscriptenGetAudioObject($0),
-                state:    1 /* 1 = ma_device_state_stopped */
+                state:    1, /* 1 = ma_device_state_stopped */
+                pDevice: $1
             });
-        }, pDevice->webaudio.audioContext);
+        }, pDevice->webaudio.audioContext, pDevice);
 
         return MA_SUCCESS;
     }
