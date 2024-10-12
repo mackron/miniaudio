@@ -7110,7 +7110,6 @@ struct ma_device_config
         const char* pStreamNamePlayback;
         const char* pStreamNameCapture;
         int channelMap;
-        ma_bool32 blockingMainLoop;
     } pulse;
     struct
     {
@@ -7812,7 +7811,7 @@ struct ma_device
 
     union
     {
-    #ifdef MA_SUPPORT_WASAPI
+#ifdef MA_SUPPORT_WASAPI
         struct
         {
             /*IAudioClient**/ ma_ptr pAudioClientPlayback;
@@ -7852,8 +7851,8 @@ struct ma_device
             void* hAvrtHandle;
             ma_mutex rerouteLock;
         } wasapi;
-    #endif
-    #ifdef MA_SUPPORT_DSOUND
+#endif
+#ifdef MA_SUPPORT_DSOUND
         struct
         {
             /*LPDIRECTSOUND*/ ma_ptr pPlayback;
@@ -7862,8 +7861,8 @@ struct ma_device
             /*LPDIRECTSOUNDCAPTURE*/ ma_ptr pCapture;
             /*LPDIRECTSOUNDCAPTUREBUFFER*/ ma_ptr pCaptureBuffer;
         } dsound;
-    #endif
-    #ifdef MA_SUPPORT_WINMM
+#endif
+#ifdef MA_SUPPORT_WINMM
         struct
         {
             /*HWAVEOUT*/ ma_handle hDevicePlayback;
@@ -7881,8 +7880,8 @@ struct ma_device
             ma_uint8* pIntermediaryBufferCapture;
             ma_uint8* _pHeapData;                      /* Used internally and is used for the heap allocated data for the intermediary buffer and the WAVEHDR structures. */
         } winmm;
-    #endif
-    #ifdef MA_SUPPORT_ALSA
+#endif
+#ifdef MA_SUPPORT_ALSA
         struct
         {
             /*snd_pcm_t**/ ma_ptr pPCMPlayback;
@@ -7896,18 +7895,17 @@ struct ma_device
             ma_bool8 isUsingMMapPlayback;
             ma_bool8 isUsingMMapCapture;
         } alsa;
-    #endif
-    #ifdef MA_SUPPORT_PULSEAUDIO
+#endif
+#ifdef MA_SUPPORT_PULSEAUDIO
         struct
         {
             /*pa_mainloop**/ ma_ptr pMainLoop;
             /*pa_context**/ ma_ptr pPulseContext;
             /*pa_stream**/ ma_ptr pStreamPlayback;
             /*pa_stream**/ ma_ptr pStreamCapture;
-            ma_bool32 blockingMainLoop;
         } pulse;
-    #endif
-    #ifdef MA_SUPPORT_JACK
+#endif
+#ifdef MA_SUPPORT_JACK
         struct
         {
             /*jack_client_t**/ ma_ptr pClient;
@@ -7916,8 +7914,8 @@ struct ma_device
             float* pIntermediaryBufferPlayback; /* Typed as a float because JACK is always floating point. */
             float* pIntermediaryBufferCapture;
         } jack;
-    #endif
-    #ifdef MA_SUPPORT_COREAUDIO
+#endif
+#ifdef MA_SUPPORT_COREAUDIO
         struct
         {
             ma_uint32 deviceObjectIDPlayback;
@@ -7937,8 +7935,8 @@ struct ma_device
             ma_bool32 isSwitchingCaptureDevice;    /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
             void* pNotificationHandler;             /* Only used on mobile platforms. Obj-C object for handling route changes. */
         } coreaudio;
-    #endif
-    #ifdef MA_SUPPORT_SNDIO
+#endif
+#ifdef MA_SUPPORT_SNDIO
         struct
         {
             ma_ptr handlePlayback;
@@ -7946,22 +7944,22 @@ struct ma_device
             ma_bool32 isStartedPlayback;
             ma_bool32 isStartedCapture;
         } sndio;
-    #endif
-    #ifdef MA_SUPPORT_AUDIO4
+#endif
+#ifdef MA_SUPPORT_AUDIO4
         struct
         {
             int fdPlayback;
             int fdCapture;
         } audio4;
-    #endif
-    #ifdef MA_SUPPORT_OSS
+#endif
+#ifdef MA_SUPPORT_OSS
         struct
         {
             int fdPlayback;
             int fdCapture;
         } oss;
-    #endif
-    #ifdef MA_SUPPORT_AAUDIO
+#endif
+#ifdef MA_SUPPORT_AAUDIO
         struct
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
@@ -7972,8 +7970,8 @@ struct ma_device
             ma_aaudio_allowed_capture_policy allowedCapturePolicy;
             ma_bool32 noAutoStartAfterReroute;
         } aaudio;
-    #endif
-    #ifdef MA_SUPPORT_OPENSL
+#endif
+#ifdef MA_SUPPORT_OPENSL
         struct
         {
             /*SLObjectItf*/ ma_ptr pOutputMixObj;
@@ -7991,8 +7989,8 @@ struct ma_device
             ma_uint8* pBufferPlayback;      /* This is malloc()'d and is used for storing audio data. Typed as ma_uint8 for easy offsetting. */
             ma_uint8* pBufferCapture;
         } opensl;
-    #endif
-    #ifdef MA_SUPPORT_WEBAUDIO
+#endif
+#ifdef MA_SUPPORT_WEBAUDIO
         struct
         {
             /* AudioWorklets path. */
@@ -8003,8 +8001,8 @@ struct ma_device
             ma_result initResult;   /* Set to MA_BUSY while initialization is in progress. */
             int deviceIndex;        /* We store the device in a list on the JavaScript side. This is used to map our C object to the JS object. */
         } webaudio;
-    #endif
-    #ifdef MA_SUPPORT_NULL
+#endif
+#ifdef MA_SUPPORT_NULL
         struct
         {
             ma_thread deviceThread;
@@ -8021,7 +8019,7 @@ struct ma_device
             ma_uint64 lastProcessedFrameCapture;
             ma_atomic_bool32 isStarted; /* Read and written by multiple threads. Must be used atomically, and must be 32-bit for compiler compatibility. */
         } null_device;
-    #endif
+#endif
     };
 };
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -30475,7 +30473,6 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         sampleRate = pDescriptorCapture->sampleRate;
     }
 
-    pDevice->pulse.blockingMainLoop = pConfig->pulse.blockingMainLoop;
 
 
     result = ma_init_pa_mainloop_and_pa_context__pulse(pDevice->pContext, pDevice->pContext->pulse.pApplicationName, pDevice->pContext->pulse.pServerName, MA_FALSE, &pDevice->pulse.pMainLoop, &pDevice->pulse.pPulseContext);
@@ -30961,49 +30958,9 @@ static ma_result ma_device_data_loop__pulse(ma_device* pDevice)
     the callbacks deal with it.
     */
     while (ma_device_get_state(pDevice) == ma_device_state_started) {
-        int block = (pDevice->pulse.blockingMainLoop) ? 1 : 0;
-
-        resultPA = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, block, NULL);
+        resultPA = ((ma_pa_mainloop_iterate_proc)pDevice->pContext->pulse.pa_mainloop_iterate)((ma_pa_mainloop*)pDevice->pulse.pMainLoop, 1, NULL);
         if (resultPA < 0) {
             break;
-        }
-
-        /* If we're not blocking we need to sleep for a bit to prevent the CPU core being pinned at 100% usage. */
-        if (!block) {
-            ma_uint32 sleepTimeInMilliseconds;
-
-            /*
-            My original idea was to sleep for an amount of time proportionate to the configured period size, but I
-            wasn't able to figure out how to make this work without glitching. Instead I'm just going to hardcode
-            it to 1ms and move on.
-            */
-            #if 0
-            {
-                if (((ma_pa_stream_writable_size_proc)pDevice->pContext->pulse.pa_stream_writable_size)((ma_pa_stream*)pDevice->pulse.pStreamPlayback) == 0) {
-                    /* The amount of time we spend sleeping should be proportionate to the size of a period. */
-                    if (pDevice->type == ma_device_type_playback) {
-                        sleepTimeInMilliseconds = (pDevice->playback.internalPeriodSizeInFrames * pDevice->playback.internalSampleRate) / 1000;
-                    } else {
-                        sleepTimeInMilliseconds = (pDevice->capture.internalPeriodSizeInFrames * pDevice->capture.internalSampleRate) / 1000;
-                    }
-
-                    /*
-                    At this point the sleep time is equal to the period size in milliseconds. I'm going to divide this by 2
-                    in an attempt to reduce latency as a result of sleeping.
-                    */
-                    sleepTimeInMilliseconds /= 2;
-
-                    /* Clamp the sleep time to within reasonable values just in case. */
-                    sleepTimeInMilliseconds = ma_clamp(sleepTimeInMilliseconds, 1, 10);
-                }
-            }
-            #else
-            {
-                sleepTimeInMilliseconds = 1;
-            }
-            #endif
-
-            ma_sleep(sleepTimeInMilliseconds);
         }
     }
 
@@ -41874,13 +41831,9 @@ MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
 MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
 {
     ma_device_config config;
-
     MA_ZERO_OBJECT(&config);
     config.deviceType = deviceType;
     config.resampling = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate don't matter here. */
-
-    /* Use a blocking PulseAudio loop by default. Non-blocking currently results in glitches with low period sizes. */
-    config.pulse.blockingMainLoop = MA_TRUE;
 
     return config;
 }
