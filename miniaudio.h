@@ -40053,14 +40053,9 @@ typedef struct
 static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, void* pUserData)
 {
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_uint32 frameCount;
 
     (void)paramCount;
     (void)pParams;
-
-    if (ma_device_get_state(pDevice) != ma_device_state_started) {
-        return EM_TRUE;
-    }
 
     /*
     The Emscripten documentation says that it'll always be 128 frames being passed in. Hard coding it like that feels
@@ -40070,7 +40065,15 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     Unfortunately the audio data is not interleaved so we'll need to convert it before we give the data to miniaudio
     for further processing.
     */
-    frameCount = 128;
+    ma_uint32 frameCount = 128;
+
+    if (ma_device_get_state(pDevice) != ma_device_state_started) {
+        /* Fill the output buffer with zero to avoid a noise sound */
+        if (outputCount > 0) {
+            MA_ZERO_MEMORY(pOutputs[0].data, frameCount * pDevice->playback.internalChannels * sizeof(float));
+        }
+        return EM_TRUE;
+    }
 
     if (inputCount > 0) {
         /* Input data needs to be interleaved before we hand it to the client. */
