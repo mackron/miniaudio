@@ -57685,7 +57685,7 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
         return MA_INVALID_ARGS;
     }
 
-    if (pDataSourceBase->vtable->onGetDataFormat == NULL) {
+    if (pDataSourceBase->vtable == NULL || pDataSourceBase->vtable->onGetDataFormat == NULL) {
         return MA_NOT_IMPLEMENTED;
     }
 
