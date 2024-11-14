@@ -40070,7 +40070,7 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     if (ma_device_get_state(pDevice) != ma_device_state_started) {
         /* Fill the output buffer with zero to avoid a noise sound */
         for (int i = 0; i < outputCount; i += 1) {
-            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * pOutputs[i].samplesPerChannel * sizeof(float));
+            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * /*pOutputs[i].samplesPerChannel*/frameCount * sizeof(float));
         }
         return EM_TRUE;
     }
