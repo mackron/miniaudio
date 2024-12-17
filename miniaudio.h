@@ -57368,6 +57368,10 @@ MA_API ma_result ma_data_source_init(const ma_data_source_config* pConfig, ma_da
         return MA_INVALID_ARGS;
     }
 
+    if (pConfig->vtable == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
     pDataSourceBase->vtable           = pConfig->vtable;
     pDataSourceBase->rangeBegInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_BEG;
     pDataSourceBase->rangeEndInFrames = MA_DATA_SOURCE_DEFAULT_RANGE_END;
@@ -57432,6 +57436,8 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
     if (frameCount == 0) {
         return MA_INVALID_ARGS;
     }
+
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
 
     if ((pDataSourceBase->vtable->flags & MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT) != 0 || (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
         /* Either the data source is self-managing the range, or no range is set - just read like normal. The data source itself will tell us when the end is reached. */
@@ -57656,6 +57662,8 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
         return MA_INVALID_OPERATION;    /* Trying to seek to far forward. */
     }
 
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
+
     return pDataSourceBase->vtable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
 }
 
@@ -57684,6 +57692,8 @@ MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_
     if (pDataSourceBase == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
 
     if (pDataSourceBase->vtable->onGetDataFormat == NULL) {
         return MA_NOT_IMPLEMENTED;
@@ -57725,6 +57735,8 @@ MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSo
         return MA_SUCCESS;
     }
 
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
+
     if (pDataSourceBase->vtable->onGetCursor == NULL) {
         return MA_NOT_IMPLEMENTED;
     }
@@ -57757,6 +57769,8 @@ MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSo
     if (pDataSourceBase == NULL) {
         return MA_INVALID_ARGS;
     }
+
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
 
     /*
     If we have a range defined we'll use that to determine the length. This is one of rare times
@@ -57844,6 +57858,8 @@ MA_API ma_result ma_data_source_set_looping(ma_data_source* pDataSource, ma_bool
     }
 
     ma_atomic_exchange_32(&pDataSourceBase->isLooping, isLooping);
+
+    MA_ASSERT(pDataSourceBase->vtable != NULL);
 
     /* If there's no callback for this just treat it as a successful no-op. */
     if (pDataSourceBase->vtable->onSetLooping == NULL) {
