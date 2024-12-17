@@ -60396,7 +60396,7 @@ extern "C" {
 #define MA_DR_FLAC_XSTRINGIFY(x)     MA_DR_FLAC_STRINGIFY(x)
 #define MA_DR_FLAC_VERSION_MAJOR     0
 #define MA_DR_FLAC_VERSION_MINOR     12
-#define MA_DR_FLAC_VERSION_REVISION  42
+#define MA_DR_FLAC_VERSION_REVISION  43
 #define MA_DR_FLAC_VERSION_STRING    MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MAJOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MINOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_REVISION)
 #include <stddef.h>
 #if defined(_MSC_VER) && _MSC_VER >= 1700
@@ -60683,7 +60683,7 @@ extern "C" {
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
 #define MA_DR_MP3_VERSION_MINOR     6
-#define MA_DR_MP3_VERSION_REVISION  39
+#define MA_DR_MP3_VERSION_REVISION  40
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
@@ -85544,6 +85544,7 @@ static ma_bool32 ma_dr_flac__read_subframe_header(ma_dr_flac_bs* bs, ma_dr_flac_
     if ((header & 0x80) != 0) {
         return MA_FALSE;
     }
+    pSubframe->lpcOrder = 0;
     type = (header & 0x7E) >> 1;
     if (type == 0) {
         pSubframe->subframeType = MA_DR_FLAC_SUBFRAME_CONSTANT;
@@ -85601,6 +85602,9 @@ static ma_bool32 ma_dr_flac__decode_subframe(ma_dr_flac_bs* bs, ma_dr_flac_frame
     }
     subframeBitsPerSample -= pSubframe->wastedBitsPerSample;
     pSubframe->pSamplesS32 = pDecodedSamplesOut;
+    if (frame->header.blockSizeInPCMFrames < pSubframe->lpcOrder) {
+        return MA_FALSE;
+    }
     switch (pSubframe->subframeType)
     {
         case MA_DR_FLAC_SUBFRAME_CONSTANT:
@@ -90318,7 +90322,7 @@ MA_API const char* ma_dr_mp3_version_string(void)
 #define MA_DR_MP3_MIN(a, b)           ((a) > (b) ? (b) : (a))
 #define MA_DR_MP3_MAX(a, b)           ((a) < (b) ? (b) : (a))
 #if !defined(MA_DR_MP3_NO_SIMD)
-#if !defined(MA_DR_MP3_ONLY_SIMD) && (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) || defined(_M_ARM64))
+#if !defined(MA_DR_MP3_ONLY_SIMD) && (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC))
 #define MA_DR_MP3_ONLY_SIMD
 #endif
 #if ((defined(_MSC_VER) && _MSC_VER >= 1400) && defined(_M_X64)) || ((defined(__i386) || defined(_M_IX86) || defined(__i386__) || defined(__x86_64__)) && ((defined(_M_IX86_FP) && _M_IX86_FP == 2) || defined(__SSE2__)))
@@ -90391,7 +90395,7 @@ end:
     return g_have_simd - 1;
 #endif
 }
-#elif defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
+#elif defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC)
 #include <arm_neon.h>
 #define MA_DR_MP3_HAVE_SSE 0
 #define MA_DR_MP3_HAVE_SIMD 1
@@ -90420,7 +90424,7 @@ static int ma_dr_mp3_have_simd(void)
 #else
 #define MA_DR_MP3_HAVE_SIMD 0
 #endif
-#if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__) && !defined(_M_ARM64) && !defined(__ARM_ARCH_6M__)
+#if defined(__ARM_ARCH) && (__ARM_ARCH >= 6) && !defined(__aarch64__) && !defined(_M_ARM64) && !defined(_M_ARM64EC) && !defined(__ARM_ARCH_6M__)
 #define MA_DR_MP3_HAVE_ARMV6 1
 static __inline__ __attribute__((always_inline)) ma_int32 ma_dr_mp3_clip_int16_arm(ma_int32 a)
 {
