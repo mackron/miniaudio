@@ -8428,7 +8428,7 @@ The returned pointers will become invalid upon the next call this this function,
 
 See Also
 --------
-ma_context_get_devices()
+ma_context_enumerate_devices()
 */
 MA_API ma_result ma_context_get_devices(ma_context* pContext, ma_device_info** ppPlaybackDeviceInfos, ma_uint32* pPlaybackDeviceCount, ma_device_info** ppCaptureDeviceInfos, ma_uint32* pCaptureDeviceCount);
 
