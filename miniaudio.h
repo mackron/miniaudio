@@ -37385,8 +37385,10 @@ typedef struct ma_AAudioStream_t*                       ma_AAudioStream;
 
 #define MA_AAUDIO_UNSPECIFIED                           0
 
-/* Result codes. miniaudio only cares about the success code. */
+/* Result codes. miniaudio only cares about the success and timeout codes. */
 #define MA_AAUDIO_OK                                    0
+#define MA_AAUDIO_ERROR_TIMEOUT                         -885
+
 
 /* Directions. */
 #define MA_AAUDIO_DIRECTION_OUTPUT                      0
@@ -37795,27 +37797,33 @@ static ma_result ma_wait_for_simple_state_transition__aaudio(ma_device* pDevice,
 {
     ma_aaudio_stream_state_t actualNewState;
     ma_aaudio_result_t resultAA;
-
+    ma_uint32 waitCount = 0;
+    
     for (;;) {
-      resultAA = ((MA_PFN_AAudioStream_waitForStateChange)pDevice->pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 0);
-      if (resultAA != MA_AAUDIO_OK && resultAA != AAUDIO_ERROR_TIMEOUT) {
-        return ma_result_from_aaudio(resultAA);
-      }
+        resultAA = ((MA_PFN_AAudioStream_waitForStateChange)pDevice->pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 0);
+        if (resultAA != MA_AAUDIO_OK && resultAA != MA_AAUDIO_ERROR_TIMEOUT) {
+            return ma_result_from_aaudio(resultAA);
+        }
 
-      if (newState == actualNewState) {
-        break;
-      }
+        if (newState == actualNewState) {
+            break;
+        }
 
-      if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
-        return MA_INVALID_OPERATION;  /* Not initialized. */
-      }
+        if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
+            return MA_INVALID_OPERATION;  /* Not initialized. */
+        }
 
-      /* Getting here means we haven't yet transitioned into the expected state. */
-      ma_sleep(10);
+        /* 5 second timeout. */
+        if (waitCount++ == 500) {
+            break;
+        }
+        
+        /* Getting here means we haven't yet transitioned into the expected state. */
+        ma_sleep(10);
     }
 
     if (newState != actualNewState) {
-      return MA_ERROR;  /* Failed to transition into the expected state. */
+        return MA_ERROR;  /* Failed to transition into the expected state. */
     }
 
     return MA_SUCCESS;
