@@ -37791,16 +37791,31 @@ static ma_bool32 ma_has_default_device__aaudio(ma_context* pContext, ma_device_t
     return MA_TRUE;
 }
 
-static ma_result ma_wait_for_simple_state_transition__aaudio(ma_context* pContext, ma_AAudioStream* pStream, ma_aaudio_stream_state_t oldState, ma_aaudio_stream_state_t newState)
+static ma_result ma_wait_for_simple_state_transition__aaudio(ma_device* pDevice, ma_AAudioStream* pStream, ma_aaudio_stream_state_t oldState, ma_aaudio_stream_state_t newState)
 {
     ma_aaudio_stream_state_t actualNewState;
-    ma_aaudio_result_t resultAA = ((MA_PFN_AAudioStream_waitForStateChange)pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 5000000000); /* 5 second timeout. */
-    if (resultAA != MA_AAUDIO_OK) {
+    ma_aaudio_result_t resultAA;
+
+    for (;;) {
+      resultAA = ((MA_PFN_AAudioStream_waitForStateChange)pDevice->pContext->aaudio.AAudioStream_waitForStateChange)(pStream, oldState, &actualNewState, 0);
+      if (resultAA != MA_AAUDIO_OK && resultAA != AAUDIO_ERROR_TIMEOUT) {
         return ma_result_from_aaudio(resultAA);
+      }
+
+      if (newState == actualNewState) {
+        break;
+      }
+
+      if (ma_device_get_state(pDevice) == ma_device_state_uninitialized) {
+        return MA_INVALID_OPERATION;  /* Not initialized. */
+      }
+
+      /* Getting here means we haven't yet transitioned into the expected state. */
+      ma_sleep(10);
     }
 
     if (newState != actualNewState) {
-        return MA_ERROR;   /* Failed to transition into the expected state. */
+      return MA_ERROR;  /* Failed to transition into the expected state. */
     }
 
     return MA_SUCCESS;
@@ -38022,7 +38037,7 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
             return MA_ERROR;   /* Expecting the stream to be a starting or started state. */
         }
 
-        result = ma_wait_for_simple_state_transition__aaudio(pDevice->pContext, pStream, currentState, MA_AAUDIO_STREAM_STATE_STARTED);
+        result = ma_wait_for_simple_state_transition__aaudio(pDevice, pStream, currentState, MA_AAUDIO_STREAM_STATE_STARTED);
         if (result != MA_SUCCESS) {
             return result;
         }
@@ -38064,7 +38079,7 @@ static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStre
             return MA_ERROR;   /* Expecting the stream to be a stopping or stopped state. */
         }
 
-        result = ma_wait_for_simple_state_transition__aaudio(pDevice->pContext, pStream, currentState, MA_AAUDIO_STREAM_STATE_STOPPED);
+        result = ma_wait_for_simple_state_transition__aaudio(pDevice, pStream, currentState, MA_AAUDIO_STREAM_STATE_STOPPED);
         if (result != MA_SUCCESS) {
             return result;
         }
