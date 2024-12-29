@@ -7119,7 +7119,6 @@ struct ma_device_config
     {
         ma_opensl_stream_type streamType;
         ma_opensl_recording_preset recordingPreset;
-        ma_bool32 enableCompatibilityWorkarounds;
     } opensl;
     struct
     {
@@ -7128,7 +7127,6 @@ struct ma_device_config
         ma_aaudio_input_preset inputPreset;
         ma_aaudio_allowed_capture_policy allowedCapturePolicy;
         ma_bool32 noAutoStartAfterReroute;
-        ma_bool32 enableCompatibilityWorkarounds;
     } aaudio;
 };
 
@@ -37848,12 +37846,12 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
 
 
         /*
-        There have been reports where setting the frames per data callback results in an error
-        later on from Android. To address this, I'm experimenting with simply not setting it on
-        anything from Android 11 and earlier. Suggestions welcome on how we might be able to make
-        this more targeted.
+        There have been reports where setting the frames per data callback results in an error.
+        In particular, re-routing may inadvertently switch from low-latency mode, resulting in a less stable
+        stream from the legacy path (AudioStreamLegacy). To address this, we simply don't set the value.
         */
-        if (!pConfig->aaudio.enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) {
+        #if 0
+        {
             /*
             AAudio is annoying when it comes to its buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
@@ -37866,6 +37864,7 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
             ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
             ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
         }
+        #endif
 
         if (deviceType == ma_device_type_capture) {
             if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default && pContext->aaudio.AAudioStreamBuilder_setInputPreset != NULL) {
@@ -37889,7 +37888,11 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
             ((MA_PFN_AAudioStreamBuilder_setDataCallback)pContext->aaudio.AAudioStreamBuilder_setDataCallback)(pBuilder, ma_stream_data_callback_playback__aaudio, (void*)pDevice);
         }
 
-        /* Not sure how this affects things, but since there's a mapping between miniaudio's performance profiles and AAudio's performance modes, let go ahead and set it. */
+        /*
+        If we set AAUDIO_PERFORMANCE_MODE_LOW_LATENCY, we allow for MMAP (non-legacy path).
+        Since there's a mapping between miniaudio's performance profiles and AAudio's performance modes, let's use it.
+        Beware though, with a conservative performance profile, AAudio will indeed take the legacy path.
+        */
         ((MA_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, (pConfig->performanceProfile == ma_performance_profile_low_latency) ? MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY : MA_AAUDIO_PERFORMANCE_MODE_NONE);
 
         /* We need to set an error callback to detect device changes. */
@@ -37924,6 +37927,9 @@ static ma_result ma_open_stream_basic__aaudio(ma_context* pContext, const ma_dev
     if (result != MA_SUCCESS) {
         return result;
     }
+
+    /* Let's give AAudio a hint to avoid the legacy path (AudioStreamLegacy). */
+    ((MA_PFN_AAudioStreamBuilder_setPerformanceMode)pContext->aaudio.AAudioStreamBuilder_setPerformanceMode)(pBuilder, MA_AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
 
     return ma_open_stream_and_close_builder__aaudio(pContext, pBuilder, ppStream);
 }
