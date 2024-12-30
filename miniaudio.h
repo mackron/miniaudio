@@ -16251,7 +16251,7 @@ static void ma_thread_wait__posix(ma_thread* pThread)
 static ma_result ma_mutex_init__posix(ma_mutex* pMutex)
 {
     int result;
-    
+
     if (pMutex == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -37735,11 +37735,26 @@ static ma_aaudio_allowed_capture_policy_t ma_to_allowed_capture_policy__aaudio(m
     return MA_AAUDIO_ALLOW_CAPTURE_BY_ALL;
 }
 
-static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
+static void ma_post_reroute_job__aaudio(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
     ma_job job;
+
+    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
+    job.data.device.aaudio.reroute.pDevice = pDevice;
+    job.data.device.aaudio.reroute.deviceType = deviceType;
+
+    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
+    if (result != MA_SUCCESS) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+    }
+}
+
+static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
+{
     ma_device* pDevice = (ma_device*)pUserData;
+    ma_device_type deviceType;
+
     MA_ASSERT(pDevice != NULL);
 
     (void)error;
@@ -37751,21 +37766,13 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
     cleanly and safely.
     */
-    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
-    job.data.device.aaudio.reroute.pDevice = pDevice;
-
     if (pStream == pDevice->aaudio.pStreamCapture) {
-        job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
-    }
-    else {
-        job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
+        deviceType = ma_device_type_capture;
+    } else {
+        deviceType = ma_device_type_playback;
     }
 
-    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
-    if (result != MA_SUCCESS) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
-        return;
-    }
+    ma_post_reroute_job__aaudio(pDevice, deviceType);
 }
 
 static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
@@ -38388,7 +38395,12 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
         /* If the device is started, start the streams. Maybe make this configurable? */
         if (ma_device_get_state(pDevice) == ma_device_state_started) {
             if (pDevice->aaudio.noAutoStartAfterReroute == MA_FALSE) {
-                ma_device_start__aaudio(pDevice);
+                result = ma_device_start__aaudio(pDevice);
+                if (result != MA_SUCCESS) {
+                    ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change.");
+                    ma_post_reroute_job__aaudio(pDevice, deviceType); /* Bad luck! We got disconnected again. Retry re-routing! */
+                    return result;
+                }
             } else {
                 ma_device_stop(pDevice);    /* Do a full device stop so we set internal state correctly. */
             }
