@@ -37735,44 +37735,35 @@ static ma_aaudio_allowed_capture_policy_t ma_to_allowed_capture_policy__aaudio(m
     return MA_AAUDIO_ALLOW_CAPTURE_BY_ALL;
 }
 
-static void ma_post_reroute_job__aaudio(ma_device* pDevice, ma_device_type deviceType)
+static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
 {
     ma_result result;
     ma_job job;
-
-    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
-    job.data.device.aaudio.reroute.pDevice = pDevice;
-    job.data.device.aaudio.reroute.deviceType = deviceType;
-
-    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
-    if (result != MA_SUCCESS) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
-    }
-}
-
-static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUserData, ma_aaudio_result_t error)
-{
     ma_device* pDevice = (ma_device*)pUserData;
-    ma_device_type deviceType;
-
     MA_ASSERT(pDevice != NULL);
 
     (void)error;
-
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d\n", error, ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream));
-
     /*
     When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
     we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
     cleanly and safely.
     */
+    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
+    job.data.device.aaudio.reroute.pDevice = pDevice;
+
     if (pStream == pDevice->aaudio.pStreamCapture) {
-        deviceType = ma_device_type_capture;
-    } else {
-        deviceType = ma_device_type_playback;
+        job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+    }
+    else {
+        job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
     }
 
-    ma_post_reroute_job__aaudio(pDevice, deviceType);
+    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
+    if (result != MA_SUCCESS) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+        return;
+    }
 }
 
 static ma_aaudio_data_callback_result_t ma_stream_data_callback_capture__aaudio(ma_AAudioStream* pStream, void* pUserData, void* pAudioData, int32_t frameCount)
@@ -38310,9 +38301,11 @@ static ma_result ma_device_stop__aaudio(ma_device* pDevice)
 static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type deviceType)
 {
     ma_result result;
+    int32_t retries = 0;
 
     MA_ASSERT(pDevice != NULL);
 
+error_disconnected:
     /* The first thing to do is close the streams. */
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
@@ -38397,8 +38390,12 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             if (pDevice->aaudio.noAutoStartAfterReroute == MA_FALSE) {
                 result = ma_device_start__aaudio(pDevice);
                 if (result != MA_SUCCESS) {
+                    /* We got disconnected! Retry a few times, until we find a connected device! */
+                    if (++retries <= 3) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, retrying(%d)", retries);
+                        goto error_disconnected;
+                    }
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change.");
-                    ma_post_reroute_job__aaudio(pDevice, deviceType); /* Bad luck! We got disconnected again. Retry re-routing! */
                     return result;
                 }
             } else {
