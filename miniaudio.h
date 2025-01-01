@@ -37953,6 +37953,8 @@ static ma_result ma_open_stream__aaudio(ma_device* pDevice, const ma_device_conf
 
 static ma_result ma_close_stream__aaudio(ma_context* pContext, ma_AAudioStream* pStream)
 {
+    MA_ASSERT(pStream != NULL);
+
     return ma_result_from_aaudio(((MA_PFN_AAudioStream_close)pContext->aaudio.AAudioStream_close)(pStream));
 }
 
@@ -38084,14 +38086,19 @@ static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        pDevice->aaudio.pStreamCapture = NULL;
-    }
+    /* When re-routing, streams may have been closed and never re-opened. Hence the extra checks below. */
 
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        if (pDevice->aaudio.pStreamCapture != NULL) {
+            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
+            pDevice->aaudio.pStreamCapture = NULL;
+        }
+    }
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        pDevice->aaudio.pStreamPlayback = NULL;
+        if (pDevice->aaudio.pStreamPlayback != NULL) {
+            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+            pDevice->aaudio.pStreamPlayback = NULL;
+        }
     }
 
     return MA_SUCCESS;
