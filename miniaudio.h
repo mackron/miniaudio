@@ -42520,6 +42520,14 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
 
     ma_mutex_lock(&pDevice->startStopLock);
     {
+        /*
+        We need to check again if the device is in a started state because it's possible for one thread to have started the device
+        while another was waiting on the mutex.
+        */
+        if (ma_device_get_state(pDevice) == ma_device_state_started) {
+            return MA_SUCCESS;  /* Already started. */
+        }
+
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a stopped or paused state. */
         MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_stopped);
 
@@ -42580,6 +42588,14 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
 
     ma_mutex_lock(&pDevice->startStopLock);
     {
+        /*
+        We need to check again if the device is in a stopped state because it's possible for one thread to have stopped the device
+        while another was waiting on the mutex.
+        */
+        if (ma_device_get_state(pDevice) == ma_device_state_stopped) {
+            return MA_SUCCESS;  /* Already stopped. */
+        }
+
         /* Starting and stopping are wrapped in a mutex which means we can assert that the device is in a started or paused state. */
         MA_ASSERT(ma_device_get_state(pDevice) == ma_device_state_started);
 
