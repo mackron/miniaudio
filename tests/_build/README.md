@@ -10,6 +10,8 @@ Output files will be placed in the "res/output" folder.
 
 Emscripten
 ----------
+On Linux, do `source ~/emsdk/emsdk_env.sh` before compiling.
+
 On Windows, you need to move into the build and run emsdk_env.bat from a command prompt using an absolute
 path like "C:\emsdk\emsdk_env.bat". Note that PowerShell doesn't work for me for some reason. Example:
 
