@@ -38407,7 +38407,8 @@ error_disconnected:
                 result = ma_device_start__aaudio(pDevice);
                 if (result != MA_SUCCESS) {
                     /* We got disconnected! Retry a few times, until we find a connected device! */
-                    if (++retries <= 3) {
+                    retries += 1;
+                    if (retries <= 3) {
                         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, retrying(%d)", retries);
                         goto error_disconnected;
                     }
