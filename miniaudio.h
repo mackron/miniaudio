@@ -38194,6 +38194,10 @@ static ma_result ma_device_start_stream__aaudio(ma_device* pDevice, ma_AAudioStr
 
     MA_ASSERT(pDevice != NULL);
 
+    if (pStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
     resultAA = ((MA_PFN_AAudioStream_requestStart)pDevice->pContext->aaudio.AAudioStream_requestStart)(pStream);
     if (resultAA != MA_AAUDIO_OK) {
         return ma_result_from_aaudio(resultAA);
@@ -38225,6 +38229,10 @@ static ma_result ma_device_stop_stream__aaudio(ma_device* pDevice, ma_AAudioStre
     ma_aaudio_stream_state_t currentState;
 
     MA_ASSERT(pDevice != NULL);
+
+    if (pStream == NULL) {
+        return MA_INVALID_ARGS;
+    }
 
     /*
     From the AAudio documentation:
@@ -38380,7 +38388,6 @@ error_disconnected:
         result = ma_device_init__aaudio(pDevice, &deviceConfig, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to create stream after route change.");
-            ma_device__set_state(pDevice, ma_device_state_stopped);
             return result;
         }
 
@@ -38388,7 +38395,6 @@ error_disconnected:
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
             ma_device_uninit__aaudio(pDevice);
-            ma_device__set_state(pDevice, ma_device_state_stopped);
             return result;
         }
 
@@ -38546,6 +38552,7 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
 
 static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
 {
+    ma_result result;
     ma_device* pDevice;
 
     MA_ASSERT(pJob != NULL);
@@ -38554,7 +38561,18 @@ static ma_result ma_job_process__device__aaudio_reroute(ma_job* pJob)
     MA_ASSERT(pDevice != NULL);
 
     /* Here is where we need to reroute the device. To do this we need to uninitialize the stream and reinitialize it. */
-    return ma_device_reinit__aaudio(pDevice, (ma_device_type)pJob->data.device.aaudio.reroute.deviceType);
+    result = ma_device_reinit__aaudio(pDevice, (ma_device_type)pJob->data.device.aaudio.reroute.deviceType);
+    if (result != MA_SUCCESS) {
+        /*
+        Getting here means we failed to reroute the device. The best thing I can think of here is to
+        just stop the device.
+        */
+        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[AAudio] Stopping device due to reroute failure.");
+        ma_device_stop(pDevice);
+        return result;
+    }
+
+    return MA_SUCCESS;
 }
 #else
 /* Getting here means there is no AAudio backend so we need a no-op job implementation. */
