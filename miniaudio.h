@@ -7119,6 +7119,7 @@ struct ma_device_config
     {
         ma_opensl_stream_type streamType;
         ma_opensl_recording_preset recordingPreset;
+        ma_bool32 enableCompatibilityWorkarounds;
     } opensl;
     struct
     {
@@ -7127,6 +7128,8 @@ struct ma_device_config
         ma_aaudio_input_preset inputPreset;
         ma_aaudio_allowed_capture_policy allowedCapturePolicy;
         ma_bool32 noAutoStartAfterReroute;
+        ma_bool32 enableCompatibilityWorkarounds;
+        ma_bool32 allowSetBufferCapacity;
     } aaudio;
 };
 
@@ -37846,10 +37849,11 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
         /*
         There have been reports where setting the frames per data callback results in an error.
         In particular, re-routing may inadvertently switch from low-latency mode, resulting in a less stable
-        stream from the legacy path (AudioStreamLegacy). To address this, we simply don't set the value.
+        stream from the legacy path (AudioStreamLegacy). To address this, we simply don't set the value. It
+        can still be set if it's explicitly requested via the aaudio.allowSetBufferCapacity variable in the
+        device config.
         */
-        #if 0
-        {
+        if ((!pConfig->aaudio.enableCompatibilityWorkarounds || ma_android_sdk_version() > 30) && pConfig->aaudio.allowSetBufferCapacity) {
             /*
             AAudio is annoying when it comes to its buffer calculation stuff because it doesn't let you
             retrieve the actual sample rate until after you've opened the stream. But you need to configure
@@ -37862,7 +37866,6 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
             ((MA_PFN_AAudioStreamBuilder_setBufferCapacityInFrames)pContext->aaudio.AAudioStreamBuilder_setBufferCapacityInFrames)(pBuilder, bufferCapacityInFrames);
             ((MA_PFN_AAudioStreamBuilder_setFramesPerDataCallback)pContext->aaudio.AAudioStreamBuilder_setFramesPerDataCallback)(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
         }
-        #endif
 
         if (deviceType == ma_device_type_capture) {
             if (pConfig->aaudio.inputPreset != ma_aaudio_input_preset_default && pContext->aaudio.AAudioStreamBuilder_setInputPreset != NULL) {
