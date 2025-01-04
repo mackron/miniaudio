@@ -42525,6 +42525,7 @@ MA_API ma_result ma_device_start(ma_device* pDevice)
         while another was waiting on the mutex.
         */
         if (ma_device_get_state(pDevice) == ma_device_state_started) {
+            ma_mutex_unlock(&pDevice->startStopLock);
             return MA_SUCCESS;  /* Already started. */
         }
 
@@ -42593,6 +42594,7 @@ MA_API ma_result ma_device_stop(ma_device* pDevice)
         while another was waiting on the mutex.
         */
         if (ma_device_get_state(pDevice) == ma_device_state_stopped) {
+            ma_mutex_unlock(&pDevice->startStopLock);
             return MA_SUCCESS;  /* Already stopped. */
         }
 
