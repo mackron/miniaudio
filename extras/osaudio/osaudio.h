@@ -66,8 +66,8 @@ blocking, it can be useful to know how many frames can be written/read without b
 achieved with osaudio_get_avail().
 
 Querying the device's configuration is achieved with osaudio_get_info(). This function will return
-a pointer to a osaudio_info_t structure which contains information about the device, most
-importantly it's name and data configuration. The name is important for displaying on a UI, and
+a pointer to an osaudio_info_t structure which contains information about the device, most
+importantly its name and data configuration. The name is important for displaying on a UI, and
 the data configuration is important for knowing how to format your audio data. The osaudio_info_t
 structure will contain an array of osaudio_config_t structures. This will contain one entry, which
 will contain the exact information that was returned in the config structure that was passed to
