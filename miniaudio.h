@@ -2899,7 +2899,7 @@ like the following:
         ma_resample_algorithm_linear);
 
     ma_resampler resampler;
-    ma_result result = ma_resampler_init(&config, &resampler);
+    ma_result result = ma_resampler_init(&config, NULL, &resampler);
     if (result != MA_SUCCESS) {
         // An error occurred...
     }
