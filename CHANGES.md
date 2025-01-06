@@ -9,8 +9,9 @@ v0.11.22 - TBD
 * Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.
 * Web: Fix an error with the unlocked notification when compiling as C++.
 * Web: Fix a JavaScript error when initializing and then uninitializing a context before any interactivity.
+* AAudio: Fix an error where the device is silenced after rerouting. With this change, miniaudio will no longer give AAudio a hint to use your supplied period size which will therefore result in AAudio using its default latency configuration. If you want AAudio to try to use the period size you supply in the device config, which is the old behaviour, set `aaudio.allowSetBufferCapacity` to true in the device config. Note, however, if you do this you may end up with errors when rerouting between devices.
 * AAudio: The default minimum SDK version has been increased from 26 to 27 when enabling AAudio. If you need to support version 26, you can use `#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26`.
-* AAudio: Fix ma_device_get_info() implementation
+* AAudio: Fix ma_device_get_info() implementation.
 * PulseAudio: Allow setting the channel map requested from PulseAudio in device configs
 
 
