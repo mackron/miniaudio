@@ -172,8 +172,6 @@ int main(int argc, char** argv)
     int iarg;
     const char* pOutputFilePath;
 
-    print_usage();
-
     /* Print help if requested. */
     if (argc == 2) {
         if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
@@ -236,19 +234,19 @@ int main(int argc, char** argv)
     result = ma_decoder_init_file(argv[1], &decoderConfig, &decoder);
     if (result != MA_SUCCESS) {
         printf("Failed to open input file. Check the file exists and the format is supported. Supported input formats:\n");
-    #if defined(dr_opus_h)
+    #if defined(ma_dr_opus_h)
         printf("    Opus\n");
     #endif
-    #if defined(dr_mp3_h)
+    #if defined(ma_dr_mp3_h)
         printf("    MP3\n");
     #endif    
-    #if defined(dr_flac_h)
+    #if defined(ma_dr_flac_h)
         printf("    FLAC\n");
     #endif    
     #if defined(STB_VORBIS_INCLUDE_STB_VORBIS_H)
         printf("    Vorbis\n");
     #endif
-    #if defined(dr_wav_h)
+    #if defined(ma_dr_wav_h)
         printf("    WAV\n");
     #endif
         return (int)result;
