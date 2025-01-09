@@ -10,6 +10,9 @@ device and can be used independently of it. This example only plays back a singl
 back multiple files by simple loading multiple decoders and mixing them (do not create multiple devices to do this). See
 the simple_mixing example for how best to do this.
 */
+#define STB_VORBIS_HEADER_ONLY
+#include "../extras/stb_vorbis.c"    /* Enables Vorbis decoding. */
+
 #define MINIAUDIO_IMPLEMENTATION
 #include "../miniaudio.h"
 
@@ -73,3 +76,6 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
+#undef STB_VORBIS_HEADER_ONLY
+#include "../extras/stb_vorbis.c"
