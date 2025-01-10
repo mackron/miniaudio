@@ -70025,10 +70025,10 @@ static void ma_resource_manager_data_stream_fill_page(ma_resource_manager_data_s
 
     /* The decoder needs to inherit the stream's looping and range state. */
     {
-        ma_uint64 rangeBeg;
-        ma_uint64 rangeEnd;
-        ma_uint64 loopPointBeg;
-        ma_uint64 loopPointEnd;
+        ma_uint64 rangeBeg = 0;
+        ma_uint64 rangeEnd = 0;
+        ma_uint64 loopPointBeg = 0;
+        ma_uint64 loopPointEnd = 0;
 
         ma_data_source_set_looping(&pDataStream->decoder, ma_resource_manager_data_stream_is_looping(pDataStream));
 
