@@ -40099,6 +40099,7 @@ typedef struct
 static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const AudioSampleFrame* pInputs, int outputCount, AudioSampleFrame* pOutputs, int paramCount, const AudioParamFrame* pParams, void* pUserData)
 {
     ma_device* pDevice = (ma_device*)pUserData;
+    ma_uint32 frameCount;
 
     (void)paramCount;
     (void)pParams;
@@ -40111,13 +40112,14 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     Unfortunately the audio data is not interleaved so we'll need to convert it before we give the data to miniaudio
     for further processing.
     */
-    ma_uint32 frameCount = 128;
+    frameCount = 128;
 
     if (ma_device_get_state(pDevice) != ma_device_state_started) {
         /* Fill the output buffer with zero to avoid a noise sound */
         for (int i = 0; i < outputCount; i += 1) {
-            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * /*pOutputs[i].samplesPerChannel*/frameCount * sizeof(float));
+            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
         }
+
         return EM_TRUE;
     }
 
