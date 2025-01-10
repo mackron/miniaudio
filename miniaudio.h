@@ -58015,6 +58015,13 @@ MA_API void ma_data_source_get_range_in_pcm_frames(const ma_data_source* pDataSo
 {
     const ma_data_source_base* pDataSourceBase = (const ma_data_source_base*)pDataSource;
 
+    if (pRangeBegInFrames != NULL) {
+        *pRangeBegInFrames = 0;
+    }
+    if (pRangeEndInFrames != NULL) {
+        *pRangeEndInFrames = 0;
+    }
+
     if (pDataSource == NULL) {
         return;
     }
@@ -58058,6 +58065,13 @@ MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDa
 MA_API void ma_data_source_get_loop_point_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames)
 {
     const ma_data_source_base* pDataSourceBase = (const ma_data_source_base*)pDataSource;
+
+    if (pLoopBegInFrames != NULL) {
+        *pLoopBegInFrames = 0;
+    }
+    if (pLoopEndInFrames != NULL) {
+        *pLoopEndInFrames = 0;
+    }
 
     if (pDataSource == NULL) {
         return;
