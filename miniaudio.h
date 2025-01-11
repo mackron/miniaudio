@@ -41311,42 +41311,6 @@ MA_API ma_result ma_device_post_init(ma_device* pDevice, ma_device_type deviceTy
         }
     }
 
-    /*
-    The name of the device can be retrieved from device info. This may be temporary and replaced with a `ma_device_get_info(pDevice, deviceType)` instead.
-    For loopback devices, we need to retrieve the name of the playback device.
-    */
-    {
-        ma_device_info deviceInfo;
-
-        if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex || deviceType == ma_device_type_loopback) {
-            result = ma_device_get_info(pDevice, ma_device_type_capture, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (pDescriptorCapture->pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), MA_DEFAULT_CAPTURE_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->capture.name, sizeof(pDevice->capture.name), "Capture Device", (size_t)-1);
-                }
-            }
-        }
-
-        if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-            result = ma_device_get_info(pDevice, ma_device_type_playback, &deviceInfo);
-            if (result == MA_SUCCESS) {
-                ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), deviceInfo.name, (size_t)-1);
-            } else {
-                /* We failed to retrieve the device info. Fall back to a default name. */
-                if (pDescriptorPlayback->pDeviceID == NULL) {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME, (size_t)-1);
-                } else {
-                    ma_strncpy_s(pDevice->playback.name, sizeof(pDevice->playback.name), "Playback Device", (size_t)-1);
-                }
-            }
-        }
-    }
-
     /* Update data conversion. */
     return ma_device__post_init_setup(pDevice, deviceType); /* TODO: Should probably rename ma_device__post_init_setup() to something better. */
 }
