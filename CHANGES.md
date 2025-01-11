@@ -1,6 +1,7 @@
 v0.11.22 - TBD
 =====================
 * Add `MA_SOUND_FLAG_LOOPING` and `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flags. These can be used to initialize sounds and resource managed data sources to loop by default. This is the recommended way to enable looping for streams. The `isLooping` config option in `ma_sound_config` and `ma_resource_manager_data_source_config` has been deprecated. If you are using those, you should switch to the new flag or else you'll get compiler errors when upgrading to a future version.
+* `ma_rb_commit_read()`, `ma_rb_commit_write()`, `ma_pcm_rb_commit_read()` and `ma_pcm_rb_commit_write()` no longer return `MA_AT_END`. The reason for this change is that there's no real notion of an "end" in a ring buffer which makes this result code confusing. In addition, it's possible for these functions to return something other than `MA_SUCCESS` when the operation completed successfully which adds to the confusion. The correct way to check if there is any more room in the ring buffer is to look at the frame count returned by `*rb_acquire_read/write()`.
 * Fix a bug relating to node detachment.
 * Fix a bug where amplification with `ma_device_set_master_volume()` does not work.
 * Fix a bug where sounds loaded with `MA_SOUND_FLAG_DECODE` do not loop.

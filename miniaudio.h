@@ -56592,11 +56592,7 @@ MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes)
 
     ma_atomic_exchange_32(&pRB->encodedReadOffset, ma_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
 
-    if (ma_rb_pointer_distance(pRB) == 0) {
-        return MA_AT_END;
-    } else {
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
@@ -56678,11 +56674,7 @@ MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes)
 
     ma_atomic_exchange_32(&pRB->encodedWriteOffset, ma_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
 
-    if (ma_rb_pointer_distance(pRB) == 0) {
-        return MA_AT_END;
-    } else {
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes)
