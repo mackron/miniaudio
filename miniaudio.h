@@ -75690,8 +75690,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
             resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
 
-            /* The Emscripten build cannot use threads. */
-            #if defined(MA_EMSCRIPTEN)
+            /* The Emscripten build cannot use threads unless it's targeting pthreads. */
+            #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
             {
                 resourceManagerConfig.jobThreadCount = 0;
                 resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
