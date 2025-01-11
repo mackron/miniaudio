@@ -1,6 +1,8 @@
 v0.11.22 - TBD
 =====================
 * Add `MA_SOUND_FLAG_LOOPING` and `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` flags. These can be used to initialize sounds and resource managed data sources to loop by default. This is the recommended way to enable looping for streams. The `isLooping` config option in `ma_sound_config` and `ma_resource_manager_data_source_config` has been deprecated. If you are using those, you should switch to the new flag or else you'll get compiler errors when upgrading to a future version.
+* `ma_rb_commit_read()`, `ma_rb_commit_write()`, `ma_pcm_rb_commit_read()` and `ma_pcm_rb_commit_write()` no longer return `MA_AT_END`. The reason for this change is that there's no real notion of an "end" in a ring buffer which makes this result code confusing. In addition, it's possible for these functions to return something other than `MA_SUCCESS` when the operation completed successfully which adds to the confusion. The correct way to check if there is any more room in the ring buffer is to look at the frame count returned by `*rb_acquire_read/write()`.
+* The `ma_pcm_rb` data source implementation has been modified to pad output data with silence if there is not enough data in the ring buffer to fill the request. What this means is for an `ma_pcm_rb`, `ma_data_source_read_pcm_frames()` should no longer return a frame count of less than what you requested, and will therefore never return `MA_AT_END` which does not make sense for a ring buffer since it does not have the notion of an end. This change should make it much easier to use a ring buffer as the data source for a `ma_sound`.
 * Fix a bug relating to node detachment.
 * Fix a bug where amplification with `ma_device_set_master_volume()` does not work.
 * Fix a bug where sounds loaded with `MA_SOUND_FLAG_DECODE` do not loop.
@@ -9,8 +11,9 @@ v0.11.22 - TBD
 * Web: Fix ScriptProcessorNode path when compiling with `--closure=1`. Note that the Audio Worklets path is not currently working due to the callback specified in `emscripten_create_wasm_audio_worklet_processor_async` never getting fired.
 * Web: Fix an error with the unlocked notification when compiling as C++.
 * Web: Fix a JavaScript error when initializing and then uninitializing a context before any interactivity.
+* AAudio: Fix an error where the device is silenced after rerouting. With this change, miniaudio will no longer give AAudio a hint to use your supplied period size which will therefore result in AAudio using its default latency configuration. If you want AAudio to try to use the period size you supply in the device config, which is the old behaviour, set `aaudio.allowSetBufferCapacity` to true in the device config. Note, however, if you do this you may end up with errors when rerouting between devices.
 * AAudio: The default minimum SDK version has been increased from 26 to 27 when enabling AAudio. If you need to support version 26, you can use `#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 26`.
-* AAudio: Fix ma_device_get_info() implementation
+* AAudio: Fix ma_device_get_info() implementation.
 * PulseAudio: Allow setting the channel map requested from PulseAudio in device configs
 
 

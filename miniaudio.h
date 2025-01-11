@@ -2919,7 +2919,7 @@ like the following:
         ma_resample_algorithm_linear);
 
     ma_resampler resampler;
-    ma_result result = ma_resampler_init(&config, &resampler);
+    ma_result result = ma_resampler_init(&config, NULL, &resampler);
     if (result != MA_SUCCESS) {
         // An error occurred...
     }
@@ -40117,6 +40117,10 @@ Web Audio Backend
 #if (__EMSCRIPTEN_major__ > 3) || (__EMSCRIPTEN_major__ == 3 && (__EMSCRIPTEN_minor__ > 1 || (__EMSCRIPTEN_minor__ == 1 && __EMSCRIPTEN_tiny__ >= 32)))
     #include <emscripten/webaudio.h>
     #define MA_SUPPORT_AUDIO_WORKLETS
+
+    #if (__EMSCRIPTEN_major__ > 3) || (__EMSCRIPTEN_major__ == 3 && (__EMSCRIPTEN_minor__ > 1 || (__EMSCRIPTEN_minor__ == 1 && __EMSCRIPTEN_tiny__ >= 70)))
+        #define MA_SUPPORT_AUDIO_WORKLETS_VARIABLE_BUFFER_SIZE
+    #endif
 #endif
 
 /*
@@ -40364,10 +40368,6 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     (void)paramCount;
     (void)pParams;
 
-    if (ma_device_get_state(pDevice) != ma_device_state_started) {
-        return EM_TRUE;
-    }
-
     /*
     The Emscripten documentation says that it'll always be 128 frames being passed in. Hard coding it like that feels
     like a very bad idea to me. Even if it's hard coded in the backend, the API and documentation should always refer
@@ -40376,7 +40376,20 @@ static EM_BOOL ma_audio_worklet_process_callback__webaudio(int inputCount, const
     Unfortunately the audio data is not interleaved so we'll need to convert it before we give the data to miniaudio
     for further processing.
     */
-    frameCount = 128;
+    if (pDevice->type == ma_device_type_playback) {
+        frameCount = pDevice->playback.internalPeriodSizeInFrames;
+    } else {
+        frameCount = pDevice->capture.internalPeriodSizeInFrames;
+    }
+
+    if (ma_device_get_state(pDevice) != ma_device_state_started) {
+        /* Fill the output buffer with zero to avoid a noise sound */
+        for (int i = 0; i < outputCount; i += 1) {
+            MA_ZERO_MEMORY(pOutputs[i].data, pOutputs[i].numberOfChannels * frameCount * sizeof(float));
+        }
+
+        return EM_TRUE;
+    }
 
     if (inputCount > 0) {
         /* Input data needs to be interleaved before we hand it to the client. */
@@ -40454,7 +40467,15 @@ static void ma_audio_worklet_processor_created__webaudio(EMSCRIPTEN_WEBAUDIO_T a
     Now that we know the channel count to use we can allocate the intermediary buffer. The
     intermediary buffer is used for interleaving and deinterleaving.
     */
-    intermediaryBufferSizeInFrames = 128;
+    #if defined(MA_SUPPORT_AUDIO_WORKLETS_VARIABLE_BUFFER_SIZE)
+    {
+        intermediaryBufferSizeInFrames = (size_t)emscripten_audio_context_quantum_size(audioContext);
+    }
+    #else
+    {
+        intermediaryBufferSizeInFrames = 128;
+    }
+    #endif
 
     pParameters->pDevice->webaudio.pIntermediaryBuffer = (float*)ma_malloc(intermediaryBufferSizeInFrames * (ma_uint32)channels * sizeof(float), &pParameters->pDevice->pContext->allocationCallbacks);
     if (pParameters->pDevice->webaudio.pIntermediaryBuffer == NULL) {
@@ -56796,11 +56817,7 @@ MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes)
 
     ma_atomic_exchange_32(&pRB->encodedReadOffset, ma_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
 
-    if (ma_rb_pointer_distance(pRB) == 0) {
-        return MA_AT_END;
-    } else {
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_rb_acquire_write(ma_rb* pRB, size_t* pSizeInBytes, void** ppBufferOut)
@@ -56882,11 +56899,7 @@ MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes)
 
     ma_atomic_exchange_32(&pRB->encodedWriteOffset, ma_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
 
-    if (ma_rb_pointer_distance(pRB) == 0) {
-        return MA_AT_END;
-    } else {
-        return MA_SUCCESS;
-    }
+    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_rb_seek_read(ma_rb* pRB, size_t offsetInBytes)
@@ -57107,6 +57120,16 @@ static ma_result ma_pcm_rb_data_source__on_read(ma_data_source* pDataSource, voi
         }
 
         totalFramesRead += mappedFrameCount;
+    }
+
+    /*
+    There is no notion of an "end" in a ring buffer. If we didn't have enough data to fill the requested frame
+    count we'll need to pad with silence. If we don't do this, totalFramesRead might equal 0 which will result
+    in the data source layer at a higher level translating this to MA_AT_END which is incorrect for a ring buffer.
+    */
+    if (totalFramesRead < frameCount) {
+        ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, pRB->format, pRB->channels), (frameCount - totalFramesRead), pRB->format, pRB->channels);
+        totalFramesRead = frameCount;
     }
 
     *pFramesRead = totalFramesRead;
@@ -58250,6 +58273,13 @@ MA_API void ma_data_source_get_range_in_pcm_frames(const ma_data_source* pDataSo
 {
     const ma_data_source_base* pDataSourceBase = (const ma_data_source_base*)pDataSource;
 
+    if (pRangeBegInFrames != NULL) {
+        *pRangeBegInFrames = 0;
+    }
+    if (pRangeEndInFrames != NULL) {
+        *pRangeEndInFrames = 0;
+    }
+
     if (pDataSource == NULL) {
         return;
     }
@@ -58293,6 +58323,13 @@ MA_API ma_result ma_data_source_set_loop_point_in_pcm_frames(ma_data_source* pDa
 MA_API void ma_data_source_get_loop_point_in_pcm_frames(const ma_data_source* pDataSource, ma_uint64* pLoopBegInFrames, ma_uint64* pLoopEndInFrames)
 {
     const ma_data_source_base* pDataSourceBase = (const ma_data_source_base*)pDataSource;
+
+    if (pLoopBegInFrames != NULL) {
+        *pLoopBegInFrames = 0;
+    }
+    if (pLoopEndInFrames != NULL) {
+        *pLoopEndInFrames = 0;
+    }
 
     if (pDataSource == NULL) {
         return;
@@ -75351,8 +75388,8 @@ MA_API ma_result ma_engine_init(const ma_engine_config* pConfig, ma_engine* pEng
             ma_allocation_callbacks_init_copy(&resourceManagerConfig.allocationCallbacks, &pEngine->allocationCallbacks);
             resourceManagerConfig.pVFS              = engineConfig.pResourceManagerVFS;
 
-            /* The Emscripten build cannot use threads. */
-            #if defined(MA_EMSCRIPTEN)
+            /* The Emscripten build cannot use threads unless it's targeting pthreads. */
+            #if defined(MA_EMSCRIPTEN) && !defined(__EMSCRIPTEN_PTHREADS__)
             {
                 resourceManagerConfig.jobThreadCount = 0;
                 resourceManagerConfig.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
