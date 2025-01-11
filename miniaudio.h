@@ -64561,6 +64561,7 @@ static void* ma_decoder_config_get_backend_user_data(const ma_decoder_config* pC
 static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = MA_NO_BACKEND;
+    ma_result firstError = MA_SUCCESS;
     ma_uint32 iBackend;
 
     MA_ASSERT(pConfig != NULL);
@@ -64576,7 +64577,15 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
             if (result == MA_SUCCESS) {
                 return ma_decoder__postinit_or_uninit(pConfig, pDecoder);
             } else {
-                /* Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from the first byte of the file. */
+                /*
+                Initialization failed. Move on to the next one, but seek back to the start first so the next vtable starts from
+                the first byte of the file. We want to propagate the first error code back to the caller in the result of an
+                initialization failure, so keep track of it here if we haven't already got an error.
+                */
+                if (firstError == MA_SUCCESS) {
+                    firstError = result;
+                }
+
                 result = ma_decoder_on_seek(pDecoder, 0, ma_seek_origin_start);
                 if (result != MA_SUCCESS) {
                     return result;  /* Failed to seek back to the start. */
@@ -64587,7 +64596,11 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
         }
     }
 
-    /* Getting here means we couldn't find a backend. */
+    /* Getting here means we couldn't find a backend or there was an error initializing. */
+    if (firstError != MA_SUCCESS) {
+        return firstError;
+    }
+
     return MA_NO_BACKEND;
 }
 
