@@ -56897,6 +56897,16 @@ static ma_result ma_pcm_rb_data_source__on_read(ma_data_source* pDataSource, voi
         totalFramesRead += mappedFrameCount;
     }
 
+    /*
+    There is no notion of an "end" in a ring buffer. If we didn't have enough data to fill the requested frame
+    count we'll need to pad with silence. If we don't do this, totalFramesRead might equal 0 which will result
+    in the data source layer at a higher level translating this to MA_AT_END which is incorrect for a ring buffer.
+    */
+    if (totalFramesRead < frameCount) {
+        ma_silence_pcm_frames(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, pRB->format, pRB->channels), (frameCount - totalFramesRead), pRB->format, pRB->channels);
+        totalFramesRead = frameCount;
+    }
+
     *pFramesRead = totalFramesRead;
     return MA_SUCCESS;
 }

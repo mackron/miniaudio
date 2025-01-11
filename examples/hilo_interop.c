@@ -125,9 +125,6 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    /* Make sure the sound is set to looping or else it'll stop if the ring buffer runs out of data. */
-    ma_sound_set_looping(&sound, MA_TRUE);
-
     /* Link the starting of the device and sound together. */
     ma_device_start(&device);
     ma_sound_start(&sound);
