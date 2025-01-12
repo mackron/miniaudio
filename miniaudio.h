@@ -57793,7 +57793,7 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
 
     if (pDataSourceBase == NULL) {
-        return MA_SUCCESS;
+        return MA_INVALID_ARGS;
     }
 
     if (pDataSourceBase->vtable->onSeek == NULL) {
@@ -57801,7 +57801,7 @@ MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, m
     }
 
     if (frameIndex > pDataSourceBase->rangeEndInFrames) {
-        return MA_INVALID_OPERATION;    /* Trying to seek to far forward. */
+        return MA_INVALID_OPERATION;    /* Trying to seek too far forward. */
     }
 
     MA_ASSERT(pDataSourceBase->vtable != NULL);
