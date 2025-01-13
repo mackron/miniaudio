@@ -57825,7 +57825,7 @@ MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float 
         return result;
     }
 
-    result = ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesSeeked);
+    result = ma_data_source_seek_pcm_frames(pDataSource, frameCount, &framesSeeked);
 
     /* VC6 doesn't support division between unsigned 64-bit integer and floating point number. Signed integer needed. This shouldn't affect anything in practice */
     *pSecondsSeeked = (ma_int64)framesSeeked / (float)sampleRate;
@@ -57834,18 +57834,12 @@ MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float 
 
 MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, float secondIndex)
 {
-    /* Dev note: This definition is very similar to definition of ma_data_source_seek_to_pcm_frame() */
-    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
     ma_uint64 frameIndex;
     ma_uint32 sampleRate;
     ma_result result;
 
-    if (pDataSourceBase == NULL) {
+    if (pDataSource == NULL) {
         return MA_INVALID_ARGS;
-    }
-
-    if (pDataSourceBase->vtable->onSeek == NULL) {
-        return MA_NOT_IMPLEMENTED;
     }
 
     result = ma_data_source_get_data_format(pDataSource, NULL, NULL, &sampleRate, NULL, 0);
@@ -57856,13 +57850,7 @@ MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, floa
     /* We need PCM frames instead of seconds */
     frameIndex = secondIndex * sampleRate;
 
-    if (frameIndex > pDataSourceBase->rangeEndInFrames) {
-        return MA_INVALID_OPERATION;    /* Trying to seek too far forward. */
-    }
-
-    MA_ASSERT(pDataSourceBase->vtable != NULL);
-
-    return pDataSourceBase->vtable->onSeek(pDataSource, pDataSourceBase->rangeBegInFrames + frameIndex);
+    return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 }
 
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
@@ -77465,7 +77453,6 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
 
 MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
 {
-    /* Dev note: this definition if very similar to `ma_sound_seek_to_pcm_frame`s definition */
     ma_uint64 frameIndex;
     ma_uint32 sampleRate;
     ma_result result;
@@ -77474,11 +77461,7 @@ MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
         return MA_INVALID_ARGS;
     }
 
-    if (pSound->pDataSource == NULL) {
-        return MA_INVALID_OPERATION;
-    }
-
-    result = ma_data_source_get_data_format(pSound->pDataSource, NULL, NULL, &sampleRate, NULL, 0);
+    result = ma_sound_get_data_format(pSound, NULL, NULL, &sampleRate, NULL, 0);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -77486,10 +77469,7 @@ MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
     /* We need PCM frames. We need to convert first */
     frameIndex = secondIndex * sampleRate;
 
-    /* We can't be seeking while reading at the same time. First exclusively change current cursor/position, then read afterwards */
-    ma_atomic_exchange_64(&pSound->seekTarget, frameIndex);
-
-    return MA_SUCCESS;
+    return ma_sound_seek_to_pcm_frame(pSound, frameIndex);
 }
 
 MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
