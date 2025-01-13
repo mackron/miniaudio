@@ -5826,7 +5826,7 @@ MA_API ma_result ma_data_source_read_pcm_frames(ma_data_source* pDataSource, voi
 MA_API ma_result ma_data_source_seek_pcm_frames(ma_data_source* pDataSource, ma_uint64 frameCount, ma_uint64* pFramesSeeked); /* Can only seek forward. Equivalent to ma_data_source_read_pcm_frames(pDataSource, NULL, frameCount, &framesRead); */
 MA_API ma_result ma_data_source_seek_to_pcm_frame(ma_data_source* pDataSource, ma_uint64 frameIndex);
 MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float secondCount, float* pSecondsSeeked); /* Can only seek forward. Abstraction to ma_data_source_seek_pcm_frames() */
-MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, float secondIndex); /* Abstraction to ma_data_source_seek_to_pcm_frame() */
+MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, float seekPointInSeconds); /* Abstraction to ma_data_source_seek_to_pcm_frame() */
 MA_API ma_result ma_data_source_get_data_format(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_data_source_get_cursor_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pCursor);
 MA_API ma_result ma_data_source_get_length_in_pcm_frames(ma_data_source* pDataSource, ma_uint64* pLength);    /* Returns MA_NOT_IMPLEMENTED if the length is unknown or cannot be determined. Decoders can return this. */
@@ -11395,7 +11395,7 @@ MA_API void ma_sound_set_looping(ma_sound* pSound, ma_bool32 isLooping);
 MA_API ma_bool32 ma_sound_is_looping(const ma_sound* pSound);
 MA_API ma_bool32 ma_sound_at_end(const ma_sound* pSound);
 MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameIndex); /* Just a wrapper around ma_data_source_seek_to_pcm_frame(). */
-MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex); /* Abstraction to ma_sound_seek_to_pcm_frame() */
+MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float seekPointInSeconds); /* Abstraction to ma_sound_seek_to_pcm_frame() */
 MA_API ma_result ma_sound_get_data_format(ma_sound* pSound, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
 MA_API ma_result ma_sound_get_cursor_in_pcm_frames(ma_sound* pSound, ma_uint64* pCursor);
 MA_API ma_result ma_sound_get_length_in_pcm_frames(ma_sound* pSound, ma_uint64* pLength);
@@ -57835,7 +57835,7 @@ MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float 
     return result;
 }
 
-MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, float secondIndex)
+MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, float seekPointInSeconds)
 {
     ma_uint64 frameIndex;
     ma_uint32 sampleRate;
@@ -57851,7 +57851,7 @@ MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, floa
     }
 
     /* We need PCM frames instead of seconds */
-    frameIndex = (ma_uint64)(secondIndex * sampleRate);
+    frameIndex = (ma_uint64)(seekPointInSeconds * sampleRate);
 
     return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 }
@@ -77454,7 +77454,7 @@ MA_API ma_result ma_sound_seek_to_pcm_frame(ma_sound* pSound, ma_uint64 frameInd
     return MA_SUCCESS;
 }
 
-MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
+MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float seekPointInSeconds)
 {
     ma_uint64 frameIndex;
     ma_uint32 sampleRate;
@@ -77470,7 +77470,7 @@ MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
     }
 
     /* We need PCM frames. We need to convert first */
-    frameIndex = (ma_uint64)(secondIndex * sampleRate);
+    frameIndex = (ma_uint64)(seekPointInSeconds * sampleRate);
 
     return ma_sound_seek_to_pcm_frame(pSound, frameIndex);
 }
