@@ -57825,6 +57825,9 @@ MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float 
         return result;
     }
 
+    /* We need PCM frames instead of seconds */
+    frameCount = secondCount * sampleRate;
+
     result = ma_data_source_seek_pcm_frames(pDataSource, frameCount, &framesSeeked);
 
     /* VC6 doesn't support division between unsigned 64-bit integer and floating point number. Signed integer needed. This shouldn't affect anything in practice */
