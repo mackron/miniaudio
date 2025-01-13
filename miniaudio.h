@@ -57774,7 +57774,7 @@ MA_API ma_result ma_data_source_seek_seconds(ma_data_source* pDataSource, float 
     }
 
     /* We need PCM frames instead of seconds */
-    frameCount = secondCount * sampleRate;
+    frameCount = (ma_uint64)(secondCount * sampleRate);
 
     result = ma_data_source_seek_pcm_frames(pDataSource, frameCount, &framesSeeked);
 
@@ -57799,7 +57799,7 @@ MA_API ma_result ma_data_source_seek_to_second(ma_data_source* pDataSource, floa
     }
 
     /* We need PCM frames instead of seconds */
-    frameIndex = secondIndex * sampleRate;
+    frameIndex = (ma_uint64)(secondIndex * sampleRate);
 
     return ma_data_source_seek_to_pcm_frame(pDataSource, frameIndex);
 }
@@ -77418,7 +77418,7 @@ MA_API ma_result ma_sound_seek_to_second(ma_sound* pSound, float secondIndex)
     }
 
     /* We need PCM frames. We need to convert first */
-    frameIndex = secondIndex * sampleRate;
+    frameIndex = (ma_uint64)(secondIndex * sampleRate);
 
     return ma_sound_seek_to_pcm_frame(pSound, frameIndex);
 }
