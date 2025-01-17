@@ -57509,6 +57509,56 @@ static ma_result ma_data_source_resolve_current(ma_data_source* pDataSource, ma_
     return MA_SUCCESS;
 }
 
+static ma_result ma_data_source_read_pcm_frames_from_backend(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
+
+    MA_ASSERT(pDataSourceBase                 != NULL);
+    MA_ASSERT(pDataSourceBase->vtable         != NULL);
+    MA_ASSERT(pDataSourceBase->vtable->onRead != NULL);
+    MA_ASSERT(pFramesRead != NULL);
+
+    if (pFramesOut != NULL) {
+        return pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, pFramesRead);
+    } else {
+        /*
+        No output buffer. Probably seeking forward. Read and discard. Can probably optimize this in terms of
+        onSeek and onGetCursor, but need to keep in mind that the data source may not implement these functions.
+        */
+        ma_result result;
+        ma_uint64 framesRead;
+        ma_format format;
+        ma_uint32 channels;
+        ma_uint64 discardBufferCapInFrames;
+        ma_uint8  pDiscardBuffer[4096];
+
+        result = ma_data_source_get_data_format(pDataSource, &format, &channels, NULL, NULL, 0);
+        if (result != MA_SUCCESS) {
+            return result;
+        }
+
+        discardBufferCapInFrames = sizeof(pDiscardBuffer) / ma_get_bytes_per_frame(format, channels);
+
+        framesRead = 0;
+        while (framesRead < frameCount) {
+            ma_uint64 framesReadThisIteration = 0;
+            ma_uint64 framesToRead = frameCount - framesRead;
+            if (framesToRead > discardBufferCapInFrames) {
+                framesToRead = discardBufferCapInFrames;
+            }
+
+            result = pDataSourceBase->vtable->onRead(pDataSourceBase, pDiscardBuffer, framesToRead, &framesReadThisIteration);
+            if (result != MA_SUCCESS) {
+                return result;
+            }
+
+            framesRead += framesReadThisIteration;
+        }
+
+        return MA_SUCCESS;
+    }
+}
+
 static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
     ma_data_source_base* pDataSourceBase = (ma_data_source_base*)pDataSource;
@@ -57528,7 +57578,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
 
     if ((pDataSourceBase->vtable->flags & MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT) != 0 || (pDataSourceBase->rangeEndInFrames == ~((ma_uint64)0) && (pDataSourceBase->loopEndInFrames == ~((ma_uint64)0) || loop == MA_FALSE))) {
         /* Either the data source is self-managing the range, or no range is set - just read like normal. The data source itself will tell us when the end is reached. */
-        result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+        result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
     } else {
         /* Need to clamp to within the range. */
         ma_uint64 relativeCursor;
@@ -57537,7 +57587,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
         result = ma_data_source_get_cursor_in_pcm_frames(pDataSourceBase, &relativeCursor);
         if (result != MA_SUCCESS) {
             /* Failed to retrieve the cursor. Cannot read within a range or loop points. Just read like normal - this may happen for things like noise data sources where it doesn't really matter. */
-            result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+            result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
         } else {
             ma_uint64 rangeBeg;
             ma_uint64 rangeEnd;
@@ -57565,7 +57615,7 @@ static ma_result ma_data_source_read_pcm_frames_within_range(ma_data_source* pDa
             MA_AT_END so the higher level function can know about it.
             */
             if (frameCount > 0) {
-                result = pDataSourceBase->vtable->onRead(pDataSourceBase, pFramesOut, frameCount, &framesRead);
+                result = ma_data_source_read_pcm_frames_from_backend(pDataSource, pFramesOut, frameCount, &framesRead);
             } else {
                 result = MA_AT_END; /* The cursor is sitting on the end of the range which means we're at the end. */
             }
