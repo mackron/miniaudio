@@ -57555,6 +57555,8 @@ static ma_result ma_data_source_read_pcm_frames_from_backend(ma_data_source* pDa
             framesRead += framesReadThisIteration;
         }
 
+        *pFramesRead = framesRead;
+
         return MA_SUCCESS;
     }
 }
