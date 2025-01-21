@@ -3141,7 +3141,7 @@ Biquad filtering is achieved with the `ma_biquad` API. Example:
 
     ```c
     ma_biquad_config config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
-    ma_result result = ma_biquad_init(&config, &biquad);
+    ma_result result = ma_biquad_init(&config, NULL, &biquad);
     if (result != MA_SUCCESS) {
         // Error.
     }
