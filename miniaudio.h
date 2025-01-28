@@ -30178,15 +30178,20 @@ static ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 periodSizeInFra
 static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const char* pStreamName, const ma_pa_sample_spec* ss, const ma_pa_channel_map* cmap)
 {
     static int g_StreamCounter = 0;
+    static ma_mutex g_StreamCounterMutex;
     char actualStreamName[256];
 
-    if (pStreamName != NULL) {
-        ma_strncpy_s(actualStreamName, sizeof(actualStreamName), pStreamName, (size_t)-1);
-    } else {
-        ma_strcpy_s(actualStreamName, sizeof(actualStreamName), "miniaudio:");
-        ma_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  /* 8 = strlen("miniaudio:") */
+    ma_mutex_lock(&g_StreamCounterMutex);
+    {
+        if (pStreamName != NULL) {
+            ma_strncpy_s(actualStreamName, sizeof(actualStreamName), pStreamName, (size_t)-1);
+        } else {
+            ma_strcpy_s(actualStreamName, sizeof(actualStreamName), "miniaudio:");
+            ma_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  /* 8 = strlen("miniaudio:") */
+        }
+        g_StreamCounter += 1;
     }
-    g_StreamCounter += 1;
+    ma_mutex_unlock(&g_StreamCounterMutex);
 
     return ((ma_pa_stream_new_proc)pDevice->pContext->pulse.pa_stream_new)((ma_pa_context*)pDevice->pulse.pPulseContext, actualStreamName, ss, cmap);
 }
