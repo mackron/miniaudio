@@ -23133,13 +23133,12 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         */
         if (ma_atomic_bool32_get(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
-            DWORD waitTime = pDevice->wasapi.actualBufferSizeInFramesPlayback / pDevice->playback.internalSampleRate;
+            DWORD waitTime = pDevice->wasapi.actualBufferSizeInFramesPlayback / (pDevice->playback.internalSampleRate / 1000);
 
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                 WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime);
-            }
-            else {
-                ma_uint32 prevFramesAvaialablePlayback = (ma_uint32)-1;
+            } else {
+                ma_uint32 prevFramesAvailablePlayback = (ma_uint32)-1;
                 ma_uint32 framesAvailablePlayback;
                 for (;;) {
                     result = ma_device__get_available_frames__wasapi(pDevice, (ma_IAudioClient*)pDevice->wasapi.pAudioClientPlayback, &framesAvailablePlayback);
@@ -23155,13 +23154,13 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
                     Just a safety check to avoid an infinite loop. If this iteration results in a situation where the number of available frames
                     has not changed, get out of the loop. I don't think this should ever happen, but I think it's nice to have just in case.
                     */
-                    if (framesAvailablePlayback == prevFramesAvaialablePlayback) {
+                    if (framesAvailablePlayback == prevFramesAvailablePlayback) {
                         break;
                     }
-                    prevFramesAvaialablePlayback = framesAvailablePlayback;
+                    prevFramesAvailablePlayback = framesAvailablePlayback;
 
-                    WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime * 1000);
                     ResetEvent((HANDLE)pDevice->wasapi.hEventPlayback); /* Manual reset. */
+                    WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime);
                 }
             }
         }
