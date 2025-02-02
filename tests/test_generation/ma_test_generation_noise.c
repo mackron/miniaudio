@@ -65,17 +65,17 @@ ma_result test_noise__s16()
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_white, TEST_OUTPUT_DIR"/output/noise_s16_white.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_white, TEST_OUTPUT_DIR"/noise_s16_white.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_pink, TEST_OUTPUT_DIR"/output/noise_s16_pink.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_pink, TEST_OUTPUT_DIR"/noise_s16_pink.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_brownian, TEST_OUTPUT_DIR"/output/noise_s16_brownian.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_brownian, TEST_OUTPUT_DIR"/noise_s16_brownian.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
