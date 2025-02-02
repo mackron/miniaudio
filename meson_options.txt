@@ -1,0 +1,144 @@
+option(
+  'backends',
+  type: 'array',
+  choices: [
+    'wasapi',
+    'dsound',
+    'winmm',
+    'alsa',
+    'pulseaudio',
+    'jack',
+    'coreaudio',
+    'sndio',
+    'audio4',
+    'oss',
+    'aaudio',
+    'opensl',
+    'webaudio',
+    'custom',
+    'null',
+    'sdl',
+    '_meson_default', # use all available platform libs. force enables runtime linking.
+  ],
+  value: ['_meson_default'],
+  description: 'audio backends to enable',
+)
+option(
+  'runtime_linking',
+  type: 'feature',
+  value: 'auto',
+  description: 'enable runtime linking',
+)
+
+option(
+  'decoding',
+  type: 'boolean',
+  value: true,
+  description: 'enable decoding APIs',
+)
+option(
+  'encoding',
+  type: 'boolean',
+  value: true,
+  description: 'enable encoding APIs',
+)
+option(
+  'device_io',
+  type: 'feature',
+  value: 'enabled',
+  description: 'enable playback and recording APIs',
+)
+option(
+  'resource_manager',
+  type: 'feature',
+  value: 'enabled',
+  description: 'enable resource manager',
+)
+option(
+  'node_graph',
+  type: 'feature',
+  value: 'enabled',
+  description: 'enable the node graph API',
+)
+option(
+  'engine',
+  type: 'boolean',
+  value: true,
+  description: 'enable the engine API',
+)
+option(
+  'threading',
+  type: 'feature',
+  value: 'auto',
+  description: 'enable the threading API',
+)
+option(
+  'generation',
+  type: 'boolean',
+  value: true,
+  description: 'enable the generation API',
+)
+
+option(
+  'libvorbis',
+  type: 'feature',
+  value: 'disabled',
+  description: 'build with data source implementation that decodes Vorbis streams via libvorbis + libvorbisfile',
+)
+option(
+  'libopus',
+  type: 'feature',
+  value: 'disabled',
+  description: 'build with data source implementation that decodes Opus streams via libopus + libopusfile',
+)
+option(
+  'stbvorbis',
+  type: 'boolean',
+  value: false,
+  description: 'build with data source implementation that decodes Vorbis streams via stb_vorbis',
+)
+
+option(
+  'dr_wav',
+  type: 'boolean',
+  value: true,
+  description: 'enable built-in wav decoder and encoder',
+)
+option(
+  'dr_flac',
+  type: 'boolean',
+  value: true,
+  description: 'enable built-in flac decoder',
+)
+option(
+  'dr_mp3',
+  type: 'boolean',
+  value: true,
+  description: 'enable built-in mp3 decoder',
+)
+
+option(
+  'sdl',
+  type: 'feature',
+  value: 'disabled',
+  description: 'enable sdl2 output backend',
+)
+
+option(
+  'examples',
+  type: 'feature',
+  value: 'auto',
+  description: 'build examples',
+)
+option(
+  'tools',
+  type: 'feature',
+  value: 'auto',
+  description: 'build tools',
+)
+option(
+  'tests',
+  type: 'feature',
+  value: 'auto',
+  description: 'build and run tests',
+)
