@@ -23102,6 +23102,14 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
+        /* If we have a mapped buffer we need to release it. */
+        if (pDevice->wasapi.pMappedBufferCapture != NULL) {
+            ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
+            pDevice->wasapi.pMappedBufferCapture = NULL;
+            pDevice->wasapi.mappedBufferCaptureCap = 0;
+            pDevice->wasapi.mappedBufferCaptureLen = 0;
+        }
+
         hr = ma_IAudioClient_Stop((ma_IAudioClient*)pDevice->wasapi.pAudioClientCapture);
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to stop internal capture device.");
@@ -23115,18 +23123,22 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
             return ma_result_from_HRESULT(hr);
         }
 
-        /* If we have a mapped buffer we need to release it. */
-        if (pDevice->wasapi.pMappedBufferCapture != NULL) {
-            ma_IAudioCaptureClient_ReleaseBuffer((ma_IAudioCaptureClient*)pDevice->wasapi.pCaptureClient, pDevice->wasapi.mappedBufferCaptureCap);
-            pDevice->wasapi.pMappedBufferCapture = NULL;
-            pDevice->wasapi.mappedBufferCaptureCap = 0;
-            pDevice->wasapi.mappedBufferCaptureLen = 0;
-        }
-
         ma_atomic_bool32_set(&pDevice->wasapi.isStartedCapture, MA_FALSE);
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
+            ma_silence_pcm_frames(
+                ma_offset_pcm_frames_ptr(pDevice->wasapi.pMappedBufferPlayback, pDevice->wasapi.mappedBufferPlaybackLen, pDevice->playback.internalFormat, pDevice->playback.internalChannels),
+                pDevice->wasapi.mappedBufferPlaybackCap - pDevice->wasapi.mappedBufferPlaybackLen,
+                pDevice->playback.internalFormat, pDevice->playback.internalChannels
+            );
+            ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.mappedBufferPlaybackCap, 0);
+            pDevice->wasapi.pMappedBufferPlayback = NULL;
+            pDevice->wasapi.mappedBufferPlaybackCap = 0;
+            pDevice->wasapi.mappedBufferPlaybackLen = 0;
+        }
+
         /*
         The buffer needs to be drained before stopping the device. Not doing this will result in the last few frames not getting output to
         the speakers. This is a problem for very short sounds because it'll result in a significant portion of it not getting played.
@@ -23176,13 +23188,6 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         if (FAILED(hr)) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to reset internal playback device.");
             return ma_result_from_HRESULT(hr);
-        }
-
-        if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
-            ma_IAudioRenderClient_ReleaseBuffer((ma_IAudioRenderClient*)pDevice->wasapi.pRenderClient, pDevice->wasapi.mappedBufferPlaybackCap, 0);
-            pDevice->wasapi.pMappedBufferPlayback = NULL;
-            pDevice->wasapi.mappedBufferPlaybackCap = 0;
-            pDevice->wasapi.mappedBufferPlaybackLen = 0;
         }
 
         ma_atomic_bool32_set(&pDevice->wasapi.isStartedPlayback, MA_FALSE);
