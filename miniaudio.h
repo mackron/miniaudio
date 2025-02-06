@@ -38662,7 +38662,7 @@ error_disconnected:
         result = ma_device_post_init(pDevice, deviceType, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
-            ma_device_uninit__aaudio(pDevice);
+            ma_close_streams__aaudio(pDevice);
             return result;
         }
 
