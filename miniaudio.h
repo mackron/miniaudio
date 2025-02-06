@@ -7967,6 +7967,7 @@ struct ma_device
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
+            ma_mutex closeLock;
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -38089,21 +38090,33 @@ static ma_result ma_context_get_device_info__aaudio(ma_context* pContext, ma_dev
     return MA_SUCCESS;
 }
 
+static ma_result ma_close_streams__aaudio(ma_device* pDevice)
+{
+    MA_ASSERT(pDevice != NULL);
+
+    ma_mutex_lock(&pDevice->aaudio.closeLock);
+    {
+        /* When re-routing, streams may have been closed and never re-opened. Hence the extra checks below. */
+        if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
+            pDevice->aaudio.pStreamCapture = NULL;
+        }
+        if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+            pDevice->aaudio.pStreamPlayback = NULL;
+        }
+    }
+    ma_mutex_unlock(&pDevice->aaudio.closeLock);
+
+    return MA_SUCCESS;
+}
 
 static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    /* When re-routing, streams may have been closed and never re-opened. Hence the extra checks below. */
-
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        pDevice->aaudio.pStreamCapture = NULL;
-    }
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        pDevice->aaudio.pStreamPlayback = NULL;
-    }
+    ma_close_streams__aaudio(pDevice);
+    ma_mutex_uninit(&pDevice->aaudio.closeLock);
 
     return MA_SUCCESS;
 }
@@ -38183,6 +38196,11 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
         if (result != MA_SUCCESS) {
             return result;
         }
+    }
+
+    result = ma_mutex_init(&pDevice->aaudio.closeLock);
+    if (result != MA_SUCCESS) {
+        return result;
     }
 
     return MA_SUCCESS;
@@ -38326,15 +38344,7 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
 
 error_disconnected:
     /* The first thing to do is close the streams. */
-    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-        pDevice->aaudio.pStreamCapture = NULL;
-    }
-
-    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
-        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-        pDevice->aaudio.pStreamPlayback = NULL;
-    }
+    ma_close_streams__aaudio(pDevice);
 
     /* Now we need to reinitialize each streams. The hardest part with this is just filling output the config and descriptors. */
     {
@@ -38395,7 +38405,7 @@ error_disconnected:
         result = ma_device_post_init(pDevice, deviceType, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
-            ma_device_uninit__aaudio(pDevice);
+            ma_close_streams__aaudio(pDevice);
             return result;
         }
 
