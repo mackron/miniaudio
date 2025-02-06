@@ -227,19 +227,26 @@ if runtime_linking.disabled()
     ma_backend_deps += dependency('OpenSLES')
   endif
 
-  # TODO: should we support non-wasm webaudio builds?
-  if 'webaudio' in backends and host_system == 'emscripten'
-    ma_backend_deps += declare_dependency(
-      compile_args: [
-        '-sWASM_WORKERS=1',
-        '-DMA_ENABLE_AUDIO_WORKLETS',
-      ],
-      link_args: [
-        '-sAUDIO_WORKLET=1',
-        '-sWASM_WORKERS=1',
-        '-sASYNCIFY',
-      ],
-    )
+  if 'webaudio' in backends
+    if get_option('webaudio_worklet')
+      ma_backend_deps += declare_dependency(
+        compile_args: [
+          '-sWASM_WORKERS=1',
+          '-DMA_ENABLE_AUDIO_WORKLETS',
+        ],
+        link_args: [
+          '-sWASM_WORKERS=1',
+          '-sAUDIO_WORKLET=1',
+          '-sASYNCIFY',
+        ],
+      )
+    else
+      ma_backend_deps += declare_dependency(
+        link_args: [
+          '-sWASM=0',
+        ],
+      )
+    endif
   endif
 
   if 'sdl' in backends

@@ -24,6 +24,12 @@ option(
   description: 'audio backends to enable',
 )
 option(
+  'webaudio_worklet',
+  type: 'boolean',
+  value: true,
+  description: 'emit webaudio wasm worklet instead of webaudio javascript',
+)
+option(
   'runtime_linking',
   type: 'feature',
   value: 'auto',
