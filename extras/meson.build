@@ -12,7 +12,11 @@ opusfile_dep = dependency('opusfile', required: get_option('libopus'))
 if opus_dep.found() and opusfile_dep.found()
   ma_all_libs += static_library(
     'miniaudio_libopus',
-    'miniaudio_libopus.c',
+    configure_file(
+      input: 'miniaudio_libopus.h',
+      output: 'miniaudio_libopus.c',
+      copy: true,
+    ),
     dependencies: ma_sys_deps + [opus_dep, opusfile_dep],
     c_args: ma_extras_c_args,
     install: false,
@@ -27,7 +31,11 @@ vorbisfile_dep = dependency('vorbisfile', required: get_option('libvorbis'))
 if vorbis_dep.found() and vorbisfile_dep.found()
   ma_all_libs += static_library(
     'miniaudio_libvorbis',
-    'miniaudio_libvorbis.c',
+    configure_file(
+      input: 'miniaudio_libvorbis.h',
+      output: 'miniaudio_libvorbis.c',
+      copy: true,
+    ),
     dependencies: ma_sys_deps + [vorbis_dep, vorbisfile_dep],
     c_args: ma_extras_c_args,
     install: false,

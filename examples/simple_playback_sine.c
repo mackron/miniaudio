@@ -43,6 +43,7 @@ int main(int argc, char** argv)
     ma_waveform sineWave;
     ma_device_config deviceConfig;
     ma_device device;
+    ma_device_info deviceInfo;
     ma_waveform_config sineWaveConfig;
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -57,7 +58,9 @@ int main(int argc, char** argv)
         return -4;
     }
 
-    printf("Device Name: %s\n", device.playback.name);
+    if (ma_device_get_info(&device, ma_device_type_playback, &deviceInfo) == MA_SUCCESS) {
+        printf("Device Name: %s\n", deviceInfo.name);
+    }
 
     sineWaveConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.2, 220);
     ma_waveform_init(&sineWaveConfig, &sineWave);

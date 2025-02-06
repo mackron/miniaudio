@@ -145,6 +145,7 @@ if host_system in [
   'dragonfly',
   'android',
   'darwin',
+  'emscripten',
 ]
   if runtime_linking.enabled()
     ma_sys_deps += dependency('dl')
@@ -226,6 +227,21 @@ if runtime_linking.disabled()
     ma_backend_deps += dependency('OpenSLES')
   endif
 
+  # TODO: should we support non-wasm webaudio builds?
+  if 'webaudio' in backends and host_system == 'emscripten'
+    ma_backend_deps += declare_dependency(
+      compile_args: [
+        '-sWASM_WORKERS=1',
+        '-DMA_ENABLE_AUDIO_WORKLETS',
+      ],
+      link_args: [
+        '-sAUDIO_WORKLET=1',
+        '-sWASM_WORKERS=1',
+        '-sASYNCIFY',
+      ],
+    )
+  endif
+
   if 'sdl' in backends
     ma_backend_deps += sdl_dep
   endif
@@ -274,6 +290,7 @@ ma_lib = library(
 
 ma_dep = declare_dependency(
   include_directories: ma_inc,
+  dependencies: ma_sys_deps + ma_backend_deps,
   link_with: ma_lib,
   compile_args: ma_global_args,
 )

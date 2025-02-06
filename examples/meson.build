@@ -242,9 +242,7 @@ if device_io.enabled() and generation
   executable(
     'simple_playback_sine',
     'simple_playback_sine.c',
-    # FIXME: simple_playback_sine.c:60:48:
-    # error: ‘struct <anonymous>’ has no member named ‘name’
-    ma_example_broken,
+    name_suffix: host_system == 'emscripten' ? 'html' : [],
     dependencies: ma_sys_deps + ma_backend_deps,
     install: false,
     implicit_include_directories: false,
