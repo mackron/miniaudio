@@ -17930,7 +17930,12 @@ MA_API void ma_dlclose(ma_log* pLog, ma_handle handle)
     #ifdef MA_WIN32
         FreeLibrary((HMODULE)handle);
     #else
-        dlclose((void*)handle);
+        /* Hack for Android bug (see https://github.com/android/ndk/issues/360). Calling dlclose() pre-API 28 may segfault. */
+        #if !defined(MA_ANDROID) || (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+        {
+            dlclose((void*)handle);
+        }
+        #endif
     #endif
 
     (void)pLog;
