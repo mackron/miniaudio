@@ -38472,18 +38472,6 @@ static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type t
     return MA_SUCCESS;
 }
 
-static void ma_close_library__aaudio(ma_context* pContext)
-{
-    MA_ASSERT(pContext != NULL);
-
-    /* Hack for Android bug (see https://github.com/android/ndk/issues/360). Calling dlclose() pre-API 28 may segfault. */
-    if (ma_android_sdk_version() >= 28) {
-        ma_dlclose(ma_context_get_log(pContext), pContext->aaudio.hAAudio);
-    }
-
-    pContext->aaudio.hAAudio = NULL;
-}
-
 
 static ma_result ma_context_uninit__aaudio(ma_context* pContext)
 {
@@ -38491,7 +38479,9 @@ static ma_result ma_context_uninit__aaudio(ma_context* pContext)
     MA_ASSERT(pContext->backend == ma_backend_aaudio);
 
     ma_device_job_thread_uninit(&pContext->aaudio.jobThread, &pContext->allocationCallbacks);
-    ma_close_library__aaudio(pContext);
+
+    ma_dlclose(ma_context_get_log(pContext), pContext->aaudio.hAAudio);
+    pContext->aaudio.hAAudio = NULL;
 
     return MA_SUCCESS;
 }
@@ -38599,7 +38589,8 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
 
         result = ma_device_job_thread_init(&jobThreadConfig, &pContext->allocationCallbacks, &pContext->aaudio.jobThread);
         if (result != MA_SUCCESS) {
-            ma_close_library__aaudio(pContext);
+            ma_dlclose(ma_context_get_log(pContext), pContext->aaudio.hAAudio);
+            pContext->aaudio.hAAudio = NULL;
             return result;
         }
     }
