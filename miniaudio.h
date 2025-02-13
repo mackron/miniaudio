@@ -30189,8 +30189,10 @@ static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const c
     if (pStreamName != NULL) {
         ma_strncpy_s(actualStreamName, sizeof(actualStreamName), pStreamName, (size_t)-1);
     } else {
-        ma_strcpy_s(actualStreamName, sizeof(actualStreamName), "miniaudio:");
-        ma_itoa_s(g_StreamCounter, actualStreamName + 8, sizeof(actualStreamName)-8, 10);  /* 8 = strlen("miniaudio:") */
+        const char* pBaseName = "miniaudio:";
+        size_t baseNameLen = strlen(pBaseName);
+        ma_strcpy_s(actualStreamName, sizeof(actualStreamName), pBaseName);
+        ma_itoa_s(g_StreamCounter, actualStreamName + baseNameLen, sizeof(actualStreamName)-baseNameLen, 10);
     }
     g_StreamCounter += 1;
 
