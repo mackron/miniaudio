@@ -12,15 +12,18 @@ GitHub:        https://github.com/mackron/miniaudio
 /*
 1. Introduction
 ===============
-miniaudio is a single file library for audio playback and capture. To use it, do the following in
-one .c file:
+To use miniaudio, include "miniaudio.h":
 
     ```c
-    #define MINIAUDIO_IMPLEMENTATION
     #include "miniaudio.h"
     ```
 
-You can do `#include "miniaudio.h"` in other parts of the program just like any other header.
+The implementation is contained in "miniaudio.c". Just compile this like any other source file. You
+can include miniaudio.c if you want to compile your project as a single translation unit:
+
+    ```c
+    #include "miniaudio.c"
+    ```
 
 miniaudio includes both low level and high level APIs. The low level API is good for those who want
 to do all of their mixing themselves and only require a light weight interface to the underlying
@@ -483,21 +486,12 @@ link the relevant frameworks but should compile cleanly out of the box with Xcod
 through the command line requires linking to `-lpthread` and `-lm`.
 
 Due to the way miniaudio links to frameworks at runtime, your application may not pass Apple's
-notarization process. To fix this there are two options. The first is to use the
-`MA_NO_RUNTIME_LINKING` option, like so:
-
-    ```c
-    #ifdef __APPLE__
-        #define MA_NO_RUNTIME_LINKING
-    #endif
-    #define MINIAUDIO_IMPLEMENTATION
-    #include "miniaudio.h"
-    ```
-
-This will require linking with `-framework CoreFoundation -framework CoreAudio -framework AudioToolbox`.
-If you get errors about AudioToolbox, try with `-framework AudioUnit` instead. You may get this when
-using older versions of iOS. Alternatively, if you would rather keep using runtime linking you can
-add the following to your entitlements.xcent file:
+notarization process. To fix this there are two options. The first is to compile with
+`-DMA_NO_RUNTIME_LINKING` which in turn will require linking with
+`-framework CoreFoundation -framework CoreAudio -framework AudioToolbox`. If you get errors about
+AudioToolbox, try with `-framework AudioUnit` instead. You may get this when using older versions
+of iOS. Alternatively, if you would rather keep using runtime linking you can add the following to
+your entitlements.xcent file:
 
     ```
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
