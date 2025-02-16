@@ -30177,7 +30177,7 @@ static ma_pa_buffer_attr ma_device__pa_buffer_attr_new(ma_uint32 periodSizeInFra
 
 static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const char* pStreamName, const ma_pa_sample_spec* ss, const ma_pa_channel_map* cmap)
 {
-    static int g_StreamCounter = 0;
+    static ma_atomic_uint32 g_StreamCounter = { 0 };
     char actualStreamName[256];
 
     if (pStreamName != NULL) {
@@ -30186,9 +30186,9 @@ static ma_pa_stream* ma_device__pa_stream_new__pulse(ma_device* pDevice, const c
         const char* pBaseName = "miniaudio:";
         size_t baseNameLen = strlen(pBaseName);
         ma_strcpy_s(actualStreamName, sizeof(actualStreamName), pBaseName);
-        ma_itoa_s(g_StreamCounter, actualStreamName + baseNameLen, sizeof(actualStreamName)-baseNameLen, 10);
+        ma_itoa_s((int)ma_atomic_uint32_get(&g_StreamCounter), actualStreamName + baseNameLen, sizeof(actualStreamName)-baseNameLen, 10);
     }
-    g_StreamCounter += 1;
+    ma_atomic_uint32_fetch_add(&g_StreamCounter, 1);
 
     return ((ma_pa_stream_new_proc)pDevice->pContext->pulse.pa_stream_new)((ma_pa_context*)pDevice->pulse.pPulseContext, actualStreamName, ss, cmap);
 }
