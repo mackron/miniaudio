@@ -64760,8 +64760,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
 #if defined(MA_HAS_WAV)    || \
     defined(MA_HAS_MP3)    || \
     defined(MA_HAS_FLAC)   || \
-    defined(MA_HAS_VORBIS) || \
-    defined(MA_HAS_OPUS)
+    defined(MA_HAS_VORBIS)
 #define MA_HAS_PATH_API
 #endif
 
