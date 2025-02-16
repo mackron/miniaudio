@@ -549,7 +549,7 @@ To run locally, you'll need to use emrun:
 
 2.7. Build Options
 ------------------
-`#define` these options before including miniaudio.h.
+`#define` these options before including miniaudio.c, or pass them as compiler flags:
 
     +----------------------------------+--------------------------------------------------------------------+
     | Option                           | Description                                                        |
@@ -579,6 +579,8 @@ To run locally, you'll need to use emrun:
     | MA_NO_OPENSL                     | Disables the OpenSL|ES backend.                                    |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_WEBAUDIO                   | Disables the Web Audio backend.                                    |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_NO_CUSTOM                     | Disables support for custom backends.                              |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_NO_NULL                       | Disables the null backend.                                         |
     +----------------------------------+--------------------------------------------------------------------+
@@ -623,6 +625,9 @@ To run locally, you'll need to use emrun:
     +----------------------------------+--------------------------------------------------------------------+
     | MA_ENABLE_WEBAUDIO               | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the Web Audio backend.                                      |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_ENABLE_CUSTOM                 | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
+    |                                  | enable custom backends.                                            |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_ENABLE_NULL                   | Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to       |
     |                                  | enable the null backend.                                           |
@@ -687,10 +692,29 @@ To run locally, you'll need to use emrun:
     |                                  | You may need to enable this if your target platform does not allow |
     |                                  | runtime linking via `dlopen()`.                                    |
     +----------------------------------+--------------------------------------------------------------------+
+    | MA_USE_STDINT                    | (Pass this in as a compiler flag. Do not `#define` this before     |
+    |                                  | miniaudio.c) Forces the use of stdint.h for sized types.           |
+    +----------------------------------+--------------------------------------------------------------------+
     | MA_DEBUG_OUTPUT                  | Enable `printf()` output of debug logs (`MA_LOG_LEVEL_DEBUG`).     |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_COINIT_VALUE                  | Windows only. The value to pass to internal calls to               |
     |                                  | `CoInitializeEx()`. Defaults to `COINIT_MULTITHREADED`.            |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_FORCE_UWP                     | Windows only. Affects only the WASAPI backend. Will force the      |
+    |                                  | WASAPI backend to use the UWP code path instead of the regular     |
+    |                                  | desktop path. This is normally auto-detected and should rarely be  |
+    |                                  | needed to be used explicitly, but can be useful for debugging.     |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_ON_THREAD_ENTRY               | Defines some code that will be executed as soon as an internal     |
+    |                                  | miniaudio-managed thread is created. This will be the first thing  |
+    |                                  | to be executed by the thread entry point.                          |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_ON_THREAD_EXIT                | Defines some code that will be executed from the entry point of an |
+    |                                  | internal miniaudio-managed thread upon exit. This will be the last |
+    |                                  | thing to be executed before the thread's entry point exits.        |
+    +----------------------------------+--------------------------------------------------------------------+
+    | MA_THREAD_DEFAULT_STACK_SIZE     | If set, specifies the default stack size used by miniaudio-managed |
+    |                                  | threads.                                                           |
     +----------------------------------+--------------------------------------------------------------------+
     | MA_API                           | Controls how public APIs should be decorated. Default is `extern`. |
     +----------------------------------+--------------------------------------------------------------------+
