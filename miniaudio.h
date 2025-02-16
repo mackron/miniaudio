@@ -9721,7 +9721,7 @@ Utilities
 ************************************************************************************************************************************************************/
 
 /*
-Calculates a buffer size in milliseconds from the specified number of frames and sample rate.
+Calculates a buffer size in milliseconds (rounded up) from the specified number of frames and sample rate.
 */
 MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 bufferSizeInFrames, ma_uint32 sampleRate);
 
@@ -42966,7 +42966,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_milliseconds_from_frames(ma_uint32 
         return 0;
     }
 
-    return bufferSizeInFrames*1000 / sampleRate;
+    return (bufferSizeInFrames*1000 + (sampleRate - 1)) / sampleRate;
 }
 
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_milliseconds(ma_uint32 bufferSizeInMilliseconds, ma_uint32 sampleRate)
