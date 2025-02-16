@@ -23169,7 +23169,7 @@ static ma_result ma_device_stop__wasapi_nolock(ma_device* pDevice)
         */
         if (ma_atomic_bool32_get(&pDevice->wasapi.isStartedPlayback)) {
             /* We need to make sure we put a timeout here or else we'll risk getting stuck in a deadlock in some cases. */
-            DWORD waitTime = pDevice->wasapi.actualBufferSizeInFramesPlayback / (pDevice->playback.internalSampleRate / 1000);
+            DWORD waitTime = (pDevice->wasapi.actualBufferSizeInFramesPlayback * 1000) / pDevice->playback.internalSampleRate;
 
             if (pDevice->playback.shareMode == ma_share_mode_exclusive) {
                 WaitForSingleObject((HANDLE)pDevice->wasapi.hEventPlayback, waitTime);
