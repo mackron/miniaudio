@@ -56332,7 +56332,7 @@ MA_API const char* ma_channel_position_to_string(ma_channel channel)
         case MA_CHANNEL_LFE               : return "CHANNEL_LFE";
         case MA_CHANNEL_BACK_LEFT         : return "CHANNEL_BACK_LEFT";
         case MA_CHANNEL_BACK_RIGHT        : return "CHANNEL_BACK_RIGHT";
-        case MA_CHANNEL_FRONT_LEFT_CENTER : return "CHANNEL_FRONT_LEFT_CENTER ";
+        case MA_CHANNEL_FRONT_LEFT_CENTER : return "CHANNEL_FRONT_LEFT_CENTER";
         case MA_CHANNEL_FRONT_RIGHT_CENTER: return "CHANNEL_FRONT_RIGHT_CENTER";
         case MA_CHANNEL_BACK_CENTER       : return "CHANNEL_BACK_CENTER";
         case MA_CHANNEL_SIDE_LEFT         : return "CHANNEL_SIDE_LEFT";
