@@ -75092,7 +75092,7 @@ static void ma_engine_node_process_pcm_frames__sound(ma_node* pNode, const float
                 ma_sound_set_at_end(pSound, MA_TRUE);   /* This will be set to false in ma_sound_start(). */
             }
 
-            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_engine_get_channels(ma_sound_get_engine(pSound)));
+            pRunningFramesOut = ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesRead, ma_node_get_output_channels(pNode, 0));
 
             frameCountIn = (ma_uint32)framesJustRead;
             frameCountOut = framesRemaining;
