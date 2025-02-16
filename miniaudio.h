@@ -17953,6 +17953,10 @@ MA_API void ma_dlclose(ma_log* pLog, ma_handle handle)
         {
             dlclose((void*)handle);
         }
+        #else
+        {
+            (void)handle;
+        }
         #endif
     #endif
 
