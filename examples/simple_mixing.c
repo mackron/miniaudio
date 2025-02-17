@@ -29,7 +29,7 @@ ma_bool32*  g_pDecodersAtEnd;
 
 ma_event g_stopEvent; /* <-- Signaled by the audio thread, waited on by the main thread. */
 
-ma_bool32 are_all_decoders_at_end()
+ma_bool32 are_all_decoders_at_end(void)
 {
     ma_uint32 iDecoder;
     for (iDecoder = 0; iDecoder < g_decoderCount; ++iDecoder) {

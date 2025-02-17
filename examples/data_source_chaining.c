@@ -49,6 +49,8 @@ ma_decoder* g_pDecoders;
 
 static ma_data_source* next_callback_tail(ma_data_source* pDataSource)
 {
+    (void)pDataSource;  /* Unused. */
+
     if (g_decoderCount > 0) {   /* <-- We check for this in main() so should never happen. */
         return NULL;
     }

@@ -266,7 +266,7 @@ int main(int argc, char** argv)
     ma_thread_create(&jobThread, ma_thread_priority_default, 0, custom_job_thread, &resourceManager, NULL);
 
     /* Create each data source from the resource manager. Note that the caller is the owner. */
-    for (iFile = 0; iFile < ma_countof(g_dataSources) && iFile < argc-1; iFile += 1) {
+    for (iFile = 0; iFile < (int)ma_countof(g_dataSources) && iFile < argc-1; iFile += 1) {
         result = ma_resource_manager_data_source_init(
             &resourceManager,
             argv[iFile+1],

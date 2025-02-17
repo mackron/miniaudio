@@ -28,6 +28,8 @@ void capture_data_callback(ma_device* pDevice, void* pFramesOut, const void* pFr
     ma_result result;
     ma_uint32 framesWritten;
 
+    (void)pFramesOut;
+
     /* We need to write to the ring buffer. Need to do this in a loop. */
     framesWritten = 0;
     while (framesWritten < frameCount) {
