@@ -38587,7 +38587,9 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const ma_context_
     pContext->aaudio.AAudioStreamBuilder_setUsage                  = (ma_proc)AAudioStreamBuilder_setUsage;
     pContext->aaudio.AAudioStreamBuilder_setContentType            = (ma_proc)AAudioStreamBuilder_setContentType;
     pContext->aaudio.AAudioStreamBuilder_setInputPreset            = (ma_proc)AAudioStreamBuilder_setInputPreset;
+    #if defined(__ANDROID_API__) && __ANDROID_API__ >= 29
     pContext->aaudio.AAudioStreamBuilder_setAllowedCapturePolicy   = (ma_proc)AAudioStreamBuilder_setAllowedCapturePolicy;
+    #endif
     pContext->aaudio.AAudioStreamBuilder_openStream                = (ma_proc)AAudioStreamBuilder_openStream;
     pContext->aaudio.AAudioStream_close                            = (ma_proc)AAudioStream_close;
     pContext->aaudio.AAudioStream_getState                         = (ma_proc)AAudioStream_getState;
