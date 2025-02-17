@@ -5,12 +5,14 @@ This is the same as the custom_decoder example, only it's used with the high lev
 rather than the low level decoding API. You can use this to add support for Opus to your games, for
 example (via libopus).
 */
-#define MA_NO_VORBIS    /* Disable the built-in Vorbis decoder to ensure the libvorbis decoder is picked. */
-#define MA_NO_OPUS      /* Disable the (not yet implemented) built-in Opus decoder to ensure the libopus decoder is picked. */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
-#include "../extras/miniaudio_libvorbis.h"
-#include "../extras/miniaudio_libopus.h"
+
+/*
+For now these need to be declared before miniaudio.c due to some compatibility issues with the old
+MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
+*/
+#include "../extras/decoders/libvorbis/miniaudio_libvorbis.h"
+#include "../extras/decoders/libopus/miniaudio_libopus.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 
@@ -68,15 +70,6 @@ static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_sourc
 
     ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
     ma_free(pVorbis, pAllocationCallbacks);
-}
-
-static ma_result ma_decoding_backend_get_channel_map__libvorbis(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
-
-    (void)pUserData;
-
-    return ma_libvorbis_get_data_format(pVorbis, NULL, NULL, NULL, pChannelMap, channelMapCap);
 }
 
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
@@ -144,15 +137,6 @@ static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source*
 
     ma_libopus_uninit(pOpus, pAllocationCallbacks);
     ma_free(pOpus, pAllocationCallbacks);
-}
-
-static ma_result ma_decoding_backend_get_channel_map__libopus(void* pUserData, ma_data_source* pBackend, ma_channel* pChannelMap, size_t channelMapCap)
-{
-    ma_libopus* pOpus = (ma_libopus*)pBackend;
-
-    (void)pUserData;
-
-    return ma_libopus_get_data_format(pOpus, NULL, NULL, NULL, pChannelMap, channelMapCap);
 }
 
 static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
