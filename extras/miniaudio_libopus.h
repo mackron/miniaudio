@@ -1,3 +1,5 @@
+/* THIS HAS BEEN DEPRECATED! Use the libopus decoder in extras/decoders/libopus instead. */
+
 /*
 This implements a data source that decodes Opus streams via libopus + libopusfile
 

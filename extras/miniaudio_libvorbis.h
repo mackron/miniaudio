@@ -1,3 +1,5 @@
+/* THIS HAS BEEN DEPRECATED! Use the libvorbis decoder in extras/decoders/libvorbis instead. */
+
 /*
 This implements a data source that decodes Vorbis streams via libvorbis + libvorbisfile
 
