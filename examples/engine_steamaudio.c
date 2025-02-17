@@ -118,7 +118,7 @@ static void ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, const
             pBinauralNode->ppBuffersIn[0] = (float*)ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessed, 1);
         } else {
             /* Slow path. Need to deinterleave the input data. */
-            ma_deinterleave_pcm_frames(ma_format_f32, inputBufferDesc.numChannels, framesToProcessThisIteration, ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessed, inputBufferDesc.numChannels), pBinauralNode->ppBuffersIn);
+            ma_deinterleave_pcm_frames(ma_format_f32, inputBufferDesc.numChannels, framesToProcessThisIteration, ma_offset_pcm_frames_const_ptr_f32(ppFramesIn[0], totalFramesProcessed, inputBufferDesc.numChannels), (void**)&pBinauralNode->ppBuffersIn[0]);
         }
 
         inputBufferDesc.data       = pBinauralNode->ppBuffersIn;
@@ -128,7 +128,7 @@ static void ma_steamaudio_binaural_node_process_pcm_frames(ma_node* pNode, const
         iplBinauralEffectApply(pBinauralNode->iplEffect, &binauralParams, &inputBufferDesc, &outputBufferDesc);
 
         /* Interleave straight into the output buffer. */
-        ma_interleave_pcm_frames(ma_format_f32, 2, framesToProcessThisIteration, pBinauralNode->ppBuffersOut, ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesProcessed, 2));
+        ma_interleave_pcm_frames(ma_format_f32, 2, framesToProcessThisIteration, (const void**)&pBinauralNode->ppBuffersOut[0], ma_offset_pcm_frames_ptr_f32(ppFramesOut[0], totalFramesProcessed, 2));
 
         /* Advance. */
         totalFramesProcessed += framesToProcessThisIteration;
