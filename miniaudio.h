@@ -47800,7 +47800,7 @@ static ma_result ma_bpf_get_heap_layout(const ma_bpf_config* pConfig, ma_bpf_hea
         return MA_INVALID_ARGS;
     }
 
-    bpf2Count = pConfig->channels / 2;
+    bpf2Count = pConfig->order / 2;
 
     pHeapLayout->sizeInBytes = 0;
 
