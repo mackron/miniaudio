@@ -19,6 +19,7 @@ ma_result test_noise__by_format_and_type(ma_format format, ma_noise_type type, c
     encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, format, noiseConfig.channels, 48000);
     result = ma_encoder_init_file(pFileName, &encoderConfig, &encoder);
     if (result != MA_SUCCESS) {
+        printf("Failed to open \"%s\" for writing. %s\n", pFileName, ma_result_description(result));
         return result;
     }
 
@@ -65,17 +66,17 @@ ma_result test_noise__s16()
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_white, TEST_OUTPUT_DIR"/output/noise_s16_white.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_white, TEST_OUTPUT_DIR"/noise_s16_white.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_pink, TEST_OUTPUT_DIR"/output/noise_s16_pink.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_pink, TEST_OUTPUT_DIR"/noise_s16_pink.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
 
-    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_brownian, TEST_OUTPUT_DIR"/output/noise_s16_brownian.wav");
+    result = test_noise__by_format_and_type(ma_format_s16, ma_noise_type_brownian, TEST_OUTPUT_DIR"/noise_s16_brownian.wav");
     if (result != MA_SUCCESS) {
         hasError = MA_TRUE;
     }
