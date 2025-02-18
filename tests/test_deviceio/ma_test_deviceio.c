@@ -594,7 +594,7 @@ int main(int argc, char** argv)
     }
 
     /* Now we just keep looping and wait for user input. */
-    while (!g_State.wantsToClose) {
+    for (;;) {
         if (interactive) {
             int c;
 
@@ -630,6 +630,10 @@ int main(int argc, char** argv)
             }
         } else {
             /* Running in auto-close mode. Just sleep for a bit. The data callback will control when this loop aborts. */
+            if (g_State.wantsToClose) {
+                break;
+            }
+
             ma_sleep(10);
         }
     }
