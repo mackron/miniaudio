@@ -7,8 +7,8 @@ project(miniaudio
 # Options
 option(MINIAUDIO_BUILD_EXAMPLES                "Build miniaudio examples"            OFF)
 option(MINIAUDIO_BUILD_TESTS                   "Build miniaudio tests"               OFF)
-option(MINIAUDIO_FORCE_CXX                     "Use C++ compiler for C files"        OFF)
-option(MINIAUDIO_FORCE_C89                     "Use C89 standard"                    OFF)
+option(MINIAUDIO_FORCE_CXX                     "Force compilation as C++"            OFF)
+option(MINIAUDIO_FORCE_C89                     "Force compilation as C89"            OFF)
 option(MINIAUDIO_NO_LIBVORBIS                  "Disable miniaudio_libvorbis"         OFF)
 option(MINIAUDIO_NO_LIBOPUS                    "Disable miniaudio_libopus"           OFF)
 option(MINIAUDIO_NO_WASAPI                     "Disable the WASAPI backend"          OFF)
@@ -64,19 +64,30 @@ option(MINIAUDIO_DEBUG_OUTPUT                  "Enable stdout debug output"     
 # Construct compiler options.
 set(COMPILE_OPTIONS)
 
+if(MINIAUDIO_FORCE_CXX AND MINIAUDIO_FORCE_C89)
+    message(FATAL_ERROR "MINIAUDIO_FORCE_CXX and MINIAUDIO_FORCE_C89 cannot be enabled at the same time.")
+endif()
+
 if(MINIAUDIO_FORCE_CXX)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(STATUS "Compiling as C++ (GNU/Clang)")
         list(APPEND COMPILE_OPTIONS -x c++)
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        message(STATUS "Compiling as C++ (MSVC)")
         list(APPEND COMPILE_OPTIONS /TP)
+    else()
+        message(WARNING "MINIAUDIO_FORCE_CXX is enabled but the compiler does not support it. Ignoring.")
     endif()
 endif()
 
 if(MINIAUDIO_FORCE_C89)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(STATUS "Compiling as C89")
         list(APPEND COMPILE_OPTIONS -std=c89)
-    elseif(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
-        # MSVC does not have an option for forcing C89.
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        message(WARNING "MSVC does not support forcing C89. MINIAUDIO_FORCE_C89 ignored.")
+    else()
+        message(WARNING "MINIAUDIO_FORCE_C89 is enabled but the compiler does not support it. Ingoring.")
     endif()
 endif()
 
@@ -245,8 +256,6 @@ if(NOT MINIAUDIO_NO_LIBVORBIS)
     else()
         message(STATUS "libvorbisfile not found. miniaudio_libvorbis will be excluded.")
     endif()
-
-    
 endif()
 
 if(NOT MINIAUDIO_NO_LIBOPUS)
