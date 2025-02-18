@@ -116,7 +116,7 @@ int main(int argc, char** argv)
 
 
     /* Excite/modulator. Attached to input bus 1 of the vocoder node. */
-    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, NULL, 0, &g_exciteData);
+    result = ma_audio_buffer_ref_init(device.capture.format, device.capture.channels, device.sampleRate, NULL, 0, &g_exciteData);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize audio buffer for source.");
         goto done2;

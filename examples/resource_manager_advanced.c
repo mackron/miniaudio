@@ -156,7 +156,7 @@ static ma_thread_result MA_THREADCALL custom_job_thread(void* pUserData)
 
     for (;;) {
         ma_result result;
-        ma_resource_manager_job job;
+        ma_job job;
 
         /*
         Retrieve a job from the queue first. This defines what it is you're about to do. By default this will be

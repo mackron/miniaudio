@@ -121,7 +121,7 @@ int main(int argc, char** argv)
     ring buffer. The capture side will be writing data into the ring buffer, whereas the sound
     will be reading from it.
     */
-    result = ma_sound_init_from_data_source(&engine, &rb, 0, NULL, &sound);
+    result = ma_sound_init_from_data_source(&engine, &rb, 0, NULL, NULL, &sound);
     if (result != MA_SUCCESS) {
         printf("Failed to initialize the sound.");
         return -1;

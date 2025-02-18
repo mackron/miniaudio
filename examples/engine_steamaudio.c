@@ -347,7 +347,7 @@ int main(int argc, char** argv)
     {
         ma_sound_config soundConfig;
 
-        soundConfig = ma_sound_config_init();
+        soundConfig = ma_sound_config_init(&g_engine);
         soundConfig.pFilePath   = argv[1];
         soundConfig.flags       = MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;  /* We'll attach this to the graph later. */
 

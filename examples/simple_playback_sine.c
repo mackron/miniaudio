@@ -57,8 +57,6 @@ int main(int argc, char** argv)
         return -4;
     }
 
-    printf("Device Name: %s\n", device.playback.name);
-
     sineWaveConfig = ma_waveform_config_init(device.playback.format, device.playback.channels, device.sampleRate, ma_waveform_type_sine, 0.2, 220);
     ma_waveform_init(&sineWaveConfig, &sineWave);
 

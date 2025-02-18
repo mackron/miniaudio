@@ -485,4 +485,95 @@ MA_API ma_result ma_libvorbis_get_length_in_pcm_frames(ma_libvorbis* pVorbis, ma
     #endif
 }
 
+
+/*
+The code below defines the vtable that you'll plug into your `ma_decoder_config` object.
+*/
+static ma_result ma_decoding_backend_init__libvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libvorbis* pVorbis;
+
+    (void)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__libvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libvorbis* pVorbis;
+
+    (void)pUserData;
+
+    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
+    if (pVorbis == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
+    if (result != MA_SUCCESS) {
+        ma_free(pVorbis, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pVorbis;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
+
+    (void)pUserData;
+
+    ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
+    ma_free(pVorbis, pAllocationCallbacks);
+}
+
+static ma_encoding_format ma_decoding_backend_get_encoding_format__libvorbis(void* pUserData, ma_data_source* pBackend)
+{
+    (void)pUserData;
+    (void)pBackend;
+
+    /*
+    When pBackend is null, return ma_encoding_format_unknown if the backend supports multiple
+    formats. An example might be an FFmpeg backend. If the backend only supports a single format,
+    like this one, return the format directly (if it's not recognized by miniaudio, return
+    ma_encoding_format_unknown).
+
+    When pBackend is non-null, return the encoded format of the data source. If the format is not
+    recognized by miniaudio, return ma_encoding_format_unknown.
+
+    Since this backend only operates on Vorbis streams, we can just return ma_encoding_format_vorbis
+    in all cases.
+    */
+    return ma_encoding_format_vorbis;
+}
+
+static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
+{
+    ma_decoding_backend_init__libvorbis,
+    ma_decoding_backend_init_file__libvorbis,
+    NULL, /* onInitFileW() */
+    NULL, /* onInitMemory() */
+    ma_decoding_backend_uninit__libvorbis,
+    ma_decoding_backend_get_encoding_format__libvorbis
+};
+const ma_decoding_backend_vtable* ma_decoding_backend_libvorbis = &g_ma_decoding_backend_vtable_libvorbis;
+
 #endif /* miniaudio_libvorbis_c */
