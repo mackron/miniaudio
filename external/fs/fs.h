@@ -580,14 +580,19 @@ extern "C" {
 
 #if FS_SIZEOF_PTR == 8
     typedef unsigned long long fs_uintptr;
+    typedef long long          fs_intptr;
 #else
     typedef unsigned int       fs_uintptr;
+    typedef int                fs_intptr;
 #endif
 
 typedef unsigned char fs_bool8;
 typedef unsigned int  fs_bool32;
 #define FS_TRUE  1
 #define FS_FALSE 0
+
+
+#define FS_INT64_MAX ((fs_int64)(((fs_uint64)0x7FFFFFFF << 32) | 0xFFFFFFFF))
 
 
 #ifndef FS_API
@@ -659,8 +664,10 @@ typedef enum fs_result
     FS_IS_DIRECTORY        = -15,
     FS_DIRECTORY_NOT_EMPTY = -16,
     FS_AT_END              = -17,
+    FS_BUSY                = -19,
     FS_BAD_SEEK            = -25,
     FS_NOT_IMPLEMENTED     = -29,
+    FS_TIMEOUT             = -34,
     FS_CHECKSUM_MISMATCH   = -100,
     FS_NO_BACKEND          = -101
 } fs_result;
