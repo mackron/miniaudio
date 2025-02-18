@@ -41,11 +41,11 @@ ma_result test_data_converter__resampling_expected_output_fixed_interval(ma_data
     MA_ASSERT(frameCountPerIteration < ma_countof(input));
 
     /* Fill the input buffer with sequential numbers so we can get an idea on the state of things. Useful for inspecting the linear backend in particular. */
-    for (i = 0; i < ma_countof(input); i += 1) {
+    for (i = 0; i < (ma_int16)ma_countof(input); i += 1) {
         input[i] = i;
     }
 
-    for (i = 0; i < ma_countof(input); i += (ma_int16)frameCountPerIteration) {
+    for (i = 0; i < (ma_int16)ma_countof(input); i += (ma_int16)frameCountPerIteration) {
         ma_int16 output[4096];
         ma_uint64 outputFrameCount;
         ma_uint64 inputFrameCount;
@@ -159,7 +159,7 @@ ma_result test_data_converter__resampling_expected_output_by_algorithm(ma_resamp
     }
 }
 
-ma_result test_data_converter__resampling_expected_output()
+ma_result test_data_converter__resampling_expected_output(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -188,11 +188,11 @@ ma_result test_data_converter__resampling_required_input_fixed_interval(ma_data_
     MA_ASSERT(frameCountPerIteration < ma_countof(input));
 
     /* Fill the input buffer with sequential numbers so we can get an idea on the state of things. Useful for inspecting the linear backend in particular. */
-    for (i = 0; i < ma_countof(input); i += 1) {
+    for (i = 0; i < (ma_int16)ma_countof(input); i += 1) {
         input[i] = i;
     }
 
-    for (i = 0; i < ma_countof(input); i += (ma_int16)frameCountPerIteration) {
+    for (i = 0; i < (ma_int16)ma_countof(input); i += (ma_int16)frameCountPerIteration) {
         ma_int16 output[4096];
         ma_uint64 outputFrameCount;
         ma_uint64 inputFrameCount;
@@ -306,7 +306,7 @@ ma_result test_data_converter__resampling_required_input_by_algorithm(ma_resampl
     }
 }
 
-ma_result test_data_converter__resampling_required_input()
+ma_result test_data_converter__resampling_required_input(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;
@@ -327,7 +327,7 @@ ma_result test_data_converter__resampling_required_input()
 
 
 
-ma_result test_data_converter__resampling()
+ma_result test_data_converter__resampling(void)
 {
     ma_result result;
     ma_bool32 hasError = MA_FALSE;

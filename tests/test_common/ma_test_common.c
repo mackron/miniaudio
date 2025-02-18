@@ -1,10 +1,10 @@
-#define MINIAUDIO_IMPLEMENTATION
-#include "../../miniaudio.h"
+#include "../../miniaudio.c"
+#include "../../external/fs/fs.c"
 
 #include <stdio.h>
 
 #define MAX_TESTS       64
-#define TEST_OUTPUT_DIR "res/output"
+#define TEST_OUTPUT_DIR "output"
 
 typedef int (* ma_test_entry_proc)(int argc, char** argv);
 
@@ -35,5 +35,39 @@ ma_result ma_register_test(const char* pName, ma_test_entry_proc onEntry)
     g_Tests.count += 1;
 
     return MA_SUCCESS;
+}
+
+int ma_run_tests(int argc, char** argv)
+{
+    int result;
+    ma_bool32 hasError = MA_FALSE;
+    size_t iTest;
+    fs* pFS;
+
+    if (fs_init(NULL, &pFS) != FS_SUCCESS) {
+        printf("Failed to initialize the file system.\n");
+        return 1;
+    }
+
+    fs_mkdir(pFS, TEST_OUTPUT_DIR);
+
+    for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
+        printf("=== BEGIN %s ===\n", g_Tests.pTests[iTest].pName);
+        result = g_Tests.pTests[iTest].onEntry(argc, argv);
+        printf("=== END %s : %s ===\n", g_Tests.pTests[iTest].pName, (result == 0) ? "PASSED" : "FAILED");
+
+        if (result != 0) {
+            hasError = MA_TRUE;
+        }
+    }
+
+    fs_uninit(pFS);
+    pFS = NULL;
+
+    if (hasError) {
+        return 1;  /* Something failed. */
+    } else {
+        return 0;   /* Everything passed. */
+    }
 }
 

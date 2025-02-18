@@ -1,5 +1,6 @@
 \#docs/
 _private/
+build/
 debugging/
 evaluations/
 examples/build/bin/
@@ -32,6 +33,7 @@ website/docs/
 *.vcxproj.user
 .vs/
 .idea/
+.vscode/
 
 # Below are individual files that I may start version controlling later or delete outright.
 examples/build/COSMO.txt

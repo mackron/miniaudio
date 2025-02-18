@@ -1,5 +1,5 @@
 /*
-USAGE: ma_test_deviceio [input/output file] [mode] [backend] [waveform] [noise]
+USAGE: ma_test_deviceio [input/output file] [mode] [backend] [waveform] [noise] [--auto]
 
 In playback mode the input file is optional, in which case a waveform or noise source will be used instead. For capture and loopback modes
 it must specify an output parameter, and must be specified. In duplex mode it is optional, but if specified will be an output file that
@@ -43,6 +43,10 @@ are specified the last one on the command line will have priority.
 */
 #include "../test_common/ma_test_common.c"
 
+#ifndef AUTO_CLOSE_TIME_IN_MILLISECONDS
+#define AUTO_CLOSE_TIME_IN_MILLISECONDS 5000
+#endif
+
 typedef enum
 {
     source_type_waveform,
@@ -60,6 +64,8 @@ static struct
     ma_decoder decoder;
     ma_encoder encoder;
     ma_bool32 hasEncoder;   /* Used for duplex mode to determine whether or not audio data should be written to a file. */
+    ma_bool32 wantsToClose;
+    ma_uint64 runTimeInFrames;  /* Only used in auto mode. */
 } g_State;
 
 const char* get_mode_description(ma_device_type deviceType)
@@ -340,6 +346,11 @@ void on_notification(const ma_device_notification* pNotification)
 
 void on_data(ma_device* pDevice, void* pFramesOut, const void* pFramesIn, ma_uint32 frameCount)
 {
+    g_State.runTimeInFrames += frameCount;
+    if (g_State.runTimeInFrames >= (g_State.device.sampleRate * AUTO_CLOSE_TIME_IN_MILLISECONDS) / 1000) {
+        g_State.wantsToClose = MA_TRUE;
+    }
+
     switch (pDevice->type)
     {
         case ma_device_type_playback:
@@ -403,6 +414,7 @@ int main(int argc, char** argv)
     ma_noise_type noiseType = ma_noise_type_white;
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
+    ma_bool32 interactive = MA_TRUE;
 
     /* Default to a sine wave if nothing is passed into the command line. */
     waveformType = ma_waveform_type_sine;
@@ -410,6 +422,11 @@ int main(int argc, char** argv)
 
     /* We need to iterate over the command line arguments and gather our settings. */
     for (iarg = 1; iarg < argc; iarg += 1) {
+        if (strcmp(argv[iarg], "--auto") == 0) {
+            interactive = MA_FALSE;
+            continue;
+        }
+
         /* mode */
         if (try_parse_mode(argv[iarg], &deviceType)) {
             continue;
@@ -577,37 +594,43 @@ int main(int argc, char** argv)
     }
 
     /* Now we just keep looping and wait for user input. */
-    for (;;) {
-        int c;
+    while (!g_State.wantsToClose) {
+        if (interactive) {
+            int c;
 
-        if (ma_device_is_started(&g_State.device)) {
-            printf("Press Q to quit, P to pause.\n");
-        } else {
-            printf("Press Q to quit, P to resume.\n");
-        }
-        
-        for (;;) {
-            c = getchar();
-            if (c != '\n') {
+            if (ma_device_is_started(&g_State.device)) {
+                printf("Press Q to quit, P to pause.\n");
+            } else {
+                printf("Press Q to quit, P to resume.\n");
+            }
+            
+            for (;;) {
+                c = getchar();
+                if (c != '\n') {
+                    break;
+                }
+            }
+            
+            if (c == 'q' || c == 'Q') {
+                g_State.wantsToClose = MA_TRUE;
                 break;
             }
-        }
-        
-        if (c == 'q' || c == 'Q') {
-            break;
-        }
-        if (c == 'p' || c == 'P') {
-            if (ma_device_is_started(&g_State.device)) {
-                result = ma_device_stop(&g_State.device);
-                if (result != MA_SUCCESS) {
-                    printf("ERROR: Error when stopping the device: %s\n", ma_result_description(result));
-                }
-            } else {
-                result = ma_device_start(&g_State.device);
-                if (result != MA_SUCCESS) {
-                    printf("ERROR: Error when starting the device: %s\n", ma_result_description(result));
+            if (c == 'p' || c == 'P') {
+                if (ma_device_is_started(&g_State.device)) {
+                    result = ma_device_stop(&g_State.device);
+                    if (result != MA_SUCCESS) {
+                        printf("ERROR: Error when stopping the device: %s\n", ma_result_description(result));
+                    }
+                } else {
+                    result = ma_device_start(&g_State.device);
+                    if (result != MA_SUCCESS) {
+                        printf("ERROR: Error when starting the device: %s\n", ma_result_description(result));
+                    }
                 }
             }
+        } else {
+            /* Running in auto-close mode. Just sleep for a bit. The data callback will control when this loop aborts. */
+            ma_sleep(10);
         }
     }
 

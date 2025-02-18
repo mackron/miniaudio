@@ -9,12 +9,14 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
     decoderConfig = ma_decoder_config_init(format, channels, sampleRate);
     result = ma_decoder_init_file(pInputFilePath, &decoderConfig, pDecoder);
     if (result != MA_SUCCESS) {
+        printf("Failed to open \"%s\" for decoding. %s\n", pInputFilePath, ma_result_description(result));
         return result;
     }
 
     encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, pDecoder->outputFormat, pDecoder->outputChannels, pDecoder->outputSampleRate);
     result = ma_encoder_init_file(pOutputFilePath, &encoderConfig, pEncoder);
     if (result != MA_SUCCESS) {
+        printf("Failed to open \"%s\" for encoding. %s\n", pOutputFilePath, ma_result_description(result));
         ma_decoder_uninit(pDecoder);
         return result;
     }
@@ -33,67 +35,14 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
 
 int main(int argc, char** argv)
 {
-    ma_result result;
-    ma_bool32 hasError = MA_FALSE;
-    size_t iTest;
+    ma_register_test("Dithering",            test_entry__dithering);
+    ma_register_test("Low-Pass Filtering",   test_entry__lpf);
+    ma_register_test("High-Pass Filtering",  test_entry__hpf);
+    ma_register_test("Band-Pass Filtering",  test_entry__bpf);
+    ma_register_test("Notching Filtering",   test_entry__notch);
+    ma_register_test("Peaking EQ Filtering", test_entry__peak);
+    ma_register_test("Low Shelf Filtering",  test_entry__loshelf);
+    ma_register_test("High Shelf Filtering", test_entry__hishelf);
 
-    (void)argc;
-    (void)argv;
-
-    result = ma_register_test("Dithering", test_entry__dithering);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("Low-Pass Filtering", test_entry__lpf);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("High-Pass Filtering", test_entry__hpf);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("Band-Pass Filtering", test_entry__bpf);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("Notching Filtering", test_entry__notch);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("Peaking EQ Filtering", test_entry__peak);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("Low Shelf Filtering", test_entry__loshelf);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-
-    result = ma_register_test("High Shelf Filtering", test_entry__hishelf);
-    if (result != MA_SUCCESS) {
-        hasError = MA_TRUE;
-    }
-    
-
-    for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
-        printf("=== BEGIN %s ===\n", g_Tests.pTests[iTest].pName);
-        result = g_Tests.pTests[iTest].onEntry(argc, argv);
-        printf("=== END %s : %s ===\n", g_Tests.pTests[iTest].pName, (result == 0) ? "PASSED" : "FAILED");
-
-        if (result != 0) {
-            hasError = MA_TRUE;
-        }
-    }
-
-    if (hasError) {
-        return -1;  /* Something failed. */
-    } else {
-        return 0;   /* Everything passed. */
-    }
+    return ma_run_tests(argc, argv);
 }
