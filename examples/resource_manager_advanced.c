@@ -110,7 +110,7 @@ MA_API ma_result ma_data_source_read_pcm_frames_and_mix_f32(ma_data_source* pDat
         
         result = ma_data_source_read_pcm_frames_f32_ex(pDataSource, temp, framesToRead, &framesJustRead, format, channels);
 
-        ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, ma_format_f32, channels), temp, framesJustRead, channels, volume);
+        ma_mix_pcm_frames_f32(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, channels), temp, framesJustRead, channels, volume);
         totalFramesRead += framesJustRead;
 
         if (result != MA_SUCCESS) {

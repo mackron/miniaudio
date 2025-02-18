@@ -135,15 +135,15 @@ int main(int argc, char** argv)
     deviceConfig.dataCallback      = data_callback;
     deviceConfig.pUserData         = NULL;
 
-    if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+    result = ma_device_init(NULL, &deviceConfig, &device);
+    if (result != MA_SUCCESS) {
         printf("Failed to open playback device.\n");
-        result = -1;
         goto done_decoders;
     }
 
-    if (ma_device_start(&device) != MA_SUCCESS) {
+    result = ma_device_start(&device);
+    if (result != MA_SUCCESS) {
         printf("Failed to start playback device.\n");
-        result = -1;
         goto done;
     }
 
