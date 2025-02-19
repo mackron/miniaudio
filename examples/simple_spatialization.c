@@ -20,6 +20,12 @@ orbiting effect. Terminate the program with Ctrl+C.
 #include <stdio.h>
 #include <math.h>   /* For sinf() and cosf() */
 
+/* Silence warning about unreachable code for MSVC. */
+#ifdef _MSC_VER
+    #pragma warning(push)
+    #pragma warning(disable: 4702)
+#endif
+
 int main(int argc, char** argv)
 {
     ma_result result;
@@ -74,3 +80,7 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
+#ifdef _MSC_VER
+    #pragma warning(pop)
+#endif
