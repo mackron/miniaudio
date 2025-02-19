@@ -14905,7 +14905,9 @@ typedef int ma_atomic_memory_order;
     }
     #if defined(__clang__)
         #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Watomic-alignment"
+        #if __clang_major__ >= 8
+            #pragma clang diagnostic ignored "-Watomic-alignment"
+        #endif
     #endif
     static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
     {
