@@ -143,15 +143,16 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
             ma_data_source_uninit(&pVorbis->ds);
             return MA_OUT_OF_MEMORY;
         }
+
+        return MA_SUCCESS;
     }
     #else
     {
         /* libvorbis is disabled. */
+        (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
     #endif
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_libvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_libvorbis* pVorbis)
