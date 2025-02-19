@@ -46,7 +46,7 @@ void capture_data_callback(ma_device* pDevice, void* pFramesOut, const void* pFr
         }
 
         /* Copy the data from the capture buffer to the ring buffer. */
-        ma_copy_pcm_frames(pMappedBuffer, ma_offset_pcm_frames_const_ptr_f32(pFramesIn, framesWritten, pDevice->capture.channels), framesToWrite, pDevice->capture.format, pDevice->capture.channels);
+        ma_copy_pcm_frames(pMappedBuffer, ma_offset_pcm_frames_const_ptr_f32((const float*)pFramesIn, framesWritten, pDevice->capture.channels), framesToWrite, pDevice->capture.format, pDevice->capture.channels);
 
         result = ma_pcm_rb_commit_write(&rb, framesToWrite);
         if (result != MA_SUCCESS) {

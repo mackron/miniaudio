@@ -29,8 +29,8 @@ The `onInitFile`, `onInitFileW` and `onInitMemory` functions are optional.
 For now these need to be declared before miniaudio.c due to some compatibility issues with the old
 MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
 */
-#include "../extras/decoders/libvorbis/miniaudio_libvorbis.h"
-#include "../extras/decoders/libopus/miniaudio_libopus.h"
+#include "../extras/decoders/libvorbis/miniaudio_libvorbis.c"
+#include "../extras/decoders/libopus/miniaudio_libopus.c"
 #include "../miniaudio.c"
 
 #include <stdio.h>

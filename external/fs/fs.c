@@ -11,18 +11,18 @@
 #if defined(_WIN32)
 #include <windows.h>    /* <-- Just can't get away from this darn thing... Needed for mutexes and file iteration. */
 
-static int fs_result_from_GetLastError(DWORD error)
+static fs_result fs_result_from_GetLastError(DWORD error)
 {
     switch (error)
     {
         case ERROR_SUCCESS:           return FS_SUCCESS;
-        case ERROR_NOT_ENOUGH_MEMORY: return ENOMEM;
-        case ERROR_SEM_TIMEOUT:       return ETIMEDOUT;
-        case ERROR_BUSY:              return EBUSY;
+        case ERROR_NOT_ENOUGH_MEMORY: return FS_OUT_OF_MEMORY;
+        case ERROR_BUSY:              return FS_BUSY;
+        case ERROR_SEM_TIMEOUT:       return FS_TIMEOUT;
         default: break;
     }
 
-    return EINVAL;
+    return FS_ERROR;
 }
 #endif
 
@@ -1376,9 +1376,11 @@ static fs_result fs_file_duplicate_proxy(fs_file* pFile, fs_file* pDuplicatedFil
 
     /* Increment the reference count of the opened archive if necessary. */
     if (fs_file_proxy_get_unref_archive_on_close(pFile)) {
+        fs* pOwnerFS;
+
         fs_file_proxy_set_unref_archive_on_close(pDuplicatedFile, FS_TRUE);
 
-        fs* pOwnerFS = fs_proxy_get_owner_fs(pFS);
+        pOwnerFS = fs_proxy_get_owner_fs(pFS);
         if (pOwnerFS != NULL) {
             fs_increment_opened_archive_ref_count(pOwnerFS, pFS);
         }
@@ -4517,7 +4519,7 @@ static fs_uint64 fs_FILETIME_to_unix(const FILETIME* pFT)
     li.HighPart = pFT->dwHighDateTime;
     li.LowPart  = pFT->dwLowDateTime;
 
-    return (fs_uint64)(li.QuadPart / 10000000ULL - 11644473600ULL);   /* Convert from Windows epoch to Unix epoch. */
+    return (fs_uint64)(li.QuadPart / 10000000UL - 11644473600UL);   /* Convert from Windows epoch to Unix epoch. */
 }
 
 static fs_file_info fs_file_info_from_WIN32_FIND_DATAW(const WIN32_FIND_DATAW* pFD)
@@ -5048,7 +5050,7 @@ FS_API fs_result fs_file_duplicate_stdio(fs_file* pFile, fs_file* pDuplicatedFil
         return fs_result_from_errno(GetLastError());
     }
 
-    fdDuplicate = _open_osfhandle((intptr_t)hFileDuplicate, _O_RDONLY);
+    fdDuplicate = _open_osfhandle((fs_intptr)hFileDuplicate, _O_RDONLY);
     if (fdDuplicate == -1) {
         CloseHandle(hFileDuplicate);
         return fs_result_from_errno(errno);
@@ -6003,8 +6005,6 @@ FS_API int fs_path_normalize(char* pDst, size_t dstCap, const char* pPath, size_
 
 
 /* BEG fs_memory_stream.c */
-#include <stdint.h>
-
 static fs_result fs_memory_stream_read_internal(fs_stream* pStream, void* pDst, size_t bytesToRead, size_t* pBytesRead)
 {
     return fs_memory_stream_read((fs_memory_stream*)pStream, pDst, bytesToRead, pBytesRead);
@@ -6030,7 +6030,7 @@ static fs_result fs_memory_stream_tell_internal(fs_stream* pStream, fs_int64* pC
         return result;
     }
 
-    if (cursor > INT64_MAX) {    /* <-- INT64_MAX may not be defined on some compilers. Need to check this. Can easily define this ourselves. */
+    if (cursor > FS_INT64_MAX) {    /* <-- INT64_MAX may not be defined on some compilers. Need to check this. Can easily define this ourselves. */
         return FS_ERROR;
     }
 
