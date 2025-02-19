@@ -248,38 +248,127 @@ endif()
 
 
 # External Libraries
-if(NOT MINIAUDIO_NO_LIBVORBIS)
-    find_library(LIBVORBISFILE NAMES vorbisfile)
-    if(LIBVORBISFILE)
-        message(STATUS "Found libvorbisfile: ${LIBVORBISFILE}")
-        set(HAS_LIBVORBIS TRUE)
-    else()
-        message(STATUS "libvorbisfile not found. miniaudio_libvorbis will be excluded.")
-    endif()
-endif()
-
-if(NOT MINIAUDIO_NO_LIBOPUS)
-    find_library(LIBOPUSFILE NAMES opusfile)
-    if(LIBOPUSFILE)
-        message(STATUS "Found libopusfile: ${LIBOPUSFILE}")
-
-        # opusfile is very annoying because they do "#include <opus_multistream.h>" in opusfile.h which results
-        # in an error unless we explicitly add the include path to the opus include directory.
-        find_path(OPUSFILE_INCLUDE_DIR
-            NAMES opus/opusfile.h
-            DOC "Directory containing opusfile.h"
-        )
-
-        if(OPUSFILE_INCLUDE_DIR)
-            message(STATUS "Found opusfile.h in ${OPUSFILE_INCLUDE_DIR}")
-            set(HAS_LIBOPUS TRUE)
+function(add_libogg_subdirectory)
+    if(NOT TARGET ogg)
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/ogg/CMakeLists.txt)
+            message(STATUS "Building libogg from source.")
+            add_subdirectory(external/ogg)
         else()
-            message(STATUS "Could not find opusfile.h. miniaudio_libopus will be excluded.")
+            message(STATUS "libogg not found.")
+        endif()
+    endif()
+endfunction()
+
+function(add_libvorbis_subdirectory)
+    if(NOT TARGET vorbis)
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/vorbis/CMakeLists.txt)
+            add_libogg_subdirectory()
+            if(TARGET ogg)
+                message(STATUS "Building libvorbis from source.")
+                add_subdirectory(external/vorbis)
+            else()
+                message(STATUS "libogg not found. miniaudio_libvorbis will be excluded.")
+            endif()
+        endif()
+    endif()
+endfunction()
+
+function(add_libopus_subdirectory)
+    if(NOT TARGET opus)
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/opus/CMakeLists.txt)
+            message(STATUS "Building libopus from source.")
+            set(OPUS_BUILD_TESTING OFF)
+            add_subdirectory(external/opus)
+        else()
+            message(STATUS "libopus not found. miniaudio_libopus will be excluded.")
+        endif()
+    endif()
+endfunction()
+
+function(add_libopusfile_subdirectory)
+    if(NOT TARGET opusfile)
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/opusfile/CMakeLists.txt)
+            add_libogg_subdirectory()
+            if(TARGET ogg)
+                add_libopus_subdirectory()
+                if(TARGET opus)
+                    message(STATUS "Building libopusfile from source.")
+                    set(OP_DISABLE_HTTP TRUE)
+                    set(OP_DISABLE_DOCS TRUE)
+                    set(OP_DISABLE_EXAMPLES TRUE)
+                    add_subdirectory(external/opusfile)
+                else()
+                    message(STATUS "libopus not found. miniaudio_libopus will be excluded.")
+                endif()
+            else()
+                message(STATUS "libogg not found. miniaudio_libopus will be excluded.")
+            endif()
+        endif()
+    endif()
+endfunction()
+
+
+# vorbisfile
+#
+# The vorbisfile target is required for miniaudio_libvorbis. If the vorbisfile target has already been
+# defined we'll just use that. Otherwise we'll try to find_library(). If that fails, as a last resort
+# we'll allow building it from source from the external/vorbis directory.
+if(NOT MINIAUDIO_NO_LIBVORBIS)
+    if(NOT TARGET vorbisfile)
+        find_library(LIBVORBISFILE NAMES vorbisfile)
+        if(LIBVORBISFILE)
+            message(STATUS "Found libvorbisfile: ${LIBVORBISFILE}")
+            set(HAS_LIBVORBIS TRUE)
+        else()
+            add_libvorbis_subdirectory()
+            if(NOT TARGET vorbisfile)
+                message(STATUS "libvorbisfile not found. miniaudio_libvorbis will be excluded.")
+            else()
+                set(HAS_LIBVORBIS TRUE)
+            endif()
         endif()
     else()
-        message(STATUS "libopusfile not found. miniaudio_libopus will be excluded.")
+        message(STATUS "libvorbisfile already found.")
+        set(HAS_LIBVORBIS TRUE)
     endif()
 endif()
+
+# opusfile
+#
+# This is the same as vorbisfile above.
+if(NOT MINIAUDIO_NO_LIBOPUS)
+    if(NOT TARGET opusfile)
+        find_library(LIBOPUSFILE NAMES opusfile)
+        if(LIBOPUSFILE)
+            message(STATUS "Found libopusfile: ${LIBOPUSFILE}")
+
+            # opusfile is very annoying because they do "#include <opus_multistream.h>" in opusfile.h which results
+            # in an error unless we explicitly add the include path to the opus include directory.
+            find_path(OPUSFILE_INCLUDE_DIR
+                NAMES opus/opusfile.h
+                DOC "Directory containing opusfile.h"
+            )
+
+            if(OPUSFILE_INCLUDE_DIR)
+                message(STATUS "Found opusfile.h in ${OPUSFILE_INCLUDE_DIR}")
+                set(HAS_LIBOPUS TRUE)
+            else()
+                message(STATUS "Could not find opusfile.h. miniaudio_libopus will be excluded.")
+            endif()
+        else()
+            add_libopusfile_subdirectory()
+            if(NOT TARGET opusfile)
+                message(STATUS "libopusfile not found. miniaudio_libopus will be excluded.")
+            else()
+                set(HAS_LIBOPUS TRUE)
+            endif()
+        endif()
+    else()
+        message(STATUS "libopusfile already found.")
+        set(HAS_LIBOPUS TRUE)
+    endif()
+endif()
+
 
 find_library(SDL2_LIBRARY NAMES SDL2)
 if(SDL2_LIBRARY)
@@ -307,9 +396,9 @@ else()
     endif()
 endif()
 
-# When searching for SteamAudio, we'll support installing it in the extras/steamaudio directory.
+# When searching for SteamAudio, we'll support installing it in the external/steamaudio directory.
 set(STEAMAUDIO_FIND_LIBRARY_HINTS)
-list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/extras/steamaudio/lib/${STEAMAUDIO_ARCH})
+list(APPEND STEAMAUDIO_FIND_LIBRARY_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/lib/${STEAMAUDIO_ARCH})
 
 if(WIN32)
 else()
@@ -318,7 +407,7 @@ else()
 endif()
 
 set(STEAMAUDIO_FIND_HEADER_HINTS)
-list(APPEND STEAMAUDIO_FIND_HEADER_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/extras/steamaudio/include)
+list(APPEND STEAMAUDIO_FIND_HEADER_HINTS ${CMAKE_CURRENT_SOURCE_DIR}/external/steamaudio/include)
 
 if(WIN32)
 else()
@@ -367,9 +456,20 @@ add_library(miniaudio STATIC
     miniaudio.h
 )
 
+target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
+
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
 target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
+
+add_library(libvorbis_interface INTERFACE)
+if(HAS_LIBVORBIS)
+    if(TARGET vorbisfile)
+        target_link_libraries(libvorbis_interface INTERFACE vorbisfile)
+    else()
+        target_link_libraries(libvorbis_interface INTERFACE ${LIBVORBISFILE})
+    endif()
+endif()
 
 if(HAS_LIBVORBIS)
     add_library(miniaudio_libvorbis STATIC
@@ -379,7 +479,18 @@ if(HAS_LIBVORBIS)
 
     target_compile_options    (miniaudio_libvorbis PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libvorbis PRIVATE ${COMPILE_DEFINES})
-    target_link_libraries     (miniaudio_libvorbis PRIVATE ${LIBVORBISFILE})
+    target_link_libraries     (miniaudio_libvorbis PRIVATE libvorbis_interface)
+endif()
+
+
+add_library(libopus_interface INTERFACE)
+if(HAS_LIBOPUS)
+    if(TARGET opusfile)
+        target_link_libraries     (libopus_interface INTERFACE opusfile)
+    else()
+        target_link_libraries     (libopus_interface INTERFACE ${LIBOPUSFILE})
+        target_include_directories(libopus_interface INTERFACE ${OPUSFILE_INCLUDE_DIR}/opus)
+    endif()
 endif()
 
 if(HAS_LIBOPUS)
@@ -390,8 +501,7 @@ if(HAS_LIBOPUS)
 
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
-    target_include_directories(miniaudio_libopus PRIVATE ${OPUSFILE_INCLUDE_DIR}/opus)
-    target_link_libraries     (miniaudio_libopus PRIVATE ${LIBOPUSFILE})
+    target_link_libraries     (miniaudio_libopus PRIVATE libopus_interface)
 endif()
 
 
@@ -410,7 +520,7 @@ if(MINIAUDIO_BUILD_TESTS)
 
     set(TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 
-    function (add_miniaudio_test name source)
+    function(add_miniaudio_test name source)
         add_executable(${name} ${TESTS_DIR}/${source})
         target_link_libraries(${name} PRIVATE miniaudio_common_options)
     endfunction()
@@ -437,7 +547,7 @@ endif()
 if (MINIAUDIO_BUILD_EXAMPLES)
     set(EXAMPLES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/examples)
 
-    function (add_miniaudio_example name source)
+    function(add_miniaudio_example name source)
         add_executable(${name} ${EXAMPLES_DIR}/${source})
         target_link_libraries(${name} PRIVATE miniaudio_common_options)
     endfunction()
@@ -445,21 +555,29 @@ if (MINIAUDIO_BUILD_EXAMPLES)
     add_miniaudio_example(miniaudio_custom_backend custom_backend.c)
 
     add_miniaudio_example(miniaudio_custom_decoder_engine custom_decoder_engine.c)
-    if(NOT HAS_LIBVORBIS)
+    if(HAS_LIBVORBIS)
+        target_link_libraries(miniaudio_custom_decoder_engine PRIVATE libvorbis_interface)
+    else()
         target_compile_definitions(miniaudio_custom_decoder_engine PRIVATE MA_NO_LIBVORBIS)
         message(STATUS "miniaudio_libvorbis is disabled. Vorbis support is disabled in miniaudio_custom_decoder_engine.")
     endif()
-    if(NOT HAS_LIBOPUS)
+    if(HAS_LIBOPUS)
+    target_link_libraries(miniaudio_custom_decoder_engine PRIVATE libopus_interface)
+    else()
         target_compile_definitions(miniaudio_custom_decoder_engine PRIVATE MA_NO_LIBOPUS)
         message(STATUS "miniaudio_libopus is disabled. Opus support is disabled in miniaudio_custom_decoder_engine.")
     endif()
 
     add_miniaudio_example(miniaudio_custom_decoder custom_decoder.c)
-    if(NOT HAS_LIBVORBIS)
+    if(HAS_LIBVORBIS)
+        target_link_libraries(miniaudio_custom_decoder PRIVATE libvorbis_interface)
+    else()
         target_compile_definitions(miniaudio_custom_decoder PRIVATE MA_NO_LIBVORBIS)
         message(STATUS "miniaudio_libvorbis is disabled. Vorbis support is disabled in miniaudio_custom_decoder.")
     endif()
-    if(NOT HAS_LIBOPUS)
+    if(HAS_LIBOPUS)
+        target_link_libraries(miniaudio_custom_decoder PRIVATE libopus_interface)
+    else()
         target_compile_definitions(miniaudio_custom_decoder PRIVATE MA_NO_LIBOPUS)
         message(STATUS "miniaudio_libopus is disabled. Opus support is disabled in miniaudio_custom_decoder.")
     endif()
