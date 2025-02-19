@@ -20,144 +20,11 @@ The `onInitFile`, `onInitFileW` and `onInitMemory` functions are optional.
 For now these need to be declared before miniaudio.c due to some compatibility issues with the old
 MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
 */
-#include "../extras/decoders/libvorbis/miniaudio_libvorbis.h"
-#include "../extras/decoders/libopus/miniaudio_libopus.h"
+#include "../extras/decoders/libvorbis/miniaudio_libvorbis.c"
+#include "../extras/decoders/libopus/miniaudio_libopus.c"
 #include "../miniaudio.c"
 
 #include <stdio.h>
-
-static ma_result ma_decoding_backend_init__libvorbis(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_libvorbis* pVorbis;
-
-    (void)pUserData;
-
-    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
-    if (pVorbis == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_libvorbis_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pVorbis);
-    if (result != MA_SUCCESS) {
-        ma_free(pVorbis, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pVorbis;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoding_backend_init_file__libvorbis(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_libvorbis* pVorbis;
-
-    (void)pUserData;
-
-    pVorbis = (ma_libvorbis*)ma_malloc(sizeof(*pVorbis), pAllocationCallbacks);
-    if (pVorbis == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_libvorbis_init_file(pFilePath, pConfig, pAllocationCallbacks, pVorbis);
-    if (result != MA_SUCCESS) {
-        ma_free(pVorbis, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pVorbis;
-
-    return MA_SUCCESS;
-}
-
-static void ma_decoding_backend_uninit__libvorbis(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_libvorbis* pVorbis = (ma_libvorbis*)pBackend;
-
-    (void)pUserData;
-
-    ma_libvorbis_uninit(pVorbis, pAllocationCallbacks);
-    ma_free(pVorbis, pAllocationCallbacks);
-}
-
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libvorbis =
-{
-    ma_decoding_backend_init__libvorbis,
-    ma_decoding_backend_init_file__libvorbis,
-    NULL, /* onInitFileW() */
-    NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libvorbis
-};
-
-
-
-static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_libopus* pOpus;
-
-    (void)pUserData;
-
-    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
-    if (pOpus == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
-    if (result != MA_SUCCESS) {
-        ma_free(pOpus, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pOpus;
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
-{
-    ma_result result;
-    ma_libopus* pOpus;
-
-    (void)pUserData;
-
-    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
-    if (pOpus == NULL) {
-        return MA_OUT_OF_MEMORY;
-    }
-
-    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
-    if (result != MA_SUCCESS) {
-        ma_free(pOpus, pAllocationCallbacks);
-        return result;
-    }
-
-    *ppBackend = pOpus;
-
-    return MA_SUCCESS;
-}
-
-static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_libopus* pOpus = (ma_libopus*)pBackend;
-
-    (void)pUserData;
-
-    ma_libopus_uninit(pOpus, pAllocationCallbacks);
-    ma_free(pOpus, pAllocationCallbacks);
-}
-
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_libopus =
-{
-    ma_decoding_backend_init__libopus,
-    ma_decoding_backend_init_file__libopus,
-    NULL, /* onInitFileW() */
-    NULL, /* onInitMemory() */
-    ma_decoding_backend_uninit__libopus
-};
-
 
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
@@ -187,10 +54,10 @@ int main(int argc, char** argv)
     Add your custom backend vtables here. The order in the array defines the order of priority. The
     vtables will be passed in via the decoder config.
     */
-    ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    const ma_decoding_backend_vtable* pCustomBackendVTables[] =
     {
-        &g_ma_decoding_backend_vtable_libvorbis,
-        &g_ma_decoding_backend_vtable_libopus
+        ma_decoding_backend_libvorbis,
+        ma_decoding_backend_libopus
     };
 
 

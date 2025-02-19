@@ -33,6 +33,9 @@ MA_API ma_result ma_libvorbis_get_data_format(ma_libvorbis* pVorbis, ma_format* 
 MA_API ma_result ma_libvorbis_get_cursor_in_pcm_frames(ma_libvorbis* pVorbis, ma_uint64* pCursor);
 MA_API ma_result ma_libvorbis_get_length_in_pcm_frames(ma_libvorbis* pVorbis, ma_uint64* pLength);
 
+/* Decoding backend vtable. This is what you'll plug into ma_decoder_config.pBackendVTables. No user data required. */
+extern const ma_decoding_backend_vtable* ma_decoding_backend_libvorbis;
+
 #ifdef __cplusplus
 }
 #endif

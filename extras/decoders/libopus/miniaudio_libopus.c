@@ -3,8 +3,12 @@
 
 #include "miniaudio_libopus.h"
 
+#if !defined(MA_NO_LIBOPUS)
 #include <opusfile.h>
+#endif
+
 #include <string.h> /* For memset(). */
+#include <assert.h>
 
 static ma_result ma_libopus_ds_read(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
 {
@@ -221,7 +225,7 @@ MA_API void ma_libopus_uninit(ma_libopus* pOpus, const ma_allocation_callbacks* 
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
     }
     #endif
 
@@ -296,7 +300,7 @@ MA_API ma_result ma_libopus_read_pcm_frames(ma_libopus* pOpus, void* pFramesOut,
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
 
         (void)pFramesOut;
         (void)frameCount;
@@ -331,7 +335,7 @@ MA_API ma_result ma_libopus_seek_to_pcm_frame(ma_libopus* pOpus, ma_uint64 frame
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
 
         (void)frameIndex;
 
@@ -385,7 +389,7 @@ MA_API ma_result ma_libopus_get_data_format(ma_libopus* pOpus, ma_format* pForma
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
         return MA_NOT_IMPLEMENTED;
     }
     #endif
@@ -417,7 +421,7 @@ MA_API ma_result ma_libopus_get_cursor_in_pcm_frames(ma_libopus* pOpus, ma_uint6
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
         return MA_NOT_IMPLEMENTED;
     }
     #endif
@@ -449,10 +453,84 @@ MA_API ma_result ma_libopus_get_length_in_pcm_frames(ma_libopus* pOpus, ma_uint6
     #else
     {
         /* libopus is disabled. Should never hit this since initialization would have failed. */
-        MA_ASSERT(MA_FALSE);
+        assert(MA_FALSE);
         return MA_NOT_IMPLEMENTED;
     }
     #endif
 }
+
+
+/*
+The code below defines the vtable that you'll plug into your `ma_decoder_config` object.
+*/
+#if !defined(MA_NO_LIBOPUS)
+static ma_result ma_decoding_backend_init__libopus(void* pUserData, ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libopus* pOpus;
+
+    (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init(onRead, onSeek, onTell, pReadSeekTellUserData, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_decoding_backend_init_file__libopus(void* pUserData, const char* pFilePath, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_data_source** ppBackend)
+{
+    ma_result result;
+    ma_libopus* pOpus;
+
+    (void)pUserData;
+
+    pOpus = (ma_libopus*)ma_malloc(sizeof(*pOpus), pAllocationCallbacks);
+    if (pOpus == NULL) {
+        return MA_OUT_OF_MEMORY;
+    }
+
+    result = ma_libopus_init_file(pFilePath, pConfig, pAllocationCallbacks, pOpus);
+    if (result != MA_SUCCESS) {
+        ma_free(pOpus, pAllocationCallbacks);
+        return result;
+    }
+
+    *ppBackend = pOpus;
+
+    return MA_SUCCESS;
+}
+
+static void ma_decoding_backend_uninit__libopus(void* pUserData, ma_data_source* pBackend, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_libopus* pOpus = (ma_libopus*)pBackend;
+
+    (void)pUserData;
+
+    ma_libopus_uninit(pOpus, pAllocationCallbacks);
+    ma_free(pOpus, pAllocationCallbacks);
+}
+
+static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libopus =
+{
+    ma_decoding_backend_init__libopus,
+    ma_decoding_backend_init_file__libopus,
+    NULL, /* onInitFileW() */
+    NULL, /* onInitMemory() */
+    ma_decoding_backend_uninit__libopus
+};
+const ma_decoding_backend_vtable* ma_decoding_backend_libopus = &ma_gDecodingBackendVTable_libopus;
+#else
+const ma_decoding_backend_vtable* ma_decoding_backend_libopus = NULL;
+#endif
 
 #endif  /* miniaudio_libopus_c */

@@ -9955,7 +9955,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
-    ma_decoding_backend_vtable** ppCustomBackendVTables;
+    const ma_decoding_backend_vtable** ppCustomBackendVTables;
     ma_uint32 customBackendCount;
     void* pCustomBackendUserData;
 } ma_decoder_config;
@@ -10482,7 +10482,7 @@ typedef struct
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
-    ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
+    const ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
     ma_uint32 customDecodingBackendCount;
     void* pCustomDecodingBackendUserData;
 } ma_resource_manager_config;
@@ -68274,8 +68274,9 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     /* Custom decoding backends. */
     if (pConfig->ppCustomDecodingBackendVTables != NULL && pConfig->customDecodingBackendCount > 0) {
         size_t sizeInBytes = sizeof(*pResourceManager->config.ppCustomDecodingBackendVTables) * pConfig->customDecodingBackendCount;
+        ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
 
-        pResourceManager->config.ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
+        ppCustomDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(sizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppCustomDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
@@ -68283,6 +68284,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         MA_COPY_MEMORY(pResourceManager->config.ppCustomDecodingBackendVTables, pConfig->ppCustomDecodingBackendVTables, sizeInBytes);
 
+        pResourceManager->config.ppCustomDecodingBackendVTables = (const ma_decoding_backend_vtable**)ppCustomDecodingBackendVTables;
         pResourceManager->config.customDecodingBackendCount     = pConfig->customDecodingBackendCount;
         pResourceManager->config.pCustomDecodingBackendUserData = pConfig->pCustomDecodingBackendUserData;
     }
@@ -68386,7 +68388,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         #endif
     }
 
-    ma_free(pResourceManager->config.ppCustomDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);
+    ma_free((ma_decoding_backend_vtable**)pResourceManager->config.ppCustomDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);  /* <-- Naughty const-cast, but this is safe. */
 
     if (pResourceManager->config.pLog == &pResourceManager->log) {
         ma_log_uninit(&pResourceManager->log);
