@@ -22,7 +22,7 @@ static fs_result fs_result_from_GetLastError(DWORD error)
         default: break;
     }
 
-    return EINVAL;
+    return FS_ERROR;
 }
 #endif
 
