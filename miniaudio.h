@@ -33715,11 +33715,12 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     */
     for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
         pRenderedBufferList->mBuffers[iBuffer].mDataByteSize = pDevice->coreaudio.audioBufferCapInFrames * ma_get_bytes_per_sample(pDevice->capture.internalFormat) * pRenderedBufferList->mBuffers[iBuffer].mNumberChannels;
+        /*printf("DEBUG: nDataByteSize = %d\n", (int)pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);*/
     }
 
     status = ((ma_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  ERROR: AudioUnitRender() failed with %d.\n", (int)status);
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "ERROR: AudioUnitRender() failed with %d.\n", (int)status);
         return status;
     }
 
@@ -34267,7 +34268,7 @@ typedef struct
 
 static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     OSStatus status;
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
@@ -34474,15 +34475,28 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             /*
             I've had a report that the channel count returned by AudioUnitGetProperty above is inconsistent with
             AVAudioSession outputNumberOfChannels. I'm going to try using the AVAudioSession values instead.
+
+            UPDATE 20/02/2025:
+            When testing on the simulator with an iPhone 15 and iOS 17 I get an error when initializing the audio
+            unit if set the input channels to pAudioSession.inputNumberOfChannels. What is happening is the channel
+            count returned from AudioUnitGetProperty() above is set to 2, but pAudioSession is reporting a channel
+            count of 1. When this happens, the call to AudioUnitSetProprty() below just down below will succeed, but
+            AudioUnitInitialize() further down will fail. The only solution I have come up with is to not set the
+            channel count to pAudioSession.inputNumberOfChannels.
             */
             if (deviceType == ma_device_type_playback) {
                 bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.outputNumberOfChannels;
             }
+
+            #if 0
             if (deviceType == ma_device_type_capture) {
+                /*printf("DEBUG: bestFormat.mChannelsPerFrame = %d; pAudioSession.inputNumberOfChannels = %d\n", (int)bestFormat.mChannelsPerFrame, (int)pAudioSession.inputNumberOfChannels);*/
                 bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.inputNumberOfChannels;
             }
+            #endif
         }
 
+        
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
