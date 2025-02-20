@@ -7985,7 +7985,7 @@ struct ma_device
         {
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
-            ma_mutex closeLock;
+            ma_mutex rerouteLock;
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -38139,19 +38139,15 @@ static ma_result ma_close_streams__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    ma_mutex_lock(&pDevice->aaudio.closeLock);
-    {
-        /* When re-routing, streams may have been closed and never re-opened. Hence the extra checks below. */
-        if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
-            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
-            pDevice->aaudio.pStreamCapture = NULL;
-        }
-        if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-            ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
-            pDevice->aaudio.pStreamPlayback = NULL;
-        }
+    /* When re-routing, streams may have been closed and never re-opened. Hence the extra checks below. */
+    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamCapture);
+        pDevice->aaudio.pStreamCapture = NULL;
     }
-    ma_mutex_unlock(&pDevice->aaudio.closeLock);
+    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+        ma_close_stream__aaudio(pDevice->pContext, (ma_AAudioStream*)pDevice->aaudio.pStreamPlayback);
+        pDevice->aaudio.pStreamPlayback = NULL;
+    }
 
     return MA_SUCCESS;
 }
@@ -38160,8 +38156,15 @@ static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    ma_close_streams__aaudio(pDevice);
-    ma_mutex_uninit(&pDevice->aaudio.closeLock);
+    /* Wait for any rerouting to finish before attempting to close the streams. */
+    ma_mutex_lock(&pDevice->aaudio.rerouteLock);
+    {
+        ma_close_streams__aaudio(pDevice);
+    }
+    ma_mutex_unlock(&pDevice->aaudio.rerouteLock);
+
+    /* Destroy re-routing lock. */
+    ma_mutex_uninit(&pDevice->aaudio.rerouteLock);
 
     return MA_SUCCESS;
 }
@@ -38213,7 +38216,7 @@ static ma_result ma_device_init_by_type__aaudio(ma_device* pDevice, const ma_dev
     return MA_SUCCESS;
 }
 
-static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+static ma_result ma_device_init_streams__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
 {
     ma_result result;
 
@@ -38243,7 +38246,21 @@ static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_conf
         }
     }
 
-    result = ma_mutex_init(&pDevice->aaudio.closeLock);
+    return MA_SUCCESS;
+}
+
+static ma_result ma_device_init__aaudio(ma_device* pDevice, const ma_device_config* pConfig, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture)
+{
+    ma_result result;
+
+    MA_ASSERT(pDevice != NULL);
+
+    result = ma_device_init_streams__aaudio(pDevice, pConfig, pDescriptorPlayback, pDescriptorCapture);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
+
+    result = ma_mutex_init(&pDevice->aaudio.rerouteLock);
     if (result != MA_SUCCESS) {
         return result;
     }
@@ -38387,12 +38404,16 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
 
     MA_ASSERT(pDevice != NULL);
 
-error_disconnected:
-    /* The first thing to do is close the streams. */
-    ma_close_streams__aaudio(pDevice);
-
-    /* Now we need to reinitialize each streams. The hardest part with this is just filling output the config and descriptors. */
+    /*
+     TODO: Stop retrying if main thread is about to uninit device.
+    */
+    ma_mutex_lock(&pDevice->aaudio.rerouteLock);
     {
+error_disconnected:
+        /* The first thing to do is close the streams. */
+        ma_close_streams__aaudio(pDevice);
+
+        /* Now we need to reinitialize each streams. The hardest part with this is just filling output the config and descriptors. */
         ma_device_config deviceConfig;
         ma_device_descriptor descriptorPlayback;
         ma_device_descriptor descriptorCapture;
@@ -38441,17 +38462,17 @@ error_disconnected:
             descriptorPlayback.periodCount        = deviceConfig.periods;
         }
 
-        result = ma_device_init__aaudio(pDevice, &deviceConfig, &descriptorPlayback, &descriptorCapture);
+        result = ma_device_init_streams__aaudio(pDevice, &deviceConfig, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to create stream after route change.");
-            return result;
+            goto done;
         }
 
         result = ma_device_post_init(pDevice, deviceType, &descriptorPlayback, &descriptorCapture);
         if (result != MA_SUCCESS) {
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[AAudio] Failed to initialize device after route change.");
             ma_close_streams__aaudio(pDevice);
-            return result;
+            goto done;
         }
 
         /* We'll only ever do this in response to a reroute. */
@@ -38469,15 +38490,21 @@ error_disconnected:
                         goto error_disconnected;
                     }
                     ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change.");
-                    return result;
+                    goto done;
                 }
             } else {
                 ma_device_stop(pDevice);    /* Do a full device stop so we set internal state correctly. */
             }
         }
+        
+        result = MA_SUCCESS;
 
-        return MA_SUCCESS;
+done:
+        /* Re-routing done */
     }
+    ma_mutex_unlock(&pDevice->aaudio.rerouteLock);
+
+    return result;
 }
 
 static ma_result ma_device_get_info__aaudio(ma_device* pDevice, ma_device_type type, ma_device_info* pDeviceInfo)
