@@ -9955,7 +9955,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
-    const ma_decoding_backend_vtable** ppCustomBackendVTables;
+    const ma_decoding_backend_vtable* const* ppCustomBackendVTables;
     ma_uint32 customBackendCount;
     void* pCustomBackendUserData;
 } ma_decoder_config;
@@ -10482,7 +10482,7 @@ typedef struct
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
-    const ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
+    const ma_decoding_backend_vtable* const* ppCustomDecodingBackendVTables;
     ma_uint32 customDecodingBackendCount;
     void* pCustomDecodingBackendUserData;
 } ma_resource_manager_config;
