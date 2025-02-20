@@ -38521,10 +38521,9 @@ error_disconnected:
         }
         
         result = MA_SUCCESS;
-
-done:
-        /* Re-routing done */
     }
+done:
+    /* Re-routing done */
     ma_mutex_unlock(&pDevice->aaudio.rerouteLock);
 
     return result;
