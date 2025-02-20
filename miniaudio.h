@@ -68298,7 +68298,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
 
         MA_COPY_MEMORY(ppCustomDecodingBackendVTables, pConfig->ppCustomDecodingBackendVTables, sizeInBytes);
 
-        pResourceManager->config.ppCustomDecodingBackendVTables = (const ma_decoding_backend_vtable**)ppCustomDecodingBackendVTables;
+        pResourceManager->config.ppCustomDecodingBackendVTables = ppCustomDecodingBackendVTables;
         pResourceManager->config.customDecodingBackendCount     = pConfig->customDecodingBackendCount;
         pResourceManager->config.pCustomDecodingBackendUserData = pConfig->pCustomDecodingBackendUserData;
     }
