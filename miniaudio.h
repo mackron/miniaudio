@@ -17980,12 +17980,12 @@ MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
 #ifdef _WIN32
     proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
 #else
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
     proc = (ma_proc)dlsym((void*)handle, symbol);
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
     #pragma GCC diagnostic pop
 #endif
 #endif
