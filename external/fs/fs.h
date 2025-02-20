@@ -579,11 +579,11 @@ extern "C" {
 #endif  /* FS_USE_STDINT */
 
 #if FS_SIZEOF_PTR == 8
-    typedef unsigned long long fs_uintptr;
-    typedef long long          fs_intptr;
+    typedef fs_uint64 fs_uintptr;
+    typedef fs_int64  fs_intptr;
 #else
-    typedef unsigned int       fs_uintptr;
-    typedef int                fs_intptr;
+    typedef fs_uint32 fs_uintptr;
+    typedef fs_int32  fs_intptr;
 #endif
 
 typedef unsigned char fs_bool8;
