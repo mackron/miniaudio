@@ -158,11 +158,7 @@ need to link with `-latomic`.
 ABI compatibility is not guaranteed between versions so take care if compiling as a DLL/SO. The suggested way
 to integrate miniaudio is by adding it directly to your source tree.
 
-You can also use CMake if that's your preference. This will recognize the `vorbisfile` and `opusfile` targets for
-the purpose of the libvorbis and libopus decoding backends in the `extras/decoders` folder. If these targets are
-unavailable, it will fall back to using `find_library()` in an attempt to find a system-installed version. As a
-last resort it will look for the `ogg`, `vorbis`, `opus` and `opusfile` repositories in the `external` folder. If
-none of these work, `miniaudio_libvorbis` and `miniaudio_libopus` will be excluded from the build.
+You can also use CMake if that's your preference.
 
 
 Documentation
