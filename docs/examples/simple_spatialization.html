@@ -248,92 +248,101 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_spatialization.html" class="doc-navigation doc-navigation-l1 ">Simple Spatialization</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
-<h1>Simple Loopback</h1><p>
-Demonstrates how to implement loopback recording.
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_spatialization.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Simple Spatialization</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<h1>Simple Spatialization</h1><p>
+Demonstrates how to do basic spatialization via the high level API.
 </p>
 <p>
 
-This example simply captures data from your default playback device until you press Enter. The output is saved to the
-file specified on the command line.
+You can position and orientate sounds to create a simple spatialization effect. This example shows
+how to do this.
 </p>
 <p>
 
-Loopback mode is when you record audio that is played from a given speaker. It is only supported on WASAPI, but can be
-used indirectly with PulseAudio by choosing the appropriate loopback device after enumeration.
+In addition to positioning sounds, there is the concept of a listener. This can also be positioned
+and orientated to help with spatialization.
 </p>
 <p>
 
-To use loopback mode you just need to set the device type to ma_device_type_loopback and set the capture device config
-properties. The output buffer in the callback will be null whereas the input buffer will be valid.</p>
+This example only covers the basics to get your started. See the documentation for more detailed
+information on the available features.
+</p>
+<p>
+
+To use this example, pass in the path of a sound as the first argument. The sound will be
+positioned in front of the listener, while the listener rotates on the the spot to create an
+orbiting effect. Terminate the program with Ctrl+C.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
 
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdlib.h&gt;</span>
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;stdio.h&gt;</span>
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;math.h&gt;</span>   <span style="color:#009900">/* For sinf() and cosf() */</span>
 
-<span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
-{
-    ma_encoder_write_pcm_frames((<span style="color:#0099cc">ma_encoder</span>*)pDevice-&gt;pUserData, pInput, frameCount, NULL);
-
-    (<span style="color:#0033ff">void</span>)pOutput;
-}
+<span style="color:#009900">/* Silence warning about unreachable code for MSVC. */</span>
+<span style="color:#666666">#ifdef</span> _MSC_VER
+    <span style="color:#666666">#pragma</span> warning(push)
+    <span style="color:#666666">#pragma</span> warning(disable: 4702)
+<span style="color:#666666">#endif</span>
 
 <span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
 {
     <span style="color:#0099cc">ma_result</span> result;
-    <span style="color:#0099cc">ma_encoder_config</span> encoderConfig;
-    <span style="color:#0099cc">ma_encoder</span> encoder;
-    <span style="color:#0099cc">ma_device_config</span> deviceConfig;
-    <span style="color:#0099cc">ma_device</span> device;
-
-    <span style="color:#009900">/* Loopback mode is currently only supported on WASAPI. */</span>
-    ma_backend backends[] = {
-        ma_backend_wasapi
-    };
+    ma_engine engine;
+    ma_sound sound;
+    <span style="color:#0033ff">float</span> listenerAngle = 0;
 
     <span style="color:#0033ff">if</span> (argc &lt; 2) {
-        printf(<span style="color:#cc3300">&quot;No output file.\n&quot;</span>);
+        printf(<span style="color:#cc3300">&quot;No input file.\n&quot;</span>);
         <span style="color:#0033ff">return</span> -1;
     }
 
-    encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, ma_format_f32, 2, 44100);
-
-    <span style="color:#0033ff">if</span> (ma_encoder_init_file(argv[1], &amp;encoderConfig, &amp;encoder) != MA_SUCCESS) {
-        printf(<span style="color:#cc3300">&quot;Failed to initialize output file.\n&quot;</span>);
+    result = ma_engine_init(NULL, &amp;engine);
+    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
+        printf(<span style="color:#cc3300">&quot;Failed to initialize engine.\n&quot;</span>);
         <span style="color:#0033ff">return</span> -1;
     }
 
-    deviceConfig = ma_device_config_init(ma_device_type_loopback);
-    deviceConfig.capture.pDeviceID = NULL; <span style="color:#009900">/* Use default device for this example. Set this to the ID of a _playback_ device if you want to capture from a specific device. */</span>
-    deviceConfig.capture.format    = encoder.config.format;
-    deviceConfig.capture.channels  = encoder.config.channels;
-    deviceConfig.sampleRate        = encoder.config.sampleRate;
-    deviceConfig.dataCallback      = data_callback;
-    deviceConfig.pUserData         = &amp;encoder;
-
-    result = ma_device_init_ex(backends, <span style="color:#0033ff">sizeof</span>(backends)/<span style="color:#0033ff">sizeof</span>(backends[0]), NULL, &amp;deviceConfig, &amp;device);
+    result = ma_sound_init_from_file(&amp;engine, argv[1], 0, NULL, NULL, &amp;sound);
     <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-        printf(<span style="color:#cc3300">&quot;Failed to initialize loopback device.\n&quot;</span>);
-        <span style="color:#0033ff">return</span> -2;
+        printf(<span style="color:#cc3300">&quot;Failed to load sound: %s\n&quot;</span>, argv[1]);
+        ma_engine_uninit(&amp;engine);
+        <span style="color:#0033ff">return</span> -1;
     }
 
-    result = ma_device_start(&amp;device);
-    <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
-        ma_device_uninit(&amp;device);
-        printf(<span style="color:#cc3300">&quot;Failed to start device.\n&quot;</span>);
-        <span style="color:#0033ff">return</span> -3;
+    <span style="color:#009900">/* This sets the position of the sound. miniaudio follows the same coordinate system as OpenGL, where -Z is forward. */</span>
+    ma_sound_set_position(&amp;sound, 0, 0, -1);
+
+    <span style="color:#009900">/*
+    This sets the position of the listener. The second parameter is the listener index. If you have only a single listener, which is
+    most likely, just use 0. The position defaults to (0,0,0).
+    */</span>
+    ma_engine_listener_set_position(&amp;engine, 0, 0, 0, 0);
+
+
+    <span style="color:#009900">/* Sounds are stopped by default. We&#39;ll start it once initial parameters have been setup. */</span>
+    ma_sound_start(&amp;sound);
+
+
+    <span style="color:#009900">/* Rotate the listener on the spot to create an orbiting effect. */</span>
+    <span style="color:#0033ff">for</span> (;;) {
+        listenerAngle += 0.01f;
+        ma_engine_listener_set_direction(&amp;engine, 0, sinf(listenerAngle), 0, cosf(listenerAngle));
+
+        ma_sleep(1);
     }
 
-    printf(<span style="color:#cc3300">&quot;Press Enter to stop recording...\n&quot;</span>);
-    getchar();
-    
-    ma_device_uninit(&amp;device);
-    ma_encoder_uninit(&amp;encoder);
+
+    <span style="color:#009900">/* Won&#39;t actually get here, but do this to tear down. */</span>
+    ma_sound_uninit(&amp;sound);
+    ma_engine_uninit(&amp;engine);
 
     <span style="color:#0033ff">return</span> 0;
 }
+
+<span style="color:#666666">#ifdef</span> _MSC_VER
+    <span style="color:#666666">#pragma</span> warning(pop)
+<span style="color:#666666">#endif</span>
 </pre></div></td>
 </tr></table>
     </div>

@@ -248,7 +248,7 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 ">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_spatialization.html" class="doc-navigation doc-navigation-l1 ">Simple Spatialization</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
 <h1>Custom Backend</h1><p>
 This example show how a custom backend can be implemented.
 </p>
@@ -439,9 +439,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     <span style="color:#0099cc">ma_bool32</span> cbResult;
     <span style="color:#0033ff">int</span> iDevice;
 
-    MA_ASSERT(pContext != NULL);
-    MA_ASSERT(callback != NULL);
-
     <span style="color:#009900">/* Playback */</span>
     <span style="color:#0033ff">if</span> (!isTerminated) {
         <span style="color:#0033ff">int</span> deviceCount = ((MA_PFN_SDL_GetNumAudioDevices)pContextEx-&gt;sdl.SDL_GetNumAudioDevices)(0);
@@ -500,8 +497,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pDeviceName;
 <span style="color:#666666">#endif</span>
 
-    MA_ASSERT(pContext != NULL);
-
     <span style="color:#0033ff">if</span> (pDeviceID == NULL) {
         <span style="color:#0033ff">if</span> (deviceType == ma_device_type_playback) {
             pDeviceInfo-&gt;id.custom.<span style="color:#0033ff">i</span> = 0;
@@ -525,7 +520,7 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     of the device&#39;s _actual_ ideal format.
     
     Note: With Emscripten, it looks like non-zero values need to be specified for desiredSpec. Whatever is specified in
-    desiredSpec will be used by SDL since it uses it just does it&#39;s own format conversion internally. Therefore, from what
+    desiredSpec will be used by SDL since it uses it just does its own format conversion internally. Therefore, from what
     I can tell, there&#39;s no real way to know the device&#39;s actual format which means I&#39;m just going to fall back to the full
     range of channels and sample rates on Emscripten builds.
     */</span>
@@ -581,16 +576,12 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
 
-    MA_ASSERT(pDeviceEx != NULL);
-
     ma_device_handle_backend_data_callback((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, NULL, pBuffer, (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx-&gt;device.capture.internalFormat, pDeviceEx-&gt;device.capture.internalChannels));
 }
 
 <span style="color:#0033ff">void</span> ma_audio_callback_playback__sdl(<span style="color:#0033ff">void</span>* pUserData, <span style="color:#0099cc">ma_uint8</span>* pBuffer, <span style="color:#0033ff">int</span> bufferSizeInBytes)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pUserData;
-
-    MA_ASSERT(pDeviceEx != NULL);
 
     ma_device_handle_backend_data_callback((<span style="color:#0099cc">ma_device</span>*)pDeviceEx, pBuffer, NULL, (<span style="color:#0099cc">ma_uint32</span>)bufferSizeInBytes / ma_get_bytes_per_frame(pDeviceEx-&gt;device.playback.internalFormat, pDeviceEx-&gt;device.playback.internalChannels));
 }
@@ -602,9 +593,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     MA_SDL_AudioSpec obtainedSpec;
     <span style="color:#0033ff">const</span> <span style="color:#0033ff">char</span>* pDeviceName;
     <span style="color:#0033ff">int</span> deviceID;
-
-    MA_ASSERT(pDeviceEx  != NULL);
-    MA_ASSERT(pDescriptor != NULL);
 
     <span style="color:#009900">/*
     SDL is a little bit awkward with specifying the buffer size, You need to specify the size of the buffer in frames, but since we may
@@ -689,8 +677,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
     <span style="color:#0099cc">ma_result</span> result;
 
-    MA_ASSERT(pDevice != NULL);
-    
     <span style="color:#009900">/* SDL does not support loopback mode, so must return MA_DEVICE_TYPE_NOT_SUPPORTED if it&#39;s requested. */</span>
     <span style="color:#0033ff">if</span> (pConfig-&gt;deviceType == ma_device_type_loopback) {
         <span style="color:#0033ff">return</span> MA_DEVICE_TYPE_NOT_SUPPORTED;
@@ -722,8 +708,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
 
-    MA_ASSERT(pDevice != NULL);
-
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
         ((MA_PFN_SDL_CloseAudioDevice)pContextEx-&gt;sdl.SDL_CloseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture);
     }
@@ -739,8 +723,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 {
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
-
-    MA_ASSERT(pDevice != NULL);
 
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture, 0);
@@ -758,8 +740,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
     ma_device_ex* pDeviceEx = (ma_device_ex*)pDevice;
     ma_context_ex* pContextEx = (ma_context_ex*)pDevice-&gt;pContext;
 
-    MA_ASSERT(pDevice != NULL);
-
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_capture || pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
         ((MA_PFN_SDL_PauseAudioDevice)pContextEx-&gt;sdl.SDL_PauseAudioDevice)(pDeviceEx-&gt;sdl.deviceIDCapture, 1);
     }
@@ -774,8 +754,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
 <span style="color:#0033ff">static</span> <span style="color:#0099cc">ma_result</span> ma_context_uninit__sdl(<span style="color:#0099cc">ma_context</span>* pContext)
 {
     ma_context_ex* pContextEx = (ma_context_ex*)pContext;
-
-    MA_ASSERT(pContext != NULL);
 
     ((MA_PFN_SDL_QuitSubSystem)pContextEx-&gt;sdl.SDL_QuitSubSystem)(MA_SDL_INIT_AUDIO);
 
@@ -803,8 +781,6 @@ ma_format ma_format_from_sdl(MA_SDL_AudioFormat format)
         <span style="color:#cc3300">&quot;libSDL2-2.0.so.0&quot;</span>
 <span style="color:#666666">#endif</span>
     };
-
-    MA_ASSERT(pContext != NULL);
 
     (<span style="color:#0033ff">void</span>)pConfig;
 
@@ -900,15 +876,8 @@ Main program starts here.
 
 <span style="color:#0033ff">void</span> data_callback(<span style="color:#0099cc">ma_device</span>* pDevice, <span style="color:#0033ff">void</span>* pOutput, <span style="color:#0033ff">const</span> <span style="color:#0033ff">void</span>* pInput, <span style="color:#0099cc">ma_uint32</span> frameCount)
 {
-    MA_ASSERT(pDevice-&gt;playback.channels == DEVICE_CHANNELS);
-
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_playback)  {
-        <span style="color:#0099cc">ma_waveform</span>* pSineWave;
-
-        pSineWave = (<span style="color:#0099cc">ma_waveform</span>*)pDevice-&gt;pUserData;
-        MA_ASSERT(pSineWave != NULL);
-
-        ma_waveform_read_pcm_frames(pSineWave, pOutput, frameCount, NULL);
+        ma_waveform_read_pcm_frames((<span style="color:#0099cc">ma_waveform</span>*)pDevice-&gt;pUserData, pOutput, frameCount, NULL);
     }
 
     <span style="color:#0033ff">if</span> (pDevice-&gt;<span style="color:#0033ff">type</span> == ma_device_type_duplex) {
@@ -996,7 +965,8 @@ Main program starts here.
     (<span style="color:#0033ff">void</span>)argv;
 
     <span style="color:#0033ff">return</span> 0;
-}</pre></div></td>
+}
+</pre></div></td>
 </tr></table>
     </div>
     <table style="margin:0 auto; padding:1em 0px; text-align:center;">
@@ -1009,7 +979,7 @@ Main program starts here.
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2023 David Reid<br/>
+        Copyright &copy; 2025 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>

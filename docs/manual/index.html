@@ -255,20 +255,24 @@ a.doc-navigation-l4 {
 </p>
 <h1 id="Introduction" class="man">1. Introduction</h1>
 <p>
-miniaudio is a single file library for audio playback and capture. To use it, do the following in
-one .c file:
+To use miniaudio, include &quot;miniaudio.h&quot;:
 </p>
 <p>
 
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
 </pre></div><p>
 
-You can do <span style="font-family:monospace;">#include &quot;miniaudio.h&quot;</span> in other parts of the program just like any other header.
+The implementation is contained in &quot;miniaudio.c&quot;. Just compile this like any other source file. You
+can include miniaudio.c if you want to compile your project as a single translation unit:
 </p>
 <p>
+
+</p>
+<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.c&quot;</span>
+</pre></div><p>
 
 miniaudio includes both low level and high level APIs. The low level API is good for those who want
 to do all of their mixing themselves and only require a light weight interface to the underlying
@@ -699,7 +703,7 @@ avoids the same sound being loaded multiple times.
 
 The node graph is used for mixing and effect processing. The idea is that you connect a number of
 nodes into the graph by connecting each node&#39;s outputs to another node&#39;s inputs. Each node can
-implement it&#39;s own effect. By chaining nodes together, advanced mixing and effect processing can
+implement its own effect. By chaining nodes together, advanced mixing and effect processing can
 be achieved.
 </p>
 <p>
@@ -836,7 +840,7 @@ ma_sound_set_stop_time_in_milliseconds()
 </pre></div><p>
 
 The start/stop time needs to be specified based on the absolute timer which is controlled by the
-engine. The current global time time in PCM frames can be retrieved with
+engine. The current global time in PCM frames can be retrieved with
 <span style="font-family:monospace;">ma_engine_get_time_in_pcm_frames()</span>. The engine&#39;s global time can be changed with
 <span style="font-family:monospace;">ma_engine_set_time_in_pcm_frames()</span> for synchronization purposes if required. Note that scheduling
 a start time still requires an explicit call to <span style="font-family:monospace;">ma_sound_start()</span> before anything will play:
@@ -879,13 +883,13 @@ effect chains.
 </p>
 <p>
 
-A sound can have it&#39;s volume changed with <span style="font-family:monospace;">ma_sound_set_volume()</span>. If you prefer decibel volume
+A sound can have its volume changed with <span style="font-family:monospace;">ma_sound_set_volume()</span>. If you prefer decibel volume
 control you can use <span style="font-family:monospace;">ma_volume_db_to_linear()</span> to convert from decibel representation to linear.
 </p>
 <p>
 
 Panning and pitching is supported with <span style="font-family:monospace;">ma_sound_set_pan()</span> and <span style="font-family:monospace;">ma_sound_set_pitch()</span>. If you know
-a sound will never have it&#39;s pitch changed with <span style="font-family:monospace;">ma_sound_set_pitch()</span> or via the doppler effect,
+a sound will never have its pitch changed with <span style="font-family:monospace;">ma_sound_set_pitch()</span> or via the doppler effect,
 you can specify the <span style="font-family:monospace;">MA_SOUND_FLAG_NO_PITCH</span> flag when initializing the sound for an optimization.
 </p>
 <p>
@@ -969,24 +973,12 @@ through the command line requires linking to <span style="font-family:monospace;
 <p>
 
 Due to the way miniaudio links to frameworks at runtime, your application may not pass Apple&#39;s
-notarization process. To fix this there are two options. The first is to use the
-<span style="font-family:monospace;">MA_NO_RUNTIME_LINKING</span> option, like so:
-</p>
-<p>
-
-</p>
-<div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
-<span style="color:#666666">#ifdef</span> __APPLE__
-    <span style="color:#666666">#define</span> MA_NO_RUNTIME_LINKING
-<span style="color:#666666">#endif</span>
-<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;miniaudio.h&quot;</span>
-</pre></div><p>
-
-This will require linking with <span style="font-family:monospace;">-framework CoreFoundation -framework CoreAudio -framework AudioToolbox</span>.
-If you get errors about AudioToolbox, try with <span style="font-family:monospace;">-framework AudioUnit</span> instead. You may get this when
-using older versions of iOS. Alternatively, if you would rather keep using runtime linking you can
-add the following to your entitlements.xcent file:
+notarization process. To fix this there are two options. The first is to compile with
+<span style="font-family:monospace;">-DMA_NO_RUNTIME_LINKING</span> which in turn will require linking with
+<span style="font-family:monospace;">-framework CoreFoundation -framework CoreAudio -framework AudioToolbox</span>. If you get errors about
+AudioToolbox, try with <span style="font-family:monospace;">-framework AudioUnit</span> instead. You may get this when using older versions
+of iOS. Alternatively, if you would rather keep using runtime linking you can add the following to
+your entitlements.xcent file:
 </p>
 <p>
 
@@ -1088,7 +1080,7 @@ To run locally, you&#39;ll need to use emrun:
 </p>
 <h2 id="BuildOptions" class="man">2.7. Build Options</h2>
 <p>
-<span style="font-family:monospace;">#define</span> these options before including miniaudio.h.
+<span style="font-family:monospace;">#define</span> these options before including miniaudio.c, or pass them as compiler flags:
 </p>
 <p>
 
@@ -1203,6 +1195,14 @@ MA_NO_WEBAUDIO</p>
 </td>
 <td class="doc" valign="top"><p>
 Disables the Web Audio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_NO_CUSTOM</p>
+</td>
+<td class="doc" valign="top"><p>
+Disables support for custom backends.</p>
 </td>
 </tr>
 <tr>
@@ -1351,6 +1351,16 @@ MA_ENABLE_WEBAUDIO
 <td class="doc" valign="top"><p>
 Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
 enable the Web Audio backend.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ENABLE_CUSTOM
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Used in conjunction with MA_ENABLE_ONLY_SPECIFIC_BACKENDS to
+enable custom backends.</p>
 </td>
 </tr>
 <tr>
@@ -1567,6 +1577,16 @@ runtime linking via <span style="font-family:monospace;">dlopen()</span>.</p>
 </tr>
 <tr>
 <td class="doc" valign="top"><p>
+MA_USE_STDINT
+</p>
+</td>
+<td class="doc" valign="top"><p>
+(Pass this in as a compiler flag. Do not <span style="font-family:monospace;">#define</span> this before
+miniaudio.c) Forces the use of stdint.h for sized types.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
 MA_DEBUG_OUTPUT</p>
 </td>
 <td class="doc" valign="top"><p>
@@ -1581,6 +1601,56 @@ MA_COINIT_VALUE
 <td class="doc" valign="top"><p>
 Windows only. The value to pass to internal calls to
 <span style="font-family:monospace;">CoInitializeEx()</span>. Defaults to <span style="font-family:monospace;">COINIT_MULTITHREADED</span>.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_FORCE_UWP
+
+</p>
+<p>
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Windows only. Affects only the WASAPI backend. Will force the
+WASAPI backend to use the UWP code path instead of the regular
+desktop path. This is normally auto-detected and should rarely be
+needed to be used explicitly, but can be useful for debugging.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ON_THREAD_ENTRY
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Defines some code that will be executed as soon as an internal
+miniaudio-managed thread is created. This will be the first thing
+to be executed by the thread entry point.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_ON_THREAD_EXIT
+
+</p>
+</td>
+<td class="doc" valign="top"><p>
+Defines some code that will be executed from the entry point of an
+internal miniaudio-managed thread upon exit. This will be the last
+thing to be executed before the thread&#39;s entry point exits.</p>
+</td>
+</tr>
+<tr>
+<td class="doc" valign="top"><p>
+MA_THREAD_DEFAULT_STACK_SIZE
+</p>
+</td>
+<td class="doc" valign="top"><p>
+If set, specifies the default stack size used by miniaudio-managed
+threads.</p>
 </td>
 </tr>
 <tr>
@@ -2437,7 +2507,7 @@ only works for sounds that were initialized with <span style="font-family:monosp
 
 When you initialize a sound, if you specify a sound group the sound will be attached to that group
 automatically. If you set it to NULL, it will be automatically attached to the engine&#39;s endpoint.
-If you would instead rather leave the sound unattached by default, you can can specify the
+If you would instead rather leave the sound unattached by default, you can specify the
 <span style="font-family:monospace;">MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT</span> flag. This is useful if you want to set up a complex node
 graph.
 </p>
@@ -2955,6 +3025,7 @@ MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM
 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE
 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_ASYNC
 MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT
+MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING
 </pre></div><p>
 
 When no flags are specified (set to 0), the sound will be fully loaded into memory, but not
@@ -2979,6 +3050,16 @@ subsequently processed in a job thread.
 </p>
 <p>
 
+The <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING</span> flag can be used so that the sound will loop
+when it reaches the end by default. It&#39;s recommended you use this flag when you want to have a
+looping streaming sound. If you try loading a very short sound as a stream, you will get a glitch.
+This is because the resource manager needs to pre-fill the initial buffer at initialization time,
+and if you don&#39;t specify the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING</span> flag, the resource
+manager will assume the sound is not looping and will stop filling the buffer when it reaches the
+end, therefore resulting in a discontinuous buffer.
+</p>
+<p>
+
 For in-memory sounds, reference counting is used to ensure the data is loaded only once. This means
 multiple calls to <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span> with the same file path will result in
 the file data only being loaded once. Each call to <span style="font-family:monospace;">ma_resource_manager_data_source_init()</span> must be
@@ -2993,7 +3074,7 @@ actual file paths. When <span style="font-family:monospace;">ma_resource_manager
 <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM</span> flag), the resource manager will look for these
 explicitly registered data buffers and, if found, will use it as the backing data for the data
 source. Note that the resource manager does *not* make a copy of this data so it is up to the
-caller to ensure the pointer stays valid for it&#39;s lifetime. Use
+caller to ensure the pointer stays valid for its lifetime. Use
 <span style="font-family:monospace;">ma_resource_manager_unregister_data()</span> to unregister the self-managed data. You can also use
 <span style="font-family:monospace;">ma_resource_manager_register_file()</span> and <span style="font-family:monospace;">ma_resource_manager_unregister_file()</span> to register and
 unregister a file. It does not make sense to use the <span style="font-family:monospace;">MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM</span>
@@ -3400,7 +3481,7 @@ In the above graph, it starts with two data sources whose outputs are attached t
 splitter node. It&#39;s at this point that the two data sources are mixed. After mixing, the splitter
 performs it&#39;s processing routine and produces two outputs which is simply a duplication of the
 input stream. One output is attached to a low pass filter, whereas the other output is attached to
-a echo/delay. The outputs of the the low pass filter and the echo are attached to the endpoint, and
+a echo/delay. The outputs of the low pass filter and the echo are attached to the endpoint, and
 since they&#39;re both connected to the same input bus, they&#39;ll be mixed.
 </p>
 <p>
@@ -3451,7 +3532,7 @@ result = ma_node_graph_read_pcm_frames(&amp;nodeGraph, pFramesOut, frameCount, &
 </pre></div><p>
 
 When you read audio data, miniaudio starts at the node graph&#39;s endpoint node which then pulls in
-data from it&#39;s input attachments, which in turn recursively pull in data from their inputs, and so
+data from its input attachments, which in turn recursively pull in data from their inputs, and so
 on. At the start of the graph there will be some kind of data source node which will have zero
 inputs and will instead read directly from a data source. The base nodes don&#39;t literally need to
 read from a <span style="font-family:monospace;">ma_data_source</span> object, but they will always have some kind of underlying object that
@@ -3842,7 +3923,7 @@ ma_node_set_state(&amp;splitterNode, ma_node_state_stopped);
 
 By default the node is in a started state, but since it won&#39;t be connected to anything won&#39;t
 actually be invoked by the node graph until it&#39;s connected. When you stop a node, data will not be
-read from any of it&#39;s input connections. You can use this property to stop a group of sounds
+read from any of its input connections. You can use this property to stop a group of sounds
 atomically.
 </p>
 <p>
@@ -3976,14 +4057,14 @@ chance to free the node&#39;s memory.
 <p>
 
 When the audio thread is processing a node, it does so by reading from each of the output buses of
-the node. In order for a node to process data for one of it&#39;s output buses, it needs to read from
-each of it&#39;s input buses, and so on an so forth. It follows that once all output buses of a node
+the node. In order for a node to process data for one of its output buses, it needs to read from
+each of its input buses, and so on an so forth. It follows that once all output buses of a node
 are detached, the node as a whole will be disconnected and no further processing will occur unless
 it&#39;s output buses are reattached, which won&#39;t be happening when the node is being uninitialized.
 By having <span style="font-family:monospace;">ma_node_detach_output_bus()</span> wait until the audio thread is finished with it, we can
 simplify a few things, at the expense of making <span style="font-family:monospace;">ma_node_detach_output_bus()</span> a bit slower. By
 doing this, the implementation of <span style="font-family:monospace;">ma_node_uninit()</span> becomes trivial - just detach all output
-nodes, followed by each of the attachments to each of it&#39;s input nodes, and then do any final clean
+nodes, followed by each of the attachments to each of its input nodes, and then do any final clean
 up.
 </p>
 <p>
@@ -3992,15 +4073,15 @@ With the above design, the worst-case scenario is <span style="font-family:monos
 it takes to process the output bus being detached. This will happen if it&#39;s called at just the
 wrong moment where the audio thread has just iterated it and has just started processing. The
 caller of <span style="font-family:monospace;">ma_node_detach_output_bus()</span> will stall until the audio thread is finished, which
-includes the cost of recursively processing it&#39;s inputs. This is the biggest compromise made with
-the approach taken by miniaudio for it&#39;s lock-free processing system. The cost of detaching nodes
+includes the cost of recursively processing its inputs. This is the biggest compromise made with
+the approach taken by miniaudio for its lock-free processing system. The cost of detaching nodes
 earlier in the pipeline (data sources, for example) will be cheaper than the cost of detaching
 higher level nodes, such as some kind of final post-processing endpoint. If you need to do mass
 detachments, detach starting from the lowest level nodes and work your way towards the final
 endpoint node (but don&#39;t try detaching the node graph&#39;s endpoint). If the audio thread is not
 running, detachment will be fast and detachment in any order will be the same. The reason nodes
 need to wait for their input attachments to complete is due to the potential for desyncs between
-data sources. If the node was to terminate processing mid way through processing it&#39;s inputs,
+data sources. If the node was to terminate processing mid way through processing its inputs,
 there&#39;s a chance that some of the underlying data sources will have been read, but then others not.
 That will then result in a potential desynchronization when detaching and reattaching higher-level
 nodes. A possible solution to this is to have an option when detaching to terminate processing
@@ -4564,7 +4645,7 @@ weights. Custom weights can be passed in as the last parameter of
 <p>
 
 Predefined channel maps can be retrieved with <span style="font-family:monospace;">ma_channel_map_init_standard()</span>. This takes a
-<span style="font-family:monospace;">ma_standard_channel_map</span> enum as it&#39;s first parameter, which can be one of the following:
+<span style="font-family:monospace;">ma_standard_channel_map</span> enum as its first parameter, which can be one of the following:
 </p>
 <p>
 
@@ -4836,7 +4917,7 @@ like the following:
     ma_resample_algorithm_linear);
 
 <span style="color:#0099cc">ma_resampler</span> resampler;
-<span style="color:#0099cc">ma_result</span> result = ma_resampler_init(&amp;config, &amp;resampler);
+<span style="color:#0099cc">ma_result</span> result = ma_resampler_init(&amp;config, NULL, &amp;resampler);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#009900">// An error occurred...</span>
 }
@@ -5193,7 +5274,7 @@ Biquad filtering is achieved with the <span style="font-family:monospace;">ma_bi
 </p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#0099cc">ma_biquad_config</span> config = ma_biquad_config_init(ma_format_f32, channels, b0, b1, b2, a0, a1, a2);
-<span style="color:#0099cc">ma_result</span> result = ma_biquad_init(&amp;config, &amp;biquad);
+<span style="color:#0099cc">ma_result</span> result = ma_biquad_init(&amp;config, NULL, &amp;biquad);
 <span style="color:#0033ff">if</span> (result != MA_SUCCESS) {
     <span style="color:#009900">// Error.</span>
 }
@@ -6312,7 +6393,7 @@ When compiling with VC6 and earlier, decoding is restricted to files less than 2
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2023 David Reid<br/>
+        Copyright &copy; 2025 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>

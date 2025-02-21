@@ -248,7 +248,7 @@ a.doc-navigation-l4 {
     <div style="background-color:#fff; padding-bottom:0em; border-top:solid 1px #003800; background-color:#eee;">
 <table border="0" style="margin:0 auto; width:100%; border-collapse:collapse; border:solid 0px #000; table-layout:fixed;"><tr>
 <td valign="top" style="width:20em; padding:0; margin:0; border-right:solid 0px #000;"><div style="position:relative; height:100%; width:100%; border:solid 0px #000; padding:0; margin:0;">
-<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
+<a href="../index.html" class="doc-navigation">Documentation Home</a><a href="../manual/index.html" class="doc-navigation">Programming Manual</a><a href="index.html" class="doc-navigation ">Examples</a><a href="custom_backend.html" class="doc-navigation doc-navigation-l1 ">Custom Backend</a><a href="custom_decoder.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder</a><a href="custom_decoder_engine.html" class="doc-navigation doc-navigation-l1 ">Custom Decoder Engine</a><a href="data_source_chaining.html" class="doc-navigation doc-navigation-l1 ">Data Source Chaining</a><a href="duplex_effect.html" class="doc-navigation doc-navigation-l1 ">Duplex Effect</a><a href="engine_advanced.html" class="doc-navigation doc-navigation-l1 ">Engine Advanced</a><a href="engine_effects.html" class="doc-navigation doc-navigation-l1 ">Engine Effects</a><a href="engine_hello_world.html" class="doc-navigation doc-navigation-l1 ">Engine Hello World</a><a href="engine_sdl.html" class="doc-navigation doc-navigation-l1 ">Engine Sdl</a><a href="engine_steamaudio.html" class="doc-navigation doc-navigation-l1 ">Engine Steamaudio</a><a href="hilo_interop.html" class="doc-navigation doc-navigation-l1 ">Hilo Interop</a><a href="node_graph.html" class="doc-navigation doc-navigation-l1 ">Node Graph</a><a href="resource_manager.html" class="doc-navigation doc-navigation-l1 ">Resource Manager</a><a href="resource_manager_advanced.html" class="doc-navigation doc-navigation-l1 ">Resource Manager Advanced</a><a href="simple_capture.html" class="doc-navigation doc-navigation-l1 ">Simple Capture</a><a href="simple_duplex.html" class="doc-navigation doc-navigation-l1 ">Simple Duplex</a><a href="simple_enumeration.html" class="doc-navigation doc-navigation-l1 ">Simple Enumeration</a><a href="simple_loopback.html" class="doc-navigation doc-navigation-l1 ">Simple Loopback</a><a href="simple_looping.html" class="doc-navigation doc-navigation-l1 ">Simple Looping</a><a href="simple_mixing.html" class="doc-navigation doc-navigation-l1 doc-navigation-active">Simple Mixing</a><a href="simple_playback.html" class="doc-navigation doc-navigation-l1 ">Simple Playback</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_playback_sine.html" class="doc-navigation doc-navigation-l1 ">Simple Playback Sine</a><a href="simple_spatialization.html" class="doc-navigation doc-navigation-l1 ">Simple Spatialization</a><a href="../api/index.html" class="doc-navigation" style="border-bottom:none;">API Reference</a></div></td><td valign="top" style="padding:1em; border-left:solid 1px #bbb;">
 <h1>Simple Mixing</h1><p>
 Demonstrates one way to load multiple files and play them all back at the same time.
 </p>
@@ -257,7 +257,7 @@ Demonstrates one way to load multiple files and play them all back at the same t
 When mixing multiple sounds together, you should not create multiple devices. Instead you should create only a single
 device and then mix your sounds together which you can do by simply summing their samples together. The simplest way to
 do this is to use floating point samples and use miniaudio&#39;s built-in clipper to handling clipping for you. (Clipping
-is when sample are clampled to their minimum and maximum range, which for floating point is -1..1.)
+is when sample are clamped to their minimum and maximum range, which for floating point is -1..1.)
 </p>
 <p>
 
@@ -284,7 +284,7 @@ For simplicity, this example requires the device to use floating point samples.
 
 <span style="color:#0099cc">ma_event</span> g_stopEvent; <span style="color:#009900">/* &lt;-- Signaled by the audio thread, waited on by the main thread. */</span>
 
-<span style="color:#0099cc">ma_bool32</span> are_all_decoders_at_end()
+<span style="color:#0099cc">ma_bool32</span> are_all_decoders_at_end(<span style="color:#0033ff">void</span>)
 {
     <span style="color:#0099cc">ma_uint32</span> iDecoder;
     <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
@@ -342,8 +342,7 @@ For simplicity, this example requires the device to use floating point samples.
     <span style="color:#0033ff">float</span>* pOutputF32 = (<span style="color:#0033ff">float</span>*)pOutput;
     <span style="color:#0099cc">ma_uint32</span> iDecoder;
 
-    MA_ASSERT(pDevice-&gt;playback.format == SAMPLE_FORMAT);   <span style="color:#009900">/* &lt;-- Important for this example. */</span>
-
+    <span style="color:#009900">/* This example assumes the device was configured to use ma_format_f32. */</span>
     <span style="color:#0033ff">for</span> (iDecoder = 0; iDecoder &lt; g_decoderCount; ++iDecoder) {
         <span style="color:#0033ff">if</span> (!g_pDecodersAtEnd[iDecoder]) {
             <span style="color:#0099cc">ma_uint32</span> framesRead = read_and_mix_pcm_frames_f32(&amp;g_pDecoders[iDecoder], pOutputF32, frameCount);
@@ -362,6 +361,7 @@ For simplicity, this example requires the device to use floating point samples.
     }
 
     (<span style="color:#0033ff">void</span>)pInput;
+    (<span style="color:#0033ff">void</span>)pDevice;
 }
 
 <span style="color:#0033ff">int</span> main(<span style="color:#0033ff">int</span> argc, <span style="color:#0033ff">char</span>** argv)
@@ -465,7 +465,7 @@ For simplicity, this example requires the device to use floating point samples.
     </table>
 
     <div style="color:#e0d7cf; font-size:9pt; padding:2em 0px; text-align:center;">
-        Copyright &copy; 2023 David Reid<br/>
+        Copyright &copy; 2025 David Reid<br/>
         Developed by David Reid - <a class="footer-link" href="mailto:mackron@gmail.com">mackron@gmail.com</a>
     </div>
 </body>
