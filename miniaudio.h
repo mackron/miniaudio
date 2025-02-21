@@ -67959,6 +67959,8 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
     if (pConfig->ppDecodingBackendVTables != NULL && pConfig->decodingBackendCount > 0) {
         size_t vtableSizeInBytes;
         size_t vtableUserDataSizeInBytes;
+        ma_decoding_backend_vtable** ppDecodingBackendVTables;
+        void** ppDecodingBackendUserData;
 
         vtableSizeInBytes = sizeof(*pResourceManager->config.ppDecodingBackendVTables) * pConfig->decodingBackendCount;
 
@@ -67968,22 +67970,24 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             vtableUserDataSizeInBytes = 0;  /* No vtable user data present. No need for an allocation. */
         }
 
-        pResourceManager->config.ppDecodingBackendVTables = (const ma_decoding_backend_vtable* const*)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
-        if (pResourceManager->config.ppDecodingBackendVTables == NULL) {
+        ppDecodingBackendVTables = (ma_decoding_backend_vtable**)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
+        if (ppDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;
         }
 
-        MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendVTables, pConfig->ppDecodingBackendVTables, vtableSizeInBytes);
+        MA_COPY_MEMORY(ppDecodingBackendVTables, pConfig->ppDecodingBackendVTables, vtableSizeInBytes);
 
         if (pConfig->ppDecodingBackendUserData != NULL) {
-            pResourceManager->config.ppDecodingBackendUserData = (void**)ma_offset_ptr(pResourceManager->config.ppDecodingBackendVTables, vtableSizeInBytes);
-            MA_COPY_MEMORY(pResourceManager->config.ppDecodingBackendUserData, pConfig->ppDecodingBackendUserData, vtableUserDataSizeInBytes);
+            ppDecodingBackendUserData = (void**)ma_offset_ptr(ppDecodingBackendVTables, vtableSizeInBytes);
+            MA_COPY_MEMORY(ppDecodingBackendUserData, pConfig->ppDecodingBackendUserData, vtableUserDataSizeInBytes);
         } else {
-            pResourceManager->config.ppDecodingBackendUserData = NULL;
+            ppDecodingBackendUserData = NULL;
         }
 
-        pResourceManager->config.decodingBackendCount = pConfig->decodingBackendCount;
+        pResourceManager->config.ppDecodingBackendVTables  = ppDecodingBackendVTables;
+        pResourceManager->config.ppDecodingBackendUserData = ppDecodingBackendUserData;
+        pResourceManager->config.decodingBackendCount      = pConfig->decodingBackendCount;
     }
 
 
@@ -68085,7 +68089,7 @@ MA_API void ma_resource_manager_uninit(ma_resource_manager* pResourceManager)
         #endif
     }
 
-    ma_free(pResourceManager->config.ppDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);  /* <-- This also frees pResourceManager->config.ppDecodingBackendUserData because it's all in one allocation. */
+    ma_free((ma_decoding_backend_vtable**)pResourceManager->config.ppDecodingBackendVTables, &pResourceManager->config.allocationCallbacks);  /* <-- This also frees pResourceManager->config.ppDecodingBackendUserData because it's all in one allocation. */
 
     if (pResourceManager->config.pLog == &pResourceManager->log) {
         ma_log_uninit(&pResourceManager->log);
