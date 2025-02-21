@@ -22077,12 +22077,16 @@ static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    if (pDevice->wasapi.pDeviceEnumerator) {
-        ((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator)->lpVtbl->UnregisterEndpointNotificationCallback((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-        ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator);
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    {
+        if (pDevice->wasapi.pDeviceEnumerator) {
+            ((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator)->lpVtbl->UnregisterEndpointNotificationCallback((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+            ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator);
+        }
+
+        ma_mutex_uninit(&pDevice->wasapi.rerouteLock);
     }
-#endif
+    #endif
 
     if (pDevice->wasapi.pRenderClient) {
         if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
