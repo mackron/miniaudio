@@ -2,7 +2,7 @@
 This example show how a custom backend can be implemented.
 
 This implements a full-featured SDL2 backend. It's intentionally built using the same paradigms as the built-in backends in order to make
-it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the build-in
+it suitable as a solid basis for a custom implementation. The SDL2 backend can be disabled with MA_NO_SDL, exactly like the built-in
 backends. It supports both runtime and compile-time linking and respects the MA_NO_RUNTIME_LINKING option. It also works on Emscripten
 which requires the `-s USE_SDL=2` option.
 
@@ -23,8 +23,7 @@ Custom backends are identified with the `ma_backend_custom` backend type. For th
 `ma_backend_custom` backend type because otherwise the built-in backends would always get chosen first and none of the code for the custom
 backends would actually get hit. By default, the `ma_backend_custom` backend is the lowest priority backend, except for `ma_backend_null`.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
