@@ -8,7 +8,6 @@
 <p align="center">
     <a href="https://discord.gg/9vpqbjU"><img src="https://img.shields.io/discord/712952679415939085?label=discord&logo=discord&style=flat-square" alt="discord"></a>
     <a href="https://fosstodon.org/@mackron"><img src="https://img.shields.io/mastodon/follow/109293691403797709?color=blue&domain=https%3A%2F%2Ffosstodon.org&label=mastodon&logo=mastodon&style=flat-square" alt="mastodon"></a>
-    <a href="https://www.reddit.com/r/miniaudio"><img src="https://img.shields.io/reddit/subreddit-subscribers/miniaudio?label=r%2Fminiaudio&logo=reddit&style=flat-square" alt="reddit"></a>
 </p>
 
 <p align="center">
@@ -17,6 +16,7 @@
     <a href="#building">Building</a> -
     <a href="#documentation">Documentation</a> -
     <a href="#supported-platforms">Supported Platforms</a> -
+    <a href="#security">Security</a> -
     <a href="#license">License</a>
 </p>
 
@@ -158,6 +158,8 @@ need to link with `-latomic`.
 ABI compatibility is not guaranteed between versions so take care if compiling as a DLL/SO. The suggested way
 to integrate miniaudio is by adding it directly to your source tree.
 
+You can also use CMake if that's your preference.
+
 
 Documentation
 =============
@@ -199,6 +201,13 @@ Backends
 - Web Audio (Emscripten)
 - Null (Silence)
 - Custom
+
+
+Security
+========
+I deal with all security related issues publicly and transparently, and it can sometimes take a while before I
+get a chance to address it. If this is an issue for you, you need to use another library. Please post any
+security related bugs on the public GitHub issue tracker.
 
 
 License

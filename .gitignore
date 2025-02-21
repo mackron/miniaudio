@@ -9,6 +9,10 @@ examples/build/vc6/
 examples/build/vc15/
 examples/build/vc17/
 examples/simple_playback_sine.cpp
+external/ogg/
+external/vorbis/
+external/opus/
+external/opusfile/
 extras/osaudio/tests/build/bin/
 extras/osaudio/tests/build/vc17/
 extras/osaudio/tests/build/watcom-dos/

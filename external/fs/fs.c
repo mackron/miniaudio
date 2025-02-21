@@ -3306,6 +3306,7 @@ FS_API void fs_file_close(fs_file* pFile)
     const fs_backend* pBackend = fs_file_get_backend(pFile);
 
     FS_ASSERT(pBackend != NULL);
+    (void)pBackend;
 
     if (pFile == NULL) {
         return;

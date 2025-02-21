@@ -10096,7 +10096,7 @@ typedef struct
     ma_allocation_callbacks allocationCallbacks;
     ma_encoding_format encodingFormat;
     ma_uint32 seekPointCount;   /* When set to > 0, specifies the number of seek points to use for the generation of a seek table. Not all decoding backends support this. */
-    const ma_decoding_backend_vtable** ppBackendVTables;
+    const ma_decoding_backend_vtable* const* ppBackendVTables;
     void** ppBackendUserData;
     ma_uint32 backendCount;
 } ma_decoder_config;
@@ -10615,7 +10615,7 @@ typedef struct
     ma_uint32 jobQueueCapacity;     /* The maximum number of jobs that can fit in the queue at a time. Defaults to MA_JOB_TYPE_RESOURCE_MANAGER_QUEUE_CAPACITY. Cannot be zero. */
     ma_uint32 flags;
     ma_vfs* pVFS;                   /* Can be NULL in which case defaults will be used. */
-    const ma_decoding_backend_vtable** ppDecodingBackendVTables;
+    const ma_decoding_backend_vtable* const* ppDecodingBackendVTables;
     ma_uint32 decodingBackendCount;
     void** ppDecodingBackendUserData;
 } ma_resource_manager_config;
@@ -18070,12 +18070,12 @@ MA_API ma_proc ma_dlsym(ma_log* pLog, ma_handle handle, const char* symbol)
 #ifdef _WIN32
     proc = (ma_proc)GetProcAddress((HMODULE)handle, symbol);
 #else
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
     proc = (ma_proc)dlsym((void*)handle, symbol);
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
+#if (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || defined(__clang__)
     #pragma GCC diagnostic pop
 #endif
 #endif
@@ -22372,12 +22372,16 @@ static ma_result ma_device_uninit__wasapi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-#if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    if (pDevice->wasapi.pDeviceEnumerator) {
-        ((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator)->lpVtbl->UnregisterEndpointNotificationCallback((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator, &pDevice->wasapi.notificationClient);
-        ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator);
+    #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
+    {
+        if (pDevice->wasapi.pDeviceEnumerator) {
+            ((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator)->lpVtbl->UnregisterEndpointNotificationCallback((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator, &pDevice->wasapi.notificationClient);
+            ma_IMMDeviceEnumerator_Release((ma_IMMDeviceEnumerator*)pDevice->wasapi.pDeviceEnumerator);
+        }
+
+        ma_mutex_uninit(&pDevice->wasapi.rerouteLock);
     }
-#endif
+    #endif
 
     if (pDevice->wasapi.pRenderClient) {
         if (pDevice->wasapi.pMappedBufferPlayback != NULL) {
@@ -33975,11 +33979,12 @@ static OSStatus ma_on_input__coreaudio(void* pUserData, AudioUnitRenderActionFla
     */
     for (iBuffer = 0; iBuffer < pRenderedBufferList->mNumberBuffers; ++iBuffer) {
         pRenderedBufferList->mBuffers[iBuffer].mDataByteSize = pDevice->coreaudio.audioBufferCapInFrames * ma_get_bytes_per_sample(pDevice->capture.internalFormat) * pRenderedBufferList->mBuffers[iBuffer].mNumberChannels;
+        /*printf("DEBUG: nDataByteSize = %d\n", (int)pRenderedBufferList->mBuffers[iBuffer].mDataByteSize);*/
     }
 
     status = ((ma_AudioUnitRender_proc)pDevice->pContext->coreaudio.AudioUnitRender)((AudioUnit)pDevice->coreaudio.audioUnitCapture, pActionFlags, pTimeStamp, busNumber, frameCount, pRenderedBufferList);
     if (status != noErr) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "  ERROR: AudioUnitRender() failed with %d.\n", (int)status);
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "ERROR: AudioUnitRender() failed with %d.\n", (int)status);
         return status;
     }
 
@@ -34527,7 +34532,7 @@ typedef struct
 
 static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_init_internal_data__coreaudio* pData, void* pDevice_DoNotReference)   /* <-- pDevice is typed as void* intentionally so as to avoid accidentally referencing it. */
 {
-    ma_result result;
+    ma_result result = MA_SUCCESS;
     OSStatus status;
     UInt32 enableIOFlag;
     AudioStreamBasicDescription bestFormat;
@@ -34734,15 +34739,28 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
             /*
             I've had a report that the channel count returned by AudioUnitGetProperty above is inconsistent with
             AVAudioSession outputNumberOfChannels. I'm going to try using the AVAudioSession values instead.
+
+            UPDATE 20/02/2025:
+            When testing on the simulator with an iPhone 15 and iOS 17 I get an error when initializing the audio
+            unit if set the input channels to pAudioSession.inputNumberOfChannels. What is happening is the channel
+            count returned from AudioUnitGetProperty() above is set to 2, but pAudioSession is reporting a channel
+            count of 1. When this happens, the call to AudioUnitSetProprty() below just down below will succeed, but
+            AudioUnitInitialize() further down will fail. The only solution I have come up with is to not set the
+            channel count to pAudioSession.inputNumberOfChannels.
             */
             if (deviceType == ma_device_type_playback) {
                 bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.outputNumberOfChannels;
             }
+
+            #if 0
             if (deviceType == ma_device_type_capture) {
+                /*printf("DEBUG: bestFormat.mChannelsPerFrame = %d; pAudioSession.inputNumberOfChannels = %d\n", (int)bestFormat.mChannelsPerFrame, (int)pAudioSession.inputNumberOfChannels);*/
                 bestFormat.mChannelsPerFrame = (UInt32)pAudioSession.inputNumberOfChannels;
             }
+            #endif
         }
 
+        
         status = ((ma_AudioUnitSetProperty_proc)pContext->coreaudio.AudioUnitSetProperty)(pData->audioUnit, kAudioUnitProperty_StreamFormat, formatScope, formatElement, &bestFormat, sizeof(bestFormat));
         if (status != noErr) {
             ((ma_AudioComponentInstanceDispose_proc)pContext->coreaudio.AudioComponentInstanceDispose)(pData->audioUnit);
@@ -67950,7 +67968,7 @@ MA_API ma_result ma_resource_manager_init(const ma_resource_manager_config* pCon
             vtableUserDataSizeInBytes = 0;  /* No vtable user data present. No need for an allocation. */
         }
 
-        pResourceManager->config.ppDecodingBackendVTables = (const ma_decoding_backend_vtable**)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
+        pResourceManager->config.ppDecodingBackendVTables = (const ma_decoding_backend_vtable* const*)ma_malloc(vtableSizeInBytes + vtableUserDataSizeInBytes, &pResourceManager->config.allocationCallbacks);
         if (pResourceManager->config.ppDecodingBackendVTables == NULL) {
             ma_job_queue_uninit(&pResourceManager->jobQueue, &pResourceManager->config.allocationCallbacks);
             return MA_OUT_OF_MEMORY;

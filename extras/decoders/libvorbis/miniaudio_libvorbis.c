@@ -143,15 +143,16 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
             ma_data_source_uninit(&pVorbis->ds);
             return MA_OUT_OF_MEMORY;
         }
+
+        return MA_SUCCESS;
     }
     #else
     {
         /* libvorbis is disabled. */
+        (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }
     #endif
-
-    return MA_SUCCESS;
 }
 
 MA_API ma_result ma_libvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_libvorbis* pVorbis)
@@ -308,7 +309,7 @@ MA_API ma_result ma_libvorbis_read_pcm_frames(ma_libvorbis* pVorbis, void* pFram
                     }
                 }
             } else {
-                libvorbisResult = ov_read((OggVorbis_File*)pVorbis->vf, (char*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), framesToRead * ma_get_bytes_per_frame(format, channels), 0, 2, 1, NULL);
+                libvorbisResult = ov_read((OggVorbis_File*)pVorbis->vf, (char*)ma_offset_pcm_frames_ptr(pFramesOut, totalFramesRead, format, channels), (int)(framesToRead * ma_get_bytes_per_frame(format, channels)), 0, 2, 1, NULL);
                 if (libvorbisResult < 0) {
                     result = MA_ERROR;  /* Error while decoding. */
                     break;
