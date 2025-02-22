@@ -10,8 +10,7 @@ Custom backends are identified with the `ma_backend_custom` backend type. For th
 backends would actually get hit. By default, the `ma_backend_custom` backend is the second-lowest priority backend, sitting just above
 `ma_backend_null`.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 /* We're using SDL for this example. To use this in your own program, you need to include backend_sdl.h after miniaudio.h. */
 #include "../extras/backends/sdl/backend_sdl.h"

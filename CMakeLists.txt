@@ -26,7 +26,7 @@ option(MINIAUDIO_NO_OPENSL                     "Disable the OpenSL|ES backend"  
 option(MINIAUDIO_NO_WEBAUDIO                   "Disable the Web Audio backend"       OFF)
 option(MINIAUDIO_NO_CUSTOM                     "Disable support for custom backends" OFF)
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"            OFF)
-option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]" OFF)
+option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"           OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"      OFF)
 option(MINIAUDIO_ENABLE_WINMM                  "Enable the WinMM backend"            OFF)
@@ -51,8 +51,8 @@ option(MINIAUDIO_NO_DEVICEIO                   "Disable audio playback and captu
 option(MINIAUDIO_NO_RESOURCE_MANAGER           "Disable the resource manager API"    OFF)
 option(MINIAUDIO_NO_NODE_GRAPH                 "Disable the node graph API"          OFF)
 option(MINIAUDIO_NO_ENGINE                     "Disable the high-level engine API"   OFF)
-option(MINIAUDIO_NO_THREADING                  "Disable threading. Must be used with MINIAUDIO_NO_DEVICEIO" OFF)
-option(MINIAUDIO_NO_GENERATION                 "Disable generation APIs such as ma_waveform" OFF)
+option(MINIAUDIO_NO_THREADING                  "Disable threading. Must be used with MINIAUDIO_NO_DEVICEIO." OFF)
+option(MINIAUDIO_NO_GENERATION                 "Disable generation APIs such as ma_waveform and ma_noise" OFF)
 option(MINIAUDIO_NO_SSE2                       "Disable SSE2 optimizations"          OFF)
 option(MINIAUDIO_NO_AVX2                       "Disable AVX2 optimizations"          OFF)
 option(MINIAUDIO_NO_NEON                       "Disable NEON optimizations"          OFF)
@@ -525,11 +525,14 @@ if(MINIAUDIO_BUILD_TESTS)
         target_link_libraries(${name} PRIVATE miniaudio_common_options)
     endfunction()
 
+    # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
+    add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
+
     add_miniaudio_test(miniaudio_test_deviceio test_deviceio/ma_test_deviceio.c)
     add_test(NAME miniaudio_test_deviceio COMMAND miniaudio_test_deviceio --auto)
 
-    # This is just to test the C++ build. Don't do add_test() for this.
     add_miniaudio_test(miniaudio_test_cpp test_cpp/ma_test_cpp.cpp)
+    add_test(NAME miniaudio_test_cpp COMMAND miniaudio_test_cpp --auto) # This is just the deviceio test.
 
     add_miniaudio_test(miniaudio_test_automated test_automated/ma_test_automated.c)
     add_test(NAME miniaudio_test_automated COMMAND miniaudio_test_automated)
