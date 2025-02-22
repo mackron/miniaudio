@@ -14,8 +14,7 @@ you specify in your IPLAudioSettings object. If for some reason you want the per
 engine to be different to that of your Steam Audio configuration, you'll need to implement a sort
 of buffering solution to your node.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdint.h> /* Required for uint32_t which is used by STEAMAUDIO_VERSION, and a random use of uint8_t. If there's a Steam Audio maintainer reading this, that needs to be fixed to use IPLuint32 and IPLuint8. */
 #include <phonon.h> /* Steam Audio */

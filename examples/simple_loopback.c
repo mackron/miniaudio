@@ -10,8 +10,7 @@ used indirectly with PulseAudio by choosing the appropriate loopback device afte
 To use loopback mode you just need to set the device type to ma_device_type_loopback and set the capture device config
 properties. The output buffer in the callback will be null whereas the input buffer will be valid.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdlib.h>
 #include <stdio.h>

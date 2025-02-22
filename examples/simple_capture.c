@@ -8,8 +8,7 @@ Capturing works in a very similar way to playback. The only difference is the di
 the application sending data to the device, the device will send data to the application. This example just writes the
 data received by the microphone straight to a WAV file.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdlib.h>
 #include <stdio.h>

@@ -7,8 +7,7 @@ context sits above a device. You can have many devices to one context.
 If you use device enumeration, you should explicitly specify the same context you used for enumeration in the call to
 `ma_device_init()` when you initialize your devices.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 

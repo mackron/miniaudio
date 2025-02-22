@@ -10,8 +10,7 @@ glitching which the backend may not be able to recover from. For this reason, mi
 sample rate for both capture and playback. If internally the native sample rates differ, miniaudio will perform the
 sample rate conversion for you automatically.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 

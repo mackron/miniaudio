@@ -5,8 +5,7 @@ This example uses a decoder as the data source. Decoders can be used with the `m
 supports looping via the `ma_data_source_read_pcm_frames()` API. To use it, all you need to do is pass a pointer to the
 decoder straight into `ma_data_source_read_pcm_frames()` and it will just work.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 

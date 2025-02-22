@@ -15,8 +15,7 @@ In this example we show how you can create a data source, mix them with other da
 threads to manage internally and how to implement your own custom job thread.
 */
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 static ma_resource_manager_data_source g_dataSources[16];
 static ma_uint32                       g_dataSourceCount;
