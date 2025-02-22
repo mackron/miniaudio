@@ -9,6 +9,7 @@ option(MINIAUDIO_BUILD_EXAMPLES                "Build miniaudio examples"       
 option(MINIAUDIO_BUILD_TESTS                   "Build miniaudio tests"               OFF)
 option(MINIAUDIO_FORCE_CXX                     "Force compilation as C++"            OFF)
 option(MINIAUDIO_FORCE_C89                     "Force compilation as C89"            OFF)
+option(MINIAUDIO_NO_EXTRA_NODES                "Do not build extra node graph nodes" OFF)
 option(MINIAUDIO_NO_LIBVORBIS                  "Disable miniaudio_libvorbis"         OFF)
 option(MINIAUDIO_NO_LIBOPUS                    "Disable miniaudio_libopus"           OFF)
 option(MINIAUDIO_NO_WASAPI                     "Disable the WASAPI backend"          OFF)
@@ -457,7 +458,6 @@ add_library(miniaudio STATIC
 )
 
 target_include_directories(miniaudio PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR})
-
 target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
 target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
@@ -502,6 +502,31 @@ if(HAS_LIBOPUS)
     target_compile_options    (miniaudio_libopus PRIVATE ${COMPILE_OPTIONS})
     target_compile_definitions(miniaudio_libopus PRIVATE ${COMPILE_DEFINES})
     target_link_libraries     (miniaudio_libopus PRIVATE libopus_interface)
+endif()
+
+
+if (NOT MINIAUDIO_NO_EXTRA_NODES)
+    function(add_extra_node name)
+        add_library(miniaudio_${name}_node STATIC
+            extras/nodes/ma_${name}_node/ma_${name}_node.c
+            extras/nodes/ma_${name}_node/ma_${name}_node.h
+        )
+
+        target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
+        target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_${name}_node PRIVATE ${COMPILE_DEFINES})
+
+        if(MINIAUDIO_BUILD_EXAMPLES)
+            add_executable(miniaudio_${name}_node_example extras/nodes/ma_${name}_node/ma_${name}_node_example.c)
+            target_link_libraries(miniaudio_${name}_node_example PRIVATE miniaudio_common_options)
+        endif()
+    endfunction()
+
+    add_extra_node(channel_combiner)
+    add_extra_node(channel_separator)
+    add_extra_node(ltrim)
+    add_extra_node(reverb)
+    add_extra_node(vocoder)
 endif()
 
 

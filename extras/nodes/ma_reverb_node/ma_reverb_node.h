@@ -1,7 +1,8 @@
 /* Include ma_reverb_node.h after miniaudio.h */
-#ifndef ma_reverb_node_h
-#define ma_reverb_node_h
+#ifndef miniaudio_reverb_node_h
+#define miniaudio_reverb_node_h
 
+#include "../../../miniaudio.h"
 #include "verblib.h"
 
 #ifdef __cplusplus
@@ -39,4 +40,4 @@ MA_API void ma_reverb_node_uninit(ma_reverb_node* pReverbNode, const ma_allocati
 #ifdef __cplusplus
 }
 #endif
-#endif  /* ma_reverb_node_h */
+#endif  /* miniaudio_reverb_node_h */

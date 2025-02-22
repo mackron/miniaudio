@@ -1,11 +1,15 @@
+#ifndef miniaudio_channel_combiner_node_c
+#define miniaudio_channel_combiner_node_c
 
 #include "ma_channel_combiner_node.h"
+
+#include <string.h> /* For memset(). */
 
 MA_API ma_channel_combiner_node_config ma_channel_combiner_node_config_init(ma_uint32 channels)
 {
     ma_channel_combiner_node_config config;
 
-    MA_ZERO_OBJECT(&config);
+    memset(&config, 0, sizeof(config));
     config.nodeConfig = ma_node_config_init();  /* Input and output channels will be set in ma_channel_combiner_node_init(). */
     config.channels   = channels;
 
@@ -43,7 +47,7 @@ MA_API ma_result ma_channel_combiner_node_init(ma_node_graph* pNodeGraph, const 
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_OBJECT(pCombinerNode);
+    memset(pCombinerNode, 0, sizeof(*pCombinerNode));
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -75,3 +79,5 @@ MA_API void ma_channel_combiner_node_uninit(ma_channel_combiner_node* pCombinerN
     /* The base node is always uninitialized first. */
     ma_node_uninit(pCombinerNode, pAllocationCallbacks);
 }
+
+#endif /* miniaudio_channel_combiner_node_c */

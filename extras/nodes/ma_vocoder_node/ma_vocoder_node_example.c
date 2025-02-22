@@ -6,8 +6,7 @@ called `ma_vocoder_node` is used to achieve the effect which can be found in the
 the miniaudio repository. The vocoder node uses https://github.com/blastbay/voclib to achieve the
 effect.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../../../miniaudio.h"
+#include "../../../miniaudio.c"
 #include "ma_vocoder_node.c"
 
 #include <stdio.h>

@@ -1,5 +1,4 @@
-#define MINIAUDIO_IMPLEMENTATION
-#include "../../../miniaudio.h"
+#include "../../../miniaudio.c"
 #include "ma_channel_separator_node.c"
 #include "../ma_channel_combiner_node/ma_channel_combiner_node.c"
 
