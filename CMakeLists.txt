@@ -528,20 +528,20 @@ if(MINIAUDIO_BUILD_TESTS)
     # The debugging test is only used for debugging miniaudio itself. Don't do add_test() for this, and do not include it in in any automated testing.
     add_miniaudio_test(miniaudio_debugging debugging/debugging.cpp)
 
-    add_miniaudio_test(miniaudio_test_deviceio test_deviceio/ma_test_deviceio.c)
-    add_test(NAME miniaudio_test_deviceio COMMAND miniaudio_test_deviceio --auto)
+    add_miniaudio_test(miniaudio_deviceio deviceio/deviceio.c)
+    add_test(NAME miniaudio_deviceio COMMAND miniaudio_deviceio --auto)
 
-    add_miniaudio_test(miniaudio_test_cpp test_cpp/ma_test_cpp.cpp)
-    add_test(NAME miniaudio_test_cpp COMMAND miniaudio_test_cpp --auto) # This is just the deviceio test.
+    add_miniaudio_test(miniaudio_cpp cpp/cpp.cpp)
+    add_test(NAME miniaudio_cpp COMMAND miniaudio_cpp --auto) # This is just the deviceio test.
 
-    add_miniaudio_test(miniaudio_test_automated test_automated/ma_test_automated.c)
-    add_test(NAME miniaudio_test_automated COMMAND miniaudio_test_automated)
+    add_miniaudio_test(miniaudio_conversion conversion/conversion.c)
+    add_test(NAME miniaudio_conversion COMMAND miniaudio_conversion)
 
-    add_miniaudio_test(miniaudio_test_filtering test_filtering/ma_test_filtering.c)
-    add_test(NAME miniaudio_test_filtering COMMAND miniaudio_test_filtering ${CMAKE_CURRENT_SOURCE_DIR}/data/16-44100-stereo.flac)
+    add_miniaudio_test(miniaudio_filtering filtering/filtering.c)
+    add_test(NAME miniaudio_filtering COMMAND miniaudio_filtering ${CMAKE_CURRENT_SOURCE_DIR}/data/16-44100-stereo.flac)
     
-    add_miniaudio_test(miniaudio_test_generation test_generation/ma_test_generation.c)
-    add_test(NAME miniaudio_test_generation COMMAND miniaudio_test_generation)
+    add_miniaudio_test(miniaudio_generation generation/generation.c)
+    add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
 endif()
 
 # Examples

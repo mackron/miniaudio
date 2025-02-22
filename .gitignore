@@ -30,7 +30,6 @@
 /tests/_build/a.out
 /tests/_build/a.exe
 /tests/debugging/archive/
-/tests/test_stress/
 /tests/*.c
 /tests/*.cpp
 /tools/_build/
@@ -46,6 +45,7 @@
 /research/ma_hrtf.c
 /research/ma_atomic.c
 /research/miniaudio_engine.c
+/tests/stress/
 /tools/codegen/miniaudio_amalgamator.c
 /tools/codegen/miniaudio_codegen_utils.c
 /tools/codegen/miniaudio_docgen.c
