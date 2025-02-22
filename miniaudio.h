@@ -18949,6 +18949,11 @@ static void ma_device__handle_data_callback(ma_device* pDevice, void* pFramesOut
             }
         }
         ma_device_restore_denormals(pDevice, prevDenormalState);
+    } else {
+        /* No data callback. Just silence the output. */
+        if (pFramesOut != NULL) {
+            ma_silence_pcm_frames(pFramesOut, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        }
     }
 }
 
