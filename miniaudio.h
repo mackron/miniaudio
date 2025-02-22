@@ -8409,6 +8409,10 @@ Retrieves basic information about every active playback and/or capture device.
 This function will allocate memory internally for the device lists and return a pointer to them through the `ppPlaybackDeviceInfos` and `ppCaptureDeviceInfos`
 parameters. If you do not want to incur the overhead of these allocations consider using `ma_context_enumerate_devices()` which will instead use a callback.
 
+Note that this only retrieves the ID and name/description of the device. The reason for only retrieving basic information is that it would otherwise require
+opening the backend device in order to probe it for more detailed information which can be inefficient. Consider using `ma_context_get_device_info()` for this,
+but don't call it from within the enumeration callback.
+
 
 Parameters
 ----------
