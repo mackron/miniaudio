@@ -1,12 +1,16 @@
+#ifndef miniaudio_vocoder_node_c
+#define miniaudio_vocoder_node_c
 
 #define VOCLIB_IMPLEMENTATION
 #include "ma_vocoder_node.h"
+
+#include <string.h> /* For memset(). */
 
 MA_API ma_vocoder_node_config ma_vocoder_node_config_init(ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_vocoder_node_config config;
 
-    MA_ZERO_OBJECT(&config);
+    memset(&config, 0, sizeof(config));
     config.nodeConfig     = ma_node_config_init();   /* Input and output channels will be set in ma_vocoder_node_init(). */
     config.channels       = channels;
     config.sampleRate     = sampleRate;
@@ -30,8 +34,8 @@ static ma_node_vtable g_ma_vocoder_node_vtable =
 {
     ma_vocoder_node_process_pcm_frames,
     NULL,
-    2,  /* 2 input channels. */
-    1,  /* 1 output channel. */
+    2,  /* 2 input buses. */
+    1,  /* 1 output bus. */
     0
 };
 
@@ -46,7 +50,7 @@ MA_API ma_result ma_vocoder_node_init(ma_node_graph* pNodeGraph, const ma_vocode
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_OBJECT(pVocoderNode);
+    memset(pVocoderNode, 0, sizeof(*pVocoderNode));
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -78,3 +82,5 @@ MA_API void ma_vocoder_node_uninit(ma_vocoder_node* pVocoderNode, const ma_alloc
     /* The base node must always be initialized first. */
     ma_node_uninit(pVocoderNode, pAllocationCallbacks);
 }
+
+#endif  /* miniaudio_vocoder_node_c */

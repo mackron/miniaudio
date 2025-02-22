@@ -1,5 +1,4 @@
-#define MINIAUDIO_IMPLEMENTATION
-#include "../../../miniaudio.h"
+#include "../../../miniaudio.c"
 #include "ma_ltrim_node.c"
 
 #include <stdio.h>

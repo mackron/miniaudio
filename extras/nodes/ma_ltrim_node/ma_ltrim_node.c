@@ -1,11 +1,19 @@
+#ifndef miniaudio_ltrim_node_c
+#define miniaudio_ltrim_node_c
 
 #include "ma_ltrim_node.h"
+
+#include <string.h> /* For memset(). */
+
+#ifndef ma_min
+#define ma_min(a, b)    (((a) < (b)) ? (a) : (b))
+#endif
 
 MA_API ma_ltrim_node_config ma_ltrim_node_config_init(ma_uint32 channels, float threshold)
 {
     ma_ltrim_node_config config;
 
-    MA_ZERO_OBJECT(&config);
+    memset(&config, 0, sizeof(config));
     config.nodeConfig = ma_node_config_init();  /* Input and output channels will be set in ma_ltrim_node_init(). */
     config.channels   = channels;
     config.threshold  = threshold;
@@ -59,8 +67,8 @@ static ma_node_vtable g_ma_ltrim_node_vtable =
 {
     ma_ltrim_node_process_pcm_frames,
     NULL,
-    1,  /* 1 input channel. */
-    1,  /* 1 output channel. */
+    1,  /* 1 input bus. */
+    1,  /* 1 output bus. */
     MA_NODE_FLAG_DIFFERENT_PROCESSING_RATES
 };
 
@@ -73,7 +81,7 @@ MA_API ma_result ma_ltrim_node_init(ma_node_graph* pNodeGraph, const ma_ltrim_no
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_OBJECT(pTrimNode);
+    memset(pTrimNode, 0, sizeof(*pTrimNode));
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -100,3 +108,5 @@ MA_API void ma_ltrim_node_uninit(ma_ltrim_node* pTrimNode, const ma_allocation_c
     /* The base node is always uninitialized first. */
     ma_node_uninit(pTrimNode, pAllocationCallbacks);
 }
+
+#endif  /* miniaudio_ltrim_node_c */

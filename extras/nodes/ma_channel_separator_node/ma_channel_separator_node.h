@@ -1,6 +1,8 @@
 /* Include ma_channel_separator_node.h after miniaudio.h */
-#ifndef ma_channel_separator_node_h
-#define ma_channel_separator_node_h
+#ifndef miniaudio_channel_separator_node_h
+#define miniaudio_channel_separator_node_h
+
+#include "../../../miniaudio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,4 +28,4 @@ MA_API void ma_channel_separator_node_uninit(ma_channel_separator_node* pSeparat
 #ifdef __cplusplus
 }
 #endif
-#endif  /* ma_reverb_node_h */
+#endif  /* miniaudio_channel_separator_node_h */

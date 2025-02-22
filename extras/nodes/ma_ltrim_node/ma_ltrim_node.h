@@ -1,6 +1,8 @@
 /* Include ma_ltrim_node.h after miniaudio.h */
-#ifndef ma_ltrim_node_h
-#define ma_ltrim_node_h
+#ifndef miniaudio_ltrim_node_h
+#define miniaudio_ltrim_node_h
+
+#include "../../../miniaudio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,4 +34,4 @@ MA_API void ma_ltrim_node_uninit(ma_ltrim_node* pTrimNode, const ma_allocation_c
 #ifdef __cplusplus
 }
 #endif
-#endif  /* ma_ltrim_node_h */
+#endif  /* miniaudio_ltrim_node_h */

@@ -1,13 +1,13 @@
 /* Include ma_vocoder_node.h after miniaudio.h */
-#ifndef ma_vocoder_node_h
-#define ma_vocoder_node_h
+#ifndef miniaudio_vocoder_node_h
+#define miniaudio_vocoder_node_h
 
+#include "../../../miniaudio.h"
 #include "voclib.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 /*
 The vocoder node has two inputs and one output. Inputs:
@@ -42,4 +42,4 @@ MA_API void ma_vocoder_node_uninit(ma_vocoder_node* pVocoderNode, const ma_alloc
 #ifdef __cplusplus
 }
 #endif
-#endif  /* ma_vocoder_node_h */
+#endif  /* miniaudio_vocoder_node_h */

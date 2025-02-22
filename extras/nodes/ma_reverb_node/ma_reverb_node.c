@@ -1,12 +1,16 @@
+#ifndef miniaudio_reverb_node_c
+#define miniaudio_reverb_node_c
 
 #define VERBLIB_IMPLEMENTATION
 #include "ma_reverb_node.h"
+
+#include <string.h> /* For memset(). */
 
 MA_API ma_reverb_node_config ma_reverb_node_config_init(ma_uint32 channels, ma_uint32 sampleRate)
 {
     ma_reverb_node_config config;
 
-    MA_ZERO_OBJECT(&config);
+    memset(&config, 0, sizeof(config));
     config.nodeConfig = ma_node_config_init();  /* Input and output channels will be set in ma_reverb_node_init(). */
     config.channels   = channels;
     config.sampleRate = sampleRate;
@@ -34,8 +38,8 @@ static ma_node_vtable g_ma_reverb_node_vtable =
 {
     ma_reverb_node_process_pcm_frames,
     NULL,
-    1,  /* 1 input channel. */
-    1,  /* 1 output channel. */
+    1,  /* 1 input bus. */
+    1,  /* 1 output bus. */
     MA_NODE_FLAG_CONTINUOUS_PROCESSING  /* Reverb requires continuous processing to ensure the tail get's processed. */
 };
 
@@ -48,7 +52,7 @@ MA_API ma_result ma_reverb_node_init(ma_node_graph* pNodeGraph, const ma_reverb_
         return MA_INVALID_ARGS;
     }
 
-    MA_ZERO_OBJECT(pReverbNode);
+    memset(pReverbNode, 0, sizeof(*pReverbNode));
 
     if (pConfig == NULL) {
         return MA_INVALID_ARGS;
@@ -76,3 +80,5 @@ MA_API void ma_reverb_node_uninit(ma_reverb_node* pReverbNode, const ma_allocati
     /* The base node is always uninitialized first. */
     ma_node_uninit(pReverbNode, pAllocationCallbacks);
 }
+
+#endif  /* miniaudio_reverb_node_c */
