@@ -24,8 +24,7 @@ data from the data source. This means the resource manager will ensure all sound
 set, each sound will have their own formats and you'll need to do the necessary data conversion yourself.
 */
 #define MA_NO_ENGINE        /* We're intentionally not using the ma_engine API here. */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>

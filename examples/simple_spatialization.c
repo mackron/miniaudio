@@ -14,8 +14,7 @@ To use this example, pass in the path of a sound as the first argument. The soun
 positioned in front of the listener, while the listener rotates on the the spot to create an
 orbiting effect. Terminate the program with Ctrl+C.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 #include <math.h>   /* For sinf() and cosf() */

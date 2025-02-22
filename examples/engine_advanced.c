@@ -14,8 +14,7 @@ Using a shared resource manager, as we do in this example, is useful for when yo
 multiple engines so that you can output to multiple playback devices simultaneoulys. An example
 might be a local co-op multiplayer game where each player has their own headphones.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #define MAX_DEVICES 2
 #define MAX_SOUNDS  32

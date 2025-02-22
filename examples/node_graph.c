@@ -51,8 +51,7 @@ pass and echo effects so that one of them becomes more obvious than the other.
 
 When you want to read from the graph, you simply call `ma_node_graph_read_pcm_frames()`.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 /* Data Format */
 #define FORMAT              ma_format_f32   /* Must always be f32. */

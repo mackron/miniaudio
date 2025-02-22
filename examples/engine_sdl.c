@@ -9,8 +9,7 @@ This example will load the sound specified on the command line and rotate it aro
 head.
 */
 #define MA_NO_DEVICE_IO /* <-- Disables the `ma_device` API. We don't need that in this example since SDL will be doing that part for us. */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>    /* Change this to your include location. Might be <SDL.h>. */

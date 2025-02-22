@@ -13,8 +13,7 @@ This example is playing only a single sound at a time which means only a single 
 it being used. If you want to play multiple sounds at the same time, even if they're for the same
 sound file, you need multiple `ma_sound` objects.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #define DELAY_IN_SECONDS    0.2f
 #define DECAY               0.25f   /* Volume falloff for each echo. */

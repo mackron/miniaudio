@@ -15,8 +15,7 @@ Instead you would probably want to do a custom data source that handles underrun
 the ring buffer and deals with desyncs between capture and playback. In the future this example
 may be updated to make use of a more advanced data source that handles all of this.
 */
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 static ma_pcm_rb rb;
 static ma_device device;

@@ -31,9 +31,7 @@ starting the chain from the start again. It is also seeking the head data source
 so that playback starts from the start as expected. You do not need to seek non-head items back to
 the start as miniaudio will do that for you internally.
 */
-#define MA_EXPERIMENTAL__DATA_LOOPING_AND_CHAINING
-#define MINIAUDIO_IMPLEMENTATION
-#include "../miniaudio.h"
+#include "../miniaudio.c"
 
 #include <stdio.h>
 
