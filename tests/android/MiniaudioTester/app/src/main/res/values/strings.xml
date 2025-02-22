@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">MiniaudioTester</string>
+    <string name="automatic">Automatic</string>
+    <string name="opensl">OpenSL|ES</string>
+    <string name="aaudio">AAudio</string>
+    <string name="backend_label">Backend</string>
+    <string name="play_button_desc">Starts playback.</string>
+    <string name="pause_button_desc">Pause playback.</string>
+    <string name="uninit_button_desc">Stops playback and uninitializes miniaudio.</string>
+</resources>
