@@ -56734,7 +56734,7 @@ MA_API ma_result ma_rb_commit_read(ma_rb* pRB, size_t sizeInBytes)
         newReadOffsetLoopFlag ^= 0x80000000;
     }
 
-    ma_atomic_exchange_32(&pRB->encodedReadOffset, ma_rb__construct_offset(newReadOffsetLoopFlag, newReadOffsetInBytes));
+    ma_atomic_exchange_32(&pRB->encodedReadOffset, ma_rb__construct_offset(newReadOffsetInBytes, newReadOffsetLoopFlag));
 
     return MA_SUCCESS;
 }
@@ -56816,7 +56816,7 @@ MA_API ma_result ma_rb_commit_write(ma_rb* pRB, size_t sizeInBytes)
         newWriteOffsetLoopFlag ^= 0x80000000;
     }
 
-    ma_atomic_exchange_32(&pRB->encodedWriteOffset, ma_rb__construct_offset(newWriteOffsetLoopFlag, newWriteOffsetInBytes));
+    ma_atomic_exchange_32(&pRB->encodedWriteOffset, ma_rb__construct_offset(newWriteOffsetInBytes, newWriteOffsetLoopFlag));
 
     return MA_SUCCESS;
 }
