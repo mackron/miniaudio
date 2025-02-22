@@ -41,7 +41,7 @@ will receive the captured audio.
 If multiple backends are specified, the priority will be based on the order in which you specify them. If multiple waveform or noise types
 are specified the last one on the command line will have priority.
 */
-#include "../test_common/ma_test_common.c"
+#include "../common/common.c"
 
 #ifndef AUTO_CLOSE_TIME_IN_MILLISECONDS
 #define AUTO_CLOSE_TIME_IN_MILLISECONDS 5000

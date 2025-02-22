@@ -1,4 +1,4 @@
-#include "../test_common/ma_test_common.c"
+#include "../common/common.c"
 
 ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const char* pOutputFilePath, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_decoder* pDecoder, ma_encoder* pEncoder)
 {
@@ -24,14 +24,14 @@ ma_result filtering_init_decoder_and_encoder(const char* pInputFilePath, const c
     return MA_SUCCESS;
 }
 
-#include "ma_test_filtering_dithering.c"
-#include "ma_test_filtering_lpf.c"
-#include "ma_test_filtering_hpf.c"
-#include "ma_test_filtering_bpf.c"
-#include "ma_test_filtering_notch.c"
-#include "ma_test_filtering_peak.c"
-#include "ma_test_filtering_loshelf.c"
-#include "ma_test_filtering_hishelf.c"
+#include "filtering_dithering.c"
+#include "filtering_lpf.c"
+#include "filtering_hpf.c"
+#include "filtering_bpf.c"
+#include "filtering_notch.c"
+#include "filtering_peak.c"
+#include "filtering_loshelf.c"
+#include "filtering_hishelf.c"
 
 int main(int argc, char** argv)
 {
