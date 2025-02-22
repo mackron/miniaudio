@@ -1,8 +1,8 @@
 #define MA_NO_DEVICE_IO
-#include "../test_common/ma_test_common.c"
+#include "../common/common.c"
 
-#include "ma_test_generation_noise.c"
-#include "ma_test_generation_waveform.c"
+#include "generation_noise.c"
+#include "generation_waveform.c"
 
 int main(int argc, char** argv)
 {
