@@ -52921,12 +52921,7 @@ static ma_channel_conversion_path ma_channel_map_get_conversion_path(const ma_ch
         ma_uint32 iChannelIn;
         ma_bool32 areAllChannelPositionsPresent = MA_TRUE;
         for (iChannelIn = 0; iChannelIn < channelsIn; ++iChannelIn) {
-            ma_bool32 isInputChannelPositionInOutput = MA_FALSE;
-            if (ma_channel_map_contains_channel_position(channelsOut, pChannelMapOut, ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn))) {
-                isInputChannelPositionInOutput = MA_TRUE;
-                break;
-            }
-
+            ma_bool32 isInputChannelPositionInOutput = ma_channel_map_contains_channel_position(channelsOut, pChannelMapOut, ma_channel_map_get_channel(pChannelMapIn, channelsIn, iChannelIn));
             if (!isInputChannelPositionInOutput) {
                 areAllChannelPositionsPresent = MA_FALSE;
                 break;
