@@ -3061,11 +3061,11 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
         if (pBestMountPoint != NULL) {
             char pActualPathStack[1024];
             char* pActualPathHeap = NULL;
-            char* pActualPath = pActualPathStack;
+            char* pActualPath;
             int actualPathLen;
             char pActualPathCleanStack[1024];
             char* pActualPathCleanHeap = NULL;
-            char* pActualPathClean = pActualPathCleanStack;
+            char* pActualPathClean;
             int actualPathCleanLen;
             unsigned int cleanOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);            
 
@@ -3201,7 +3201,7 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
                     /* The mount point is a directory. We need to combine the sub-path with the mount point's original path and then load the file. */
                     char  pActualPathStack[1024];
                     char* pActualPathHeap = NULL;
-                    char* pActualPath = pActualPathStack;
+                    char* pActualPath;
                     int actualPathLen;
 
                     actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), iMountPoint.pPath, FS_NULL_TERMINATED, pFileSubPathClean, fileSubPathCleanLen);
@@ -4129,7 +4129,7 @@ FS_API fs_result fs_unmount(fs* pFS, const char* pPathToMount_NotMountPoint)
         return FS_INVALID_ARGS;
     }
 
-    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; /*iteratorResult = fs_mount_list_next(&iterator)*/) {
         if (strcmp(pPathToMount_NotMountPoint, iterator.pPath) == 0) {
             if (iterator.internal.pMountPoint->closeArchiveOnUnmount) {
                 fs_close_archive(iterator.pArchive);
@@ -4258,7 +4258,7 @@ FS_API fs_result fs_unmount_write(fs* pFS, const char* pPathToMount_NotMountPoin
         return FS_INVALID_ARGS;
     }
 
-    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS; /*iteratorResult = fs_mount_list_next(&iterator)*/) {
         if (strcmp(pPathToMount_NotMountPoint, iterator.pPath) == 0) {
             fs_mount_list_remove(pFS->pWriteMountPoints, iterator.internal.pMountPoint);
 
