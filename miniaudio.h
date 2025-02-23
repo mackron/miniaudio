@@ -13932,7 +13932,7 @@ static ma_uint32 ma_ffs_32(ma_uint32 x)
 
     /* Just a naive implementation just to get things working for now. Will optimize this later. */
     for (i = 0; i < 32; i += 1) {
-        if ((x & (1 << i)) != 0) {
+        if ((x & (1U << i)) != 0) {
             return i;
         }
     }
