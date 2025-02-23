@@ -29,7 +29,7 @@ int main(int argc, char** argv)
     Add your custom backend vtables here. The order in the array defines the order of priority. The
     vtables will be passed in to the resource manager config.
     */
-    const ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    ma_decoding_backend_vtable* pCustomBackendVTables[] =
     {
         ma_decoding_backend_libvorbis,
         ma_decoding_backend_libopus
