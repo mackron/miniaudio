@@ -264,8 +264,7 @@ This example will load the sound specified on the command line and rotate it aro
 head.</p>
 <div style="font-family:monospace; border:solid 1px #003800; border-left:solid 0.5em #003800; margin:1em 0em; width:100%;"><pre style="margin:0.5em 1em; padding:0; line-height:125%; overflow-x:auto;">
 <span style="color:#666666">#define</span> MA_NO_DEVICE_IO <span style="color:#009900">/* &lt;-- Disables the <span style="font-family:monospace;">ma_device</span> API. We don&#39;t need that in this example since SDL will be doing that part for us. */</span>
-<span style="color:#666666">#define</span> MINIAUDIO_IMPLEMENTATION
-<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.h&quot;</span>
+<span style="color:#666666">#include</span> <span style="color:#cc3300">&quot;../miniaudio.c&quot;</span>
 
 <span style="color:#666666">#define</span> SDL_MAIN_HANDLED
 <span style="color:#666666">#include</span> <span style="color:#cc3300">&lt;SDL2/SDL.h&gt;</span>    <span style="color:#009900">/* Change this to your include location. Might be &lt;SDL.h&gt;. */</span>

@@ -313,7 +313,7 @@ MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
     Add your custom backend vtables here. The order in the array defines the order of priority. The
     vtables will be passed in via the decoder config.
     */</span>
-    <span style="color:#0033ff">const</span> ma_decoding_backend_vtable* pCustomBackendVTables[] =
+    ma_decoding_backend_vtable* pCustomBackendVTables[] =
     {
         ma_decoding_backend_libvorbis,
         ma_decoding_backend_libopus
