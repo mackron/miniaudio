@@ -60321,7 +60321,7 @@ extern "C" {
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
 #define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  17
+#define MA_DR_WAV_VERSION_REVISION  18
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -79648,7 +79648,9 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                     compressionFormat = MA_DR_WAVE_FORMAT_MULAW;
                 } else if (ma_dr_wav_fourcc_equal(type, "ima4")) {
                     compressionFormat = MA_DR_WAVE_FORMAT_DVI_ADPCM;
-                    sampleSizeInBits = 4;
+                    sampleSizeInBits  = 4;
+                    (void)compressionFormat;
+                    (void)sampleSizeInBits;
                     return MA_FALSE;
                 } else {
                     return MA_FALSE;
