@@ -17501,7 +17501,7 @@ static ma_job_proc g_jobVTable[MA_JOB_TYPE_COUNT] =
 
     /* Device. */
 #if !defined(MA_NO_DEVICE_IO)
-    ma_job_process__device__aaudio_reroute                      /*MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE*/
+    ma_job_process__device__aaudio_reroute                      /* MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE */
 #endif
 };
 
@@ -28778,7 +28778,7 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
 
     return MA_SUCCESS;
 }
-#endif  /* ALSA */
+#endif  /* MA_HAS_ALSA */
 
 
 
@@ -31973,7 +31973,7 @@ static ma_result ma_context_init__jack(ma_context* pContext, const ma_context_co
 
     return MA_SUCCESS;
 }
-#endif  /* JACK */
+#endif  /* MA_HAS_JACK */
 
 
 
@@ -35218,7 +35218,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const ma_conte
 
     return MA_SUCCESS;
 }
-#endif  /* Core Audio */
+#endif  /* MA_HAS_COREAUDIO */
 
 
 
@@ -36065,7 +36065,7 @@ static ma_result ma_context_init__sndio(ma_context* pContext, const ma_context_c
     (void)pConfig;
     return MA_SUCCESS;
 }
-#endif  /* sndio */
+#endif  /* MA_HAS_SNDIO */
 
 
 
@@ -36963,7 +36963,7 @@ static ma_result ma_context_init__audio4(ma_context* pContext, const ma_context_
 
     return MA_SUCCESS;
 }
-#endif  /* audio4 */
+#endif  /* MA_HAS_AUDIO4 */
 
 
 /******************************************************************************
@@ -37594,7 +37594,7 @@ static ma_result ma_context_init__oss(ma_context* pContext, const ma_context_con
 
     return MA_SUCCESS;
 }
-#endif  /* OSS */
+#endif  /* MA_HAS_OSS */
 
 
 
@@ -40918,7 +40918,7 @@ static ma_result ma_context_init__webaudio(ma_context* pContext, const ma_contex
 
     return MA_SUCCESS;
 }
-#endif  /* Web Audio */
+#endif  /* MA_HAS_WEBAUDIO */
 
 
 
