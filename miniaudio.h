@@ -68853,7 +68853,7 @@ static ma_result ma_resource_manager_data_buffer_node_decode_next_page(ma_resour
             }
 
             result = ma_decoder_read_pcm_frames(pDecoder, pPage->pAudioData, framesToTryReading, &framesRead);
-            if (framesRead > 0) {
+            if (result == MA_SUCCESS && framesRead > 0) {
                 pPage->sizeInFrames = framesRead;
 
                 result = ma_paged_audio_buffer_data_append_page(&pDataBufferNode->data.backend.decodedPaged.data, pPage);
