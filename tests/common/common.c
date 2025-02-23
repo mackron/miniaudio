@@ -42,14 +42,8 @@ int ma_run_tests(int argc, char** argv)
     int result;
     ma_bool32 hasError = MA_FALSE;
     size_t iTest;
-    fs* pFS;
 
-    if (fs_init(NULL, &pFS) != FS_SUCCESS) {
-        printf("Failed to initialize the file system.\n");
-        return 1;
-    }
-
-    fs_mkdir(pFS, TEST_OUTPUT_DIR);
+    fs_mkdir(NULL, TEST_OUTPUT_DIR);
 
     for (iTest = 0; iTest < g_Tests.count; iTest += 1) {
         printf("=== BEGIN %s ===\n", g_Tests.pTests[iTest].pName);
@@ -60,9 +54,6 @@ int ma_run_tests(int argc, char** argv)
             hasError = MA_TRUE;
         }
     }
-
-    fs_uninit(pFS);
-    pFS = NULL;
 
     if (hasError) {
         return 1;  /* Something failed. */
