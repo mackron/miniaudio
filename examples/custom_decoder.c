@@ -68,7 +68,7 @@ int main(int argc, char** argv)
     decoders. If you want to prioritize the stock decoders over the custom decoders, you would simply
     change the order.
     */
-    const ma_decoding_backend_vtable* pBackendVTables[] =
+    ma_decoding_backend_vtable* pBackendVTables[] =
     {
         ma_decoding_backend_libvorbis,
         ma_decoding_backend_libopus,

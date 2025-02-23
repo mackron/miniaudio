@@ -549,9 +549,9 @@ static ma_decoding_backend_vtable ma_gDecodingBackendVTable_libopus =
     ma_decoding_backend_uninit__libopus,
     ma_decoding_backend_get_encoding_format__libopus
 };
-const ma_decoding_backend_vtable* ma_decoding_backend_libopus = &ma_gDecodingBackendVTable_libopus;
+ma_decoding_backend_vtable* ma_decoding_backend_libopus = &ma_gDecodingBackendVTable_libopus;
 #else
-const ma_decoding_backend_vtable* ma_decoding_backend_libopus = NULL;
+ma_decoding_backend_vtable* ma_decoding_backend_libopus = NULL;
 #endif
 
 #endif  /* miniaudio_libopus_c */
