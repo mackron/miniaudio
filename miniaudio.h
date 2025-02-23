@@ -19043,9 +19043,7 @@ static void ma_device__read_frames_from_client(ma_device* pDevice, ma_uint32 fra
                     framesToReadThisIterationIn = requiredInputFrameCount;
                 }
 
-                if (framesToReadThisIterationIn > 0) {
-                    ma_device__handle_data_callback(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
-                }
+                ma_device__handle_data_callback(pDevice, pIntermediaryBuffer, NULL, (ma_uint32)framesToReadThisIterationIn);
 
                 /*
                 At this point we have our decoded data in input format and now we need to convert to output format. Note that even if we didn't read any
@@ -65764,6 +65762,7 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
                         result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn);
                     } else {
                         framesReadThisIterationIn = 0;
+                        pIntermediaryBuffer[0] = 0; /* <-- This is just to silence a static analysis warning. */
                     }
 
                     /*
