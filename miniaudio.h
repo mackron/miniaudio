@@ -71322,6 +71322,7 @@ static ma_result ma_job_process__resource_manager__load_data_buffer(ma_job* pJob
         goto done;  /* <-- This will ensure the execution pointer is incremented. */
     } else {
         result = MA_SUCCESS;    /* <-- Make sure this is reset. */
+        (void)result;           /* <-- This is to suppress a static analysis diagnostic about "result" not being used. But for safety when I do future maintenance I don't want to delete that assignment. */
     }
 
     /* Try initializing the connector if we haven't already. */
