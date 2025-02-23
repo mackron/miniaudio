@@ -10225,9 +10225,9 @@ MA_API ma_result ma_decode_memory(const void* pData, size_t dataSize, ma_decoder
 
 
 /* Expose our decoding backend vtables so they can be plugged into a priority list. */
-extern const ma_decoding_backend_vtable* ma_decoding_backend_wav;
-extern const ma_decoding_backend_vtable* ma_decoding_backend_flac;
-extern const ma_decoding_backend_vtable* ma_decoding_backend_mp3;
+extern ma_decoding_backend_vtable* ma_decoding_backend_wav;
+extern ma_decoding_backend_vtable* ma_decoding_backend_flac;
+extern ma_decoding_backend_vtable* ma_decoding_backend_mp3;
 
 #endif  /* MA_NO_DECODING */
 
@@ -62001,9 +62001,9 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
     ma_decoding_backend_uninit__wav,
     ma_decoding_backend_get_encoding_format__wav
 };
-const ma_decoding_backend_vtable* ma_decoding_backend_wav = &g_ma_decoding_backend_vtable_wav;
+ma_decoding_backend_vtable* ma_decoding_backend_wav = &g_ma_decoding_backend_vtable_wav;
 #else
-const ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
+ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
 #endif  /* ma_dr_wav_h */
 
 /* FLAC */
@@ -62615,9 +62615,9 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
     ma_decoding_backend_uninit__flac,
     ma_decoding_backend_get_encoding_format__flac
 };
-const ma_decoding_backend_vtable* ma_decoding_backend_flac = &g_ma_decoding_backend_vtable_flac;
+ma_decoding_backend_vtable* ma_decoding_backend_flac = &g_ma_decoding_backend_vtable_flac;
 #else
-const ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
+ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
 #endif  /* ma_dr_flac_h */
 
 /* MP3 */
@@ -63287,9 +63287,9 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
     ma_decoding_backend_uninit__mp3,
     ma_decoding_backend_get_encoding_format__mp3
 };
-const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &g_ma_decoding_backend_vtable_mp3;
+ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &g_ma_decoding_backend_vtable_mp3;
 #else
-const ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
+ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
 #endif  /* ma_dr_mp3_h */
 
 /* Vorbis */
@@ -64353,7 +64353,7 @@ MA_API ma_decoder_config ma_decoder_config_init_default(void)
 
 
 
-static const ma_decoding_backend_vtable* ma_DefaultDecodingBackendVTables[] =
+static ma_decoding_backend_vtable* ma_DefaultDecodingBackendVTables[] =
 {
 #if defined(MA_HAS_WAV)
     &g_ma_decoding_backend_vtable_wav,
