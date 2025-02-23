@@ -78058,7 +78058,7 @@ code below please report the bug to the respective repository for the relevant p
 ***************************************************************************************************************************************************************
 **************************************************************************************************************************************************************/
 #if !defined(MA_NO_WAV) && (!defined(MA_NO_DECODING) || !defined(MA_NO_ENCODING))
-#if !defined(MA_DR_WAV_IMPLEMENTATION) && !defined(MA_DR_WAV_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+#if !defined(MA_DR_WAV_IMPLEMENTATION)
 /* dr_wav_c begin */
 #ifndef ma_dr_wav_c
 #define ma_dr_wav_c
@@ -82889,7 +82889,7 @@ MA_API ma_bool32 ma_dr_wav_fourcc_equal(const ma_uint8* a, const char* b)
 #endif  /* MA_NO_WAV */
 
 #if !defined(MA_NO_FLAC) && !defined(MA_NO_DECODING)
-#if !defined(MA_DR_FLAC_IMPLEMENTATION) && !defined(MA_DR_FLAC_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+#if !defined(MA_DR_FLAC_IMPLEMENTATION)
 /* dr_flac_c begin */
 #ifndef ma_dr_flac_c
 #define ma_dr_flac_c
@@ -90638,7 +90638,7 @@ MA_API ma_bool32 ma_dr_flac_next_cuesheet_track(ma_dr_flac_cuesheet_track_iterat
 #endif  /* MA_NO_FLAC */
 
 #if !defined(MA_NO_MP3) && !defined(MA_NO_DECODING)
-#if !defined(MA_DR_MP3_IMPLEMENTATION) && !defined(MA_DR_MP3_IMPLEMENTATION) /* For backwards compatibility. Will be removed in version 0.11 for cleanliness. */
+#if !defined(MA_DR_MP3_IMPLEMENTATION)
 /* dr_mp3_c begin */
 #ifndef ma_dr_mp3_c
 #define ma_dr_mp3_c
