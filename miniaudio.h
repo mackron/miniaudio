@@ -65747,6 +65747,14 @@ MA_API ma_result ma_decoder_read_pcm_frames(ma_decoder* pDecoder, void* pFramesO
 
                     if (requiredInputFrameCount > 0) {
                         result = ma_data_source_read_pcm_frames(pDecoder->pBackend, pIntermediaryBuffer, framesToReadThisIterationIn, &framesReadThisIterationIn);
+
+                        /*
+                        Note here that even if we've reached the end, we don't want to abort because there might be more output frames needing to be
+                        generated from cached input data, which might happen if resampling is being performed.
+                        */
+                        if (result != MA_SUCCESS && result != MA_AT_END) {
+                            break;
+                        }
                     } else {
                         framesReadThisIterationIn = 0;
                         pIntermediaryBuffer[0] = 0; /* <-- This is just to silence a static analysis warning. */
