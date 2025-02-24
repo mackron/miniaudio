@@ -28227,7 +28227,21 @@ static ma_result ma_device_start__alsa(ma_device* pDevice)
     }
 
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
-        /* Don't need to do anything for playback because it'll be started automatically when enough data has been written. */
+        /*        
+        When data is written to the device we wait for the device to get ready to receive data with poll(). In my testing
+        I have observed that poll() can sometimes block forever unless the device is started explicitly with snd_pcm_start()
+        or some data is written with snd_pcm_writei().
+
+        To resolve this I've decided to do an explicit start with snd_pcm_start(). The problem with this is that the device
+        is started without any data in the internal buffer which will result in an immediate underrun. If instead we were
+        to call into snd_pcm_writei() in an attempt to prevent the underrun, we would run the risk of a weird deadlock
+        issue as documented inside ma_device_write__alsa().
+        */
+        resultALSA = ((ma_snd_pcm_start_proc)pDevice->pContext->alsa.snd_pcm_start)((ma_snd_pcm_t*)pDevice->alsa.pPCMPlayback);
+        if (resultALSA < 0) {
+            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[ALSA] Failed to start playback device.");
+            return ma_result_from_errno(-resultALSA);
+        }
     }
 
     return MA_SUCCESS;
@@ -28288,7 +28302,6 @@ static ma_result ma_device_stop__alsa(ma_device* pDevice)
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_DEBUG, "[ALSA] Failed to read from playback wakeupfd. read() = %d\n", resultRead);
             }
         }
-
     }
 
     return MA_SUCCESS;
@@ -28314,7 +28327,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
 
         /*
         Before checking the ALSA poll descriptor flag we need to check if the wakeup descriptor
-        has had it's POLLIN flag set. If so, we need to actually read the data and then exit
+        has had it's POLLIN flag set. If so, we need to actually read the data and then exit the
         function. The wakeup descriptor will be the first item in the descriptors buffer.
         */
         if ((pPollDescriptors[0].revents & POLLIN) != 0) {
@@ -28343,7 +28356,7 @@ static ma_result ma_device_wait__alsa(ma_device* pDevice, ma_snd_pcm_t* pPCM, st
             ma_snd_pcm_state_t state = ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM);
             if (state == MA_SND_PCM_STATE_XRUN) {
                 /* The PCM is in a xrun state. This will be recovered from at a higher level. We can disregard this. */
-        } else {
+            } else {
                 ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_WARNING, "[ALSA] POLLERR detected. status = %d\n", ((ma_snd_pcm_state_proc)pDevice->pContext->alsa.snd_pcm_state)(pPCM));
             }
         }
