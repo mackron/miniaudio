@@ -24,14 +24,9 @@ the decoder via the decoder config (`ma_decoder_config`). You need to implement 
 of your custom decoders. See `ma_decoding_backend_vtable` for the functions you need to implement.
 The `onInitFile`, `onInitFileW` and `onInitMemory` functions are optional.
 */
-
-/*
-For now these need to be declared before miniaudio.c due to some compatibility issues with the old
-MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
-*/
+#include "../miniaudio.c"
 #include "../extras/decoders/libvorbis/miniaudio_libvorbis.c"
 #include "../extras/decoders/libopus/miniaudio_libopus.c"
-#include "../miniaudio.c"
 
 #include <stdio.h>
 

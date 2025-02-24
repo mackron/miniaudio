@@ -5,14 +5,9 @@ This is the same as the custom_decoder example, only it's used with the high lev
 rather than the low level decoding API. You can use this to add support for Opus to your games, for
 example (via libopus).
 */
-
-/*
-For now these need to be declared before miniaudio.c due to some compatibility issues with the old
-MINIAUDIO_IMPLEMENTATION system. This will change from version 0.12.
-*/
+#include "../miniaudio.c"
 #include "../extras/decoders/libvorbis/miniaudio_libvorbis.c"
 #include "../extras/decoders/libopus/miniaudio_libopus.c"
-#include "../miniaudio.c"
 
 #include <stdio.h>
 

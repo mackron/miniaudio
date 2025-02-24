@@ -40,6 +40,10 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
         ma_uint64 totalFramesRead;
         ma_uint8 temp[MA_DATA_CONVERTER_STACK_BUFFER_SIZE];
         ma_uint64 tempCapInFrames = sizeof(temp) / ma_get_bytes_per_frame(dataSourceFormat, dataSourceChannels);
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = 0;
+        }
         
         totalFramesRead = 0;
         while (totalFramesRead < frameCount) {
@@ -49,7 +53,10 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
                 framesToRead = tempCapInFrames;
             }
 
-            result = ma_data_source_read_pcm_frames(pDataSource, pFramesOut, framesToRead, &framesJustRead);
+            result = ma_data_source_read_pcm_frames(pDataSource, temp, framesToRead, &framesJustRead);
+            if (result != MA_SUCCESS) {
+                break;
+            }
 
             ma_convert_pcm_frames_format(ma_offset_pcm_frames_ptr_f32(pFramesOut, totalFramesRead, dataSourceChannels), ma_format_f32, temp, dataSourceFormat, framesJustRead, dataSourceChannels, ma_dither_mode_none);
             totalFramesRead += framesJustRead;
@@ -57,6 +64,10 @@ static ma_result ma_data_source_read_pcm_frames_f32_ex(ma_data_source* pDataSour
             if (result != MA_SUCCESS) {
                 break;
             }
+        }
+
+        if (pFramesRead != NULL) {
+            *pFramesRead = totalFramesRead;
         }
 
         return MA_SUCCESS;

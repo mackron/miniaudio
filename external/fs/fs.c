@@ -646,6 +646,10 @@ FS_API fs_result fs_stream_read(fs_stream* pStream, void* pDst, size_t bytesToRe
     size_t bytesRead;
     fs_result result;
 
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
     }
@@ -668,6 +672,10 @@ FS_API fs_result fs_stream_write(fs_stream* pStream, const void* pSrc, size_t by
 {
     size_t bytesWritten;
     fs_result result;
+
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = 0;
+    }
 
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
@@ -2105,8 +2113,15 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath)
     char* pRunningPath = pRunningPathStack;
     size_t runningPathLen = 0;
     fs_path_iterator iSegment;
+    const fs_backend* pBackend;
 
-    if (pFS == NULL || pPath == NULL) {
+    pBackend = fs_get_backend_or_default(pFS);
+
+    if (pBackend == NULL) {
+        return FS_INVALID_ARGS;
+    }
+
+    if (pPath == NULL) {
         return FS_INVALID_ARGS;
     }
 
@@ -2144,7 +2159,7 @@ FS_API fs_result fs_mkdir(fs* pFS, const char* pPath)
         runningPathLen += iSegment.segmentLength;
         pRunningPath[runningPathLen] = '\0';
 
-        result = fs_backend_mkdir(pFS->pBackend, pFS, pRunningPath);
+        result = fs_backend_mkdir(pBackend, pFS, pRunningPath);
 
         /* We just pretend to be successful if the directory already exists. */
         if (result == FS_ALREADY_EXISTS) {
@@ -3040,94 +3055,110 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
         We'll need to iterate over every mount point and keep track of the mount point with the longest
         prefix that matches the start of the file path.
         */
-        fs_mount_list_iterator iMountPoint;
-        fs_mount_point* pBestMountPoint = NULL;
-        const char* pBestMountPointPath = NULL;
-        const char* pBestMountPointFileSubPath = NULL;
-        
-        for (mountPointIerationResult = fs_mount_list_first(pFS->pWriteMountPoints, &iMountPoint); mountPointIerationResult == FS_SUCCESS; mountPointIerationResult = fs_mount_list_next(&iMountPoint)) {
-            const char* pFileSubPath = fs_path_trim_base(pFilePath, FS_NULL_TERMINATED, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
-            if (pFileSubPath == NULL) {
-                continue;   /* The file path doesn't start with this mount point so skip. */
-            }
-
-            if (pBestMountPointFileSubPath == NULL || strlen(pFileSubPath) < strlen(pBestMountPointFileSubPath)) {
-                pBestMountPoint = iMountPoint.internal.pMountPoint;
-                pBestMountPointPath = iMountPoint.pPath;
-                pBestMountPointFileSubPath = pFileSubPath;
-            }
-        }
-
-        if (pBestMountPoint != NULL) {
-            char pActualPathStack[1024];
-            char* pActualPathHeap = NULL;
-            char* pActualPath = pActualPathStack;
-            int actualPathLen;
-            char pActualPathCleanStack[1024];
-            char* pActualPathCleanHeap = NULL;
-            char* pActualPathClean = pActualPathCleanStack;
-            int actualPathCleanLen;
-            unsigned int cleanOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);            
-
-            /* If the mount point starts with a root segment, i.e. "/", we cannot allow navigation above that. */
-            if (pBestMountPointPath[0] == '/' || pBestMountPointPath[0] == '\\') {
-                cleanOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
-            }
-
-
-            /* Here is where we append the cleaned sub-path to the mount points actual path. */
-            actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);
-            if (actualPathLen > 0 && (size_t)actualPathLen >= sizeof(pActualPathStack)) {
-                /* Not enough room on the stack. Allocate on the heap. */
-                pActualPathHeap = (char*)fs_malloc(actualPathLen + 1, fs_get_allocation_callbacks(pFS));
-                if (pActualPathHeap == NULL) {
-                    return FS_OUT_OF_MEMORY;
+        if (pFS != NULL) {
+            fs_mount_list_iterator iMountPoint;
+            fs_mount_point* pBestMountPoint = NULL;
+            const char* pBestMountPointPath = NULL;
+            const char* pBestMountPointFileSubPath = NULL;
+            
+            for (mountPointIerationResult = fs_mount_list_first(pFS->pWriteMountPoints, &iMountPoint); mountPointIerationResult == FS_SUCCESS; mountPointIerationResult = fs_mount_list_next(&iMountPoint)) {
+                const char* pFileSubPath = fs_path_trim_base(pFilePath, FS_NULL_TERMINATED, iMountPoint.pMountPointPath, FS_NULL_TERMINATED);
+                if (pFileSubPath == NULL) {
+                    continue;   /* The file path doesn't start with this mount point so skip. */
                 }
 
-                fs_path_append(pActualPathHeap, actualPathLen + 1, pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);  /* <-- This should never fail. */
-                pActualPath = pActualPathHeap;
-            } else {
-                pActualPath = pActualPathStack;
+                if (pBestMountPointFileSubPath == NULL || strlen(pFileSubPath) < strlen(pBestMountPointFileSubPath)) {
+                    pBestMountPoint = iMountPoint.internal.pMountPoint;
+                    pBestMountPointPath = iMountPoint.pPath;
+                    pBestMountPointFileSubPath = pFileSubPath;
+                }
             }
 
+            if (pBestMountPoint != NULL) {
+                char pActualPathStack[1024];
+                char* pActualPathHeap = NULL;
+                char* pActualPath;
+                int actualPathLen;
+                char pActualPathCleanStack[1024];
+                char* pActualPathCleanHeap = NULL;
+                char* pActualPathClean;
+                int actualPathCleanLen;
+                unsigned int cleanOptions = (openMode & FS_NO_ABOVE_ROOT_NAVIGATION);            
 
-            /* Now we need to clean the path. */
-            actualPathCleanLen = fs_path_normalize(pActualPathCleanStack, sizeof(pActualPathCleanStack), pActualPath, FS_NULL_TERMINATED, cleanOptions);
-            if (actualPathCleanLen < 0) {
-                fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                return FS_INVALID_OPERATION;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
-            }
+                /* If the mount point starts with a root segment, i.e. "/", we cannot allow navigation above that. */
+                if (pBestMountPointPath[0] == '/' || pBestMountPointPath[0] == '\\') {
+                    cleanOptions |= FS_NO_ABOVE_ROOT_NAVIGATION;
+                }
 
-            if (actualPathCleanLen >= (int)sizeof(pActualPathCleanStack)) {
-                pActualPathCleanHeap = (char*)fs_malloc(actualPathCleanLen + 1, fs_get_allocation_callbacks(pFS));
-                if (pActualPathCleanHeap == NULL) {
+
+                /* Here is where we append the cleaned sub-path to the mount points actual path. */
+                actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);
+                if (actualPathLen > 0 && (size_t)actualPathLen >= sizeof(pActualPathStack)) {
+                    /* Not enough room on the stack. Allocate on the heap. */
+                    pActualPathHeap = (char*)fs_malloc(actualPathLen + 1, fs_get_allocation_callbacks(pFS));
+                    if (pActualPathHeap == NULL) {
+                        return FS_OUT_OF_MEMORY;
+                    }
+
+                    fs_path_append(pActualPathHeap, actualPathLen + 1, pBestMountPointPath, pBestMountPoint->pathLen, pBestMountPointFileSubPath, FS_NULL_TERMINATED);  /* <-- This should never fail. */
+                    pActualPath = pActualPathHeap;
+                } else {
+                    pActualPath = pActualPathStack;
+                }
+
+
+                /* Now we need to clean the path. */
+                actualPathCleanLen = fs_path_normalize(pActualPathCleanStack, sizeof(pActualPathCleanStack), pActualPath, FS_NULL_TERMINATED, cleanOptions);
+                if (actualPathCleanLen < 0) {
                     fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-                    return FS_OUT_OF_MEMORY;
+                    return FS_INVALID_OPERATION;    /* Most likely violating FS_NO_ABOVE_ROOT_NAVIGATION. */
                 }
 
-                fs_path_normalize(pActualPathCleanHeap, actualPathCleanLen + 1, pActualPath, FS_NULL_TERMINATED, cleanOptions);    /* <-- This should never fail. */
-                pActualPathClean = pActualPathCleanHeap;
+                if (actualPathCleanLen >= (int)sizeof(pActualPathCleanStack)) {
+                    pActualPathCleanHeap = (char*)fs_malloc(actualPathCleanLen + 1, fs_get_allocation_callbacks(pFS));
+                    if (pActualPathCleanHeap == NULL) {
+                        fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
+                        return FS_OUT_OF_MEMORY;
+                    }
+
+                    fs_path_normalize(pActualPathCleanHeap, actualPathCleanLen + 1, pActualPath, FS_NULL_TERMINATED, cleanOptions);    /* <-- This should never fail. */
+                    pActualPathClean = pActualPathCleanHeap;
+                } else {
+                    pActualPathClean = pActualPathCleanStack;
+                }
+
+                fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
+                pActualPathHeap = NULL;
+
+
+                /* We now have enough information to open the file. */
+                result = fs_file_alloc_if_necessary_and_open_or_info(pFS, pActualPathClean, openMode, ppFile, pInfo);
+
+                fs_free(pActualPathCleanHeap, fs_get_allocation_callbacks(pFS));
+                pActualPathCleanHeap = NULL;
+
+                if (result == FS_SUCCESS) {
+                    return FS_SUCCESS;
+                } else {
+                    return FS_DOES_NOT_EXIST;   /* Couldn't find the file from the best mount point. */
+                }
             } else {
-                pActualPathClean = pActualPathCleanStack;
-            }
-
-            fs_free(pActualPathHeap, fs_get_allocation_callbacks(pFS));
-            pActualPathHeap = NULL;
-
-
-            /* We now have enough information to open the file. */
-            result = fs_file_alloc_if_necessary_and_open_or_info(pFS, pActualPathClean, openMode, ppFile, pInfo);
-
-            fs_free(pActualPathCleanHeap, fs_get_allocation_callbacks(pFS));
-            pActualPathCleanHeap = NULL;
-
-            if (result == FS_SUCCESS) {
-                return FS_SUCCESS;
-            } else {
-                return FS_DOES_NOT_EXIST;   /* Couldn't find the file from the best mount point. */
+                return FS_DOES_NOT_EXIST;   /* Couldn't find an appropriate mount point. */
             }
         } else {
-            return FS_DOES_NOT_EXIST;   /* Couldn't find an appropriate mount point. */
+            /*
+            No "fs" object was supplied. Open using the default backend without using mount points. This is as if you were
+            opening a file using `fopen()`.
+            */
+            if ((openMode & FS_ONLY_MOUNTS) == 0) {
+                return fs_file_alloc_if_necessary_and_open_or_info(pFS, pFilePath, openMode, ppFile, pInfo);
+            } else {
+                /*
+                Getting here means only the mount points can be used to open the file (cannot open straight from
+                the file system natively).
+                */
+                return FS_DOES_NOT_EXIST;
+            }
         }
     } else {
         /* Opening in read mode. */
@@ -3201,7 +3232,7 @@ FS_API fs_result fs_file_open_or_info(fs* pFS, const char* pFilePath, int openMo
                     /* The mount point is a directory. We need to combine the sub-path with the mount point's original path and then load the file. */
                     char  pActualPathStack[1024];
                     char* pActualPathHeap = NULL;
-                    char* pActualPath = pActualPathStack;
+                    char* pActualPath;
                     int actualPathLen;
 
                     actualPathLen = fs_path_append(pActualPathStack, sizeof(pActualPathStack), iMountPoint.pPath, FS_NULL_TERMINATED, pFileSubPathClean, fileSubPathCleanLen);
@@ -4129,7 +4160,7 @@ FS_API fs_result fs_unmount(fs* pFS, const char* pPathToMount_NotMountPoint)
         return FS_INVALID_ARGS;
     }
 
-    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+    for (iteratorResult = fs_mount_list_first(pFS->pReadMountPoints, &iterator); iteratorResult == FS_SUCCESS; /*iteratorResult = fs_mount_list_next(&iterator)*/) {
         if (strcmp(pPathToMount_NotMountPoint, iterator.pPath) == 0) {
             if (iterator.internal.pMountPoint->closeArchiveOnUnmount) {
                 fs_close_archive(iterator.pArchive);
@@ -4258,7 +4289,7 @@ FS_API fs_result fs_unmount_write(fs* pFS, const char* pPathToMount_NotMountPoin
         return FS_INVALID_ARGS;
     }
 
-    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS; iteratorResult = fs_mount_list_next(&iterator)) {
+    for (iteratorResult = fs_mount_list_first(pFS->pWriteMountPoints, &iterator); iteratorResult == FS_SUCCESS; /*iteratorResult = fs_mount_list_next(&iterator)*/) {
         if (strcmp(pPathToMount_NotMountPoint, iterator.pPath) == 0) {
             fs_mount_list_remove(pFS->pWriteMountPoints, iterator.internal.pMountPoint);
 

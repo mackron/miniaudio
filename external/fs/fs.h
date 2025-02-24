@@ -267,8 +267,13 @@ be saved:
 
 ```c
 fs_file_open(pFS, "config/game.cfg", FS_WRITE, &pFile); // Prefixed with "config", so will use the "config" mount point.
-fs_file_open(pFs, "saves/save0.sav", FS_WRITE, &pFile); // Prefixed with "saves", so will use the "saves" mount point.
+fs_file_open(pFS, "saves/save0.sav", FS_WRITE, &pFile); // Prefixed with "saves", so will use the "saves" mount point.
 ```
+
+When opening a file for writing, if you pass in NULL for the `pFS` parameter it will open the file
+like normal using the standard file system. That is it'll work exactly as if you were using stdio
+`fopen()` and you will not be able use mount points. Keep in mind that there is no notion of a
+"current directory" in this library so you'll be stuck with the initial working directory.
 
 By default, you can move outside the mount point with ".." segments. If you want to disable this
 functionality, you can use the `FS_NO_ABOVE_ROOT_NAVIGATION` flag:
