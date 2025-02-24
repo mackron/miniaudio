@@ -646,6 +646,10 @@ FS_API fs_result fs_stream_read(fs_stream* pStream, void* pDst, size_t bytesToRe
     size_t bytesRead;
     fs_result result;
 
+    if (pBytesRead != NULL) {
+        *pBytesRead = 0;
+    }
+
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
     }
@@ -668,6 +672,10 @@ FS_API fs_result fs_stream_write(fs_stream* pStream, const void* pSrc, size_t by
 {
     size_t bytesWritten;
     fs_result result;
+
+    if (pBytesWritten != NULL) {
+        *pBytesWritten = 0;
+    }
 
     if (pStream == NULL) {
         return FS_INVALID_ARGS;
