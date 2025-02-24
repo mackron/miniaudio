@@ -207,7 +207,7 @@ Security
 ========
 I deal with all security related issues publicly and transparently, and it can sometimes take a while before I
 get a chance to address it. If this is an issue for you, you need to use another library. Please post any
-security related bugs on the public GitHub issue tracker.
+security related bugs to the public GitHub issue tracker.
 
 
 License
