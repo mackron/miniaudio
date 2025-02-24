@@ -65001,7 +65001,7 @@ MA_API ma_result ma_decoder_init_memory(const void* pData, size_t dataSize, cons
 
                     result = ma_decoder_init__internal(&config, pDecoder);
                     if (result == MA_SUCCESS) {
-                        return ma_decoder__postinit_or_uninit(&config, pDecoder);
+                        return result;  /* Don't return ma_decoder__postinit_or_uninit() here because ma_decoder_init__internal() will already have done it. */
                     }
                 } else {
                     /* Initialization failed. Probably an unsupported format. Skip. */
