@@ -4951,7 +4951,7 @@ static fs_result fs_file_seek_stdio(fs_file* pFile, fs_int64 offset, fs_seek_ori
     #else
         /* No _fseeki64() so restrict to 31 bits. */
         if (origin > 0x7FFFFFFF) {
-            return ERANGE;
+            return FS_OUT_OF_RANGE;
         }
 
         result = fseek(pFileStdio->pFile, (int)offset, whence);
