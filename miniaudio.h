@@ -7986,6 +7986,7 @@ struct ma_device
             /*AAudioStream**/ ma_ptr pStreamPlayback;
             /*AAudioStream**/ ma_ptr pStreamCapture;
             ma_mutex rerouteLock;
+            ma_atomic_bool32 isTearingDown;
             ma_aaudio_usage usage;
             ma_aaudio_content_type contentType;
             ma_aaudio_input_preset inputPreset;
@@ -37834,25 +37835,31 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
 
     (void)error;
     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] ERROR CALLBACK: error=%d, AAudioStream_getState()=%d\n", error, ((MA_PFN_AAudioStream_getState)pDevice->pContext->aaudio.AAudioStream_getState)(pStream));
+    
     /*
     When we get an error, we'll assume that the stream is in an erroneous state and needs to be restarted. From the documentation,
     we cannot do this from the error callback. Therefore we are going to use an event thread for the AAudio backend to do this
     cleanly and safely.
     */
-    job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
-    job.data.device.aaudio.reroute.pDevice = pDevice;
-
-    if (pStream == pDevice->aaudio.pStreamCapture) {
-        job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+    if (ma_atomic_bool32_get(&pDevice->aaudio.isTearingDown)) {
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Tearing down device.\n");
     }
     else {
-        job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
-    }
-
-    result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
-    if (result != MA_SUCCESS) {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
-        return;
+        job = ma_job_init(MA_JOB_TYPE_DEVICE_AAUDIO_REROUTE);
+        job.data.device.aaudio.reroute.pDevice = pDevice;
+    
+        if (pStream == pDevice->aaudio.pStreamCapture) {
+            job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
+        }
+        else {
+            job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
+        }
+    
+        result = ma_device_job_thread_post(&pDevice->pContext->aaudio.jobThread, &job);
+        if (result != MA_SUCCESS) {
+            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Device Disconnected. Failed to post job for rerouting.\n");
+            return;
+        }
     }
 }
 
@@ -38186,6 +38193,11 @@ static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
+    /* Note: Closing the streams may cause a timeout error, which would then trigger re-routing in our error callback.
+       We must not schedule a re-route when device is getting destroyed.
+    */
+    ma_atomic_bool32_set(&pDevice->aaudio.isTearingDown, MA_TRUE);
+
     /* Wait for any rerouting to finish before attempting to close the streams. */
     ma_mutex_lock(&pDevice->aaudio.rerouteLock);
     {
@@ -38434,12 +38446,15 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
 
     MA_ASSERT(pDevice != NULL);
 
-    /*
-     TODO: Stop retrying if main thread is about to uninit device.
-    */
     ma_mutex_lock(&pDevice->aaudio.rerouteLock);
     {
 error_disconnected:
+        if (ma_atomic_bool32_get(&pDevice->aaudio.isTearingDown)) {
+            /* Device is tearing down. No need to re-route. Callers should continue as normal. */
+            result = MA_SUCCESS;
+            goto done;
+        }
+
         /* The first thing to do is close the streams. */
         ma_close_streams__aaudio(pDevice);
 
