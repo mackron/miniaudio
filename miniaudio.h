@@ -38451,9 +38451,9 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
     /* We got disconnected! Retry a few times, until we find a connected device! */
     iAttempt = 0;
     while (iAttempt++ < maxAttempts) {        
-        /* Device tearing down? No need to reroute! Callers should continue as normal. */
+        /* Device tearing down? No need to reroute! */
         if (ma_atomic_bool32_get(&pDevice->aaudio.isTearingDown)) {
-            result = MA_SUCCESS;
+            result = MA_SUCCESS; /* Caller should continue as normal. */
             break;
         }
 
@@ -38524,24 +38524,22 @@ static ma_result ma_device_reinit__aaudio(ma_device* pDevice, ma_device_type dev
             break;
         }
 
-        if (result == MA_SUCCESS) {
-            /* We'll only ever do this in response to a reroute. */
-            ma_device__on_notification_rerouted(pDevice);
+        /* We'll only ever do this in response to a reroute. */
+        ma_device__on_notification_rerouted(pDevice);
 
-            /* If the device is started, start the streams. Maybe make this configurable? */
-            if (ma_device_get_state(pDevice) == ma_device_state_started) {
-                if (pDevice->aaudio.noAutoStartAfterReroute == MA_FALSE) {
-                    result = ma_device_start__aaudio(pDevice);
-                    if (result != MA_SUCCESS) {
-                        if (iAttempt < maxAttempts) {
-                            ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, retrying(%d)", iAttempt);
-                        } else {
-                            ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, giving up.");
-                        }
+        /* If the device is started, start the streams. Maybe make this configurable? */
+        if (ma_device_get_state(pDevice) == ma_device_state_started) {
+            if (pDevice->aaudio.noAutoStartAfterReroute == MA_FALSE) {
+                result = ma_device_start__aaudio(pDevice);
+                if (result != MA_SUCCESS) {
+                    if (iAttempt < maxAttempts) {
+                        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, retrying(%d)", iAttempt);
+                    } else {
+                        ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[AAudio] Failed to start stream after route change, giving up.");
                     }
-                } else {
-                    ma_device_stop(pDevice); /* Do a full device stop so we set internal state correctly. */
                 }
+            } else {
+                ma_device_stop(pDevice); /* Do a full device stop so we set internal state correctly. */
             }
         }
 
