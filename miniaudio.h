@@ -3857,6 +3857,8 @@ typedef ma_uint16 wchar_t;
     #define MA_SIZE_MAX    0xFFFFFFFF  /* When SIZE_MAX is not defined by the standard library just default to the maximum 32-bit unsigned integer. */
 #endif
 
+#define MA_UINT64_MAX      (((ma_uint64)0xFFFFFFFF << 32) | (ma_uint64)0xFFFFFFFF)   /* Weird shifting syntax is for VC6 compatibility. */
+
 
 /* Platform/backend detection. */
 #if defined(_WIN32) || defined(__COSMOPOLITAN__)
@@ -60352,8 +60354,8 @@ extern "C" {
 #define MA_DR_WAV_STRINGIFY(x)      #x
 #define MA_DR_WAV_XSTRINGIFY(x)     MA_DR_WAV_STRINGIFY(x)
 #define MA_DR_WAV_VERSION_MAJOR     0
-#define MA_DR_WAV_VERSION_MINOR     13
-#define MA_DR_WAV_VERSION_REVISION  18
+#define MA_DR_WAV_VERSION_MINOR     14
+#define MA_DR_WAV_VERSION_REVISION  0
 #define MA_DR_WAV_VERSION_STRING    MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MAJOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_MINOR) "." MA_DR_WAV_XSTRINGIFY(MA_DR_WAV_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_WAVE_FORMAT_PCM          0x1
@@ -60476,8 +60478,8 @@ typedef struct
 {
     ma_uint32 cuePointId;
     ma_uint32 type;
-    ma_uint32 firstSampleByteOffset;
-    ma_uint32 lastSampleByteOffset;
+    ma_uint32 firstSampleOffset;
+    ma_uint32 lastSampleOffset;
     ma_uint32 sampleFraction;
     ma_uint32 playCount;
 } ma_dr_wav_smpl_loop;
@@ -60512,7 +60514,7 @@ typedef struct
     ma_uint8 dataChunkId[4];
     ma_uint32 chunkStart;
     ma_uint32 blockStart;
-    ma_uint32 sampleByteOffset;
+    ma_uint32 sampleOffset;
 } ma_dr_wav_cue_point;
 typedef struct
 {
@@ -60773,7 +60775,7 @@ extern "C" {
 #define MA_DR_FLAC_XSTRINGIFY(x)     MA_DR_FLAC_STRINGIFY(x)
 #define MA_DR_FLAC_VERSION_MAJOR     0
 #define MA_DR_FLAC_VERSION_MINOR     12
-#define MA_DR_FLAC_VERSION_REVISION  43
+#define MA_DR_FLAC_VERSION_REVISION  44
 #define MA_DR_FLAC_VERSION_STRING    MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MAJOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_MINOR) "." MA_DR_FLAC_XSTRINGIFY(MA_DR_FLAC_VERSION_REVISION)
 #include <stddef.h>
 #if defined(_MSC_VER) && _MSC_VER >= 1700
@@ -61059,8 +61061,8 @@ extern "C" {
 #define MA_DR_MP3_STRINGIFY(x)      #x
 #define MA_DR_MP3_XSTRINGIFY(x)     MA_DR_MP3_STRINGIFY(x)
 #define MA_DR_MP3_VERSION_MAJOR     0
-#define MA_DR_MP3_VERSION_MINOR     6
-#define MA_DR_MP3_VERSION_REVISION  40
+#define MA_DR_MP3_VERSION_MINOR     7
+#define MA_DR_MP3_VERSION_REVISION  0
 #define MA_DR_MP3_VERSION_STRING    MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MAJOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_MINOR) "." MA_DR_MP3_XSTRINGIFY(MA_DR_MP3_VERSION_REVISION)
 #include <stddef.h>
 #define MA_DR_MP3_MAX_PCM_FRAMES_PER_MP3_FRAME  1152
@@ -61069,7 +61071,7 @@ MA_API void ma_dr_mp3_version(ma_uint32* pMajor, ma_uint32* pMinor, ma_uint32* p
 MA_API const char* ma_dr_mp3_version_string(void);
 typedef struct
 {
-    int frame_bytes, channels, hz, layer, bitrate_kbps;
+    int frame_bytes, channels, sample_rate, layer, bitrate_kbps;
 } ma_dr_mp3dec_frame_info;
 typedef struct
 {
@@ -61083,7 +61085,8 @@ MA_API void ma_dr_mp3dec_f32_to_s16(const float *in, ma_int16 *out, size_t num_s
 typedef enum
 {
     ma_dr_mp3_seek_origin_start,
-    ma_dr_mp3_seek_origin_current
+    ma_dr_mp3_seek_origin_current,
+    ma_dr_mp3_seek_origin_end
 } ma_dr_mp3_seek_origin;
 typedef struct
 {
@@ -61092,8 +61095,24 @@ typedef struct
     ma_uint16 mp3FramesToDiscard;
     ma_uint16 pcmFramesToDiscard;
 } ma_dr_mp3_seek_point;
+typedef enum
+{
+    MA_DR_MP3_METADATA_TYPE_ID3V1,
+    MA_DR_MP3_METADATA_TYPE_ID3V2,
+    MA_DR_MP3_METADATA_TYPE_APE,
+    MA_DR_MP3_METADATA_TYPE_XING,
+    MA_DR_MP3_METADATA_TYPE_VBRI
+} ma_dr_mp3_metadata_type;
+typedef struct
+{
+    ma_dr_mp3_metadata_type type;
+    const void* pRawData;
+    size_t rawDataSize;
+} ma_dr_mp3_metadata;
 typedef size_t (* ma_dr_mp3_read_proc)(void* pUserData, void* pBufferOut, size_t bytesToRead);
 typedef ma_bool32 (* ma_dr_mp3_seek_proc)(void* pUserData, int offset, ma_dr_mp3_seek_origin origin);
+typedef ma_bool32 (* ma_dr_mp3_tell_proc)(void* pUserData, ma_int64* pCursor);
+typedef void (* ma_dr_mp3_meta_proc)(void* pUserData, const ma_dr_mp3_metadata* pMetadata);
 typedef struct
 {
     ma_uint32 channels;
@@ -61106,7 +61125,9 @@ typedef struct
     ma_uint32 sampleRate;
     ma_dr_mp3_read_proc onRead;
     ma_dr_mp3_seek_proc onSeek;
+    ma_dr_mp3_meta_proc onMeta;
     void* pUserData;
+    void* pUserDataMeta;
     ma_allocation_callbacks allocationCallbacks;
     ma_uint32 mp3FrameChannels;
     ma_uint32 mp3FrameSampleRate;
@@ -61115,13 +61136,20 @@ typedef struct
     ma_uint8 pcmFrames[sizeof(float)*MA_DR_MP3_MAX_SAMPLES_PER_FRAME];
     ma_uint64 currentPCMFrame;
     ma_uint64 streamCursor;
+    ma_uint64 streamLength;
+    ma_uint64 streamStartOffset;
     ma_dr_mp3_seek_point* pSeekPoints;
     ma_uint32 seekPointCount;
+    ma_uint32 delayInPCMFrames;
+    ma_uint32 paddingInPCMFrames;
+    ma_uint64 totalPCMFrameCount;
+    ma_bool32 isVBR;
+    ma_bool32 isCBR;
     size_t dataSize;
     size_t dataCapacity;
     size_t dataConsumed;
     ma_uint8* pData;
-    ma_bool32 atEnd : 1;
+    ma_bool32 atEnd;
     struct
     {
         const ma_uint8* pData;
@@ -61129,9 +61157,12 @@ typedef struct
         size_t currentReadPos;
     } memory;
 } ma_dr_mp3;
-MA_API ma_bool32 ma_dr_mp3_init(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_bool32 ma_dr_mp3_init(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, ma_dr_mp3_meta_proc onMeta, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_bool32 ma_dr_mp3_init_memory_with_metadata(ma_dr_mp3* pMP3, const void* pData, size_t dataSize, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_bool32 ma_dr_mp3_init_memory(ma_dr_mp3* pMP3, const void* pData, size_t dataSize, const ma_allocation_callbacks* pAllocationCallbacks);
 #ifndef MA_DR_MP3_NO_STDIO
+MA_API ma_bool32 ma_dr_mp3_init_file_with_metadata(ma_dr_mp3* pMP3, const char* pFilePath, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_bool32 ma_dr_mp3_init_file_with_metadata_w(ma_dr_mp3* pMP3, const wchar_t* pFilePath, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_bool32 ma_dr_mp3_init_file(ma_dr_mp3* pMP3, const char* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_bool32 ma_dr_mp3_init_file_w(ma_dr_mp3* pMP3, const wchar_t* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks);
 #endif
@@ -61144,8 +61175,8 @@ MA_API ma_uint64 ma_dr_mp3_get_mp3_frame_count(ma_dr_mp3* pMP3);
 MA_API ma_bool32 ma_dr_mp3_get_mp3_and_pcm_frame_count(ma_dr_mp3* pMP3, ma_uint64* pMP3FrameCount, ma_uint64* pPCMFrameCount);
 MA_API ma_bool32 ma_dr_mp3_calculate_seek_points(ma_dr_mp3* pMP3, ma_uint32* pSeekPointCount, ma_dr_mp3_seek_point* pSeekPoints);
 MA_API ma_bool32 ma_dr_mp3_bind_seek_table(ma_dr_mp3* pMP3, ma_uint32 seekPointCount, ma_dr_mp3_seek_point* pSeekPoints);
-MA_API float* ma_dr_mp3_open_and_read_pcm_frames_f32(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
-MA_API ma_int16* ma_dr_mp3_open_and_read_pcm_frames_s16(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API float* ma_dr_mp3_open_and_read_pcm_frames_f32(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
+MA_API ma_int16* ma_dr_mp3_open_and_read_pcm_frames_s16(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API float* ma_dr_mp3_open_memory_and_read_pcm_frames_f32(const void* pData, size_t dataSize, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
 MA_API ma_int16* ma_dr_mp3_open_memory_and_read_pcm_frames_s16(const void* pData, size_t dataSize, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks);
 #ifndef MA_DR_MP3_NO_STDIO
@@ -63017,6 +63048,21 @@ static ma_bool32 ma_mp3_dr_callback__seek(void* pUserData, int offset, ma_dr_mp3
 
     return MA_TRUE;
 }
+
+static ma_bool32 ma_mp3_dr_callback__tell(void* pUserData, ma_int64* pCursor)
+{
+    ma_mp3* pMP3 = (ma_mp3*)pUserData;
+    ma_result result;
+
+    MA_ASSERT(pMP3 != NULL);
+
+    result = pMP3->onTell(pMP3->pReadSeekTellUserData, pCursor);
+    if (result != MA_SUCCESS) {
+        return MA_FALSE;
+    }
+
+    return MA_TRUE;
+}
 #endif
 
 static ma_result ma_mp3_init_internal(const ma_decoding_backend_config* pConfig, ma_mp3* pMP3)
@@ -63117,7 +63163,7 @@ MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_p
     {
         ma_bool32 mp3Result;
 
-        mp3Result = ma_dr_mp3_init(&pMP3->dr, ma_mp3_dr_callback__read, ma_mp3_dr_callback__seek, pMP3, pAllocationCallbacks);
+        mp3Result = ma_dr_mp3_init(&pMP3->dr, ma_mp3_dr_callback__read, ma_mp3_dr_callback__seek, ma_mp3_dr_callback__tell, NULL, pMP3, pAllocationCallbacks);
         if (mp3Result != MA_TRUE) {
             return MA_INVALID_FILE;
         }
@@ -78726,12 +78772,12 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_smpl_to_metadata_obj(ma_dr_wav__metadata_pa
                 ma_uint8 smplLoopData[MA_DR_WAV_SMPL_LOOP_BYTES];
                 bytesJustRead = ma_dr_wav__metadata_parser_read(pParser, smplLoopData, sizeof(smplLoopData), &totalBytesRead);
                 if (bytesJustRead == sizeof(smplLoopData)) {
-                    pMetadata->data.smpl.pLoops[iSampleLoop].cuePointId            = ma_dr_wav_bytes_to_u32(smplLoopData + 0);
-                    pMetadata->data.smpl.pLoops[iSampleLoop].type                  = ma_dr_wav_bytes_to_u32(smplLoopData + 4);
-                    pMetadata->data.smpl.pLoops[iSampleLoop].firstSampleByteOffset = ma_dr_wav_bytes_to_u32(smplLoopData + 8);
-                    pMetadata->data.smpl.pLoops[iSampleLoop].lastSampleByteOffset  = ma_dr_wav_bytes_to_u32(smplLoopData + 12);
-                    pMetadata->data.smpl.pLoops[iSampleLoop].sampleFraction        = ma_dr_wav_bytes_to_u32(smplLoopData + 16);
-                    pMetadata->data.smpl.pLoops[iSampleLoop].playCount             = ma_dr_wav_bytes_to_u32(smplLoopData + 20);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].cuePointId        = ma_dr_wav_bytes_to_u32(smplLoopData + 0);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].type              = ma_dr_wav_bytes_to_u32(smplLoopData + 4);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].firstSampleOffset = ma_dr_wav_bytes_to_u32(smplLoopData + 8);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].lastSampleOffset  = ma_dr_wav_bytes_to_u32(smplLoopData + 12);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].sampleFraction    = ma_dr_wav_bytes_to_u32(smplLoopData + 16);
+                    pMetadata->data.smpl.pLoops[iSampleLoop].playCount         = ma_dr_wav_bytes_to_u32(smplLoopData + 20);
                 } else {
                     break;
                 }
@@ -78775,7 +78821,7 @@ MA_PRIVATE ma_uint64 ma_dr_wav__read_cue_to_metadata_obj(ma_dr_wav__metadata_par
                         pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId[3]    = cuePointData[11];
                         pMetadata->data.cue.pCuePoints[iCuePoint].chunkStart        = ma_dr_wav_bytes_to_u32(cuePointData + 12);
                         pMetadata->data.cue.pCuePoints[iCuePoint].blockStart        = ma_dr_wav_bytes_to_u32(cuePointData + 16);
-                        pMetadata->data.cue.pCuePoints[iCuePoint].sampleByteOffset  = ma_dr_wav_bytes_to_u32(cuePointData + 20);
+                        pMetadata->data.cue.pCuePoints[iCuePoint].sampleOffset      = ma_dr_wav_bytes_to_u32(cuePointData + 20);
                     } else {
                         break;
                     }
@@ -79723,15 +79769,26 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
                 return MA_FALSE;
             }
             offset = ma_dr_wav_bytes_to_u32_ex(offsetAndBlockSizeData + 0, pWav->container);
-            if (ma_dr_wav__seek_forward(pWav->onSeek, offset, pWav->pUserData) == MA_FALSE) {
-                return MA_FALSE;
-            }
-            cursor += offset;
-            pWav->dataChunkDataPos = cursor;
+            pWav->dataChunkDataPos = cursor + offset;
             dataChunkSize = chunkSize;
-            if (sequential || !isProcessingMetadata) {
-                break;
+            if (dataChunkSize  > offset) {
+                dataChunkSize -= offset;
             } else {
+                dataChunkSize = 0;
+            }
+            if (sequential) {
+                if (foundChunk_fmt) {
+                    if (ma_dr_wav__seek_forward(pWav->onSeek, offset, pWav->pUserData) == MA_FALSE) {
+                        return MA_FALSE;
+                    }
+                    cursor += offset;
+                    break;
+                } else {
+                    return MA_FALSE;
+                }
+            } else {
+                chunkSize += header.paddingSize;
+                chunkSize -= sizeof(offsetAndBlockSizeData);
                 if (ma_dr_wav__seek_forward(pWav->onSeek, chunkSize, pWav->pUserData) == MA_FALSE) {
                     break;
                 }
@@ -79795,6 +79852,10 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         pWav->pMetadata     = metadataParser.pMetadata;
         pWav->metadataCount = metadataParser.metadataCount;
     }
+    if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
+        ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
+        return MA_FALSE;
+    }
     if (dataChunkSize == 0xFFFFFFFF && (pWav->container == ma_dr_wav_container_riff || pWav->container == ma_dr_wav_container_rifx) && pWav->isSequentialWrite == MA_FALSE) {
         dataChunkSize = 0;
         for (;;) {
@@ -79806,16 +79867,18 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             }
         }
     }
-    if (ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData) == MA_FALSE) {
-        ma_dr_wav_free(pWav->pMetadata, &pWav->allocationCallbacks);
-        return MA_FALSE;
-    }
     pWav->fmt                 = fmt;
     pWav->sampleRate          = fmt.sampleRate;
     pWav->channels            = fmt.channels;
     pWav->bitsPerSample       = fmt.bitsPerSample;
-    pWav->bytesRemaining      = dataChunkSize;
     pWav->translatedFormatTag = translatedFormatTag;
+    if (!ma_dr_wav__is_compressed_format_tag(translatedFormatTag)) {
+        ma_uint32 bytesPerFrame = ma_dr_wav_get_bytes_per_pcm_frame(pWav);
+        if (bytesPerFrame > 0) {
+            dataChunkSize -= (dataChunkSize % bytesPerFrame);
+        }
+    }
+    pWav->bytesRemaining      = dataChunkSize;
     pWav->dataChunkDataSize   = dataChunkSize;
     if (sampleCountFromFactChunk != 0) {
         pWav->totalPCMFrameCount = sampleCountFromFactChunk;
@@ -80045,8 +80108,8 @@ MA_PRIVATE size_t ma_dr_wav__write_or_count_metadata(ma_dr_wav* pWav, ma_dr_wav_
                 for (iLoop = 0; iLoop < pMetadata->data.smpl.sampleLoopCount; ++iLoop) {
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].cuePointId);
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].type);
-                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].firstSampleByteOffset);
-                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].lastSampleByteOffset);
+                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].firstSampleOffset);
+                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].lastSampleOffset);
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].sampleFraction);
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.smpl.pLoops[iLoop].playCount);
                 }
@@ -80080,7 +80143,7 @@ MA_PRIVATE size_t ma_dr_wav__write_or_count_metadata(ma_dr_wav* pWav, ma_dr_wav_
                     bytesWritten += ma_dr_wav__write_or_count(pWav, pMetadata->data.cue.pCuePoints[iCuePoint].dataChunkId, 4);
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.cue.pCuePoints[iCuePoint].chunkStart);
                     bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.cue.pCuePoints[iCuePoint].blockStart);
-                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.cue.pCuePoints[iCuePoint].sampleByteOffset);
+                    bytesWritten += ma_dr_wav__write_or_count_u32ne_to_le(pWav, pMetadata->data.cue.pCuePoints[iCuePoint].sampleOffset);
                 }
             } break;
             case ma_dr_wav_metadata_type_acid:
@@ -92287,7 +92350,7 @@ MA_API int ma_dr_mp3dec_decode_frame(ma_dr_mp3dec *dec, const ma_uint8 *mp3, int
     MA_DR_MP3_COPY_MEMORY(dec->header, hdr, MA_DR_MP3_HDR_SIZE);
     info->frame_bytes = i + frame_size;
     info->channels = MA_DR_MP3_HDR_IS_MONO(hdr) ? 1 : 2;
-    info->hz = ma_dr_mp3_hdr_sample_rate_hz(hdr);
+    info->sample_rate = ma_dr_mp3_hdr_sample_rate_hz(hdr);
     info->layer = 4 - MA_DR_MP3_HDR_GET_LAYER(hdr);
     info->bitrate_kbps = ma_dr_mp3_hdr_bitrate_kbps(hdr);
     ma_dr_mp3_bs_init(bs_frame, hdr + MA_DR_MP3_HDR_SIZE, frame_size - MA_DR_MP3_HDR_SIZE);
@@ -92510,19 +92573,41 @@ static ma_allocation_callbacks ma_dr_mp3_copy_allocation_callbacks_or_defaults(c
 }
 static size_t ma_dr_mp3__on_read(ma_dr_mp3* pMP3, void* pBufferOut, size_t bytesToRead)
 {
-    size_t bytesRead = pMP3->onRead(pMP3->pUserData, pBufferOut, bytesToRead);
+    size_t bytesRead;
+    MA_DR_MP3_ASSERT(pMP3         != NULL);
+    MA_DR_MP3_ASSERT(pMP3->onRead != NULL);
+    if (bytesToRead == 0) {
+        return 0;
+    }
+    bytesRead = pMP3->onRead(pMP3->pUserData, pBufferOut, bytesToRead);
     pMP3->streamCursor += bytesRead;
     return bytesRead;
+}
+static size_t ma_dr_mp3__on_read_clamped(ma_dr_mp3* pMP3, void* pBufferOut, size_t bytesToRead)
+{
+    MA_DR_MP3_ASSERT(pMP3         != NULL);
+    MA_DR_MP3_ASSERT(pMP3->onRead != NULL);
+    if (pMP3->streamLength == MA_UINT64_MAX) {
+        return ma_dr_mp3__on_read(pMP3, pBufferOut, bytesToRead);
+    } else {
+        ma_uint64 bytesRemaining;
+        bytesRemaining = (pMP3->streamLength - pMP3->streamCursor);
+        if (bytesToRead >         bytesRemaining) {
+            bytesToRead = (size_t)bytesRemaining;
+        }
+        return ma_dr_mp3__on_read(pMP3, pBufferOut, bytesToRead);
+    }
 }
 static ma_bool32 ma_dr_mp3__on_seek(ma_dr_mp3* pMP3, int offset, ma_dr_mp3_seek_origin origin)
 {
     MA_DR_MP3_ASSERT(offset >= 0);
+    MA_DR_MP3_ASSERT(origin == ma_dr_mp3_seek_origin_start || origin == ma_dr_mp3_seek_origin_current);
     if (!pMP3->onSeek(pMP3->pUserData, offset, origin)) {
         return MA_FALSE;
     }
     if (origin == ma_dr_mp3_seek_origin_start) {
         pMP3->streamCursor = (ma_uint64)offset;
-    } else {
+    } else{
         pMP3->streamCursor += offset;
     }
     return MA_TRUE;
@@ -92551,7 +92636,18 @@ static ma_bool32 ma_dr_mp3__on_seek_64(ma_dr_mp3* pMP3, ma_uint64 offset, ma_dr_
     }
     return MA_TRUE;
 }
-static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames)
+static void ma_dr_mp3__on_meta(ma_dr_mp3* pMP3, ma_dr_mp3_metadata_type type, const void* pRawData, size_t rawDataSize)
+{
+    if (pMP3->onMeta) {
+        ma_dr_mp3_metadata metadata;
+        MA_DR_MP3_ZERO_OBJECT(&metadata);
+        metadata.type        = type;
+        metadata.pRawData    = pRawData;
+        metadata.rawDataSize = rawDataSize;
+        pMP3->onMeta(pMP3->pUserDataMeta, &metadata);
+    }
+}
+static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames, ma_dr_mp3dec_frame_info* pMP3FrameInfo, const ma_uint8** ppMP3FrameData)
 {
     ma_uint32 pcmFramesRead = 0;
     MA_DR_MP3_ASSERT(pMP3 != NULL);
@@ -92578,7 +92674,7 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_d
                 pMP3->pData = pNewData;
                 pMP3->dataCapacity = newDataCap;
             }
-            bytesRead = ma_dr_mp3__on_read(pMP3, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
+            bytesRead = ma_dr_mp3__on_read_clamped(pMP3, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
             if (bytesRead == 0) {
                 if (pMP3->dataSize == 0) {
                     pMP3->atEnd = MA_TRUE;
@@ -92597,16 +92693,20 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_d
             return 0;
         }
         pcmFramesRead = ma_dr_mp3dec_decode_frame(&pMP3->decoder, pMP3->pData + pMP3->dataConsumed, (int)pMP3->dataSize, pPCMFrames, &info);
-        if (info.frame_bytes > 0) {
-            pMP3->dataConsumed += (size_t)info.frame_bytes;
-            pMP3->dataSize     -= (size_t)info.frame_bytes;
-        }
+        pMP3->dataConsumed += (size_t)info.frame_bytes;
+        pMP3->dataSize     -= (size_t)info.frame_bytes;
         if (pcmFramesRead > 0) {
             pcmFramesRead = ma_dr_mp3_hdr_frame_samples(pMP3->decoder.header);
             pMP3->pcmFramesConsumedInMP3Frame = 0;
             pMP3->pcmFramesRemainingInMP3Frame = pcmFramesRead;
             pMP3->mp3FrameChannels = info.channels;
-            pMP3->mp3FrameSampleRate = info.hz;
+            pMP3->mp3FrameSampleRate = info.sample_rate;
+            if (pMP3FrameInfo != NULL) {
+                *pMP3FrameInfo = info;
+            }
+            if (ppMP3FrameData != NULL) {
+                *ppMP3FrameData = pMP3->pData + pMP3->dataConsumed - (size_t)info.frame_bytes;
+            }
             break;
         } else if (info.frame_bytes == 0) {
             size_t bytesRead;
@@ -92623,7 +92723,7 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_d
                 pMP3->pData = pNewData;
                 pMP3->dataCapacity = newDataCap;
             }
-            bytesRead = ma_dr_mp3__on_read(pMP3, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
+            bytesRead = ma_dr_mp3__on_read_clamped(pMP3, pMP3->pData + pMP3->dataSize, (pMP3->dataCapacity - pMP3->dataSize));
             if (bytesRead == 0) {
                 pMP3->atEnd = MA_TRUE;
                 return 0;
@@ -92633,7 +92733,7 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__callbacks(ma_dr_mp3* pMP3, ma_d
     };
     return pcmFramesRead;
 }
-static ma_uint32 ma_dr_mp3_decode_next_frame_ex__memory(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames)
+static ma_uint32 ma_dr_mp3_decode_next_frame_ex__memory(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames, ma_dr_mp3dec_frame_info* pMP3FrameInfo, const ma_uint8** ppMP3FrameData)
 {
     ma_uint32 pcmFramesRead = 0;
     ma_dr_mp3dec_frame_info info;
@@ -92649,7 +92749,13 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__memory(ma_dr_mp3* pMP3, ma_dr_m
             pMP3->pcmFramesConsumedInMP3Frame  = 0;
             pMP3->pcmFramesRemainingInMP3Frame = pcmFramesRead;
             pMP3->mp3FrameChannels             = info.channels;
-            pMP3->mp3FrameSampleRate           = info.hz;
+            pMP3->mp3FrameSampleRate           = info.sample_rate;
+            if (pMP3FrameInfo != NULL) {
+                *pMP3FrameInfo = info;
+            }
+            if (ppMP3FrameData != NULL) {
+                *ppMP3FrameData = pMP3->memory.pData + pMP3->memory.currentReadPos;
+            }
             break;
         } else if (info.frame_bytes > 0) {
             pMP3->memory.currentReadPos += (size_t)info.frame_bytes;
@@ -92660,25 +92766,25 @@ static ma_uint32 ma_dr_mp3_decode_next_frame_ex__memory(ma_dr_mp3* pMP3, ma_dr_m
     pMP3->memory.currentReadPos += (size_t)info.frame_bytes;
     return pcmFramesRead;
 }
-static ma_uint32 ma_dr_mp3_decode_next_frame_ex(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames)
+static ma_uint32 ma_dr_mp3_decode_next_frame_ex(ma_dr_mp3* pMP3, ma_dr_mp3d_sample_t* pPCMFrames, ma_dr_mp3dec_frame_info* pMP3FrameInfo, const ma_uint8** ppMP3FrameData)
 {
     if (pMP3->memory.pData != NULL && pMP3->memory.dataSize > 0) {
-        return ma_dr_mp3_decode_next_frame_ex__memory(pMP3, pPCMFrames);
+        return ma_dr_mp3_decode_next_frame_ex__memory(pMP3, pPCMFrames, pMP3FrameInfo, ppMP3FrameData);
     } else {
-        return ma_dr_mp3_decode_next_frame_ex__callbacks(pMP3, pPCMFrames);
+        return ma_dr_mp3_decode_next_frame_ex__callbacks(pMP3, pPCMFrames, pMP3FrameInfo, ppMP3FrameData);
     }
 }
 static ma_uint32 ma_dr_mp3_decode_next_frame(ma_dr_mp3* pMP3)
 {
     MA_DR_MP3_ASSERT(pMP3 != NULL);
-    return ma_dr_mp3_decode_next_frame_ex(pMP3, (ma_dr_mp3d_sample_t*)pMP3->pcmFrames);
+    return ma_dr_mp3_decode_next_frame_ex(pMP3, (ma_dr_mp3d_sample_t*)pMP3->pcmFrames, NULL, NULL);
 }
 #if 0
 static ma_uint32 ma_dr_mp3_seek_next_frame(ma_dr_mp3* pMP3)
 {
     ma_uint32 pcmFrameCount;
     MA_DR_MP3_ASSERT(pMP3 != NULL);
-    pcmFrameCount = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL);
+    pcmFrameCount = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL, NULL, NULL);
     if (pcmFrameCount == 0) {
         return 0;
     }
@@ -92688,33 +92794,241 @@ static ma_uint32 ma_dr_mp3_seek_next_frame(ma_dr_mp3* pMP3)
     return pcmFrameCount;
 }
 #endif
-static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks)
+static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, ma_dr_mp3_meta_proc onMeta, void* pUserData, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks)
 {
+    ma_dr_mp3dec_frame_info firstFrameInfo;
+    const ma_uint8* pFirstFrameData;
+    ma_uint32 firstFramePCMFrameCount;
+    ma_uint32 detectedMP3FrameCount = 0xFFFFFFFF;
     MA_DR_MP3_ASSERT(pMP3 != NULL);
     MA_DR_MP3_ASSERT(onRead != NULL);
     ma_dr_mp3dec_init(&pMP3->decoder);
     pMP3->onRead = onRead;
     pMP3->onSeek = onSeek;
+    pMP3->onMeta = onMeta;
     pMP3->pUserData = pUserData;
+    pMP3->pUserDataMeta = pUserDataMeta;
     pMP3->allocationCallbacks = ma_dr_mp3_copy_allocation_callbacks_or_defaults(pAllocationCallbacks);
     if (pMP3->allocationCallbacks.onFree == NULL || (pMP3->allocationCallbacks.onMalloc == NULL && pMP3->allocationCallbacks.onRealloc == NULL)) {
         return MA_FALSE;
     }
-    if (ma_dr_mp3_decode_next_frame(pMP3) == 0) {
+    pMP3->streamCursor       = 0;
+    pMP3->streamLength       = MA_UINT64_MAX;
+    pMP3->streamStartOffset  = 0;
+    pMP3->delayInPCMFrames   = 0;
+    pMP3->paddingInPCMFrames = 0;
+    pMP3->totalPCMFrameCount = MA_UINT64_MAX;
+    #if 1
+    if (onSeek != NULL && onTell != NULL) {
+        if (onSeek(pUserData, 0, ma_dr_mp3_seek_origin_end)) {
+            ma_int64 streamLen;
+            int streamEndOffset = 0;
+            if (onTell(pUserData, &streamLen)) {
+                if (streamLen > 128) {
+                    char id3[3];
+                    if (onSeek(pUserData, streamEndOffset - 128, ma_dr_mp3_seek_origin_end)) {
+                        if (onRead(pUserData, id3, 3) == 3 && id3[0] == 'T' && id3[1] == 'A' && id3[2] == 'G') {
+                            streamEndOffset -= 128;
+                            streamLen       -= 128;
+                            if (onMeta != NULL) {
+                                ma_uint8 tag[128];
+                                tag[0] = 'T'; tag[1] = 'A'; tag[2] = 'G';
+                                if (onRead(pUserData, tag + 3, 125) == 125) {
+                                    ma_dr_mp3__on_meta(pMP3, MA_DR_MP3_METADATA_TYPE_ID3V1, tag, 128);
+                                }
+                            }
+                        } else {
+                        }
+                    } else {
+                    }
+                } else {
+                }
+                if (streamLen > 32) {
+                    char ape[32];
+                    if (onSeek(pUserData, streamEndOffset - 32, ma_dr_mp3_seek_origin_end)) {
+                        if (onRead(pUserData, ape, 32) == 32 && ape[0] == 'A' && ape[1] == 'P' && ape[2] == 'E' && ape[3] == 'T' && ape[4] == 'A' && ape[5] == 'G' && ape[6] == 'E' && ape[7] == 'X') {
+                            ma_uint32 tagSize =
+                                ((ma_uint32)ape[24] << 0)  |
+                                ((ma_uint32)ape[25] << 8)  |
+                                ((ma_uint32)ape[26] << 16) |
+                                ((ma_uint32)ape[27] << 24);
+                            streamEndOffset -= 32 + tagSize;
+                            streamLen       -= 32 + tagSize;
+                            if (onMeta != NULL) {
+                                if (onSeek(pUserData, streamEndOffset, ma_dr_mp3_seek_origin_end)) {
+                                    size_t apeTagSize = (size_t)tagSize + 32;
+                                    ma_uint8* pTagData = (ma_uint8*)ma_dr_mp3_malloc(apeTagSize, pAllocationCallbacks);
+                                    if (pTagData != NULL) {
+                                        if (onRead(pUserData, pTagData, apeTagSize) == apeTagSize) {
+                                            ma_dr_mp3__on_meta(pMP3, MA_DR_MP3_METADATA_TYPE_APE, pTagData, apeTagSize);
+                                        }
+                                        ma_dr_mp3_free(pTagData, pAllocationCallbacks);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                }
+                if (!onSeek(pUserData, 0, ma_dr_mp3_seek_origin_start)) {
+                    return MA_FALSE;
+                }
+                pMP3->streamLength = (ma_uint64)streamLen;
+                if (pMP3->memory.pData != NULL) {
+                    pMP3->memory.dataSize = pMP3->streamLength;
+                }
+            } else {
+                if (!onSeek(pUserData, 0, ma_dr_mp3_seek_origin_start)) {
+                    return MA_FALSE;
+                }
+            }
+        } else {
+        }
+    } else {
+    }
+    #endif
+    #if 1
+    {
+        char header[10];
+        if (onRead(pUserData, header, 10) == 10) {
+            if (header[0] == 'I' && header[1] == 'D' && header[2] == '3') {
+                ma_uint32 tagSize =
+                    (((ma_uint32)header[6] & 0x7F) << 21) |
+                    (((ma_uint32)header[7] & 0x7F) << 14) |
+                    (((ma_uint32)header[8] & 0x7F) << 7)  |
+                    (((ma_uint32)header[9] & 0x7F) << 0);
+                if (header[5] & 0x10) {
+                    tagSize += 10;
+                }
+                if (onMeta != NULL) {
+                    size_t tagSizeWithHeader = 10 + tagSize;
+                    ma_uint8* pTagData = (ma_uint8*)ma_dr_mp3_malloc(tagSizeWithHeader, pAllocationCallbacks);
+                    if (pTagData != NULL) {
+                        MA_DR_MP3_COPY_MEMORY(pTagData, header, 10);
+                        if (onRead(pUserData, pTagData + 10, tagSize) == tagSize) {
+                            ma_dr_mp3__on_meta(pMP3, MA_DR_MP3_METADATA_TYPE_ID3V2, pTagData, tagSizeWithHeader);
+                        }
+                        ma_dr_mp3_free(pTagData, pAllocationCallbacks);
+                    }
+                } else {
+                    if (onSeek != NULL) {
+                        if (!onSeek(pUserData, tagSize, ma_dr_mp3_seek_origin_current)) {
+                            return MA_FALSE;
+                        }
+                    } else {
+                        char discard[1024];
+                        while (tagSize > 0) {
+                            size_t bytesToRead = tagSize;
+                            if (bytesToRead > sizeof(discard)) {
+                                bytesToRead = sizeof(discard);
+                            }
+                            if (onRead(pUserData, discard, bytesToRead) != bytesToRead) {
+                                return MA_FALSE;
+                            }
+                            tagSize -= (ma_uint32)bytesToRead;
+                        }
+                    }
+                }
+                pMP3->streamStartOffset += 10 + tagSize;
+                pMP3->streamCursor = pMP3->streamStartOffset;
+            } else {
+                if (onSeek != NULL) {
+                    if (!onSeek(pUserData, 0, ma_dr_mp3_seek_origin_start)) {
+                        return MA_FALSE;
+                    }
+                } else {
+                }
+            }
+        } else {
+            return MA_FALSE;
+        }
+    }
+    #endif
+    firstFramePCMFrameCount = ma_dr_mp3_decode_next_frame_ex(pMP3, (ma_dr_mp3d_sample_t*)pMP3->pcmFrames, &firstFrameInfo, &pFirstFrameData);
+    if (firstFramePCMFrameCount > 0) {
+        MA_DR_MP3_ASSERT(pFirstFrameData != NULL);
+        #if 1
+        MA_DR_MP3_ASSERT(firstFrameInfo.frame_bytes > 0);
+        {
+            ma_dr_mp3_bs bs;
+            ma_dr_mp3_L3_gr_info grInfo[4];
+            const ma_uint8* pTagData = pFirstFrameData;
+            ma_dr_mp3_bs_init(&bs, pFirstFrameData + MA_DR_MP3_HDR_SIZE, firstFrameInfo.frame_bytes - MA_DR_MP3_HDR_SIZE);
+            if (MA_DR_MP3_HDR_IS_CRC(pFirstFrameData)) {
+                ma_dr_mp3_bs_get_bits(&bs, 16);
+            }
+            if (ma_dr_mp3_L3_read_side_info(&bs, grInfo, pFirstFrameData) >= 0) {
+                ma_bool32 isXing = MA_FALSE;
+                ma_bool32 isInfo = MA_FALSE;
+                const ma_uint8* pTagDataBeg;
+                pTagDataBeg = pFirstFrameData + MA_DR_MP3_HDR_SIZE + (bs.pos/8);
+                pTagData    = pTagDataBeg;
+                isXing = (pTagData[0] == 'X' && pTagData[1] == 'i' && pTagData[2] == 'n' && pTagData[3] == 'g');
+                isInfo = (pTagData[0] == 'I' && pTagData[1] == 'n' && pTagData[2] == 'f' && pTagData[3] == 'o');
+                if (isXing || isInfo) {
+                    ma_uint32 bytes = 0;
+                    ma_uint32 flags = pTagData[7];
+                    pTagData += 8;
+                    if (flags & 0x01) {
+                        detectedMP3FrameCount = (ma_uint32)pTagData[0] << 24 | (ma_uint32)pTagData[1] << 16 | (ma_uint32)pTagData[2] << 8 | (ma_uint32)pTagData[3];
+                        pTagData += 4;
+                    }
+                    if (flags & 0x02) {
+                        bytes  = (ma_uint32)pTagData[0] << 24 | (ma_uint32)pTagData[1] << 16 | (ma_uint32)pTagData[2] << 8 | (ma_uint32)pTagData[3];
+                        (void)bytes;
+                        pTagData += 4;
+                    }
+                    if (flags & 0x04) {
+                        pTagData += 100;
+                    }
+                    if (flags & 0x08) {
+                        pTagData += 4;
+                    }
+                    if (pTagData[0]) {
+                        pTagData += 21;
+                        if (pTagData - pFirstFrameData + 14 < firstFrameInfo.frame_bytes) {
+                            pMP3->delayInPCMFrames   = (( (ma_uint32)pTagData[0]        << 4) | ((ma_uint32)pTagData[1] >> 4)) + (528 + 1);
+                            pMP3->paddingInPCMFrames = ((((ma_uint32)pTagData[1] & 0xF) << 8) | ((ma_uint32)pTagData[2]     )) - (528 + 1);
+                        }
+                    }
+                    if (isXing) {
+                        pMP3->isVBR = MA_TRUE;
+                    } else if (isInfo) {
+                        pMP3->isCBR = MA_TRUE;
+                    }
+                    if (onMeta != NULL) {
+                        ma_dr_mp3_metadata_type metadataType = isXing ? MA_DR_MP3_METADATA_TYPE_XING : MA_DR_MP3_METADATA_TYPE_VBRI;
+                        size_t tagDataSize;
+                        tagDataSize  = (size_t)firstFrameInfo.frame_bytes;
+                        tagDataSize -= (size_t)(pTagDataBeg - pFirstFrameData);
+                        ma_dr_mp3__on_meta(pMP3, metadataType, pTagDataBeg, tagDataSize);
+                    }
+                    pMP3->pcmFramesRemainingInMP3Frame = 0;
+                    pMP3->streamStartOffset += (ma_uint32)(firstFrameInfo.frame_bytes);
+                    pMP3->streamCursor = pMP3->streamStartOffset;
+                }
+            } else {
+            }
+        }
+        #endif
+    } else {
         ma_dr_mp3__free_from_callbacks(pMP3->pData, &pMP3->allocationCallbacks);
         return MA_FALSE;
+    }
+    if (detectedMP3FrameCount != 0xFFFFFFFF) {
+        pMP3->totalPCMFrameCount = detectedMP3FrameCount * firstFramePCMFrameCount;
     }
     pMP3->channels   = pMP3->mp3FrameChannels;
     pMP3->sampleRate = pMP3->mp3FrameSampleRate;
     return MA_TRUE;
 }
-MA_API ma_bool32 ma_dr_mp3_init(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_bool32 ma_dr_mp3_init(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, ma_dr_mp3_meta_proc onMeta, void* pUserData, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     if (pMP3 == NULL || onRead == NULL) {
         return MA_FALSE;
     }
     MA_DR_MP3_ZERO_OBJECT(pMP3);
-    return ma_dr_mp3_init_internal(pMP3, onRead, onSeek, pUserData, pAllocationCallbacks);
+    return ma_dr_mp3_init_internal(pMP3, onRead, onSeek, onTell, onMeta, pUserData, pUserData, pAllocationCallbacks);
 }
 static size_t ma_dr_mp3__on_read_memory(void* pUserData, void* pBufferOut, size_t bytesToRead)
 {
@@ -92739,25 +93053,42 @@ static ma_bool32 ma_dr_mp3__on_seek_memory(void* pUserData, int byteOffset, ma_d
     if (origin == ma_dr_mp3_seek_origin_current) {
         if (byteOffset > 0) {
             if (pMP3->memory.currentReadPos + byteOffset > pMP3->memory.dataSize) {
-                byteOffset = (int)(pMP3->memory.dataSize - pMP3->memory.currentReadPos);
+                return MA_FALSE;
             }
         } else {
             if (pMP3->memory.currentReadPos < (size_t)-byteOffset) {
-                byteOffset = -(int)pMP3->memory.currentReadPos;
+                return MA_FALSE;
             }
         }
         pMP3->memory.currentReadPos += byteOffset;
-    } else {
+    } else if (origin == ma_dr_mp3_seek_origin_start) {
         if ((ma_uint32)byteOffset <= pMP3->memory.dataSize) {
             pMP3->memory.currentReadPos = byteOffset;
         } else {
-            pMP3->memory.currentReadPos = pMP3->memory.dataSize;
+            return MA_FALSE;
         }
+    } else if (origin == ma_dr_mp3_seek_origin_end) {
+        if (byteOffset > 0) {
+            return MA_FALSE;
+        }
+        if ((size_t)(-byteOffset) > pMP3->memory.dataSize) {
+            return MA_FALSE;
+        }
+        pMP3->memory.currentReadPos = pMP3->memory.dataSize - (size_t)(-byteOffset);
     }
     return MA_TRUE;
 }
-MA_API ma_bool32 ma_dr_mp3_init_memory(ma_dr_mp3* pMP3, const void* pData, size_t dataSize, const ma_allocation_callbacks* pAllocationCallbacks)
+static ma_bool32 ma_dr_mp3__on_tell_memory(void* pUserData, ma_int64* pCursor)
 {
+    ma_dr_mp3* pMP3 = (ma_dr_mp3*)pUserData;
+    MA_DR_MP3_ASSERT(pMP3 != NULL);
+    MA_DR_MP3_ASSERT(pCursor != NULL);
+    *pCursor = (ma_int64)pMP3->memory.currentReadPos;
+    return MA_TRUE;
+}
+MA_API ma_bool32 ma_dr_mp3_init_memory_with_metadata(ma_dr_mp3* pMP3, const void* pData, size_t dataSize, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_bool32 result;
     if (pMP3 == NULL) {
         return MA_FALSE;
     }
@@ -92768,7 +93099,21 @@ MA_API ma_bool32 ma_dr_mp3_init_memory(ma_dr_mp3* pMP3, const void* pData, size_
     pMP3->memory.pData = (const ma_uint8*)pData;
     pMP3->memory.dataSize = dataSize;
     pMP3->memory.currentReadPos = 0;
-    return ma_dr_mp3_init_internal(pMP3, ma_dr_mp3__on_read_memory, ma_dr_mp3__on_seek_memory, pMP3, pAllocationCallbacks);
+    result = ma_dr_mp3_init_internal(pMP3, ma_dr_mp3__on_read_memory, ma_dr_mp3__on_seek_memory, ma_dr_mp3__on_tell_memory, onMeta, pMP3, pUserDataMeta, pAllocationCallbacks);
+    if (result == MA_FALSE) {
+        return MA_FALSE;
+    }
+    if (pMP3->streamLength <= (ma_uint64)MA_SIZE_MAX) {
+        pMP3->memory.dataSize = (size_t)pMP3->streamLength;
+    }
+    if (pMP3->streamStartOffset > (ma_uint64)MA_SIZE_MAX) {
+        return MA_FALSE;
+    }
+    return MA_TRUE;
+}
+MA_API ma_bool32 ma_dr_mp3_init_memory(ma_dr_mp3* pMP3, const void* pData, size_t dataSize, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_dr_mp3_init_memory_with_metadata(pMP3, pData, dataSize, NULL, NULL, pAllocationCallbacks);
 }
 #ifndef MA_DR_MP3_NO_STDIO
 #include <stdio.h>
@@ -92779,35 +93124,75 @@ static size_t ma_dr_mp3__on_read_stdio(void* pUserData, void* pBufferOut, size_t
 }
 static ma_bool32 ma_dr_mp3__on_seek_stdio(void* pUserData, int offset, ma_dr_mp3_seek_origin origin)
 {
-    return fseek((FILE*)pUserData, offset, (origin == ma_dr_mp3_seek_origin_current) ? SEEK_CUR : SEEK_SET) == 0;
+    int whence = SEEK_SET;
+    if (origin == ma_dr_mp3_seek_origin_current) {
+        whence = SEEK_CUR;
+    } else if (origin == ma_dr_mp3_seek_origin_end) {
+        whence = SEEK_END;
+    }
+    return fseek((FILE*)pUserData, offset, whence) == 0;
 }
-MA_API ma_bool32 ma_dr_mp3_init_file(ma_dr_mp3* pMP3, const char* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks)
+static ma_bool32 ma_dr_mp3__on_tell_stdio(void* pUserData, ma_int64* pCursor)
+{
+    FILE* pFileStdio = (FILE*)pUserData;
+    ma_int64 result;
+    MA_DR_MP3_ASSERT(pFileStdio != NULL);
+    MA_DR_MP3_ASSERT(pCursor    != NULL);
+#if defined(_WIN32)
+    #if defined(_MSC_VER) && _MSC_VER > 1200
+        result = _ftelli64(pFileStdio);
+    #else
+        result = ftell(pFileStdio);
+    #endif
+#else
+    result = ftell(pFileStdio);
+#endif
+    *pCursor = result;
+    return MA_TRUE;
+}
+MA_API ma_bool32 ma_dr_mp3_init_file_with_metadata(ma_dr_mp3* pMP3, const char* pFilePath, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_bool32 result;
     FILE* pFile;
+    if (pMP3 == NULL) {
+        return MA_FALSE;
+    }
+    MA_DR_MP3_ZERO_OBJECT(pMP3);
     if (ma_fopen(&pFile, pFilePath, "rb") != MA_SUCCESS) {
         return MA_FALSE;
     }
-    result = ma_dr_mp3_init(pMP3, ma_dr_mp3__on_read_stdio, ma_dr_mp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    result = ma_dr_mp3_init_internal(pMP3, ma_dr_mp3__on_read_stdio, ma_dr_mp3__on_seek_stdio, ma_dr_mp3__on_tell_stdio, onMeta, (void*)pFile, pUserDataMeta, pAllocationCallbacks);
     if (result != MA_TRUE) {
         fclose(pFile);
         return result;
     }
     return MA_TRUE;
 }
-MA_API ma_bool32 ma_dr_mp3_init_file_w(ma_dr_mp3* pMP3, const wchar_t* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_bool32 ma_dr_mp3_init_file_with_metadata_w(ma_dr_mp3* pMP3, const wchar_t* pFilePath, ma_dr_mp3_meta_proc onMeta, void* pUserDataMeta, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_bool32 result;
     FILE* pFile;
+    if (pMP3 == NULL) {
+        return MA_FALSE;
+    }
+    MA_DR_MP3_ZERO_OBJECT(pMP3);
     if (ma_wfopen(&pFile, pFilePath, L"rb", pAllocationCallbacks) != MA_SUCCESS) {
         return MA_FALSE;
     }
-    result = ma_dr_mp3_init(pMP3, ma_dr_mp3__on_read_stdio, ma_dr_mp3__on_seek_stdio, (void*)pFile, pAllocationCallbacks);
+    result = ma_dr_mp3_init_internal(pMP3, ma_dr_mp3__on_read_stdio, ma_dr_mp3__on_seek_stdio, ma_dr_mp3__on_tell_stdio, onMeta, (void*)pFile, pUserDataMeta, pAllocationCallbacks);
     if (result != MA_TRUE) {
         fclose(pFile);
         return result;
     }
     return MA_TRUE;
+}
+MA_API ma_bool32 ma_dr_mp3_init_file(ma_dr_mp3* pMP3, const char* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_dr_mp3_init_file_with_metadata(pMP3, pFilePath, NULL, NULL, pAllocationCallbacks);
+}
+MA_API ma_bool32 ma_dr_mp3_init_file_w(ma_dr_mp3* pMP3, const wchar_t* pFilePath, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    return ma_dr_mp3_init_file_with_metadata_w(pMP3, pFilePath, NULL, NULL, pAllocationCallbacks);
 }
 #endif
 MA_API void ma_dr_mp3_uninit(ma_dr_mp3* pMP3)
@@ -92878,17 +93263,38 @@ static ma_uint64 ma_dr_mp3_read_pcm_frames_raw(ma_dr_mp3* pMP3, ma_uint64 frames
     MA_DR_MP3_ASSERT(pMP3 != NULL);
     MA_DR_MP3_ASSERT(pMP3->onRead != NULL);
     while (framesToRead > 0) {
-        ma_uint32 framesToConsume = (ma_uint32)MA_DR_MP3_MIN(pMP3->pcmFramesRemainingInMP3Frame, framesToRead);
+        ma_uint32 framesToConsume;
+        if (pMP3->currentPCMFrame < pMP3->delayInPCMFrames) {
+            ma_uint32 framesToSkip = (ma_uint32)MA_DR_MP3_MIN(pMP3->pcmFramesRemainingInMP3Frame, pMP3->delayInPCMFrames - pMP3->currentPCMFrame);
+            pMP3->currentPCMFrame              += framesToSkip;
+            pMP3->pcmFramesConsumedInMP3Frame  += framesToSkip;
+            pMP3->pcmFramesRemainingInMP3Frame -= framesToSkip;
+        }
+        framesToConsume = (ma_uint32)MA_DR_MP3_MIN(pMP3->pcmFramesRemainingInMP3Frame, framesToRead);
+        if (pMP3->totalPCMFrameCount != MA_UINT64_MAX && pMP3->totalPCMFrameCount > pMP3->paddingInPCMFrames) {
+            if (pMP3->currentPCMFrame < (pMP3->totalPCMFrameCount - pMP3->paddingInPCMFrames)) {
+                ma_uint64 framesRemainigToPadding = (pMP3->totalPCMFrameCount - pMP3->paddingInPCMFrames) - pMP3->currentPCMFrame;
+                if (framesToConsume >               framesRemainigToPadding) {
+                    framesToConsume = (ma_uint32)framesRemainigToPadding;
+                }
+            } else {
+                break;
+            }
+        }
         if (pBufferOut != NULL) {
-        #if defined(MA_DR_MP3_FLOAT_OUTPUT)
-            float* pFramesOutF32 = (float*)MA_DR_MP3_OFFSET_PTR(pBufferOut,          sizeof(float) * totalFramesRead                   * pMP3->channels);
-            float* pFramesInF32  = (float*)MA_DR_MP3_OFFSET_PTR(&pMP3->pcmFrames[0], sizeof(float) * pMP3->pcmFramesConsumedInMP3Frame * pMP3->mp3FrameChannels);
-            MA_DR_MP3_COPY_MEMORY(pFramesOutF32, pFramesInF32, sizeof(float) * framesToConsume * pMP3->channels);
-        #else
-            ma_int16* pFramesOutS16 = (ma_int16*)MA_DR_MP3_OFFSET_PTR(pBufferOut,          sizeof(ma_int16) * totalFramesRead                   * pMP3->channels);
-            ma_int16* pFramesInS16  = (ma_int16*)MA_DR_MP3_OFFSET_PTR(&pMP3->pcmFrames[0], sizeof(ma_int16) * pMP3->pcmFramesConsumedInMP3Frame * pMP3->mp3FrameChannels);
-            MA_DR_MP3_COPY_MEMORY(pFramesOutS16, pFramesInS16, sizeof(ma_int16) * framesToConsume * pMP3->channels);
-        #endif
+            #if defined(MA_DR_MP3_FLOAT_OUTPUT)
+            {
+                float* pFramesOutF32 = (float*)MA_DR_MP3_OFFSET_PTR(pBufferOut,          sizeof(float) * totalFramesRead                   * pMP3->channels);
+                float* pFramesInF32  = (float*)MA_DR_MP3_OFFSET_PTR(&pMP3->pcmFrames[0], sizeof(float) * pMP3->pcmFramesConsumedInMP3Frame * pMP3->mp3FrameChannels);
+                MA_DR_MP3_COPY_MEMORY(pFramesOutF32, pFramesInF32, sizeof(float) * framesToConsume * pMP3->channels);
+            }
+            #else
+            {
+                ma_int16* pFramesOutS16 = (ma_int16*)MA_DR_MP3_OFFSET_PTR(pBufferOut,          sizeof(ma_int16) * totalFramesRead                   * pMP3->channels);
+                ma_int16* pFramesInS16  = (ma_int16*)MA_DR_MP3_OFFSET_PTR(&pMP3->pcmFrames[0], sizeof(ma_int16) * pMP3->pcmFramesConsumedInMP3Frame * pMP3->mp3FrameChannels);
+                MA_DR_MP3_COPY_MEMORY(pFramesOutS16, pFramesInS16, sizeof(ma_int16) * framesToConsume * pMP3->channels);
+            }
+            #endif
         }
         pMP3->currentPCMFrame              += framesToConsume;
         pMP3->pcmFramesConsumedInMP3Frame  += framesToConsume;
@@ -92896,6 +93302,9 @@ static ma_uint64 ma_dr_mp3_read_pcm_frames_raw(ma_dr_mp3* pMP3, ma_uint64 frames
         totalFramesRead                    += framesToConsume;
         framesToRead                       -= framesToConsume;
         if (framesToRead == 0) {
+            break;
+        }
+        if (pMP3->totalPCMFrameCount != MA_UINT64_MAX && pMP3->totalPCMFrameCount > pMP3->paddingInPCMFrames && pMP3->currentPCMFrame >= (pMP3->totalPCMFrameCount - pMP3->paddingInPCMFrames)) {
             break;
         }
         MA_DR_MP3_ASSERT(pMP3->pcmFramesRemainingInMP3Frame == 0);
@@ -92977,7 +93386,7 @@ static ma_bool32 ma_dr_mp3_seek_to_start_of_stream(ma_dr_mp3* pMP3)
 {
     MA_DR_MP3_ASSERT(pMP3 != NULL);
     MA_DR_MP3_ASSERT(pMP3->onSeek != NULL);
-    if (!ma_dr_mp3__on_seek(pMP3, 0, ma_dr_mp3_seek_origin_start)) {
+    if (!ma_dr_mp3__on_seek_64(pMP3, pMP3->streamStartOffset, ma_dr_mp3_seek_origin_start)) {
         return MA_FALSE;
     }
     ma_dr_mp3_reset(pMP3);
@@ -93054,7 +93463,7 @@ static ma_bool32 ma_dr_mp3_seek_to_pcm_frame__seek_table(ma_dr_mp3* pMP3, ma_uin
         if (iMP3Frame == seekPoint.mp3FramesToDiscard-1) {
             pPCMFrames = (ma_dr_mp3d_sample_t*)pMP3->pcmFrames;
         }
-        pcmFramesRead = ma_dr_mp3_decode_next_frame_ex(pMP3, pPCMFrames);
+        pcmFramesRead = ma_dr_mp3_decode_next_frame_ex(pMP3, pPCMFrames, NULL, NULL);
         if (pcmFramesRead == 0) {
             return MA_FALSE;
         }
@@ -93096,7 +93505,7 @@ MA_API ma_bool32 ma_dr_mp3_get_mp3_and_pcm_frame_count(ma_dr_mp3* pMP3, ma_uint6
     totalMP3FrameCount = 0;
     for (;;) {
         ma_uint32 pcmFramesInCurrentMP3Frame;
-        pcmFramesInCurrentMP3Frame = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL);
+        pcmFramesInCurrentMP3Frame = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL, NULL, NULL);
         if (pcmFramesInCurrentMP3Frame == 0) {
             break;
         }
@@ -93119,11 +93528,18 @@ MA_API ma_bool32 ma_dr_mp3_get_mp3_and_pcm_frame_count(ma_dr_mp3* pMP3, ma_uint6
 }
 MA_API ma_uint64 ma_dr_mp3_get_pcm_frame_count(ma_dr_mp3* pMP3)
 {
-    ma_uint64 totalPCMFrameCount;
-    if (!ma_dr_mp3_get_mp3_and_pcm_frame_count(pMP3, NULL, &totalPCMFrameCount)) {
+    if (pMP3 == NULL) {
         return 0;
     }
-    return totalPCMFrameCount;
+    if (pMP3->totalPCMFrameCount != MA_UINT64_MAX) {
+        return (ma_uint64)pMP3->totalPCMFrameCount - pMP3->paddingInPCMFrames - pMP3->delayInPCMFrames;
+    } else {
+        ma_uint64 totalPCMFrameCount;
+        if (!ma_dr_mp3_get_mp3_and_pcm_frame_count(pMP3, NULL, &totalPCMFrameCount)) {
+            return 0;
+        }
+        return totalPCMFrameCount;
+    }
 }
 MA_API ma_uint64 ma_dr_mp3_get_mp3_frame_count(ma_dr_mp3* pMP3)
 {
@@ -93193,7 +93609,7 @@ MA_API ma_bool32 ma_dr_mp3_calculate_seek_points(ma_dr_mp3* pMP3, ma_uint32* pSe
             MA_DR_MP3_ASSERT(pMP3->streamCursor >= pMP3->dataSize);
             mp3FrameInfo[iMP3Frame].bytePos       = pMP3->streamCursor - pMP3->dataSize;
             mp3FrameInfo[iMP3Frame].pcmFrameIndex = runningPCMFrameCount;
-            pcmFramesInCurrentMP3FrameIn = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL);
+            pcmFramesInCurrentMP3FrameIn = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL, NULL, NULL);
             if (pcmFramesInCurrentMP3FrameIn == 0) {
                 return MA_FALSE;
             }
@@ -93217,7 +93633,7 @@ MA_API ma_bool32 ma_dr_mp3_calculate_seek_points(ma_dr_mp3* pMP3, ma_uint32* pSe
                     }
                     mp3FrameInfo[MA_DR_MP3_COUNTOF(mp3FrameInfo)-1].bytePos       = pMP3->streamCursor - pMP3->dataSize;
                     mp3FrameInfo[MA_DR_MP3_COUNTOF(mp3FrameInfo)-1].pcmFrameIndex = runningPCMFrameCount;
-                    pcmFramesInCurrentMP3FrameIn = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL);
+                    pcmFramesInCurrentMP3FrameIn = ma_dr_mp3_decode_next_frame_ex(pMP3, NULL, NULL, NULL);
                     if (pcmFramesInCurrentMP3FrameIn == 0) {
                         pSeekPoints[iSeekPoint].seekPosInBytes     = mp3FrameInfo[0].bytePos;
                         pSeekPoints[iSeekPoint].pcmFrameIndex      = nextTargetPCMFrame;
@@ -93355,18 +93771,18 @@ static ma_int16* ma_dr_mp3__full_read_and_close_s16(ma_dr_mp3* pMP3, ma_dr_mp3_c
     }
     return pFrames;
 }
-MA_API float* ma_dr_mp3_open_and_read_pcm_frames_f32(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API float* ma_dr_mp3_open_and_read_pcm_frames_f32(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_dr_mp3 mp3;
-    if (!ma_dr_mp3_init(&mp3, onRead, onSeek, pUserData, pAllocationCallbacks)) {
+    if (!ma_dr_mp3_init(&mp3, onRead, onSeek, onTell, NULL, pUserData, pAllocationCallbacks)) {
         return NULL;
     }
     return ma_dr_mp3__full_read_and_close_f32(&mp3, pConfig, pTotalFrameCount);
 }
-MA_API ma_int16* ma_dr_mp3_open_and_read_pcm_frames_s16(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks)
+MA_API ma_int16* ma_dr_mp3_open_and_read_pcm_frames_s16(ma_dr_mp3_read_proc onRead, ma_dr_mp3_seek_proc onSeek, ma_dr_mp3_tell_proc onTell, void* pUserData, ma_dr_mp3_config* pConfig, ma_uint64* pTotalFrameCount, const ma_allocation_callbacks* pAllocationCallbacks)
 {
     ma_dr_mp3 mp3;
-    if (!ma_dr_mp3_init(&mp3, onRead, onSeek, pUserData, pAllocationCallbacks)) {
+    if (!ma_dr_mp3_init(&mp3, onRead, onSeek, onTell, NULL, pUserData, pAllocationCallbacks)) {
         return NULL;
     }
     return ma_dr_mp3__full_read_and_close_s16(&mp3, pConfig, pTotalFrameCount);
