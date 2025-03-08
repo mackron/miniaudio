@@ -92875,7 +92875,7 @@ static ma_bool32 ma_dr_mp3_init_internal(ma_dr_mp3* pMP3, ma_dr_mp3_read_proc on
                 }
                 pMP3->streamLength = (ma_uint64)streamLen;
                 if (pMP3->memory.pData != NULL) {
-                    pMP3->memory.dataSize = pMP3->streamLength;
+                    pMP3->memory.dataSize = (size_t)pMP3->streamLength;
                 }
             } else {
                 if (!onSeek(pUserData, 0, ma_dr_mp3_seek_origin_start)) {
