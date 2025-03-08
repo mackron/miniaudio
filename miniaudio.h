@@ -37850,8 +37850,7 @@ static void ma_stream_error_callback__aaudio(ma_AAudioStream* pStream, void* pUs
     
         if (pStream == pDevice->aaudio.pStreamCapture) {
             job.data.device.aaudio.reroute.deviceType = ma_device_type_capture;
-        }
-        else {
+        } else {
             job.data.device.aaudio.reroute.deviceType = ma_device_type_playback;
         }
     
@@ -38193,8 +38192,9 @@ static ma_result ma_device_uninit__aaudio(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
 
-    /* Note: Closing the streams may cause a timeout error, which would then trigger rerouting in our error callback.
-       We must not schedule a reroute when device is getting destroyed.
+    /*
+    Note: Closing the streams may cause a timeout error, which would then trigger rerouting in our error callback.
+    We must not schedule a reroute when device is getting destroyed.
     */
     ma_atomic_bool32_set(&pDevice->aaudio.isTearingDown, MA_TRUE);
 
