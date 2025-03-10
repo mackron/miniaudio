@@ -6751,7 +6751,8 @@ typedef enum
     ma_device_notification_type_rerouted,
     ma_device_notification_type_interruption_began,
     ma_device_notification_type_interruption_ended,
-    ma_device_notification_type_unlocked
+    ma_device_notification_type_unlocked,
+    ma_device_notification_type_invalidated // Currently implemented only for WASAPI MA_AUDCLNT_E_DEVICE_INVALIDATED
 } ma_device_notification_type;
 
 typedef struct
@@ -18772,6 +18773,11 @@ static void ma_device__on_notification_stopped(ma_device* pDevice)
     ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_stopped));
 }
 
+static void ma_device__on_notification_invalidated(ma_device* pDevice)
+{
+    ma_device__on_notification(ma_device_notification_init(pDevice, ma_device_notification_type_invalidated));
+}
+
 /* Not all platforms support reroute notifications. */
 #if !defined(MA_EMSCRIPTEN)
 static void ma_device__on_notification_rerouted(ma_device* pDevice)
@@ -23438,6 +23444,10 @@ static ma_result ma_device_read__wasapi(ma_device* pDevice, void* pFrames, ma_ui
                     /* An error occurred and we need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from capture device in preparation for reading from the device. HRESULT = %d. Stopping device.\n", (int)hr);
                     result = ma_result_from_HRESULT(hr);
+
+                    if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                        ma_device__on_notification_invalidated(pDevice);
+                    }
                     break;
                 }
             }
@@ -23542,7 +23552,12 @@ static ma_result ma_device_write__wasapi(ma_device* pDevice, const void* pFrames
                 } else {
                     /* Some error occurred. We'll need to abort. */
                     ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to retrieve internal buffer from playback device in preparation for writing to the device. HRESULT = %d. Stopping device.\n", (int)hr);
+
                     result = ma_result_from_HRESULT(hr);
+
+                    if (hr == MA_AUDCLNT_E_DEVICE_INVALIDATED) {
+                        ma_device__on_notification_invalidated(pDevice);
+                    }
                     break;
                 }
             }
