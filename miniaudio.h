@@ -76801,6 +76801,7 @@ MA_API ma_result ma_sound_init_from_file_internal(ma_engine* pEngine, const ma_s
 
         result = ma_resource_manager_data_source_init_ex(pEngine->pResourceManager, &resourceManagerDataSourceConfig, pSound->pResourceManagerDataSource);
         if (result != MA_SUCCESS) {
+            ma_free(pSound->pResourceManagerDataSource, &pEngine->allocationCallbacks);
             goto done;
         }
 
