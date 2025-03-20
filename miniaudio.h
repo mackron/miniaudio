@@ -21602,11 +21602,14 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     over to a single thread to make everything safer, but in the meantime while we wait for that to come online I'm
     happy enough to use this hack instead.
     */
-    ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
+    /* If ma_CoInitializeEx returns an error (such as 0x80010106 (RPC_E_CHANGED_MODE)), it may indicate that COM has already been initialized outside of miniaudio with a different thread concurrency model. 
+    In this case, there is no need to call ma_CoUninitialize.*/
+    HRESULT CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     {
         hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
     }
-    ma_CoUninitialize(pContext);
+    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE)
+    	ma_CoUninitialize(pContext);
 
     if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
@@ -41334,7 +41337,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
     }
 
 #ifdef MA_WIN32
-    if (CoInitializeResult == S_OK) {
+    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
         ma_CoUninitialize(pDevice->pContext);
     }
 #endif
@@ -41359,7 +41362,7 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    if (pContext->win32.CoInitializeResult == S_OK) {
+    if (pContext->win32.CoInitializeResult == S_OK || pContext->win32.CoInitializeResult == S_FALSE) {
         ma_CoUninitialize(pContext);
     }
 
