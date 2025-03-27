@@ -88,7 +88,7 @@ if(MINIAUDIO_FORCE_C89)
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         message(WARNING "MSVC does not support forcing C89. MINIAUDIO_FORCE_C89 ignored.")
     else()
-        message(WARNING "MINIAUDIO_FORCE_C89 is enabled but the compiler does not support it. Ingoring.")
+        message(WARNING "MINIAUDIO_FORCE_C89 is enabled but the compiler does not support it. Ignoring.")
     endif()
 endif()
 
