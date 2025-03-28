@@ -26682,6 +26682,9 @@ typedef snd_pcm_channel_area_t                  ma_snd_pcm_channel_area_t;
 typedef snd_pcm_chmap_t                         ma_snd_pcm_chmap_t;
 typedef snd_pcm_state_t                         ma_snd_pcm_state_t;
 
+/* snd_pcm_state_t */
+#define MA_SND_PCM_STATE_XRUN                   SND_PCM_STATE_XRUN
+
 /* snd_pcm_stream_t */
 #define MA_SND_PCM_STREAM_PLAYBACK              SND_PCM_STREAM_PLAYBACK
 #define MA_SND_PCM_STREAM_CAPTURE               SND_PCM_STREAM_CAPTURE
@@ -26877,6 +26880,7 @@ typedef int                  (* ma_snd_pcm_hw_params_set_channels_minmax_proc) (
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_resample_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val);
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_proc)            (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val, int dir);
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_near_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_set_rate_minmax_proc)     (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *min, int *mindir, unsigned int *max, int *maxdir);
 typedef int                  (* ma_snd_pcm_hw_params_set_buffer_size_near_proc)(ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
 typedef int                  (* ma_snd_pcm_hw_params_set_periods_near_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int                  (* ma_snd_pcm_hw_params_set_access_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t _access);
@@ -28643,8 +28647,9 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
     ma_snd_pcm_hw_params_set_channels_proc         _snd_pcm_hw_params_set_channels         = snd_pcm_hw_params_set_channels;
     ma_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;
+    ma_snd_pcm_hw_params_set_channels_minmax_proc  _snd_pcm_hw_params_set_channels_minmax  = snd_pcm_hw_params_set_channels_minmax;
     ma_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;
-    ma_snd_pcm_hw_params_set_rate_near             _snd_pcm_hw_params_set_rate             = snd_pcm_hw_params_set_rate;
+    ma_snd_pcm_hw_params_set_rate_proc             _snd_pcm_hw_params_set_rate             = snd_pcm_hw_params_set_rate;
     ma_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;
     ma_snd_pcm_hw_params_set_rate_minmax_proc      _snd_pcm_hw_params_set_rate_minmax      = snd_pcm_hw_params_set_rate_minmax;
     ma_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
@@ -28696,9 +28701,9 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
     ma_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
     ma_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
-    ma_snd_pcm_poll_descriptors                    _snd_pcm_poll_descriptors               = snd_pcm_poll_descriptors;
-    ma_snd_pcm_poll_descriptors_count              _snd_pcm_poll_descriptors_count         = snd_pcm_poll_descriptors_count;
-    ma_snd_pcm_poll_descriptors_revents            _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
+    ma_snd_pcm_poll_descriptors_proc               _snd_pcm_poll_descriptors               = snd_pcm_poll_descriptors;
+    ma_snd_pcm_poll_descriptors_count_proc         _snd_pcm_poll_descriptors_count         = snd_pcm_poll_descriptors_count;
+    ma_snd_pcm_poll_descriptors_revents_proc       _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
     ma_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
     pContext->alsa.snd_pcm_open                           = (ma_proc)_snd_pcm_open;
