@@ -56388,11 +56388,17 @@ MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 
     }
 
     /* Null terminate. Don't increment the length here. */
-    if (pBufferOut != NULL && bufferCap > len + 1) {
-        pBufferOut[len] = '\0';
+    if (pBufferOut != NULL) {
+        if (bufferCap > len + 1) {
+            pBufferOut[len] = '\0';
+            return len;
+        } else if (bufferCap > 0) {
+            pBufferOut[bufferCap - 1] = '\0';
+            return bufferCap - 1;
+        }
     }
 
-    return len;
+    return 0;
 }
 
 MA_API const char* ma_channel_position_to_string(ma_channel channel)
