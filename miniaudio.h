@@ -4551,8 +4551,8 @@ MA_API void ma_log_uninit(ma_log* pLog);
 MA_API ma_result ma_log_register_callback(ma_log* pLog, ma_log_callback callback);
 MA_API ma_result ma_log_unregister_callback(ma_log* pLog, ma_log_callback callback);
 MA_API ma_result ma_log_post(ma_log* pLog, ma_uint32 level, const char* pMessage);
-MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, va_list args);
-MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...) MA_ATTRIBUTE_FORMAT(3, 4);
+MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, ...) MA_ATTRIBUTE_FORMAT(3, 4);
+#define ma_log_postf ma_log_postv
 
 
 /**************************************************************************************************************************************************************
@@ -13700,7 +13700,7 @@ static int ma_vscprintf(const ma_allocation_callbacks* pAllocationCallbacks, con
 }
 #endif
 
-MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, va_list args)
+MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat, ...)
 {
     if (pLog == NULL || pFormat == NULL) {
         return MA_INVALID_ARGS;
@@ -13712,9 +13712,12 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         int length;
         char  pFormattedMessageStack[1024];
         char* pFormattedMessageHeap = NULL;
+        va_list args;
 
         /* First try formatting into our fixed sized stack allocated buffer. If this is too small we'll fallback to a heap allocation. */
+        va_start(args, pFormat);
         length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args);
+        va_end(args);
         if (length < 0) {
             return MA_INVALID_OPERATION;    /* An error occurred when trying to convert the buffer. */
         }
@@ -13729,7 +13732,9 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
                 return MA_OUT_OF_MEMORY;
             }
 
+            va_start(args, pFormat);
             length = vsnprintf(pFormattedMessageHeap, length + 1, pFormat, args);
+            va_end(args);
             if (length < 0) {
                 ma_free(pFormattedMessageHeap, &pLog->allocationCallbacks);
                 return MA_INVALID_OPERATION;
@@ -13753,20 +13758,11 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             ma_result result;
             int formattedLen;
             char* pFormattedMessage = NULL;
-            va_list args2;
+            va_list args;
 
-            #if _MSC_VER >= 1800
-            {
-                va_copy(args2, args);
-            }
-            #else
-            {
-                args2 = args;
-            }
-            #endif
-
-            formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
-            va_end(args2);
+            va_start(args, pFormat);
+            formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args);
+            va_end(args);
 
             if (formattedLen <= 0) {
                 return MA_INVALID_OPERATION;
@@ -13778,6 +13774,7 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             }
 
             /* We'll get errors on newer versions of Visual Studio if we try to use vsprintf().  */
+            va_start(args, pFormat);
             #if _MSC_VER >= 1400    /* 1400 = Visual Studio 2005 */
             {
                 vsprintf_s(pFormattedMessage, formattedLen + 1, pFormat, args);
@@ -13787,6 +13784,7 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
                 vsprintf(pFormattedMessage, pFormat, args);
             }
             #endif
+            va_end(args);
 
             result = ma_log_post(pLog, level, pFormattedMessage);
             ma_free(pFormattedMessage, &pLog->allocationCallbacks);
@@ -13804,24 +13802,6 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         #endif
     }
     #endif
-}
-
-MA_API ma_result ma_log_postf(ma_log* pLog, ma_uint32 level, const char* pFormat, ...)
-{
-    ma_result result;
-    va_list args;
-
-    if (pLog == NULL || pFormat == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    va_start(args, pFormat);
-    {
-        result = ma_log_postv(pLog, level, pFormat, args);
-    }
-    va_end(args);
-
-    return result;
 }
 
 
