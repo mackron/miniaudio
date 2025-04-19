@@ -21591,6 +21591,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 {
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr;
+    HRESULT CoInitializeResult;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
@@ -21604,15 +21605,17 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     The community has reported that this seems to fix the crash. There are future plans to move all WASAPI operation
     over to a single thread to make everything safer, but in the meantime while we wait for that to come online I'm
     happy enough to use this hack instead.
+
+    CoUninitialize should only be called if we successfully initialized. S_OK and S_FALSE both mean that we need to
+    call CoUninitialize since the internal ref count was increased. RPC_E_CHANGED_MODE means that CoInitializeEx was
+    called with a different COINIT value, and we don't call CoUninitialize in that case. Other errors are possible,
+    so we check for S_OK and S_FALSE specifically.
     */
-    /* If ma_CoInitializeEx returns an error (such as 0x80010106 (RPC_E_CHANGED_MODE)), it may indicate that COM has already been initialized outside of miniaudio with a different thread concurrency model. 
-    In this case, there is no need to call ma_CoUninitialize.*/
-    HRESULT CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
+    CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     {
         hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    }
-    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE)
-    	ma_CoUninitialize(pContext);
+    }    
+    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) { ma_CoUninitialize(pContext); }
 
     if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
