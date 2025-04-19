@@ -16270,6 +16270,21 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     }
 
     if (result != 0) {
+        /*
+        There have been reports that attempting to create a realtime thread can sometimes fail. In this case,
+        fall back to a normal priority thread.
+
+        I'm including a compile-time option here to disable this functionality for those who have a hard
+        requirement on realtime threads and would rather an explicit failure.
+        */
+        #ifndef MA_NO_PTHREAD_REALTIME_PRIORITY_FALLBACK
+        {
+            if(result == EPERM && priority == ma_thread_priority_realtime) {
+                return ma_thread_create__posix(pThread, ma_thread_priority_normal, stackSize, entryProc, pData);
+            }
+        }
+        #endif
+
         return ma_result_from_errno(result);
     }
 
