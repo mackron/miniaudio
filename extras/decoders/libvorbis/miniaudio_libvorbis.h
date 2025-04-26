@@ -11,7 +11,7 @@ decoding backend. See the custom_decoder example.
 extern "C" {
 #endif
 
-#include <miniaudio.h>
+#include "../../../miniaudio.h"
 
 typedef struct
 {
