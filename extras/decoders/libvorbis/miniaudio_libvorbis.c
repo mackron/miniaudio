@@ -128,6 +128,9 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
         /* Getting here means something other than f32 and s16 was specified. Just leave this unset to use the default format. */
     }
 
+
+    #if !defined(MA_NO_LIBVORBIS)
+    {
     dataSourceConfig = ma_data_source_config_init();
     dataSourceConfig.vtable = &g_ma_libvorbis_ds_vtable;
 
@@ -135,9 +138,6 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
     if (result != MA_SUCCESS) {
         return result;  /* Failed to initialize the base data source. */
     }
-
-    #if !defined(MA_NO_LIBVORBIS)
-    {
         pVorbis->vf = (OggVorbis_File*)ma_malloc(sizeof(OggVorbis_File), pAllocationCallbacks);
         if (pVorbis->vf == NULL) {
             ma_data_source_uninit(&pVorbis->ds);
@@ -160,15 +160,15 @@ MA_API ma_result ma_libvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
     ma_result result;
 
     (void)pAllocationCallbacks; /* Can't seem to find a way to configure memory allocations in libvorbis. */
+    if (onRead == NULL || onSeek == NULL) {
+        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
+    }
     
     result = ma_libvorbis_init_internal(pConfig, pAllocationCallbacks, pVorbis);
     if (result != MA_SUCCESS) {
         return result;
     }
 
-    if (onRead == NULL || onSeek == NULL) {
-        return MA_INVALID_ARGS; /* onRead and onSeek are mandatory. */
-    }
 
     pVorbis->onRead = onRead;
     pVorbis->onSeek = onSeek;
@@ -188,6 +188,8 @@ MA_API ma_result ma_libvorbis_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_
 
         libvorbisResult = ov_open_callbacks(pVorbis, (OggVorbis_File*)pVorbis->vf, NULL, 0, libvorbisCallbacks);
         if (libvorbisResult < 0) {
+    ma_data_source_uninit(&pVorbis->ds);
+    ma_free(pVorbis->vf, pAllocationCallbacks);
             return MA_INVALID_FILE;
         }
 
@@ -218,6 +220,8 @@ MA_API ma_result ma_libvorbis_init_file(const char* pFilePath, const ma_decoding
 
         libvorbisResult = ov_fopen(pFilePath, (OggVorbis_File*)pVorbis->vf);
         if (libvorbisResult < 0) {
+    ma_data_source_uninit(&pVorbis->ds);
+    ma_free(pVorbis->vf, pAllocationCallbacks);
             return MA_INVALID_FILE;
         }
 
@@ -470,6 +474,7 @@ MA_API ma_result ma_libvorbis_get_cursor_in_pcm_frames(ma_libvorbis* pVorbis, ma
 
 MA_API ma_result ma_libvorbis_get_length_in_pcm_frames(ma_libvorbis* pVorbis, ma_uint64* pLength)
 {
+    ogg_int64_t length;
     if (pLength == NULL) {
         return MA_INVALID_ARGS;
     }
@@ -482,9 +487,16 @@ MA_API ma_result ma_libvorbis_get_length_in_pcm_frames(ma_libvorbis* pVorbis, ma
 
     #if !defined(MA_NO_LIBVORBIS)
     {
-        /* I don't know how to reliably retrieve the length in frames using libvorbis, so returning 0 for now. */
-        *pLength = 0;
-
+        /* Will work in the supermajority of cases where a file has a single logical bitstream. Concatenated streams are much harder to determine the length of since they can have sample rate changes, but they should be extremely rair outside of unseekable livestreams anyway. */
+        if(ov_streams((OggVorbis_File *) pVorbis->vf) == 1)
+        {
+            length = ov_pcm_total((OggVorbis_File *) pVorbis->vf, 0);
+            if(length != OV_EINVAL)
+            {
+                *pLength = length;
+            }
+        }
+        /* Else: stream is unseekable or has more than one bitstream, so just return 0. */
         return MA_SUCCESS;
     }
     #else
