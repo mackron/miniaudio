@@ -10492,6 +10492,7 @@ typedef struct
     ma_decoding_backend_vtable** ppCustomDecodingBackendVTables;
     ma_uint32 customDecodingBackendCount;
     void* pCustomDecodingBackendUserData;
+    ma_resampler_config resampling;
 } ma_resource_manager_config;
 
 MA_API ma_resource_manager_config ma_resource_manager_config_init(void);
@@ -68312,6 +68313,7 @@ MA_API ma_resource_manager_config ma_resource_manager_config_init(void)
         config.jobThreadCount = 0;
     }
     #endif
+    config.resampling     = ma_resampler_config_init(ma_format_unknown, 0, 0, 0, ma_resample_algorithm_linear); /* Format/channels/rate doesn't matter here. */
 
     return config;
 }
@@ -68555,6 +68557,7 @@ static ma_decoder_config ma_resource_manager__init_decoder_config(ma_resource_ma
     config.ppCustomBackendVTables = pResourceManager->config.ppCustomDecodingBackendVTables;
     config.customBackendCount     = pResourceManager->config.customDecodingBackendCount;
     config.pCustomBackendUserData = pResourceManager->config.pCustomDecodingBackendUserData;
+    config.resampling = pResourceManager->config.resampling;
 
     return config;
 }
