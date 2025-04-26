@@ -13476,6 +13476,14 @@ static ma_result ma_allocation_callbacks_init_copy(ma_allocation_callbacks* pDst
 Logging
 
 **************************************************************************************************************************************************************/
+#ifndef ma_va_copy
+    #if !defined(_MSC_VER) || _MSC_VER >= 1800
+        #define ma_va_copy(dst, src) va_copy((dst), (src))
+    #else
+        #define ma_va_copy(dst, src) ((dst) = (src))
+    #endif
+#endif
+
 MA_API const char* ma_log_level_to_string(ma_uint32 logLevel)
 {
     switch (logLevel)
@@ -13716,9 +13724,12 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         int length;
         char  pFormattedMessageStack[1024];
         char* pFormattedMessageHeap = NULL;
+        va_list args2;
+
+        ma_va_copy(args2, args);
 
         /* First try formatting into our fixed sized stack allocated buffer. If this is too small we'll fallback to a heap allocation. */
-        length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args);
+        length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args2);
         if (length < 0) {
             return MA_INVALID_OPERATION;    /* An error occurred when trying to convert the buffer. */
         }
@@ -13759,15 +13770,7 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             char* pFormattedMessage = NULL;
             va_list args2;
 
-            #if _MSC_VER >= 1800
-            {
-                va_copy(args2, args);
-            }
-            #else
-            {
-                args2 = args;
-            }
-            #endif
+            ma_va_copy(args2, args);
 
             formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
             va_end(args2);
@@ -16271,6 +16274,21 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
     }
 
     if (result != 0) {
+        /*
+        There have been reports that attempting to create a realtime thread can sometimes fail. In this case,
+        fall back to a normal priority thread.
+
+        I'm including a compile-time option here to disable this functionality for those who have a hard
+        requirement on realtime threads and would rather an explicit failure.
+        */
+        #ifndef MA_NO_PTHREAD_REALTIME_PRIORITY_FALLBACK
+        {
+            if(result == EPERM && priority == ma_thread_priority_realtime) {
+                return ma_thread_create__posix(pThread, ma_thread_priority_normal, stackSize, entryProc, pData);
+            }
+        }
+        #endif
+
         return ma_result_from_errno(result);
     }
 
@@ -21592,6 +21610,7 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
 {
     ma_IMMDeviceEnumerator* pDeviceEnumerator;
     HRESULT hr;
+    HRESULT CoInitializeResult;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
@@ -21605,12 +21624,17 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     The community has reported that this seems to fix the crash. There are future plans to move all WASAPI operation
     over to a single thread to make everything safer, but in the meantime while we wait for that to come online I'm
     happy enough to use this hack instead.
+
+    CoUninitialize should only be called if we successfully initialized. S_OK and S_FALSE both mean that we need to
+    call CoUninitialize since the internal ref count was increased. RPC_E_CHANGED_MODE means that CoInitializeEx was
+    called with a different COINIT value, and we don't call CoUninitialize in that case. Other errors are possible,
+    so we check for S_OK and S_FALSE specifically.
     */
-    ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
+    CoInitializeResult = ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     {
         hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
-    }
-    ma_CoUninitialize(pContext);
+    }    
+    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) { ma_CoUninitialize(pContext); }
 
     if (FAILED(hr)) {   /* <-- This is checking the call above to ma_CoCreateInstance(). */
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
@@ -26683,6 +26707,9 @@ typedef snd_pcm_channel_area_t                  ma_snd_pcm_channel_area_t;
 typedef snd_pcm_chmap_t                         ma_snd_pcm_chmap_t;
 typedef snd_pcm_state_t                         ma_snd_pcm_state_t;
 
+/* snd_pcm_state_t */
+#define MA_SND_PCM_STATE_XRUN                   SND_PCM_STATE_XRUN
+
 /* snd_pcm_stream_t */
 #define MA_SND_PCM_STREAM_PLAYBACK              SND_PCM_STREAM_PLAYBACK
 #define MA_SND_PCM_STREAM_CAPTURE               SND_PCM_STREAM_CAPTURE
@@ -26878,6 +26905,7 @@ typedef int                  (* ma_snd_pcm_hw_params_set_channels_minmax_proc) (
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_resample_proc)   (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val);
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_proc)            (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int val, int dir);
 typedef int                  (* ma_snd_pcm_hw_params_set_rate_near_proc)       (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
+typedef int                  (* ma_snd_pcm_hw_params_set_rate_minmax_proc)     (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *min, int *mindir, unsigned int *max, int *maxdir);
 typedef int                  (* ma_snd_pcm_hw_params_set_buffer_size_near_proc)(ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_uframes_t *val);
 typedef int                  (* ma_snd_pcm_hw_params_set_periods_near_proc)    (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, unsigned int *val, int *dir);
 typedef int                  (* ma_snd_pcm_hw_params_set_access_proc)          (ma_snd_pcm_t *pcm, ma_snd_pcm_hw_params_t *params, ma_snd_pcm_access_t _access);
@@ -28644,8 +28672,9 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_hw_params_get_format_mask_proc      _snd_pcm_hw_params_get_format_mask      = snd_pcm_hw_params_get_format_mask;
     ma_snd_pcm_hw_params_set_channels_proc         _snd_pcm_hw_params_set_channels         = snd_pcm_hw_params_set_channels;
     ma_snd_pcm_hw_params_set_channels_near_proc    _snd_pcm_hw_params_set_channels_near    = snd_pcm_hw_params_set_channels_near;
+    ma_snd_pcm_hw_params_set_channels_minmax_proc  _snd_pcm_hw_params_set_channels_minmax  = snd_pcm_hw_params_set_channels_minmax;
     ma_snd_pcm_hw_params_set_rate_resample_proc    _snd_pcm_hw_params_set_rate_resample    = snd_pcm_hw_params_set_rate_resample;
-    ma_snd_pcm_hw_params_set_rate_near             _snd_pcm_hw_params_set_rate             = snd_pcm_hw_params_set_rate;
+    ma_snd_pcm_hw_params_set_rate_proc             _snd_pcm_hw_params_set_rate             = snd_pcm_hw_params_set_rate;
     ma_snd_pcm_hw_params_set_rate_near_proc        _snd_pcm_hw_params_set_rate_near        = snd_pcm_hw_params_set_rate_near;
     ma_snd_pcm_hw_params_set_rate_minmax_proc      _snd_pcm_hw_params_set_rate_minmax      = snd_pcm_hw_params_set_rate_minmax;
     ma_snd_pcm_hw_params_set_buffer_size_near_proc _snd_pcm_hw_params_set_buffer_size_near = snd_pcm_hw_params_set_buffer_size_near;
@@ -28697,9 +28726,9 @@ static ma_result ma_context_init__alsa(ma_context* pContext, const ma_context_co
     ma_snd_pcm_info_proc                           _snd_pcm_info                           = snd_pcm_info;
     ma_snd_pcm_info_sizeof_proc                    _snd_pcm_info_sizeof                    = snd_pcm_info_sizeof;
     ma_snd_pcm_info_get_name_proc                  _snd_pcm_info_get_name                  = snd_pcm_info_get_name;
-    ma_snd_pcm_poll_descriptors                    _snd_pcm_poll_descriptors               = snd_pcm_poll_descriptors;
-    ma_snd_pcm_poll_descriptors_count              _snd_pcm_poll_descriptors_count         = snd_pcm_poll_descriptors_count;
-    ma_snd_pcm_poll_descriptors_revents            _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
+    ma_snd_pcm_poll_descriptors_proc               _snd_pcm_poll_descriptors               = snd_pcm_poll_descriptors;
+    ma_snd_pcm_poll_descriptors_count_proc         _snd_pcm_poll_descriptors_count         = snd_pcm_poll_descriptors_count;
+    ma_snd_pcm_poll_descriptors_revents_proc       _snd_pcm_poll_descriptors_revents       = snd_pcm_poll_descriptors_revents;
     ma_snd_config_update_free_global_proc          _snd_config_update_free_global          = snd_config_update_free_global;
 
     pContext->alsa.snd_pcm_open                           = (ma_proc)_snd_pcm_open;
@@ -41356,7 +41385,7 @@ static ma_thread_result MA_THREADCALL ma_worker_thread(void* pData)
     }
 
 #ifdef MA_WIN32
-    if (CoInitializeResult == S_OK) {
+    if (CoInitializeResult == S_OK || CoInitializeResult == S_FALSE) {
         ma_CoUninitialize(pDevice->pContext);
     }
 #endif
@@ -41381,7 +41410,7 @@ static ma_result ma_context_uninit_backend_apis__win32(ma_context* pContext)
 {
     /* For some reason UWP complains when CoUninitialize() is called. I'm just not going to call it on UWP. */
 #if defined(MA_WIN32_DESKTOP) || defined(MA_WIN32_GDK)
-    if (pContext->win32.CoInitializeResult == S_OK) {
+    if (pContext->win32.CoInitializeResult == S_OK || pContext->win32.CoInitializeResult == S_FALSE) {
         ma_CoUninitialize(pContext);
     }
 
@@ -56430,8 +56459,12 @@ MA_API size_t ma_channel_map_to_string(const ma_channel* pChannelMap, ma_uint32 
     }
 
     /* Null terminate. Don't increment the length here. */
-    if (pBufferOut != NULL && bufferCap > len + 1) {
-        pBufferOut[len] = '\0';
+    if (pBufferOut != NULL) {
+        if (bufferCap > len) {
+            pBufferOut[len] = '\0';
+        } else if (bufferCap > 0) {
+            pBufferOut[bufferCap - 1] = '\0';
+        }
     }
 
     return len;
@@ -56642,7 +56675,7 @@ MA_API ma_result ma_rb_init_ex(size_t subbufferSizeInBytes, size_t subbufferCoun
         Here is where we allocate our own buffer. We always want to align this to MA_SIMD_ALIGNMENT for future SIMD optimization opportunity. To do this
         we need to make sure the stride is a multiple of MA_SIMD_ALIGNMENT.
         */
-        pRB->subbufferStrideInBytes = (pRB->subbufferSizeInBytes + (MA_SIMD_ALIGNMENT-1)) & ~MA_SIMD_ALIGNMENT;
+        pRB->subbufferStrideInBytes = ma_align(pRB->subbufferSizeInBytes, MA_SIMD_ALIGNMENT);
 
         bufferSizeInBytes = (size_t)pRB->subbufferCount*pRB->subbufferStrideInBytes;
         pRB->pBuffer = ma_aligned_malloc(bufferSizeInBytes, MA_SIMD_ALIGNMENT, &pRB->allocationCallbacks);
