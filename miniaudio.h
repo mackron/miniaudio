@@ -11865,7 +11865,7 @@ static MA_INLINE ma_bool32 ma_has_neon(void)
 #endif
 
 #ifndef MA_RESTRICT
-    #if defined(__clang__) || defined(_MSC_VER) || (defined(__GNUC__) && __GNUC__ >= 2 && __GNUC_MINOR__ >= 95)
+    #if defined(__clang__) || defined(_MSC_VER) || (defined(__GNUC__) && (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 95)))
         #define MA_RESTRICT __restrict
     #else
         #define MA_RESTRICT
