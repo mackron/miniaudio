@@ -13477,7 +13477,11 @@ Logging
 **************************************************************************************************************************************************************/
 #ifndef ma_va_copy
     #if !defined(_MSC_VER) || _MSC_VER >= 1800
-        #define ma_va_copy(dst, src) va_copy((dst), (src))
+        #if (defined(__GNUC__) && __GNUC__ < 3)
+            #define ma_va_copy(dst, src) ((dst) = (src))    /* This is untested. Not sure if this is correct for old GCC. */
+        #else
+            #define ma_va_copy(dst, src) va_copy((dst), (src))
+        #endif
     #else
         #define ma_va_copy(dst, src) ((dst) = (src))
     #endif
