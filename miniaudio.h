@@ -17461,10 +17461,12 @@ static MA_INLINE ma_uint16 ma_job_extract_slot(ma_uint64 toc)
     return (ma_uint16)(toc & 0x0000FFFF);
 }
 
+#if 0   /* Currently unused, but might make use of this later. */
 static MA_INLINE ma_uint16 ma_job_extract_code(ma_uint64 toc)
 {
     return (ma_uint16)((toc & 0xFFFF0000) >> 16);
 }
+#endif
 
 static MA_INLINE ma_uint64 ma_job_toc_to_allocation(ma_uint64 toc)
 {
@@ -67986,6 +67988,7 @@ static MA_INLINE ma_resource_manager_data_buffer_node* ma_resource_manager_data_
     return ma_resource_manager_data_buffer_node_find_min(pDataBufferNode->pChildHi);
 }
 
+#if 0   /* Currently unused, but might make use of this later. */
 static MA_INLINE ma_resource_manager_data_buffer_node* ma_resource_manager_data_buffer_node_find_inorder_predecessor(ma_resource_manager_data_buffer_node* pDataBufferNode)
 {
     MA_ASSERT(pDataBufferNode           != NULL);
@@ -67993,6 +67996,7 @@ static MA_INLINE ma_resource_manager_data_buffer_node* ma_resource_manager_data_
 
     return ma_resource_manager_data_buffer_node_find_max(pDataBufferNode->pChildLo);
 }
+#endif
 
 static ma_result ma_resource_manager_data_buffer_node_remove(ma_resource_manager* pResourceManager, ma_resource_manager_data_buffer_node* pDataBufferNode)
 {
