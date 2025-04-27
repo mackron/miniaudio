@@ -12001,7 +12001,7 @@ static MA_INLINE void ma_yield(void)
             #endif
         #endif
     #else
-        __asm__ __volatile__ ("pause");
+        __asm__ __volatile__ ("rep; nop");
     #endif
 #elif (defined(__arm__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7) || defined(_M_ARM64) || (defined(_M_ARM) && _M_ARM >= 7) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6T2__)
     /* ARM */
