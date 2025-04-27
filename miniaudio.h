@@ -13725,10 +13725,13 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
         char* pFormattedMessageHeap = NULL;
         va_list args2;
 
-        ma_va_copy(args2, args);
-
         /* First try formatting into our fixed sized stack allocated buffer. If this is too small we'll fallback to a heap allocation. */
-        length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args2);
+        ma_va_copy(args2, args);
+        {
+            length = vsnprintf(pFormattedMessageStack, sizeof(pFormattedMessageStack), pFormat, args2);
+        }
+        va_end(args2);
+
         if (length < 0) {
             return MA_INVALID_OPERATION;    /* An error occurred when trying to convert the buffer. */
         }
@@ -13770,8 +13773,9 @@ MA_API ma_result ma_log_postv(ma_log* pLog, ma_uint32 level, const char* pFormat
             va_list args2;
 
             ma_va_copy(args2, args);
-
-            formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
+            {
+                formattedLen = ma_vscprintf(&pLog->allocationCallbacks, pFormat, args2);
+            }
             va_end(args2);
 
             if (formattedLen <= 0) {
