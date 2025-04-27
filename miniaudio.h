@@ -13326,7 +13326,7 @@ MA_API ma_result ma_wfopen(FILE** ppFile, const wchar_t* pFilePath, const wchar_
 
 static MA_INLINE void ma_copy_memory_64(void* dst, const void* src, ma_uint64 sizeInBytes)
 {
-#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
+#if MA_SIZE_MAX > 0xFFFFFFFF
     MA_COPY_MEMORY(dst, src, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
@@ -13346,7 +13346,7 @@ static MA_INLINE void ma_copy_memory_64(void* dst, const void* src, ma_uint64 si
 
 static MA_INLINE void ma_zero_memory_64(void* dst, ma_uint64 sizeInBytes)
 {
-#if 0xFFFFFFFFFFFFFFFF <= MA_SIZE_MAX
+#if MA_SIZE_MAX > 0xFFFFFFFF
     MA_ZERO_MEMORY(dst, (size_t)sizeInBytes);
 #else
     while (sizeInBytes > 0) {
