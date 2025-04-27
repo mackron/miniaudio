@@ -11549,6 +11549,7 @@ IMPLEMENTATION
 #if !defined(MA_WIN32)
 #include <sched.h>
 #include <sys/time.h>   /* select() (used for ma_sleep()). */
+#include <unistd.h>
 #include <pthread.h>
 #endif
 
@@ -16222,9 +16223,18 @@ static ma_result ma_thread_create__posix(ma_thread* pThread, ma_thread_priority 
         }
         #endif
 
-        if (stackSize > 0) {
-            pthread_attr_setstacksize(&attr, stackSize);
+        #if defined(_POSIX_THREAD_ATTR_STACKSIZE) && _POSIX_THREAD_ATTR_STACKSIZE >= 0
+        {
+            if (stackSize > 0) {
+                pthread_attr_setstacksize(&attr, stackSize);
+            }
         }
+        #else
+        {
+            (void)stackSize;  /* Suppress unused parameter warning. */
+        }
+        #endif
+        
 
         if (scheduler != -1) {
             int priorityMin = sched_get_priority_min(scheduler);
@@ -18070,7 +18080,6 @@ DEVICE I/O
 
 #ifdef MA_POSIX
     #include <sys/types.h>
-    #include <unistd.h>
 
     /* No need for dlfcn.h if we're not using runtime linking. */
     #ifndef MA_NO_RUNTIME_LINKING
