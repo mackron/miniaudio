@@ -3969,7 +3969,7 @@ typedef ma_uint16 wchar_t;
         #define MA_NO_INLINE __attribute__((noinline))
     #else
         #define MA_INLINE MA_GNUC_INLINE_HINT
-        #define MA_NO_INLINE __attribute__((noinline))
+        #define MA_NO_INLINE
     #endif
 #elif defined(__WATCOMC__)
     #define MA_INLINE __inline
