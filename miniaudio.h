@@ -13979,7 +13979,7 @@ miniaudio's purposes.
 #define MA_LCG_A   48271
 #define MA_LCG_C   0
 
-static ma_lcg g_maLCG = {MA_DEFAULT_LCG_SEED}; /* Non-zero initial seed. Use ma_seed() to use an explicit seed. */
+static ma_lcg g_maLCG = {MA_DEFAULT_LCG_SEED}; /* Non-zero initial seed. Use ma_lcg_seed() to use an explicit seed. */
 
 static MA_INLINE void ma_lcg_seed(ma_lcg* pLCG, ma_int32 seed)
 {
@@ -14028,7 +14028,7 @@ static MA_INLINE ma_int32 ma_lcg_rand_range_s32(ma_lcg* pLCG, ma_int32 lo, ma_in
 }
 
 
-
+#if 0   /* Currently unused. */
 static MA_INLINE void ma_seed(ma_int32 seed)
 {
     ma_lcg_seed(&g_maLCG, seed);
@@ -14053,6 +14053,7 @@ static MA_INLINE float ma_rand_f32(void)
 {
     return ma_lcg_rand_f32(&g_maLCG);
 }
+#endif
 
 static MA_INLINE float ma_rand_range_f32(float lo, float hi)
 {
