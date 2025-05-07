@@ -528,11 +528,12 @@ if (NOT MINIAUDIO_NO_EXTRA_NODES)
             extras/nodes/ma_${name}_node/ma_${name}_node.c
             extras/nodes/ma_${name}_node/ma_${name}_node.h
         )
-    set(libs "${LIBS_TO_INSTALL}")
+        
+        set(libs "${LIBS_TO_INSTALL}")
 
-    list(APPEND libs miniaudio_${name}_node)
-    set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
-    install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION include/miniaudio/extras/nodes/ma_${name}_node)
+        list(APPEND libs miniaudio_${name}_node)
+        set(LIBS_TO_INSTALL "${libs}" PARENT_SCOPE) # without PARENT_SCOPE, any changes are lost
+        install(FILES extras/nodes/ma_${name}_node/ma_${name}_node.h DESTINATION include/miniaudio/extras/nodes/ma_${name}_node)
 
         target_include_directories(miniaudio_${name}_node PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/nodes/ma_${name}_node)
         target_compile_options    (miniaudio_${name}_node PRIVATE ${COMPILE_OPTIONS})
