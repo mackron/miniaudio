@@ -14113,6 +14113,7 @@ Atomics
 **************************************************************************************************************************************************************/
 /* c89atomic.h begin */
 #ifndef ma_atomic_h
+#define ma_atomic_h
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -14124,11 +14125,40 @@ extern "C" {
     #endif
 #endif
 typedef int ma_atomic_memory_order;
-#define MA_ATOMIC_HAS_8
-#define MA_ATOMIC_HAS_16
-#define MA_ATOMIC_HAS_32
-#define MA_ATOMIC_HAS_64
-#if (defined(_MSC_VER) ) || defined(__WATCOMC__) || defined(__DMC__)
+#if !defined(MA_ATOMIC_MODERN_MSVC) && \
+    !defined(MA_ATOMIC_LEGACY_MSVC) && \
+    !defined(MA_ATOMIC_LEGACY_MSVC_ASM) && \
+    !defined(MA_ATOMIC_MODERN_GCC) && \
+    !defined(MA_ATOMIC_LEGACY_GCC) && \
+    !defined(MA_ATOMIC_LEGACY_GCC_ASM)
+    #if defined(_MSC_VER) || defined(__WATCOMC__) || defined(__DMC__) || defined(__BORLANDC__)
+        #if (defined(_MSC_VER) && _MSC_VER > 1600)
+            #define MA_ATOMIC_MODERN_MSVC
+        #else
+            #if defined(MA_X64)
+                #define MA_ATOMIC_LEGACY_MSVC
+            #else
+                #define MA_ATOMIC_LEGACY_MSVC_ASM
+            #endif
+        #endif
+    #elif (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7))) || defined(__clang__)
+        #define MA_ATOMIC_MODERN_GCC
+    #else
+        #if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1))
+            #define MA_ATOMIC_LEGACY_GCC
+        #else
+            #define MA_ATOMIC_LEGACY_GCC_ASM
+        #endif
+    #endif
+#endif
+#if defined(MA_ATOMIC_MODERN_MSVC) || defined(MA_ATOMIC_LEGACY_MSVC)
+    #include <intrin.h>
+    #define ma_atomic_memory_order_relaxed  1
+    #define ma_atomic_memory_order_consume  2
+    #define ma_atomic_memory_order_acquire  3
+    #define ma_atomic_memory_order_release  4
+    #define ma_atomic_memory_order_acq_rel  5
+    #define ma_atomic_memory_order_seq_cst  6
     #define MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, intrin, ma_atomicType, msvcType)   \
         ma_atomicType result; \
         switch (order) \
@@ -14154,720 +14184,1482 @@ typedef int ma_atomic_memory_order;
             } break; \
         } \
         return result;
-    #define MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, expected, desired, order, intrin, ma_atomicType, msvcType)   \
+    typedef ma_uint32 ma_atomic_flag;
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_test_and_set_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, 1, order, _InterlockedExchange, ma_atomic_flag, long);
+        }
+        #else
+        {
+            (void)order;
+            return (ma_atomic_flag)_InterlockedExchange((volatile long*)dst, (long)1);
+        }
+        #endif
+    }
+    static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, 0, order, _InterlockedExchange, ma_atomic_flag, long);
+        }
+        #else
+        {
+            (void)order;
+            _InterlockedExchange((volatile long*)dst, (long)0);
+        }
+        #endif
+    }
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_load_explicit(volatile const ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        (void)order;
+        return (ma_uint32)_InterlockedCompareExchange((volatile long*)dst, 0, 0);
+    }
+#endif
+#if defined(MA_ATOMIC_LEGACY_MSVC_ASM)
+    #define ma_atomic_memory_order_relaxed  1
+    #define ma_atomic_memory_order_consume  2
+    #define ma_atomic_memory_order_acquire  3
+    #define ma_atomic_memory_order_release  4
+    #define ma_atomic_memory_order_acq_rel  5
+    #define ma_atomic_memory_order_seq_cst  6
+    typedef ma_uint32 ma_atomic_flag;
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_test_and_set_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        ma_atomic_flag result = 0;
+        (void)order;
+        __asm {
+            mov ecx, dst
+            mov eax, 1
+            xchg [ecx], eax
+            mov result, eax
+        }
+        return result;
+    }
+    static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        if (order == ma_atomic_memory_order_relaxed) {
+            __asm {
+                mov esi, dst
+                mov dword ptr [esi], 0
+            }
+        } else {
+            __asm {
+                mov esi, dst
+                mov eax, 0
+                xchg [esi], eax
+            }
+        }
+    }
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_load_explicit(volatile const ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        ma_atomic_flag result = 0;
+        if (order == ma_atomic_memory_order_relaxed) {
+            __asm {
+                mov esi, dst
+                mov eax, [esi]
+                mov result, eax
+            }
+        } else if (order <= ma_atomic_memory_order_release) {
+            __asm {
+                mov esi, dst
+                mov eax, [esi]
+                lock add dword ptr [esp], 0
+                mov result, eax
+            }
+        } else {
+            __asm {
+                lock add dword ptr [esp], 0
+                mov esi, dst
+                mov eax, [esi]
+                mov result, eax
+                lock add dword ptr [esp], 0
+            }
+        }
+        return result;
+    }
+#endif
+#if defined(MA_ATOMIC_MODERN_GCC)
+    #define ma_atomic_memory_order_relaxed                   __ATOMIC_RELAXED
+    #define ma_atomic_memory_order_consume                   __ATOMIC_CONSUME
+    #define ma_atomic_memory_order_acquire                   __ATOMIC_ACQUIRE
+    #define ma_atomic_memory_order_release                   __ATOMIC_RELEASE
+    #define ma_atomic_memory_order_acq_rel                   __ATOMIC_ACQ_REL
+    #define ma_atomic_memory_order_seq_cst                   __ATOMIC_SEQ_CST
+    typedef ma_uint32 ma_atomic_flag;
+    #define ma_atomic_flag_test_and_set_explicit(dst, order) __atomic_exchange_n(dst, 1, order)
+    #define ma_atomic_flag_clear_explicit(dst, order)        __atomic_store_n(dst, 0, order)
+    #define ma_atomic_flag_load_explicit(dst, order)         __atomic_load_n(dst, order)
+#endif
+#if defined(MA_ATOMIC_LEGACY_GCC)
+    #define ma_atomic_memory_order_relaxed  1
+    #define ma_atomic_memory_order_consume  2
+    #define ma_atomic_memory_order_acquire  3
+    #define ma_atomic_memory_order_release  4
+    #define ma_atomic_memory_order_acq_rel  5
+    #define ma_atomic_memory_order_seq_cst  6
+    typedef ma_uint32 ma_atomic_flag;
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_test_and_set_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        if (order > ma_atomic_memory_order_acquire) {
+            __sync_synchronize();
+        }
+        return __sync_lock_test_and_set(dst, 1);
+    }
+    static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        if (order > ma_atomic_memory_order_release) {
+            __sync_synchronize();
+        }
+        __sync_lock_release(dst);
+    }
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_load_explicit(volatile const ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        (void)order;
+        return __sync_val_compare_and_swap((ma_atomic_flag*)dst, 0, 0);
+    }
+#endif
+#if defined(MA_ATOMIC_LEGACY_GCC_ASM)
+    #define ma_atomic_memory_order_relaxed  1
+    #define ma_atomic_memory_order_consume  2
+    #define ma_atomic_memory_order_acquire  3
+    #define ma_atomic_memory_order_release  4
+    #define ma_atomic_memory_order_acq_rel  5
+    #define ma_atomic_memory_order_seq_cst  6
+    #if defined(MA_X86)
+        #define ma_atomic_thread_fence(order) __asm__ __volatile__("lock; addl $0, (%%esp)" ::: "memory")
+    #elif defined(MA_X64)
+        #define ma_atomic_thread_fence(order) __asm__ __volatile__("lock; addq $0, (%%rsp)" ::: "memory")
+    #else
+        #error Unsupported architecture.
+    #endif
+    #define MA_ATOMIC_XCHG_GCC_X86(instructionSizeSuffix, result, dst, src) \
+        __asm__ __volatile__(                    \
+            "xchg"instructionSizeSuffix" %0, %1" \
+            : "=r"(result),              \
+              "=m"(*dst)                 \
+            : "0"(src),                  \
+              "m"(*dst)                  \
+            : "memory"                           \
+        )
+    #define MA_ATOMIC_LOAD_RELAXED_GCC_X86(instructionSizeSuffix, result, dst) \
+        __asm__ __volatile__(                   \
+            "mov"instructionSizeSuffix" %1, %0" \
+            : "=r"(result)              \
+            : "m"(*dst)                 \
+        )
+    #define MA_ATOMIC_LOAD_RELEASE_GCC_X86(instructionSizeSuffix, result, dst) \
+        ma_atomic_thread_fence(ma_atomic_memory_order_release); \
+        __asm__ __volatile__(                   \
+            "mov"instructionSizeSuffix" %1, %0" \
+            : "=r"(result)              \
+            : "m"(*dst)                 \
+            : "memory"                          \
+        )
+    #define MA_ATOMIC_LOAD_SEQ_CST_GCC_X86(instructionSizeSuffix, result, dst) \
+        ma_atomic_thread_fence(ma_atomic_memory_order_seq_cst); \
+        __asm__ __volatile__(                   \
+            "mov"instructionSizeSuffix" %1, %0" \
+            : "=r"(result)              \
+            : "m"(*dst)                 \
+            : "memory"                          \
+        );                                      \
+        ma_atomic_thread_fence(ma_atomic_memory_order_seq_cst)
+    typedef ma_uint32 ma_atomic_flag;
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_test_and_set_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        ma_atomic_flag result;
+        #if defined(MA_X86) || defined(MA_X64)
+        {
+            (void)order;
+            MA_ATOMIC_XCHG_GCC_X86("l", result, dst, 1);
+        }
+        #else
+        {
+            #error Unsupported architecture.
+        }
+        #endif
+        return result;
+    }
+    static MA_INLINE void ma_atomic_flag_clear_explicit(volatile ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_X86) || defined(MA_X64)
+        {
+            if (order == ma_atomic_memory_order_relaxed) {
+                __asm__ __volatile__(
+                    "movl $0, %0"
+                    : "=m"(*dst)
+                );
+            } else if (order == ma_atomic_memory_order_release) {
+                __asm__ __volatile__(
+                    "movl $0, %0"
+                    : "=m"(*dst)
+                    :
+                    : "memory"
+                );
+            } else {
+                ma_atomic_flag tmp = 0;
+                __asm__ __volatile__(
+                    "xchgl %0, %1"
+                    : "=r"(tmp),
+                      "=m"(*dst)
+                    : "0"(tmp),
+                      "m"(*dst)
+                    : "memory"
+                );
+            }
+        }
+        #else
+        {
+            #error Unsupported architecture.
+        }
+        #endif
+    }
+    static MA_INLINE ma_atomic_flag ma_atomic_flag_load_explicit(volatile const ma_atomic_flag* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_X86) || defined(MA_X64)
+        {
+            ma_atomic_flag result;
+            if (order == ma_atomic_memory_order_relaxed) {
+                MA_ATOMIC_LOAD_RELAXED_GCC_X86("l", result, dst);
+            } else if (order <= ma_atomic_memory_order_release) {
+                MA_ATOMIC_LOAD_RELEASE_GCC_X86("l", result, dst);
+            } else {
+                MA_ATOMIC_LOAD_SEQ_CST_GCC_X86("l", result, dst);
+            }
+            return result;
+        }
+        #else
+        {
+            #error Unsupported architecture.
+        }
+        #endif
+    }
+#endif
+#define ma_atomic_flag_test_and_set(dst) ma_atomic_flag_test_and_set_explicit(dst, ma_atomic_memory_order_acquire)
+#define ma_atomic_flag_clear(dst)        ma_atomic_flag_clear_explicit(dst, ma_atomic_memory_order_release)
+typedef ma_atomic_flag ma_atomic_spinlock;
+static MA_INLINE void ma_atomic_spinlock_lock(volatile ma_atomic_spinlock* pSpinlock)
+{
+    for (;;) {
+        if (ma_atomic_flag_test_and_set_explicit(pSpinlock, ma_atomic_memory_order_acquire) == 0) {
+            break;
+        }
+        while (ma_atomic_flag_load_explicit(pSpinlock, ma_atomic_memory_order_relaxed) == 1) {
+        }
+    }
+}
+static MA_INLINE void ma_atomic_spinlock_unlock(volatile ma_atomic_spinlock* pSpinlock)
+{
+    ma_atomic_flag_clear_explicit(pSpinlock, ma_atomic_memory_order_release);
+}
+ma_atomic_spinlock ma_atomic_global_lock;
+#if defined(MA_ATOMIC_MODERN_MSVC) || defined(MA_ATOMIC_LEGACY_MSVC) || defined(MA_ATOMIC_LEGACY_MSVC_ASM) || defined(MA_ATOMIC_LEGACY_GCC) || defined(MA_ATOMIC_LEGACY_GCC_ASM)
+    #if defined(MA_X64) || (defined(MA_X86) && ((defined(__GNUC__) && defined(__i486__)) || (defined(_M_IX86) && _M_IX86 >= 400)))
+        #if defined(MA_ATOMIC_LEGACY_MSVC) && defined(MA_X64)
+        #else
+            #define MA_ATOMIC_IS_LOCK_FREE_8  1
+            #define MA_ATOMIC_IS_LOCK_FREE_16 1
+        #endif
+        #define MA_ATOMIC_IS_LOCK_FREE_32     1
+        #if defined(MA_X64) || (defined(MA_X86) && ((defined(__GNUC__) && defined(__i586__)) || (defined(_M_IX86) && _M_IX86 >= 500)))
+            #define MA_ATOMIC_IS_LOCK_FREE_64 1
+        #else
+        #endif
+    #else
+    #endif
+    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_8(volatile void* ptr)
+    {
+        (void)ptr;
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            return 1;
+        #else
+            return 0;
+        #endif
+    }
+    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_16(volatile void* ptr)
+    {
+        (void)ptr;
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            return 1;
+        #else
+            return 0;
+        #endif
+    }
+    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_32(volatile void* ptr)
+    {
+        (void)ptr;
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            return 1;
+        #else
+            return 0;
+        #endif
+    }
+    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_64(volatile void* ptr)
+    {
+        (void)ptr;
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            return 1;
+        #else
+            return 0;
+        #endif
+    }
+#endif
+#define MA_ATOMIC_COMPARE_AND_SWAP_LOCK(sizeInBits, dst, expected, replacement) \
+    ma_uint##sizeInBits result; \
+    ma_atomic_spinlock_lock(&ma_atomic_global_lock); \
+    { \
+        result = *dst; \
+        if (result == expected) { \
+            *dst = replacement; \
+        } \
+    } \
+    ma_atomic_spinlock_unlock(&ma_atomic_global_lock); \
+    return result
+#define MA_ATOMIC_LOAD_EXPLICIT_LOCK(sizeInBits, ptr, order) \
+    ma_uint##sizeInBits result; \
+    ma_atomic_spinlock_lock(&ma_atomic_global_lock); \
+    { \
+        result = *ptr; \
+        (void)order; \
+    } \
+    ma_atomic_spinlock_unlock(&ma_atomic_global_lock); \
+    return result
+#define MA_ATOMIC_STORE_EXPLICIT_LOCK(sizeInBits, dst, src, order) \
+    ma_atomic_spinlock_lock(&ma_atomic_global_lock); \
+    { \
+        *dst = src; \
+        (void)order; \
+    } \
+    ma_atomic_spinlock_unlock(&ma_atomic_global_lock)
+#define MA_ATOMIC_STORE_EXPLICIT_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, src) != oldValue); \
+    (void)order
+#define MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits result; \
+    ma_atomic_spinlock_lock(&ma_atomic_global_lock); \
+    { \
+        result = *dst; \
+        *dst = src; \
+        (void)order; \
+    } \
+    ma_atomic_spinlock_unlock(&ma_atomic_global_lock); \
+    return result
+#define MA_ATOMIC_EXCHANGE_EXPLICIT_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, src) != oldValue); \
+    (void)order; \
+    return oldValue
+#define MA_ATOMIC_FETCH_ADD_LOCK(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits result; \
+    ma_atomic_spinlock_lock(&ma_atomic_global_lock); \
+    { \
+        result = *dst; \
+        *dst += src; \
+        (void)order; \
+    } \
+    ma_atomic_spinlock_unlock(&ma_atomic_global_lock); \
+    return result
+#define MA_ATOMIC_FETCH_ADD_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    ma_uint##sizeInBits newValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+        newValue = oldValue + src; \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, newValue) != oldValue); \
+    (void)order; \
+    return oldValue
+#define MA_ATOMIC_FETCH_AND_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    ma_uint##sizeInBits newValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+        newValue = (ma_uint##sizeInBits)(oldValue & src); \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, newValue) != oldValue); \
+    (void)order; \
+    return oldValue
+#define MA_ATOMIC_FETCH_OR_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    ma_uint##sizeInBits newValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+        newValue = (ma_uint##sizeInBits)(oldValue | src); \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, newValue) != oldValue); \
+    (void)order; \
+    return oldValue
+#define MA_ATOMIC_FETCH_XOR_CAS(sizeInBits, dst, src, order) \
+    ma_uint##sizeInBits oldValue; \
+    ma_uint##sizeInBits newValue; \
+    do { \
+        oldValue = ma_atomic_load_explicit_##sizeInBits(dst, ma_atomic_memory_order_relaxed); \
+        newValue = (ma_uint##sizeInBits)(oldValue ^ src); \
+    } while (ma_atomic_compare_and_swap_##sizeInBits(dst, oldValue, newValue) != oldValue); \
+    (void)order; \
+    return oldValue
+#if defined(MA_ATOMIC_MODERN_MSVC) || defined(MA_ATOMIC_LEGACY_MSVC)
+    #define MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, expected, replacement, order, intrin, ma_atomicType, msvcType)   \
         ma_atomicType result; \
         switch (order) \
         { \
             case ma_atomic_memory_order_relaxed: \
             { \
-                result = (ma_atomicType)intrin##_nf((volatile msvcType*)ptr, (msvcType)expected, (msvcType)desired); \
+                result = (ma_atomicType)intrin##_nf((volatile msvcType*)ptr, (msvcType)expected, (msvcType)replacement); \
             } break; \
             case ma_atomic_memory_order_consume: \
             case ma_atomic_memory_order_acquire: \
             { \
-                result = (ma_atomicType)intrin##_acq((volatile msvcType*)ptr, (msvcType)expected, (msvcType)desired); \
+                result = (ma_atomicType)intrin##_acq((volatile msvcType*)ptr, (msvcType)expected, (msvcType)replacement); \
             } break; \
             case ma_atomic_memory_order_release: \
             { \
-                result = (ma_atomicType)intrin##_rel((volatile msvcType*)ptr, (msvcType)expected, (msvcType)desired); \
+                result = (ma_atomicType)intrin##_rel((volatile msvcType*)ptr, (msvcType)expected, (msvcType)replacement); \
             } break; \
             case ma_atomic_memory_order_acq_rel: \
             case ma_atomic_memory_order_seq_cst: \
             default: \
             { \
-                result = (ma_atomicType)intrin((volatile msvcType*)ptr, (msvcType)expected, (msvcType)desired); \
+                result = (ma_atomicType)intrin((volatile msvcType*)ptr, (msvcType)expected, (msvcType)replacement); \
             } break; \
         } \
         return result;
-    #define ma_atomic_memory_order_relaxed  0
-    #define ma_atomic_memory_order_consume  1
-    #define ma_atomic_memory_order_acquire  2
-    #define ma_atomic_memory_order_release  3
-    #define ma_atomic_memory_order_acq_rel  4
-    #define ma_atomic_memory_order_seq_cst  5
-    #if _MSC_VER < 1600 && defined(MA_X86)
-        #define MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY
-    #endif
-    #if _MSC_VER < 1600
-        #undef MA_ATOMIC_HAS_8
-        #undef MA_ATOMIC_HAS_16
-    #endif
-    #if !defined(MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
-        #include <intrin.h>
-    #endif
-    #if defined(MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
-        #if defined(MA_ATOMIC_HAS_8)
-            static MA_INLINE ma_uint8 __stdcall ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 desired)
-            {
-                ma_uint8 result = 0;
-                __asm {
-                    mov ecx, dst
-                    mov al,  expected
-                    mov dl,  desired
-                    lock cmpxchg [ecx], dl
-                    mov result, al
-                }
-                return result;
-            }
-        #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            static MA_INLINE ma_uint16 __stdcall ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 desired)
-            {
-                ma_uint16 result = 0;
-                __asm {
-                    mov ecx, dst
-                    mov ax,  expected
-                    mov dx,  desired
-                    lock cmpxchg [ecx], dx
-                    mov result, ax
-                }
-                return result;
-            }
-        #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            static MA_INLINE ma_uint32 __stdcall ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 desired)
-            {
-                ma_uint32 result = 0;
-                __asm {
-                    mov ecx, dst
-                    mov eax, expected
-                    mov edx, desired
-                    lock cmpxchg [ecx], edx
-                    mov result, eax
-                }
-                return result;
-            }
-        #endif
-        #if defined(MA_ATOMIC_HAS_64)
-            static MA_INLINE ma_uint64 __stdcall ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
-            {
-                ma_uint32 resultEAX = 0;
-                ma_uint32 resultEDX = 0;
-                __asm {
-                    mov esi, dst
-                    mov eax, dword ptr expected
-                    mov edx, dword ptr expected + 4
-                    mov ebx, dword ptr desired
-                    mov ecx, dword ptr desired + 4
-                    lock cmpxchg8b qword ptr [esi]
-                    mov resultEAX, eax
-                    mov resultEDX, edx
-                }
-                return ((ma_uint64)resultEDX << 32) | resultEAX;
-            }
-        #endif
+    #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        #define ma_atomic_compare_and_swap_8( dst, expected, replacement) (ma_uint8 )_InterlockedCompareExchange8((volatile char*)dst, (char)replacement, (char)expected)
     #else
-        #if defined(MA_ATOMIC_HAS_8)
-            #define ma_atomic_compare_and_swap_8( dst, expected, desired) (ma_uint8 )_InterlockedCompareExchange8((volatile char*)dst, (char)desired, (char)expected)
-        #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            #define ma_atomic_compare_and_swap_16(dst, expected, desired) (ma_uint16)_InterlockedCompareExchange16((volatile short*)dst, (short)desired, (short)expected)
-        #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            #define ma_atomic_compare_and_swap_32(dst, expected, desired) (ma_uint32)_InterlockedCompareExchange((volatile long*)dst, (long)desired, (long)expected)
-        #endif
-        #if defined(MA_ATOMIC_HAS_64)
-            #define ma_atomic_compare_and_swap_64(dst, expected, desired) (ma_uint64)_InterlockedCompareExchange64((volatile ma_int64*)dst, (ma_int64)desired, (ma_int64)expected)
-        #endif
+        static MA_INLINE ma_uint8 __stdcall ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 replacement)
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(8, dst, expected, replacement);
+        }
     #endif
-    #if defined(MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
-        #if defined(MA_ATOMIC_HAS_8)
-            static MA_INLINE ma_uint8 __stdcall ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-            {
-                ma_uint8 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov al,  src
-                    lock xchg [ecx], al
-                    mov result, al
-                }
-                return result;
-            }
-        #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            static MA_INLINE ma_uint16 __stdcall ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
-            {
-                ma_uint16 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov ax,  src
-                    lock xchg [ecx], ax
-                    mov result, ax
-                }
-                return result;
-            }
-        #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            static MA_INLINE ma_uint32 __stdcall ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-            {
-                ma_uint32 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov eax, src
-                    lock xchg [ecx], eax
-                    mov result, eax
-                }
-                return result;
-            }
-        #endif
+    #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        #define ma_atomic_compare_and_swap_16(dst, expected, replacement) (ma_uint16)_InterlockedCompareExchange16((volatile short*)dst, (short)replacement, (short)expected)
     #else
-        #if defined(MA_ATOMIC_HAS_8)
-            static MA_INLINE ma_uint8 __stdcall ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-            {
+        static MA_INLINE ma_uint16 __stdcall ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement)
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(16, dst, expected, replacement);
+        }
+    #endif
+    #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        #define ma_atomic_compare_and_swap_32(dst, expected, replacement) (ma_uint32)_InterlockedCompareExchange((volatile long*)dst, (long)replacement, (long)expected)
+    #else
+        static MA_INLINE ma_uint32 __stdcall ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement)
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(32, dst, expected, replacement);
+        }
+    #endif
+    #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        #define ma_atomic_compare_and_swap_64(dst, expected, replacement) (ma_uint64)_InterlockedCompareExchange64((volatile ma_int64*)dst, (ma_int64)replacement, (ma_int64)expected)
+    #else
+        static MA_INLINE ma_uint64 __stdcall ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement)
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(64, dst, expected, replacement);
+        }
+    #endif
+    static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* ptr, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
             #if defined(MA_ARM)
-                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange8, ma_uint8, char);
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange8, ma_uint8, char);
+            }
             #else
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_8((volatile ma_uint8*)ptr, 0, 0);
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(8, ptr, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* ptr, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
+            #if defined(MA_ARM)
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange16, ma_uint16, short);
+            }
+            #else
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_16((volatile ma_uint16*)ptr, 0, 0);
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(16, ptr, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* ptr, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
+            #if defined(MA_ARM)
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange, ma_uint32, long);
+            }
+            #else
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_32((volatile ma_uint32*)ptr, 0, 0);
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(32, ptr, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* ptr, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
+            #if defined(MA_ARM)
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange64, ma_uint64, long long);
+            }
+            #else
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_64((volatile ma_uint64*)ptr, 0, 0);
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(64, ptr, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
+            #if defined(MA_ARM)
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange8, ma_uint8, char);
+            }
+            #else
+            {
                 (void)order;
                 return (ma_uint8)_InterlockedExchange8((volatile char*)dst, (char)src);
-            #endif
             }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(8, dst, src, order);
+        }
         #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            static MA_INLINE ma_uint16 __stdcall ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
-            {
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
             #if defined(MA_ARM)
+            {
                 MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange16, ma_uint16, short);
+            }
             #else
+            {
                 (void)order;
                 return (ma_uint16)_InterlockedExchange16((volatile short*)dst, (short)src);
-            #endif
             }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(16, dst, src, order);
+        }
         #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            static MA_INLINE ma_uint32 __stdcall ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-            {
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
             #if defined(MA_ARM)
+            {
                 MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange, ma_uint32, long);
+            }
             #else
+            {
                 (void)order;
                 return (ma_uint32)_InterlockedExchange((volatile long*)dst, (long)src);
-            #endif
             }
-        #endif
-        #if defined(MA_ATOMIC_HAS_64) && defined(MA_64BIT)
-            static MA_INLINE ma_uint64 __stdcall ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
-            {
-            #if defined(MA_ARM)
-                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange64, ma_uint64, long long);
-            #else
-                (void)order;
-                return (ma_uint64)_InterlockedExchange64((volatile long long*)dst, (long long)src);
             #endif
-            }
-        #else
-        #endif
-    #endif
-    #if defined(MA_ATOMIC_HAS_64) && !defined(MA_64BIT)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
-        {
-            ma_uint64 oldValue;
-            do {
-                oldValue = *dst;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, src) != oldValue);
-            (void)order;
-            return oldValue;
         }
-    #endif
-    #if defined(MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
-        #if defined(MA_ATOMIC_HAS_8)
-            static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-            {
-                ma_uint8 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov al,  src
-                    lock xadd [ecx], al
-                    mov result, al
-                }
-                return result;
-            }
+        #else
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(32, dst, src, order);
+        }
         #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+        {
+            #if defined(MA_32BIT)
             {
-                ma_uint16 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov ax,  src
-                    lock xadd [ecx], ax
-                    mov result, ax
-                }
-                return result;
+                MA_ATOMIC_EXCHANGE_EXPLICIT_CAS(64, dst, src, order);
             }
-        #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-            {
-                ma_uint32 result = 0;
-                (void)order;
-                __asm {
-                    mov ecx, dst
-                    mov eax, src
-                    lock xadd [ecx], eax
-                    mov result, eax
-                }
-                return result;
-            }
-        #endif
-    #else
-        #if defined(MA_ATOMIC_HAS_8)
-            static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-            {
-            #if defined(MA_ARM)
-                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd8, ma_uint8, char);
             #else
+            {
+                #if defined(MA_ARM)
+                {
+                    MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchange64, ma_uint64, long long);
+                }
+                #else
+                {
+                    (void)order;
+                    return (ma_uint64)_InterlockedExchange64((volatile long long*)dst, (long long)src);
+                }
+                #endif
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
+            #if defined(MA_ARM)
+            {
+                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd8, ma_uint8, char);
+            }
+            #else
+            {
                 (void)order;
                 return (ma_uint8)_InterlockedExchangeAdd8((volatile char*)dst, (char)src);
-            #endif
             }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_ADD_LOCK(8, dst, src, order);
+        }
         #endif
-        #if defined(MA_ATOMIC_HAS_16)
-            static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
-            {
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
             #if defined(MA_ARM)
+            {
                 MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd16, ma_uint16, short);
+            }
             #else
+            {
                 (void)order;
                 return (ma_uint16)_InterlockedExchangeAdd16((volatile short*)dst, (short)src);
-            #endif
             }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_ADD_LOCK(16, dst, src, order);
+        }
         #endif
-        #if defined(MA_ATOMIC_HAS_32)
-            static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-            {
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
             #if defined(MA_ARM)
+            {
                 MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd, ma_uint32, long);
+            }
             #else
+            {
                 (void)order;
                 return (ma_uint32)_InterlockedExchangeAdd((volatile long*)dst, (long)src);
-            #endif
             }
-        #endif
-        #if defined(MA_ATOMIC_HAS_64) && defined(MA_64BIT)
-            static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
-            {
-            #if defined(MA_ARM)
-                MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd64, ma_uint64, long long);
-            #else
-                (void)order;
-                return (ma_uint64)_InterlockedExchangeAdd64((volatile long long*)dst, (long long)src);
             #endif
-            }
+        }
         #else
-        #endif
-    #endif
-    #if defined(MA_ATOMIC_HAS_64) && !defined(MA_64BIT)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue + src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_ADD_LOCK(32, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+        {
+            #if defined(MA_32BIT)
+            {
+                MA_ATOMIC_FETCH_ADD_CAS(64, dst, src, order);
+            }
+            #else
+            {
+                #if defined(MA_ARM)
+                {
+                    MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedExchangeAdd64, ma_uint64, long long);
+                }
+                #else
+                {
+                    (void)order;
+                    return (ma_uint64)_InterlockedExchangeAdd64((volatile long long*)dst, (long long)src);
+                }
+                #endif
+            }
+            #endif
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_ADD_LOCK(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_sub_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        return ma_atomic_fetch_add_explicit_8(dst, (ma_uint8)(-(ma_int8)src), order);
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_sub_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        return ma_atomic_fetch_add_explicit_16(dst, (ma_uint16)(-(ma_int16)src), order);
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_sub_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        return ma_atomic_fetch_add_explicit_32(dst, (ma_uint32)(-(ma_int32)src), order);
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_sub_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        return ma_atomic_fetch_add_explicit_64(dst, (ma_uint64)(-(ma_int64)src), order);
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd8, ma_uint8, char);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_AND_CAS(8, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd16, ma_uint16, short);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_AND_CAS(16, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd, ma_uint32, long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_AND_CAS(32, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd64, ma_uint64, long long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_AND_CAS(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr8, ma_uint8, char);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_OR_CAS(8, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_or_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr16, ma_uint16, short);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_OR_CAS(16, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_or_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr, ma_uint32, long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_OR_CAS(32, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_or_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr64, ma_uint64, long long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_OR_CAS(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor8, ma_uint8, char);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(8, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor16, ma_uint16, short);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(16, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor, ma_uint32, long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(32, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ARM)
+        {
+            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor64, ma_uint64, long long);
+        }
+        #else
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(64, dst, src, order);
+        }
+        #endif
+    }
+    #define ma_atomic_store_explicit_8( dst, src, order) (void)ma_atomic_exchange_explicit_8 (dst, src, order)
+    #define ma_atomic_store_explicit_16(dst, src, order) (void)ma_atomic_exchange_explicit_16(dst, src, order)
+    #define ma_atomic_store_explicit_32(dst, src, order) (void)ma_atomic_exchange_explicit_32(dst, src, order)
+    #define ma_atomic_store_explicit_64(dst, src, order) (void)ma_atomic_exchange_explicit_64(dst, src, order)
+    #if defined(MA_X64)
+        #define ma_atomic_thread_fence(order)   __faststorefence(), (void)order
+    #elif defined(MA_ARM64)
+        #define ma_atomic_thread_fence(order)   __dmb(_ARM64_BARRIER_ISH), (void)order
+    #else
+        static MA_INLINE void ma_atomic_thread_fence(ma_atomic_memory_order order)
+        {
+            volatile ma_uint32 barrier = 0;
+            ma_atomic_fetch_add_explicit_32(&barrier, 0, order);
         }
     #endif
-    #if defined(MA_ATOMIC_MSVC_USE_INLINED_ASSEMBLY)
-        static MA_INLINE void __stdcall ma_atomic_thread_fence(ma_atomic_memory_order order)
+    #define ma_atomic_signal_fence(order)   _ReadWriteBarrier(), (void)order
+#endif
+#if defined(MA_ATOMIC_LEGACY_MSVC_ASM)
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 replacement)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
         {
+            ma_uint8 result = 0;
+            __asm {
+                mov ecx, dst
+                mov al,  expected
+                mov dl,  replacement
+                lock cmpxchg [ecx], dl
+                mov result, al
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(8, dst, expected, replacement);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
+            ma_uint16 result = 0;
+            __asm {
+                mov ecx, dst
+                mov ax,  expected
+                mov dx,  replacement
+                lock cmpxchg [ecx], dx
+                mov result, ax
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(16, dst, expected, replacement);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
+            ma_uint32 result = 0;
+            __asm {
+                mov ecx, dst
+                mov eax, expected
+                mov edx, replacement
+                lock cmpxchg [ecx], edx
+                mov result, eax
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(32, dst, expected, replacement);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+        {
+            ma_uint32 resultEAX = 0;
+            ma_uint32 resultEDX = 0;
+            __asm {
+                mov esi, dst
+                mov eax, dword ptr expected
+                mov edx, dword ptr expected + 4
+                mov ebx, dword ptr replacement
+                mov ecx, dword ptr replacement + 4
+                lock cmpxchg8b qword ptr [esi]
+                mov resultEAX, eax
+                mov resultEDX, edx
+            }
+            return ((ma_uint64)resultEDX << 32) | resultEAX;
+        }
+        #else
+        {
+            MA_ATOMIC_COMPARE_AND_SWAP_LOCK(64, dst, expected, replacement);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
+            ma_uint8 result = 0;
+            if (order == ma_atomic_memory_order_relaxed) {
+                __asm {
+                    mov esi, dst
+                    mov al, [esi]
+                    mov result, al
+                }
+            } else if (order <= ma_atomic_memory_order_release) {
+                __asm {
+                    mov esi, dst
+                    mov al, [esi]
+                    lock add dword ptr [esp], 0
+                    mov result, al
+                }
+            } else {
+                __asm {
+                    lock add dword ptr [esp], 0
+                    mov esi, dst
+                    mov al, [esi]
+                    mov result, al
+                    lock add dword ptr [esp], 0
+                }
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(8, dst, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
+            ma_uint16 result = 0;
+            if (order == ma_atomic_memory_order_relaxed) {
+                __asm {
+                    mov esi, dst
+                    mov ax, [esi]
+                    mov result, ax
+                }
+            } else if (order <= ma_atomic_memory_order_release) {
+                __asm {
+                    mov esi, dst
+                    mov ax, [esi]
+                    lock add dword ptr [esp], 0
+                    mov result, ax
+                }
+            } else {
+                __asm {
+                    lock add dword ptr [esp], 0
+                    mov esi, dst
+                    mov ax, [esi]
+                    mov result, ax
+                    lock add dword ptr [esp], 0
+                }
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(16, dst, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* dst, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
+            ma_uint32 result = 0;
+            if (order == ma_atomic_memory_order_relaxed) {
+                __asm {
+                    mov esi, dst
+                    mov eax, [esi]
+                    mov result, eax
+                }
+            } else if (order <= ma_atomic_memory_order_release) {
+                __asm {
+                    mov esi, dst
+                    mov eax, [esi]
+                    lock add dword ptr [esp], 0
+                    mov result, eax
+                }
+            } else {
+                __asm {
+                    lock add dword ptr [esp], 0
+                    mov esi, dst
+                    mov eax, [esi]
+                    mov result, eax
+                    lock add dword ptr [esp], 0
+                }
+            }
+            return result;
+        }
+        #else
+        {
+            MA_ATOMIC_LOAD_EXPLICIT_LOCK(32, dst, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* dst, ma_atomic_memory_order order)
+    {
+        (void)order;
+        return ma_atomic_compare_and_swap_64((volatile ma_uint64*)dst, 0, 0);
+    }
+    static MA_INLINE void __stdcall ma_atomic_store_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        if (order == ma_atomic_memory_order_relaxed) {
+            __asm {
+                mov esi, dst
+                mov al, src
+                mov [esi], al
+            }
+        } else {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                __asm {
+                    mov esi, dst
+                    mov al, src
+                    xchg [esi], al
+                }
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(8, dst, src, order);
+            }
+            #endif
+        }
+    }
+    static MA_INLINE void __stdcall ma_atomic_store_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        if (order == ma_atomic_memory_order_relaxed) {
+            __asm {
+                mov esi, dst
+                mov ax, src
+                mov [esi], ax
+            }
+        } else {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                __asm {
+                    mov esi, dst
+                    mov ax, src
+                    xchg [esi], ax
+                }
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(16, dst, src, order);
+            }
+            #endif
+        }
+    }
+    static MA_INLINE void __stdcall ma_atomic_store_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        if (order == ma_atomic_memory_order_relaxed) {
+            __asm {
+                mov esi, dst
+                mov eax, src
+                mov [esi], eax
+            }
+        } else {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                __asm {
+                    mov esi, dst
+                    mov eax, src
+                    xchg [esi], eax
+                }
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(32, dst, src, order);
+            }
+            #endif
+        }
+    }
+    static MA_INLINE void __stdcall ma_atomic_store_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+        {
+            MA_ATOMIC_STORE_EXPLICIT_CAS(64, dst, src, order);
+        }
+        #else
+        {
+            MA_ATOMIC_STORE_EXPLICIT_LOCK(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
+            ma_uint8 result = 0;
             (void)order;
             __asm {
-                lock add [esp], 0
+                mov ecx, dst
+                mov al,  src
+                lock xchg [ecx], al
+                mov result, al
             }
+            return result;
         }
-    #else
-        #if defined(MA_X64)
-            #define ma_atomic_thread_fence(order)   __faststorefence(), (void)order
-        #elif defined(MA_ARM64)
-            #define ma_atomic_thread_fence(order)   __dmb(_ARM64_BARRIER_ISH), (void)order
         #else
-            static MA_INLINE void ma_atomic_thread_fence(ma_atomic_memory_order order)
-            {
-                volatile ma_uint32 barrier = 0;
-                ma_atomic_fetch_add_explicit_32(&barrier, 0, order);
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(8, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+        {
+            ma_uint16 result = 0;
+            (void)order;
+            __asm {
+                mov ecx, dst
+                mov ax,  src
+                lock xchg [ecx], ax
+                mov result, ax
             }
-        #endif
-    #endif
-    #define ma_atomic_compiler_fence()      ma_atomic_thread_fence(ma_atomic_memory_order_seq_cst)
-    #define ma_atomic_signal_fence(order)   ma_atomic_thread_fence(order)
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* ptr, ma_atomic_memory_order order)
-        {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange8, ma_uint8, char);
+            return result;
+        }
         #else
-            (void)order;
-            return ma_atomic_compare_and_swap_8((volatile ma_uint8*)ptr, 0, 0);
-        #endif
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* ptr, ma_atomic_memory_order order)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange16, ma_uint16, short);
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(16, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+        {
+            ma_uint32 result = 0;
+            (void)order;
+            __asm {
+                mov ecx, dst
+                mov eax, src
+                xchg [ecx], eax
+                mov result, eax
+            }
+            return result;
+        }
         #else
-            (void)order;
-            return ma_atomic_compare_and_swap_16((volatile ma_uint16*)ptr, 0, 0);
-        #endif
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* ptr, ma_atomic_memory_order order)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange, ma_uint32, long);
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(32, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+        {
+            MA_ATOMIC_EXCHANGE_EXPLICIT_CAS(64, dst, src, order);
+        }
         #else
-            (void)order;
-            return ma_atomic_compare_and_swap_32((volatile ma_uint32*)ptr, 0, 0);
-        #endif
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* ptr, ma_atomic_memory_order order)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC_COMPARE_EXCHANGE(ptr, 0, 0, order, _InterlockedCompareExchange64, ma_uint64, long long);
+            MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(64, dst, src, order);
+        }
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+        {
+            ma_uint8 result = 0;
+            (void)order;
+            __asm {
+                mov ecx, dst
+                mov al,  src
+                lock xadd [ecx], al
+                mov result, al
+            }
+            return result;
+        }
         #else
-            (void)order;
-            return ma_atomic_compare_and_swap_64((volatile ma_uint64*)ptr, 0, 0);
+        {
+            MA_ATOMIC_FETCH_ADD_LOCK(8, dst, src, order);
+        }
         #endif
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        #define ma_atomic_store_explicit_8( dst, src, order) (void)ma_atomic_exchange_explicit_8 (dst, src, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        #define ma_atomic_store_explicit_16(dst, src, order) (void)ma_atomic_exchange_explicit_16(dst, src, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        #define ma_atomic_store_explicit_32(dst, src, order) (void)ma_atomic_exchange_explicit_32(dst, src, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        #define ma_atomic_store_explicit_64(dst, src, order) (void)ma_atomic_exchange_explicit_64(dst, src, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_sub_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
         {
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue - src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+            ma_uint16 result = 0;
             (void)order;
-            return oldValue;
+            __asm {
+                mov ecx, dst
+                mov ax,  src
+                lock xadd [ecx], ax
+                mov result, ax
+            }
+            return result;
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_sub_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
-        {
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue - src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_sub_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-        {
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue - src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_sub_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
-        {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue - src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-        {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd8, ma_uint8, char);
         #else
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue & src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd16, ma_uint16, short);
-        #else
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue & src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(16, dst, src, order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd, ma_uint32, long);
-        #else
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue & src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+            ma_uint32 result = 0;
             (void)order;
-            return oldValue;
-        #endif
+            __asm {
+                mov ecx, dst
+                mov eax, src
+                lock xadd [ecx], eax
+                mov result, eax
+            }
+            return result;
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        #else
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedAnd64, ma_uint64, long long);
-        #else
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue & src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(32, dst, src, order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor8, ma_uint8, char);
-        #else
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue ^ src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_CAS(64, dst, src, order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        #else
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor16, ma_uint16, short);
-        #else
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue ^ src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(64, dst, src, order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        #endif
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_sub_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor, ma_uint32, long);
-        #else
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue ^ src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+            ma_uint8 result = 0;
             (void)order;
-            return oldValue;
-        #endif
+            __asm {
+                mov ecx, dst
+                mov al,  src
+                neg al
+                lock xadd [ecx], al
+                mov result, al
+            }
+            return result;
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        #else
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedXor64, ma_uint64, long long);
-        #else
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue ^ src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(8, dst, (ma_uint8)(-(ma_int8)src), order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+        #endif
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_sub_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr8, ma_uint8, char);
-        #else
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue | src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
+            ma_uint16 result = 0;
             (void)order;
-            return oldValue;
-        #endif
+            __asm {
+                mov ecx, dst
+                mov ax,  src
+                neg ax
+                lock xadd [ecx], ax
+                mov result, ax
+            }
+            return result;
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_or_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        #else
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr16, ma_uint16, short);
-        #else
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue | src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(16, dst, (ma_uint16)(-(ma_int16)src), order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_or_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        #endif
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_sub_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr, ma_uint32, long);
-        #else
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue | src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
+            ma_uint32 result = 0;
             (void)order;
-            return oldValue;
-        #endif
+            __asm {
+                mov ecx, dst
+                mov eax, src
+                neg eax
+                lock xadd [ecx], eax
+                mov result, eax
+            }
+            return result;
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_or_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        #else
         {
-        #if defined(MA_ARM)
-            MA_ATOMIC_MSVC_ARM_INTRINSIC(dst, src, order, _InterlockedOr64, ma_uint64, long long);
-        #else
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue | src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        #endif
+            MA_ATOMIC_FETCH_ADD_LOCK(32, dst, (ma_uint32)(-(ma_int32)src), order);
         }
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        #define ma_atomic_test_and_set_explicit_8( dst, order) ma_atomic_exchange_explicit_8 (dst, 1, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        #define ma_atomic_test_and_set_explicit_16(dst, order) ma_atomic_exchange_explicit_16(dst, 1, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        #define ma_atomic_test_and_set_explicit_32(dst, order) ma_atomic_exchange_explicit_32(dst, 1, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        #define ma_atomic_test_and_set_explicit_64(dst, order) ma_atomic_exchange_explicit_64(dst, 1, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        #define ma_atomic_clear_explicit_8( dst, order) ma_atomic_store_explicit_8 (dst, 0, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        #define ma_atomic_clear_explicit_16(dst, order) ma_atomic_store_explicit_16(dst, 0, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        #define ma_atomic_clear_explicit_32(dst, order) ma_atomic_store_explicit_32(dst, 0, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        #define ma_atomic_clear_explicit_64(dst, order) ma_atomic_store_explicit_64(dst, 0, order)
-    #endif
-    #if defined(MA_ATOMIC_HAS_8)
-        typedef ma_uint8 ma_atomic_flag;
-        #define ma_atomic_flag_test_and_set_explicit(ptr, order)    (ma_bool32)ma_atomic_test_and_set_explicit_8(ptr, order)
-        #define ma_atomic_flag_clear_explicit(ptr, order)           ma_atomic_clear_explicit_8(ptr, order)
-        #define ma_atomic_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_8(ptr, order)
-    #else
-        typedef ma_uint32 ma_atomic_flag;
-        #define ma_atomic_flag_test_and_set_explicit(ptr, order)    (ma_bool32)ma_atomic_test_and_set_explicit_32(ptr, order)
-        #define ma_atomic_flag_clear_explicit(ptr, order)           ma_atomic_clear_explicit_32(ptr, order)
-        #define ma_atomic_flag_load_explicit(ptr, order)            ma_atomic_load_explicit_32(ptr, order)
-    #endif
-#elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7)))
+        #endif
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_sub_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_ADD_CAS(64, dst, (ma_uint64)(-(ma_int64)src), order);
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_AND_CAS(8, dst, src, order);
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_AND_CAS(16, dst, src, order);
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_AND_CAS(32, dst, src, order);
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_AND_CAS(64, dst, src, order);
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_OR_CAS(8, dst, src, order);
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_or_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_OR_CAS(16, dst, src, order);
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_or_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_OR_CAS(32, dst, src, order);
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_or_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_OR_CAS(64, dst, src, order);
+    }
+    static MA_INLINE ma_uint8 __stdcall ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_XOR_CAS(8, dst, src, order);
+    }
+    static MA_INLINE ma_uint16 __stdcall ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_XOR_CAS(16, dst, src, order);
+    }
+    static MA_INLINE ma_uint32 __stdcall ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_XOR_CAS(32, dst, src, order);
+    }
+    static MA_INLINE ma_uint64 __stdcall ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+    {
+        MA_ATOMIC_FETCH_XOR_CAS(64, dst, src, order);
+    }
+    static MA_INLINE void __stdcall ma_atomic_thread_fence(ma_atomic_memory_order order)
+    {
+        (void)order;
+        __asm {
+            lock add dword ptr [esp], 0
+        }
+    }
+    #define ma_atomic_signal_fence(order) __asm {}; (void)order
+#endif
+#if defined(MA_ATOMIC_MODERN_GCC)
     #define MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE
-    #define MA_ATOMIC_HAS_NATIVE_IS_LOCK_FREE
-    #define ma_atomic_memory_order_relaxed                          __ATOMIC_RELAXED
-    #define ma_atomic_memory_order_consume                          __ATOMIC_CONSUME
-    #define ma_atomic_memory_order_acquire                          __ATOMIC_ACQUIRE
-    #define ma_atomic_memory_order_release                          __ATOMIC_RELEASE
-    #define ma_atomic_memory_order_acq_rel                          __ATOMIC_ACQ_REL
-    #define ma_atomic_memory_order_seq_cst                          __ATOMIC_SEQ_CST
-    #define ma_atomic_compiler_fence()                              __asm__ __volatile__("":::"memory")
     #define ma_atomic_thread_fence(order)                           __atomic_thread_fence(order)
     #define ma_atomic_signal_fence(order)                           __atomic_signal_fence(order)
     #define ma_atomic_is_lock_free_8(ptr)                           __atomic_is_lock_free(1, ptr)
     #define ma_atomic_is_lock_free_16(ptr)                          __atomic_is_lock_free(2, ptr)
     #define ma_atomic_is_lock_free_32(ptr)                          __atomic_is_lock_free(4, ptr)
     #define ma_atomic_is_lock_free_64(ptr)                          __atomic_is_lock_free(8, ptr)
-    #define ma_atomic_test_and_set_explicit_8( dst, order)          __atomic_exchange_n(dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_16(dst, order)          __atomic_exchange_n(dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_32(dst, order)          __atomic_exchange_n(dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_64(dst, order)          __atomic_exchange_n(dst, 1, order)
-    #define ma_atomic_clear_explicit_8( dst, order)                 __atomic_store_n(dst, 0, order)
-    #define ma_atomic_clear_explicit_16(dst, order)                 __atomic_store_n(dst, 0, order)
-    #define ma_atomic_clear_explicit_32(dst, order)                 __atomic_store_n(dst, 0, order)
-    #define ma_atomic_clear_explicit_64(dst, order)                 __atomic_store_n(dst, 0, order)
     #define ma_atomic_store_explicit_8( dst, src, order)            __atomic_store_n(dst, src, order)
     #define ma_atomic_store_explicit_16(dst, src, order)            __atomic_store_n(dst, src, order)
     #define ma_atomic_store_explicit_32(dst, src, order)            __atomic_store_n(dst, src, order)
@@ -14880,14 +15672,14 @@ typedef int ma_atomic_memory_order;
     #define ma_atomic_exchange_explicit_16(dst, src, order)         __atomic_exchange_n(dst, src, order)
     #define ma_atomic_exchange_explicit_32(dst, src, order)         __atomic_exchange_n(dst, src, order)
     #define ma_atomic_exchange_explicit_64(dst, src, order)         __atomic_exchange_n(dst, src, order)
-    #define ma_atomic_compare_exchange_strong_explicit_8( dst, expected, desired, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, desired, 0, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_strong_explicit_16(dst, expected, desired, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, desired, 0, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_strong_explicit_32(dst, expected, desired, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, desired, 0, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_strong_explicit_64(dst, expected, desired, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, desired, 0, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_8( dst, expected, desired, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, desired, 1, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_16(dst, expected, desired, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, desired, 1, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_32(dst, expected, desired, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, desired, 1, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_64(dst, expected, desired, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, desired, 1, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_strong_explicit_8( dst, expected, replacement, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, replacement, 0, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_strong_explicit_16(dst, expected, replacement, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, replacement, 0, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_strong_explicit_32(dst, expected, replacement, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, replacement, 0, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_strong_explicit_64(dst, expected, replacement, successOrder, failureOrder)   __atomic_compare_exchange_n(dst, expected, replacement, 0, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_8( dst, expected, replacement, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, replacement, 1, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_16(dst, expected, replacement, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, replacement, 1, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_32(dst, expected, replacement, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, replacement, 1, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_64(dst, expected, replacement, successOrder, failureOrder)     __atomic_compare_exchange_n(dst, expected, replacement, 1, successOrder, failureOrder)
     #define ma_atomic_fetch_add_explicit_8( dst, src, order)        __atomic_fetch_add(dst, src, order)
     #define ma_atomic_fetch_add_explicit_16(dst, src, order)        __atomic_fetch_add(dst, src, order)
     #define ma_atomic_fetch_add_explicit_32(dst, src, order)        __atomic_fetch_add(dst, src, order)
@@ -14908,19 +15700,19 @@ typedef int ma_atomic_memory_order;
     #define ma_atomic_fetch_and_explicit_16(dst, src, order)        __atomic_fetch_and(dst, src, order)
     #define ma_atomic_fetch_and_explicit_32(dst, src, order)        __atomic_fetch_and(dst, src, order)
     #define ma_atomic_fetch_and_explicit_64(dst, src, order)        __atomic_fetch_and(dst, src, order)
-    static MA_INLINE ma_uint8 ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 desired)
+    static MA_INLINE ma_uint8 ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 replacement)
     {
-        __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        __atomic_compare_exchange_n(dst, &expected, replacement, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
-    static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 desired)
+    static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement)
     {
-        __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        __atomic_compare_exchange_n(dst, &expected, replacement, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
-    static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 desired)
+    static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement)
     {
-        __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        __atomic_compare_exchange_n(dst, &expected, replacement, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
     #if defined(__clang__)
@@ -14929,28 +15721,43 @@ typedef int ma_atomic_memory_order;
             #pragma clang diagnostic ignored "-Watomic-alignment"
         #endif
     #endif
-    static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+    static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement)
     {
-        __atomic_compare_exchange_n(dst, &expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        __atomic_compare_exchange_n(dst, &expected, replacement, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         return expected;
     }
     #if defined(__clang__)
         #pragma clang diagnostic pop
     #endif
-    typedef ma_uint8 ma_atomic_flag;
-    #define ma_atomic_flag_test_and_set_explicit(dst, order)        (ma_bool32)__atomic_test_and_set(dst, order)
-    #define ma_atomic_flag_clear_explicit(dst, order)               __atomic_clear(dst, order)
-    #define ma_atomic_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
-#else
-    #define ma_atomic_memory_order_relaxed  1
-    #define ma_atomic_memory_order_consume  2
-    #define ma_atomic_memory_order_acquire  3
-    #define ma_atomic_memory_order_release  4
-    #define ma_atomic_memory_order_acq_rel  5
-    #define ma_atomic_memory_order_seq_cst  6
-    #define ma_atomic_compiler_fence() __asm__ __volatile__("":::"memory")
-    #if defined(__GNUC__)
+#endif
+#if defined(MA_ATOMIC_LEGACY_GCC) || defined(MA_ATOMIC_LEGACY_GCC_ASM)
+    #define ma_atomic_signal_fence(order)   __asm__ __volatile__("":::"memory")
+    #if defined(MA_ATOMIC_LEGACY_GCC)
         #define ma_atomic_thread_fence(order) __sync_synchronize(), (void)order
+        #define ma_atomic_compare_and_swap_8( dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
+        #define ma_atomic_compare_and_swap_16(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
+        #define ma_atomic_compare_and_swap_32(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
+        #define ma_atomic_compare_and_swap_64(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
+        static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* ptr, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return ma_atomic_compare_and_swap_8((ma_uint8*)ptr, 0, 0);
+        }
+        static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* ptr, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return ma_atomic_compare_and_swap_16((ma_uint16*)ptr, 0, 0);
+        }
+        static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* ptr, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return ma_atomic_compare_and_swap_32((ma_uint32*)ptr, 0, 0);
+        }
+        static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* ptr, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return ma_atomic_compare_and_swap_64((ma_uint64*)ptr, 0, 0);
+        }
         static MA_INLINE ma_uint8 ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
             if (order > ma_atomic_memory_order_acquire) {
@@ -14960,31 +15767,29 @@ typedef int ma_atomic_memory_order;
         }
         static MA_INLINE ma_uint16 ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 oldValue;
-            do {
-                oldValue = *dst;
-            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
-            (void)order;
-            return oldValue;
+            if (order > ma_atomic_memory_order_acquire) {
+                __sync_synchronize();
+            }
+            return __sync_lock_test_and_set(dst, src);
         }
         static MA_INLINE ma_uint32 ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 oldValue;
-            do {
-                oldValue = *dst;
-            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
-            (void)order;
-            return oldValue;
+            if (order > ma_atomic_memory_order_acquire) {
+                __sync_synchronize();
+            }
+            return __sync_lock_test_and_set(dst, src);
         }
         static MA_INLINE ma_uint64 ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 oldValue;
-            do {
-                oldValue = *dst;
-            } while (__sync_val_compare_and_swap(dst, oldValue, src) != oldValue);
-            (void)order;
-            return oldValue;
+            if (order > ma_atomic_memory_order_acquire) {
+                __sync_synchronize();
+            }
+            return __sync_lock_test_and_set(dst, src);
         }
+        #define ma_atomic_store_explicit_8( dst, src, order) (void)ma_atomic_exchange_explicit_8 (dst, src, order)
+        #define ma_atomic_store_explicit_16(dst, src, order) (void)ma_atomic_exchange_explicit_16(dst, src, order)
+        #define ma_atomic_store_explicit_32(dst, src, order) (void)ma_atomic_exchange_explicit_32(dst, src, order)
+        #define ma_atomic_store_explicit_64(dst, src, order) (void)ma_atomic_exchange_explicit_64(dst, src, order)
         static MA_INLINE ma_uint8 ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
             (void)order;
@@ -15024,6 +15829,26 @@ typedef int ma_atomic_memory_order;
         {
             (void)order;
             return __sync_fetch_and_sub(dst, src);
+        }
+        static MA_INLINE ma_uint8 ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return __sync_fetch_and_and(dst, src);
+        }
+        static MA_INLINE ma_uint16 ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return __sync_fetch_and_and(dst, src);
+        }
+        static MA_INLINE ma_uint32 ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return __sync_fetch_and_and(dst, src);
+        }
+        static MA_INLINE ma_uint64 ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        {
+            (void)order;
+            return __sync_fetch_and_and(dst, src);
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
@@ -15065,500 +15890,697 @@ typedef int ma_atomic_memory_order;
             (void)order;
             return __sync_fetch_and_xor(dst, src);
         }
-        static MA_INLINE ma_uint8 ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+    #elif defined(MA_ATOMIC_LEGACY_GCC_ASM)
+        #define MA_ATOMIC_CMPXCHG_GCC_X86(instructionSizeSuffix, result, dst, expected, replacement) \
+            __asm__ __volatile__(                             \
+                "lock; cmpxchg"instructionSizeSuffix" %2, %1" \
+                : "=a"(result),                       \
+                  "=m"(*dst)                          \
+                : "r"(replacement),                   \
+                  "0"(expected),                      \
+                  "m"(*dst)                           \
+                : "cc", "memory")
+        #define MA_ATOMIC_XADD_GCC_X86(instructionSizeSuffix, result, dst, src) \
+            __asm__ __volatile__(        \
+                "lock; xadd"instructionSizeSuffix" %0, %1"      \
+                : "=a"(result),  \
+                  "=m"(*dst)     \
+                : "0"(src),      \
+                  "m"(*dst)      \
+                : "cc", "memory")
+        static MA_INLINE ma_uint8 ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 replacement)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint8 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_CMPXCHG_GCC_X86("b", result, dst, expected, replacement);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(8, dst, expected, replacement);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint16 ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint16 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_CMPXCHG_GCC_X86("w", result, dst, expected, replacement);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(16, dst, expected, replacement);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint32 ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint32 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_CMPXCHG_GCC_X86("l", result, dst, expected, replacement);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(32, dst, expected, replacement);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint64 ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint64 result;
+                #if defined(MA_X86)
+                {
+                    ma_uint32 resultEAX;
+                    ma_uint32 resultEDX;
+                    __asm__ __volatile__(
+                        "pushl %%ebx\n"
+                        "movl  %4, %%ebx\n"
+                        "lock  cmpxchg8b (%%edi)\n"
+                        "popl  %%ebx\n"
+                        : "=a"(resultEAX),
+                          "=d"(resultEDX)
+                        : "a"((ma_uint32)(expected & 0xFFFFFFFF)),
+                          "d"((ma_uint32)(expected >> 32)),
+                          "r"((ma_uint32)(replacement & 0xFFFFFFFF)),
+                          "c"((ma_uint32)(replacement >> 32)),
+                          "D"(dst)
+                        : "memory", "cc");
+                    result = ((ma_uint64)resultEDX << 32) | resultEAX;
+                }
+                #elif defined(MA_X64)
+                {
+                    MA_ATOMIC_CMPXCHG_GCC_X86("q", result, dst, expected, replacement);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(64, dst, expected, replacement);
+            }
+            #endif
         }
-        #define ma_atomic_compare_and_swap_8( dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-        #define ma_atomic_compare_and_swap_16(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-        #define ma_atomic_compare_and_swap_32(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-        #define ma_atomic_compare_and_swap_64(dst, expected, desired)   __sync_val_compare_and_swap(dst, expected, desired)
-    #else
-        #if defined(MA_X86)
-            #define ma_atomic_thread_fence(order) __asm__ __volatile__("lock; addl $0, (%%esp)" ::: "memory", "cc")
-        #elif defined(MA_X64)
-            #define ma_atomic_thread_fence(order) __asm__ __volatile__("lock; addq $0, (%%rsp)" ::: "memory", "cc")
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-        static MA_INLINE ma_uint8 ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 desired)
+        static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* dst, ma_atomic_memory_order order)
         {
-            ma_uint8 result;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint8 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        MA_ATOMIC_LOAD_RELAXED_GCC_X86("b", result, dst);
+                    } else if (order <= ma_atomic_memory_order_release) {
+                        MA_ATOMIC_LOAD_RELEASE_GCC_X86("b", result, dst);
+                    } else {
+                        MA_ATOMIC_LOAD_SEQ_CST_GCC_X86("b", result, dst);
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(8, dst, order);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 desired)
+        static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* dst, ma_atomic_memory_order order)
         {
-            ma_uint16 result;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint16 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        MA_ATOMIC_LOAD_RELAXED_GCC_X86("w", result, dst);
+                    } else if (order <= ma_atomic_memory_order_release) {
+                        MA_ATOMIC_LOAD_RELEASE_GCC_X86("w", result, dst);
+                    } else {
+                        MA_ATOMIC_LOAD_SEQ_CST_GCC_X86("w", result, dst);
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(16, dst, order);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 desired)
+        static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* dst, ma_atomic_memory_order order)
         {
-            ma_uint32 result;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint32 result;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        MA_ATOMIC_LOAD_RELAXED_GCC_X86("l", result, dst);
+                    } else if (order <= ma_atomic_memory_order_release) {
+                        MA_ATOMIC_LOAD_RELEASE_GCC_X86("l", result, dst);
+                    } else {
+                        MA_ATOMIC_LOAD_SEQ_CST_GCC_X86("l", result, dst);
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(32, dst, order);
+            }
+            #endif
         }
-        static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 desired)
+        static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* dst, ma_atomic_memory_order order)
         {
-            volatile ma_uint64 result;
-        #if defined(MA_X86)
-            ma_uint32 resultEAX;
-            ma_uint32 resultEDX;
-            __asm__ __volatile__("push %%ebx; xchg %5, %%ebx; lock; cmpxchg8b %0; pop %%ebx" : "+m"(*dst), "=a"(resultEAX), "=d"(resultEDX) : "a"(expected & 0xFFFFFFFF), "d"(expected >> 32), "r"(desired & 0xFFFFFFFF), "c"(desired >> 32) : "cc");
-            result = ((ma_uint64)resultEDX << 32) | resultEAX;
-        #elif defined(MA_X64)
-            __asm__ __volatile__("lock; cmpxchg %3, %0" : "+m"(*dst), "=a"(result) : "a"(expected), "d"(desired) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint64 result;
+                #if defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        MA_ATOMIC_LOAD_RELAXED_GCC_X86("q", result, dst);
+                    } else if (order <= ma_atomic_memory_order_release) {
+                        MA_ATOMIC_LOAD_RELEASE_GCC_X86("q", result, dst);
+                    } else {
+                        MA_ATOMIC_LOAD_SEQ_CST_GCC_X86("q", result, dst);
+                    }
+                }
+                #elif defined(MA_X86)
+                {
+                    (void)order;
+                    return ma_atomic_compare_and_swap_64((volatile ma_uint64*)dst, 0, 0);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(64, dst, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            ma_uint8 result = 0;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint8 result;
+                (void)order;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_XCHG_GCC_X86("b", result, dst, src);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 result = 0;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint16 result;
+                (void)order;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_XCHG_GCC_X86("w", result, dst, src);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 result;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint32 result;
+                (void)order;
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    MA_ATOMIC_XCHG_GCC_X86("l", result, dst, src);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 result;
-            (void)order;
-        #if defined(MA_X86)
-            do {
-                result = *dst;
-            } while (ma_atomic_compare_and_swap_64(dst, result, src) != result);
-        #elif defined(MA_X64)
-            __asm__ __volatile__("lock; xchg %1, %0" : "+m"(*dst), "=a"(result) : "a"(src));
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64) && (defined(MA_X86) || defined(MA_X64))
+            {
+                ma_uint64 result;
+                (void)order;
+                #if defined(MA_X86)
+                {
+                    MA_ATOMIC_EXCHANGE_EXPLICIT_CAS(64, dst, src, order);
+                }
+                #elif defined(MA_X64)
+                {
+                    MA_ATOMIC_XCHG_GCC_X86("q", result, dst, src);
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+                return result;
+            }
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(64, dst, src, order);
+            }
+            #endif
+        }
+        static MA_INLINE void ma_atomic_store_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        __asm__ __volatile__ (
+                            "movb %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                        );
+                    } else {
+                        __asm__ __volatile__ (
+                            "xchgb %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                            : "memory"
+                        );
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(8, dst, src, order);
+            }
+            #endif
+        }
+        static MA_INLINE void ma_atomic_store_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        __asm__ __volatile__ (
+                            "movw %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                        );
+                    } else {
+                        __asm__ __volatile__ (
+                            "xchgw %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                            : "memory"
+                        );
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(16, dst, src, order);
+            }
+            #endif
+        }
+        static MA_INLINE void ma_atomic_store_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        __asm__ __volatile__ (
+                            "movl %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                        );
+                    } else {
+                        __asm__ __volatile__ (
+                            "xchgl %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                            : "memory"
+                        );
+                    }
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(32, dst, src, order);
+            }
+            #endif
+        }
+        static MA_INLINE void ma_atomic_store_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X64)
+                {
+                    if (order == ma_atomic_memory_order_relaxed) {
+                        __asm__ __volatile__ (
+                            "movq %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                        );
+                    } else {
+                        __asm__ __volatile__ (
+                            "xchgq %1, %0"
+                            : "=m"(*dst)
+                            : "r"(src)
+                            : "memory"
+                        );
+                    }
+                }
+                #else
+                {
+                    MA_ATOMIC_STORE_EXPLICIT_CAS(64, dst, src, order);
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_STORE_EXPLICIT_LOCK(64, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            ma_uint8 result;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    ma_uint8 result;
+                    (void)order;
+                    MA_ATOMIC_XADD_GCC_X86("b", result, dst, src);
+                    return result;
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 result;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    ma_uint16 result;
+                    (void)order;
+                    MA_ATOMIC_XADD_GCC_X86("w", result, dst, src);
+                    return result;
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 result;
-            (void)order;
-        #if defined(MA_X86) || defined(MA_X64)
-            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
-        #else
-            #error Unsupported architecture. Please submit a feature request.
-        #endif
-            return result;
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86) || defined(MA_X64)
+                {
+                    ma_uint32 result;
+                    (void)order;
+                    MA_ATOMIC_XADD_GCC_X86("l", result, dst, src);
+                    return result;
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-        #if defined(MA_X86)
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            (void)order;
-            do {
-                oldValue = *dst;
-                newValue = oldValue + src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            return oldValue;
-        #elif defined(MA_X64)
-            ma_uint64 result;
-            (void)order;
-            __asm__ __volatile__("lock; xadd %1, %0" : "+m"(*dst), "=a"(result) : "a"(src) : "cc");
-            return result;
-        #endif
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64) && (defined(MA_X86) || defined(MA_X64))
+            {
+                #if defined(MA_X86)
+                {
+                    MA_ATOMIC_FETCH_ADD_CAS(64, dst, src, order);
+                }
+                #elif defined(MA_X64)
+                {
+                    ma_uint64 result;
+                    MA_ATOMIC_XADD_GCC_X86("q", result, dst, src);
+                    (void)order;
+                    return result;
+                }
+                #else
+                {
+                    #error Unsupported architecture.
+                }
+                #endif
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(64, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_sub_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue - src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            return ma_atomic_fetch_add_explicit_8(dst, (ma_uint8)(-(ma_int8)src), order);
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_sub_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue - src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            return ma_atomic_fetch_add_explicit_16(dst, (ma_uint16)(-(ma_int16)src), order);
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_sub_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue - src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            return ma_atomic_fetch_add_explicit_32(dst, (ma_uint32)(-(ma_int32)src), order);
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_sub_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue - src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            return ma_atomic_fetch_add_explicit_64(dst, (ma_uint64)(-(ma_int64)src), order);
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue & src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_AND_CAS(8, dst, src, order);
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue & src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_AND_CAS(16, dst, src, order);
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue & src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_AND_CAS(32, dst, src, order);
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue & src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-        static MA_INLINE ma_uint8 ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
-        {
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue ^ src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-        static MA_INLINE ma_uint16 ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
-        {
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue ^ src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-        static MA_INLINE ma_uint32 ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
-        {
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue ^ src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
-        }
-        static MA_INLINE ma_uint64 ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
-        {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue ^ src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_AND_CAS(64, dst, src, order);
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            ma_uint8 oldValue;
-            ma_uint8 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint8)(oldValue | src);
-            } while (ma_atomic_compare_and_swap_8(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_OR_CAS(8, dst, src, order);
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_or_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            ma_uint16 oldValue;
-            ma_uint16 newValue;
-            do {
-                oldValue = *dst;
-                newValue = (ma_uint16)(oldValue | src);
-            } while (ma_atomic_compare_and_swap_16(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_OR_CAS(16, dst, src, order);
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_or_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            ma_uint32 oldValue;
-            ma_uint32 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue | src;
-            } while (ma_atomic_compare_and_swap_32(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_OR_CAS(32, dst, src, order);
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_or_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            ma_uint64 oldValue;
-            ma_uint64 newValue;
-            do {
-                oldValue = *dst;
-                newValue = oldValue | src;
-            } while (ma_atomic_compare_and_swap_64(dst, oldValue, newValue) != oldValue);
-            (void)order;
-            return oldValue;
+            MA_ATOMIC_FETCH_OR_CAS(64, dst, src, order);
         }
+        static MA_INLINE ma_uint8 ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(8, dst, src, order);
+        }
+        static MA_INLINE ma_uint16 ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(16, dst, src, order);
+        }
+        static MA_INLINE ma_uint32 ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(32, dst, src, order);
+        }
+        static MA_INLINE ma_uint64 ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
+        {
+            MA_ATOMIC_FETCH_XOR_CAS(64, dst, src, order);
+        }
+    #else
+        #error Unsupported compiler.
     #endif
-    #define ma_atomic_signal_fence(order)                           ma_atomic_thread_fence(order)
-    static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* ptr, ma_atomic_memory_order order)
-    {
-        (void)order;
-        return ma_atomic_compare_and_swap_8((ma_uint8*)ptr, 0, 0);
-    }
-    static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* ptr, ma_atomic_memory_order order)
-    {
-        (void)order;
-        return ma_atomic_compare_and_swap_16((ma_uint16*)ptr, 0, 0);
-    }
-    static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* ptr, ma_atomic_memory_order order)
-    {
-        (void)order;
-        return ma_atomic_compare_and_swap_32((ma_uint32*)ptr, 0, 0);
-    }
-    static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* ptr, ma_atomic_memory_order order)
-    {
-        (void)order;
-        return ma_atomic_compare_and_swap_64((ma_uint64*)ptr, 0, 0);
-    }
-    #define ma_atomic_store_explicit_8( dst, src, order)            (void)ma_atomic_exchange_explicit_8 (dst, src, order)
-    #define ma_atomic_store_explicit_16(dst, src, order)            (void)ma_atomic_exchange_explicit_16(dst, src, order)
-    #define ma_atomic_store_explicit_32(dst, src, order)            (void)ma_atomic_exchange_explicit_32(dst, src, order)
-    #define ma_atomic_store_explicit_64(dst, src, order)            (void)ma_atomic_exchange_explicit_64(dst, src, order)
-    #define ma_atomic_test_and_set_explicit_8( dst, order)          ma_atomic_exchange_explicit_8 (dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_16(dst, order)          ma_atomic_exchange_explicit_16(dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_32(dst, order)          ma_atomic_exchange_explicit_32(dst, 1, order)
-    #define ma_atomic_test_and_set_explicit_64(dst, order)          ma_atomic_exchange_explicit_64(dst, 1, order)
-    #define ma_atomic_clear_explicit_8( dst, order)                 ma_atomic_store_explicit_8 (dst, 0, order)
-    #define ma_atomic_clear_explicit_16(dst, order)                 ma_atomic_store_explicit_16(dst, 0, order)
-    #define ma_atomic_clear_explicit_32(dst, order)                 ma_atomic_store_explicit_32(dst, 0, order)
-    #define ma_atomic_clear_explicit_64(dst, order)                 ma_atomic_store_explicit_64(dst, 0, order)
-    typedef ma_uint8 ma_atomic_flag;
-    #define ma_atomic_flag_test_and_set_explicit(ptr, order)        (ma_bool32)ma_atomic_test_and_set_explicit_8(ptr, order)
-    #define ma_atomic_flag_clear_explicit(ptr, order)               ma_atomic_clear_explicit_8(ptr, order)
-    #define ma_atomic_flag_load_explicit(ptr, order)                ma_atomic_load_explicit_8(ptr, order)
 #endif
 #if !defined(MA_ATOMIC_HAS_NATIVE_COMPARE_EXCHANGE)
-    #if defined(MA_ATOMIC_HAS_8)
-        static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_8(volatile ma_uint8* dst, ma_uint8* expected, ma_uint8 desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
-        {
-            ma_uint8 expectedValue;
-            ma_uint8 result;
-            (void)successOrder;
-            (void)failureOrder;
-            expectedValue = ma_atomic_load_explicit_8(expected, ma_atomic_memory_order_seq_cst);
-            result = ma_atomic_compare_and_swap_8(dst, expectedValue, desired);
-            if (result == expectedValue) {
-                return 1;
-            } else {
-                ma_atomic_store_explicit_8(expected, result, failureOrder);
-                return 0;
-            }
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_16)
-        static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_16(volatile ma_uint16* dst, ma_uint16* expected, ma_uint16 desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
-        {
-            ma_uint16 expectedValue;
-            ma_uint16 result;
-            (void)successOrder;
-            (void)failureOrder;
-            expectedValue = ma_atomic_load_explicit_16(expected, ma_atomic_memory_order_seq_cst);
-            result = ma_atomic_compare_and_swap_16(dst, expectedValue, desired);
-            if (result == expectedValue) {
-                return 1;
-            } else {
-                ma_atomic_store_explicit_16(expected, result, failureOrder);
-                return 0;
-            }
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_32)
-        static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_32(volatile ma_uint32* dst, ma_uint32* expected, ma_uint32 desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
-        {
-            ma_uint32 expectedValue;
-            ma_uint32 result;
-            (void)successOrder;
-            (void)failureOrder;
-            expectedValue = ma_atomic_load_explicit_32(expected, ma_atomic_memory_order_seq_cst);
-            result = ma_atomic_compare_and_swap_32(dst, expectedValue, desired);
-            if (result == expectedValue) {
-                return 1;
-            } else {
-                ma_atomic_store_explicit_32(expected, result, failureOrder);
-                return 0;
-            }
-        }
-    #endif
-    #if defined(MA_ATOMIC_HAS_64)
-        static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_64(volatile ma_uint64* dst, volatile ma_uint64* expected, ma_uint64 desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
-        {
-            ma_uint64 expectedValue;
-            ma_uint64 result;
-            (void)successOrder;
-            (void)failureOrder;
-            expectedValue = ma_atomic_load_explicit_64(expected, ma_atomic_memory_order_seq_cst);
-            result = ma_atomic_compare_and_swap_64(dst, expectedValue, desired);
-            if (result == expectedValue) {
-                return 1;
-            } else {
-                ma_atomic_store_explicit_64(expected, result, failureOrder);
-                return 0;
-            }
-        }
-    #endif
-    #define ma_atomic_compare_exchange_weak_explicit_8( dst, expected, desired, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_8 (dst, expected, desired, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_16(dst, expected, desired, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_16(dst, expected, desired, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_32(dst, expected, desired, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_32(dst, expected, desired, successOrder, failureOrder)
-    #define ma_atomic_compare_exchange_weak_explicit_64(dst, expected, desired, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_64(dst, expected, desired, successOrder, failureOrder)
-#endif
-#if !defined(MA_ATOMIC_HAS_NATIVE_IS_LOCK_FREE)
-    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_8(volatile void* ptr)
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_8(volatile ma_uint8* dst, ma_uint8* expected, ma_uint8 replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
     {
-        (void)ptr;
-        return 1;
-    }
-    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_16(volatile void* ptr)
-    {
-        (void)ptr;
-        return 1;
-    }
-    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_32(volatile void* ptr)
-    {
-        (void)ptr;
-        return 1;
-    }
-    static MA_INLINE ma_bool32 ma_atomic_is_lock_free_64(volatile void* ptr)
-    {
-        (void)ptr;
-    #if defined(MA_64BIT)
-        return 1;
-    #else
-        #if defined(MA_X86) || defined(MA_X64)
+        ma_uint8 result;
+        (void)successOrder;
+        (void)failureOrder;
+        result = ma_atomic_compare_and_swap_8(dst, *expected, replacement);
+        if (result == *expected) {
             return 1;
-        #else
+        } else {
+            *expected = result;
             return 0;
-        #endif
-    #endif
+        }
     }
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_16(volatile ma_uint16* dst, ma_uint16* expected, ma_uint16 replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    {
+        ma_uint16 result;
+        (void)successOrder;
+        (void)failureOrder;
+        result = ma_atomic_compare_and_swap_16(dst, *expected, replacement);
+        if (result == *expected) {
+            return 1;
+        } else {
+            *expected = result;
+            return 0;
+        }
+    }
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_32(volatile ma_uint32* dst, ma_uint32* expected, ma_uint32 replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    {
+        ma_uint32 result;
+        (void)successOrder;
+        (void)failureOrder;
+        result = ma_atomic_compare_and_swap_32(dst, *expected, replacement);
+        if (result == *expected) {
+            return 1;
+        } else {
+            *expected = result;
+            return 0;
+        }
+    }
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_64(volatile ma_uint64* dst, volatile ma_uint64* expected, ma_uint64 replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    {
+        ma_uint64 result;
+        (void)successOrder;
+        (void)failureOrder;
+        result = ma_atomic_compare_and_swap_64(dst, *expected, replacement);
+        if (result == *expected) {
+            return 1;
+        } else {
+            *expected = result;
+            return 0;
+        }
+    }
+    #define ma_atomic_compare_exchange_weak_explicit_8( dst, expected, replacement, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_8 (dst, expected, replacement, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_16(dst, expected, replacement, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_16(dst, expected, replacement, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_32(dst, expected, replacement, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_32(dst, expected, replacement, successOrder, failureOrder)
+    #define ma_atomic_compare_exchange_weak_explicit_64(dst, expected, replacement, successOrder, failureOrder) ma_atomic_compare_exchange_strong_explicit_64(dst, expected, replacement, successOrder, failureOrder)
 #endif
 #if defined(MA_64BIT)
     static MA_INLINE ma_bool32 ma_atomic_is_lock_free_ptr(volatile void** ptr)
@@ -15577,17 +16599,17 @@ typedef int ma_atomic_memory_order;
     {
         return (void*)ma_atomic_exchange_explicit_64((volatile ma_uint64*)dst, (ma_uint64)src, order);
     }
-    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_ptr(volatile void** dst, void** expected, void* desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_ptr(volatile void** dst, void** expected, void* replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
     {
-        return ma_atomic_compare_exchange_strong_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)desired, successOrder, failureOrder);
+        return ma_atomic_compare_exchange_strong_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)replacement, successOrder, failureOrder);
     }
-    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_ptr(volatile void** dst, void** expected, void* desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_ptr(volatile void** dst, void** expected, void* replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
     {
-        return ma_atomic_compare_exchange_weak_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)desired, successOrder, failureOrder);
+        return ma_atomic_compare_exchange_weak_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)replacement, successOrder, failureOrder);
     }
-    static MA_INLINE void* ma_atomic_compare_and_swap_ptr(volatile void** dst, void* expected, void* desired)
+    static MA_INLINE void* ma_atomic_compare_and_swap_ptr(volatile void** dst, void* expected, void* replacement)
     {
-        return (void*)ma_atomic_compare_and_swap_64((volatile ma_uint64*)dst, (ma_uint64)expected, (ma_uint64)desired);
+        return (void*)ma_atomic_compare_and_swap_64((volatile ma_uint64*)dst, (ma_uint64)expected, (ma_uint64)replacement);
     }
 #elif defined(MA_32BIT)
     static MA_INLINE ma_bool32 ma_atomic_is_lock_free_ptr(volatile void** ptr)
@@ -15606,36 +16628,26 @@ typedef int ma_atomic_memory_order;
     {
         return (void*)ma_atomic_exchange_explicit_32((volatile ma_uint32*)dst, (ma_uint32)src, order);
     }
-    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_ptr(volatile void** dst, void** expected, void* desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_ptr(volatile void** dst, void** expected, void* replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
     {
-        return ma_atomic_compare_exchange_strong_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)desired, successOrder, failureOrder);
+        return ma_atomic_compare_exchange_strong_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)replacement, successOrder, failureOrder);
     }
-    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_ptr(volatile void** dst, void** expected, void* desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+    static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_ptr(volatile void** dst, void** expected, void* replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
     {
-        return ma_atomic_compare_exchange_weak_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)desired, successOrder, failureOrder);
+        return ma_atomic_compare_exchange_weak_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)replacement, successOrder, failureOrder);
     }
-    static MA_INLINE void* ma_atomic_compare_and_swap_ptr(volatile void** dst, void* expected, void* desired)
+    static MA_INLINE void* ma_atomic_compare_and_swap_ptr(volatile void** dst, void* expected, void* replacement)
     {
-        return (void*)ma_atomic_compare_and_swap_32((volatile ma_uint32*)dst, (ma_uint32)expected, (ma_uint32)desired);
+        return (void*)ma_atomic_compare_and_swap_32((volatile ma_uint32*)dst, (ma_uint32)expected, (ma_uint32)replacement);
     }
 #else
     #error Unsupported architecture.
 #endif
-#define ma_atomic_flag_test_and_set(ptr)                                ma_atomic_flag_test_and_set_explicit(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_flag_clear(ptr)                                       ma_atomic_flag_clear_explicit(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_store_ptr(dst, src)                                   ma_atomic_store_explicit_ptr((volatile void**)dst, (void*)src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_load_ptr(ptr)                                         ma_atomic_load_explicit_ptr((volatile void**)ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_exchange_ptr(dst, src)                                ma_atomic_exchange_explicit_ptr((volatile void**)dst, (void*)src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_ptr(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_ptr((volatile void**)dst, (void**)expected, (void*)desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_ptr(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_ptr((volatile void**)dst, (void**)expected, (void*)desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_8( ptr)                                  ma_atomic_test_and_set_explicit_8( ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_16(ptr)                                  ma_atomic_test_and_set_explicit_16(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_32(ptr)                                  ma_atomic_test_and_set_explicit_32(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_64(ptr)                                  ma_atomic_test_and_set_explicit_64(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_8( ptr)                                         ma_atomic_clear_explicit_8( ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_16(ptr)                                         ma_atomic_clear_explicit_16(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_32(ptr)                                         ma_atomic_clear_explicit_32(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_64(ptr)                                         ma_atomic_clear_explicit_64(ptr, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_store_ptr(dst, src)                                       ma_atomic_store_explicit_ptr((volatile void**)dst, (void*)src, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_load_ptr(ptr)                                             ma_atomic_load_explicit_ptr((volatile void**)ptr, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_exchange_ptr(dst, src)                                    ma_atomic_exchange_explicit_ptr((volatile void**)dst, (void*)src, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_ptr(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_ptr((volatile void**)dst, (void**)expected, (void*)replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_ptr(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_ptr((volatile void**)dst, (void**)expected, (void*)replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_8( dst, src)                                    ma_atomic_store_explicit_8( dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_16(dst, src)                                    ma_atomic_store_explicit_16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_32(dst, src)                                    ma_atomic_store_explicit_32(dst, src, ma_atomic_memory_order_seq_cst)
@@ -15648,14 +16660,14 @@ typedef int ma_atomic_memory_order;
 #define ma_atomic_exchange_16(dst, src)                                 ma_atomic_exchange_explicit_16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_32(dst, src)                                 ma_atomic_exchange_explicit_32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_64(dst, src)                                 ma_atomic_exchange_explicit_64(dst, src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_8( dst, expected, desired)    ma_atomic_compare_exchange_strong_explicit_8( dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_16(dst, expected, desired)    ma_atomic_compare_exchange_strong_explicit_16(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_32(dst, expected, desired)    ma_atomic_compare_exchange_strong_explicit_32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_64(dst, expected, desired)    ma_atomic_compare_exchange_strong_explicit_64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_8(  dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_8( dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_16( dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_16(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_32( dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_64( dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_8( dst, expected, replacement)    ma_atomic_compare_exchange_strong_explicit_8( dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_16(dst, expected, replacement)    ma_atomic_compare_exchange_strong_explicit_16(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_32(dst, expected, replacement)    ma_atomic_compare_exchange_strong_explicit_32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_64(dst, expected, replacement)    ma_atomic_compare_exchange_strong_explicit_64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_8(  dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_8( dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_16( dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_16(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_32( dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_64( dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_8( dst, src)                                ma_atomic_fetch_add_explicit_8( dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_16(dst, src)                                ma_atomic_fetch_add_explicit_16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_32(dst, src)                                ma_atomic_fetch_add_explicit_32(dst, src, ma_atomic_memory_order_seq_cst)
@@ -15676,14 +16688,6 @@ typedef int ma_atomic_memory_order;
 #define ma_atomic_fetch_and_16(dst, src)                                ma_atomic_fetch_and_explicit_16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_and_32(dst, src)                                ma_atomic_fetch_and_explicit_32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_and_64(dst, src)                                ma_atomic_fetch_and_explicit_64(dst, src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_explicit_i8( ptr, order)                 (ma_int8 )ma_atomic_test_and_set_explicit_8( (ma_uint8* )ptr, order)
-#define ma_atomic_test_and_set_explicit_i16(ptr, order)                 (ma_int16)ma_atomic_test_and_set_explicit_16((ma_uint16*)ptr, order)
-#define ma_atomic_test_and_set_explicit_i32(ptr, order)                 (ma_int32)ma_atomic_test_and_set_explicit_32((ma_uint32*)ptr, order)
-#define ma_atomic_test_and_set_explicit_i64(ptr, order)                 (ma_int64)ma_atomic_test_and_set_explicit_64((ma_uint64*)ptr, order)
-#define ma_atomic_clear_explicit_i8( ptr, order)                        ma_atomic_clear_explicit_8( (ma_uint8* )ptr, order)
-#define ma_atomic_clear_explicit_i16(ptr, order)                        ma_atomic_clear_explicit_16((ma_uint16*)ptr, order)
-#define ma_atomic_clear_explicit_i32(ptr, order)                        ma_atomic_clear_explicit_32((ma_uint32*)ptr, order)
-#define ma_atomic_clear_explicit_i64(ptr, order)                        ma_atomic_clear_explicit_64((ma_uint64*)ptr, order)
 #define ma_atomic_store_explicit_i8( dst, src, order)                   ma_atomic_store_explicit_8( (ma_uint8* )dst, (ma_uint8 )src, order)
 #define ma_atomic_store_explicit_i16(dst, src, order)                   ma_atomic_store_explicit_16((ma_uint16*)dst, (ma_uint16)src, order)
 #define ma_atomic_store_explicit_i32(dst, src, order)                   ma_atomic_store_explicit_32((ma_uint32*)dst, (ma_uint32)src, order)
@@ -15696,14 +16700,14 @@ typedef int ma_atomic_memory_order;
 #define ma_atomic_exchange_explicit_i16(dst, src, order)                (ma_int16)ma_atomic_exchange_explicit_16((ma_uint16*)dst, (ma_uint16)src, order)
 #define ma_atomic_exchange_explicit_i32(dst, src, order)                (ma_int32)ma_atomic_exchange_explicit_32((ma_uint32*)dst, (ma_uint32)src, order)
 #define ma_atomic_exchange_explicit_i64(dst, src, order)                (ma_int64)ma_atomic_exchange_explicit_64((ma_uint64*)dst, (ma_uint64)src, order)
-#define ma_atomic_compare_exchange_strong_explicit_i8( dst, expected, desired, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_8( (ma_uint8* )dst, (ma_uint8* )expected, (ma_uint8 )desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_strong_explicit_i16(dst, expected, desired, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_16((ma_uint16*)dst, (ma_uint16*)expected, (ma_uint16)desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_strong_explicit_i32(dst, expected, desired, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_32((ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_strong_explicit_i64(dst, expected, desired, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_64((ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_weak_explicit_i8( dst, expected, desired, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_8( (ma_uint8* )dst, (ma_uint8* )expected, (ma_uint8 )desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_weak_explicit_i16(dst, expected, desired, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_16((ma_uint16*)dst, (ma_uint16*)expected, (ma_uint16)desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_weak_explicit_i32(dst, expected, desired, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_32((ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)desired, successOrder, failureOrder)
-#define ma_atomic_compare_exchange_weak_explicit_i64(dst, expected, desired, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_64((ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)desired, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_strong_explicit_i8( dst, expected, replacement, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_8( (ma_uint8* )dst, (ma_uint8* )expected, (ma_uint8 )replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_strong_explicit_i16(dst, expected, replacement, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_16((ma_uint16*)dst, (ma_uint16*)expected, (ma_uint16)replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_strong_explicit_i32(dst, expected, replacement, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_32((ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_strong_explicit_i64(dst, expected, replacement, successOrder, failureOrder)  ma_atomic_compare_exchange_strong_explicit_64((ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_weak_explicit_i8( dst, expected, replacement, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_8( (ma_uint8* )dst, (ma_uint8* )expected, (ma_uint8 )replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_weak_explicit_i16(dst, expected, replacement, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_16((ma_uint16*)dst, (ma_uint16*)expected, (ma_uint16)replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_weak_explicit_i32(dst, expected, replacement, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_32((ma_uint32*)dst, (ma_uint32*)expected, (ma_uint32)replacement, successOrder, failureOrder)
+#define ma_atomic_compare_exchange_weak_explicit_i64(dst, expected, replacement, successOrder, failureOrder)    ma_atomic_compare_exchange_weak_explicit_64((ma_uint64*)dst, (ma_uint64*)expected, (ma_uint64)replacement, successOrder, failureOrder)
 #define ma_atomic_fetch_add_explicit_i8( dst, src, order)               (ma_int8 )ma_atomic_fetch_add_explicit_8( (ma_uint8* )dst, (ma_uint8 )src, order)
 #define ma_atomic_fetch_add_explicit_i16(dst, src, order)               (ma_int16)ma_atomic_fetch_add_explicit_16((ma_uint16*)dst, (ma_uint16)src, order)
 #define ma_atomic_fetch_add_explicit_i32(dst, src, order)               (ma_int32)ma_atomic_fetch_add_explicit_32((ma_uint32*)dst, (ma_uint32)src, order)
@@ -15724,14 +16728,6 @@ typedef int ma_atomic_memory_order;
 #define ma_atomic_fetch_and_explicit_i16(dst, src, order)               (ma_int16)ma_atomic_fetch_and_explicit_16((ma_uint16*)dst, (ma_uint16)src, order)
 #define ma_atomic_fetch_and_explicit_i32(dst, src, order)               (ma_int32)ma_atomic_fetch_and_explicit_32((ma_uint32*)dst, (ma_uint32)src, order)
 #define ma_atomic_fetch_and_explicit_i64(dst, src, order)               (ma_int64)ma_atomic_fetch_and_explicit_64((ma_uint64*)dst, (ma_uint64)src, order)
-#define ma_atomic_test_and_set_i8( ptr)                                 ma_atomic_test_and_set_explicit_i8( ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_i16(ptr)                                 ma_atomic_test_and_set_explicit_i16(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_i32(ptr)                                 ma_atomic_test_and_set_explicit_i32(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_test_and_set_i64(ptr)                                 ma_atomic_test_and_set_explicit_i64(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_i8( ptr)                                        ma_atomic_clear_explicit_i8( ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_i16(ptr)                                        ma_atomic_clear_explicit_i16(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_i32(ptr)                                        ma_atomic_clear_explicit_i32(ptr, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_clear_i64(ptr)                                        ma_atomic_clear_explicit_i64(ptr, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_i8( dst, src)                                   ma_atomic_store_explicit_i8( dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_i16(dst, src)                                   ma_atomic_store_explicit_i16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_store_i32(dst, src)                                   ma_atomic_store_explicit_i32(dst, src, ma_atomic_memory_order_seq_cst)
@@ -15744,14 +16740,14 @@ typedef int ma_atomic_memory_order;
 #define ma_atomic_exchange_i16(dst, src)                                ma_atomic_exchange_explicit_i16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_i32(dst, src)                                ma_atomic_exchange_explicit_i32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_i64(dst, src)                                ma_atomic_exchange_explicit_i64(dst, src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_i8( dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_i8( dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_i16(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_i16(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_i32(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_i32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_i64(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_i64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_i8( dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_i8( dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_i16(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_i16(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_i32(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_i32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_i64(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_i64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_i8( dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_i8( dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_i16(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_i16(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_i32(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_i32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_i64(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_i64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_i8( dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_i8( dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_i16(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_i16(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_i32(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_i32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_i64(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_i64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_i8( dst, src)                               ma_atomic_fetch_add_explicit_i8( dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_i16(dst, src)                               ma_atomic_fetch_add_explicit_i16(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_i32(dst, src)                               ma_atomic_fetch_add_explicit_i32(dst, src, ma_atomic_memory_order_seq_cst)
@@ -15828,28 +16824,28 @@ static MA_INLINE double ma_atomic_exchange_explicit_f64(volatile double* dst, do
     r.i = ma_atomic_exchange_explicit_64((volatile ma_uint64*)dst, x.i, order);
     return r.f;
 }
-static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_f32(volatile float* dst, float* expected, float desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_f32(volatile float* dst, float* expected, float replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
 {
     ma_atomic_if32 d;
-    d.f = desired;
+    d.f = replacement;
     return ma_atomic_compare_exchange_strong_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, d.i, successOrder, failureOrder);
 }
-static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_f64(volatile double* dst, double* expected, double desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+static MA_INLINE ma_bool32 ma_atomic_compare_exchange_strong_explicit_f64(volatile double* dst, double* expected, double replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
 {
     ma_atomic_if64 d;
-    d.f = desired;
+    d.f = replacement;
     return ma_atomic_compare_exchange_strong_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, d.i, successOrder, failureOrder);
 }
-static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_f32(volatile float* dst, float* expected, float desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_f32(volatile float* dst, float* expected, float replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
 {
     ma_atomic_if32 d;
-    d.f = desired;
+    d.f = replacement;
     return ma_atomic_compare_exchange_weak_explicit_32((volatile ma_uint32*)dst, (ma_uint32*)expected, d.i, successOrder, failureOrder);
 }
-static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_f64(volatile double* dst, double* expected, double desired, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
+static MA_INLINE ma_bool32 ma_atomic_compare_exchange_weak_explicit_f64(volatile double* dst, double* expected, double replacement, ma_atomic_memory_order successOrder, ma_atomic_memory_order failureOrder)
 {
     ma_atomic_if64 d;
-    d.f = desired;
+    d.f = replacement;
     return ma_atomic_compare_exchange_weak_explicit_64((volatile ma_uint64*)dst, (ma_uint64*)expected, d.i, successOrder, failureOrder);
 }
 static MA_INLINE float ma_atomic_fetch_add_explicit_f32(volatile float* dst, float src, ma_atomic_memory_order order)
@@ -15940,10 +16936,10 @@ static MA_INLINE double ma_atomic_fetch_and_explicit_f64(volatile double* dst, d
 #define ma_atomic_load_f64(ptr)                                         (double)ma_atomic_load_explicit_f64(ptr, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_f32(dst, src)                                (float )ma_atomic_exchange_explicit_f32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_exchange_f64(dst, src)                                (double)ma_atomic_exchange_explicit_f64(dst, src, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_f32(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_f32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_strong_f64(dst, expected, desired)   ma_atomic_compare_exchange_strong_explicit_f64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_f32(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_f32(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
-#define ma_atomic_compare_exchange_weak_f64(dst, expected, desired)     ma_atomic_compare_exchange_weak_explicit_f64(dst, expected, desired, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_f32(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_f32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_strong_f64(dst, expected, replacement)   ma_atomic_compare_exchange_strong_explicit_f64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_f32(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_f32(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
+#define ma_atomic_compare_exchange_weak_f64(dst, expected, replacement)     ma_atomic_compare_exchange_weak_explicit_f64(dst, expected, replacement, ma_atomic_memory_order_seq_cst, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_f32(dst, src)                               ma_atomic_fetch_add_explicit_f32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_add_f64(dst, src)                               ma_atomic_fetch_add_explicit_f64(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_sub_f32(dst, src)                               ma_atomic_fetch_sub_explicit_f32(dst, src, ma_atomic_memory_order_seq_cst)
@@ -15954,38 +16950,23 @@ static MA_INLINE double ma_atomic_fetch_and_explicit_f64(volatile double* dst, d
 #define ma_atomic_fetch_xor_f64(dst, src)                               ma_atomic_fetch_xor_explicit_f64(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_and_f32(dst, src)                               ma_atomic_fetch_and_explicit_f32(dst, src, ma_atomic_memory_order_seq_cst)
 #define ma_atomic_fetch_and_f64(dst, src)                               ma_atomic_fetch_and_explicit_f64(dst, src, ma_atomic_memory_order_seq_cst)
-static MA_INLINE float ma_atomic_compare_and_swap_f32(volatile float* dst, float expected, float desired)
+static MA_INLINE float ma_atomic_compare_and_swap_f32(volatile float* dst, float expected, float replacement)
 {
     ma_atomic_if32 r;
     ma_atomic_if32 e, d;
     e.f = expected;
-    d.f = desired;
+    d.f = replacement;
     r.i = ma_atomic_compare_and_swap_32((volatile ma_uint32*)dst, e.i, d.i);
     return r.f;
 }
-static MA_INLINE double ma_atomic_compare_and_swap_f64(volatile double* dst, double expected, double desired)
+static MA_INLINE double ma_atomic_compare_and_swap_f64(volatile double* dst, double expected, double replacement)
 {
     ma_atomic_if64 r;
     ma_atomic_if64 e, d;
     e.f = expected;
-    d.f = desired;
+    d.f = replacement;
     r.i = ma_atomic_compare_and_swap_64((volatile ma_uint64*)dst, e.i, d.i);
     return r.f;
-}
-typedef ma_atomic_flag ma_atomic_spinlock;
-static MA_INLINE void ma_atomic_spinlock_lock(volatile ma_atomic_spinlock* pSpinlock)
-{
-    for (;;) {
-        if (ma_atomic_flag_test_and_set_explicit(pSpinlock, ma_atomic_memory_order_acquire) == 0) {
-            break;
-        }
-        while (ma_atomic_flag_load_explicit(pSpinlock, ma_atomic_memory_order_relaxed) == 1) {
-        }
-    }
-}
-static MA_INLINE void ma_atomic_spinlock_unlock(volatile ma_atomic_spinlock* pSpinlock)
-{
-    ma_atomic_flag_clear_explicit(pSpinlock, ma_atomic_memory_order_release);
 }
 #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)))
     #pragma GCC diagnostic pop
