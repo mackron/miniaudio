@@ -1,0 +1,13 @@
+miniaudio_h := <../miniaudio.h>;
+miniaudio_c := <../miniaudio.c>;
+
+cleanup :: function(src:string) string
+{
+    return @(src)
+        ["\r\n"] <= "\n"        // Normalize line endings to "\n". Needed for very old versions of GCC.
+        ["\t"]   <= "    "      // Tabs to spaces.
+    ;
+}
+
+miniaudio_h = cleanup(@(miniaudio_h));
+miniaudio_c = cleanup(@(miniaudio_c));
