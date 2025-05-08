@@ -70110,16 +70110,16 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
                 /* Failed to post job. Probably ran out of memory. */
                 ma_log_postf(ma_resource_manager_get_log(pResourceManager), MA_LOG_LEVEL_ERROR, "Failed to post MA_JOB_TYPE_RESOURCE_MANAGER_LOAD_DATA_BUFFER_NODE job. %s.\n", ma_result_description(result));
 
-                /*
-                Fences were acquired before posting the job, but since the job was not able to
-                be posted, we need to make sure we release them so nothing gets stuck waiting.
-                */
-                if (pInitFence != NULL) { ma_fence_release(pInitFence); }
-                if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
-
                 if ((flags & MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT) != 0) {
                     ma_resource_manager_inline_notification_uninit(pInitNotification);
                 } else {
+                    /*
+                    Fences were acquired before posting the job, but since the job was not able to
+                    be posted, we need to make sure we release them so nothing gets stuck waiting.
+                    */
+                    if (pInitFence != NULL) { ma_fence_release(pInitFence); }
+                    if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
+
                     /* These will have been freed by the job thread, but with WAIT_INIT they will already have happened since the job has already been handled. */
                     ma_free(pFilePathCopy,  &pResourceManager->config.allocationCallbacks);
                     ma_free(pFilePathWCopy, &pResourceManager->config.allocationCallbacks);
