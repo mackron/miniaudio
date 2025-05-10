@@ -14469,6 +14469,25 @@ ma_atomic_spinlock ma_atomic_global_lock;
         #endif
     #else
     #endif
+    #if defined(MA_ARM32) || defined(MA_ARM64)
+        #define MA_ATOMIC_IS_LOCK_FREE_8  1
+        #define MA_ATOMIC_IS_LOCK_FREE_16 1
+        #define MA_ATOMIC_IS_LOCK_FREE_32 1
+        #if defined(MA_ARM64) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
+            #define MA_ATOMIC_IS_LOCK_FREE_64 1
+        #endif
+    #endif
+    #if defined(MA_ATOMIC_PPC32) || defined(MA_ATOMIC_PPC64)
+        #if (defined(__GNUC__) && (__GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 7))) && !defined(__clang__)
+        #else
+            #define MA_ATOMIC_IS_LOCK_FREE_8  1
+            #define MA_ATOMIC_IS_LOCK_FREE_16 1
+        #endif
+        #define MA_ATOMIC_IS_LOCK_FREE_32     1
+        #if defined(MA_ATOMIC_PPC64)
+            #define MA_ATOMIC_IS_LOCK_FREE_64 1
+        #endif
+    #endif
     static MA_INLINE ma_bool32 ma_atomic_is_lock_free_8(volatile void* ptr)
     {
         (void)ptr;
@@ -15734,57 +15753,165 @@ ma_atomic_spinlock ma_atomic_global_lock;
     #define ma_atomic_signal_fence(order)   __asm__ __volatile__("":::"memory")
     #if defined(MA_ATOMIC_LEGACY_GCC)
         #define ma_atomic_thread_fence(order) __sync_synchronize(), (void)order
-        #define ma_atomic_compare_and_swap_8( dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
-        #define ma_atomic_compare_and_swap_16(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
-        #define ma_atomic_compare_and_swap_32(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
-        #define ma_atomic_compare_and_swap_64(dst, expected, replacement)   __sync_val_compare_and_swap(dst, expected, replacement)
+        static MA_INLINE ma_uint8 ma_atomic_compare_and_swap_8(volatile ma_uint8* dst, ma_uint8 expected, ma_uint8 replacement)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                return __sync_val_compare_and_swap(dst, expected, replacement);
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(8, dst, expected, replacement);
+            }
+            #endif
+        }
+        static MA_INLINE ma_uint16 ma_atomic_compare_and_swap_16(volatile ma_uint16* dst, ma_uint16 expected, ma_uint16 replacement)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                return __sync_val_compare_and_swap(dst, expected, replacement);
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(16, dst, expected, replacement);
+            }
+            #endif
+        }
+        static MA_INLINE ma_uint32 ma_atomic_compare_and_swap_32(volatile ma_uint32* dst, ma_uint32 expected, ma_uint32 replacement)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                return __sync_val_compare_and_swap(dst, expected, replacement);
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(32, dst, expected, replacement);
+            }
+            #endif
+        }
+        static MA_INLINE ma_uint64 ma_atomic_compare_and_swap_64(volatile ma_uint64* dst, ma_uint64 expected, ma_uint64 replacement)
+        {
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                return __sync_val_compare_and_swap(dst, expected, replacement);
+            }
+            #else
+            {
+                MA_ATOMIC_COMPARE_AND_SWAP_LOCK(64, dst, expected, replacement);
+            }
+            #endif
+        }
         static MA_INLINE ma_uint8 ma_atomic_load_explicit_8(volatile const ma_uint8* ptr, ma_atomic_memory_order order)
         {
-            (void)order;
-            return ma_atomic_compare_and_swap_8((ma_uint8*)ptr, 0, 0);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_8((ma_uint8*)ptr, 0, 0);
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(8, ptr, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_load_explicit_16(volatile const ma_uint16* ptr, ma_atomic_memory_order order)
         {
-            (void)order;
-            return ma_atomic_compare_and_swap_16((ma_uint16*)ptr, 0, 0);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_16((ma_uint16*)ptr, 0, 0);
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(16, ptr, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_load_explicit_32(volatile const ma_uint32* ptr, ma_atomic_memory_order order)
         {
-            (void)order;
-            return ma_atomic_compare_and_swap_32((ma_uint32*)ptr, 0, 0);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_32((ma_uint32*)ptr, 0, 0);
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(32, ptr, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_load_explicit_64(volatile const ma_uint64* ptr, ma_atomic_memory_order order)
         {
-            (void)order;
-            return ma_atomic_compare_and_swap_64((ma_uint64*)ptr, 0, 0);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return ma_atomic_compare_and_swap_64((ma_uint64*)ptr, 0, 0);
+            }
+            #else
+            {
+                MA_ATOMIC_LOAD_EXPLICIT_LOCK(64, ptr, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_exchange_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            if (order > ma_atomic_memory_order_acquire) {
-                __sync_synchronize();
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                if (order > ma_atomic_memory_order_acquire) {
+                    __sync_synchronize();
+                }
+                return __sync_lock_test_and_set(dst, src);
             }
-            return __sync_lock_test_and_set(dst, src);
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_exchange_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            if (order > ma_atomic_memory_order_acquire) {
-                __sync_synchronize();
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                if (order > ma_atomic_memory_order_acquire) {
+                    __sync_synchronize();
+                }
+                return __sync_lock_test_and_set(dst, src);
             }
-            return __sync_lock_test_and_set(dst, src);
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_exchange_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            if (order > ma_atomic_memory_order_acquire) {
-                __sync_synchronize();
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                if (order > ma_atomic_memory_order_acquire) {
+                    __sync_synchronize();
+                }
+                return __sync_lock_test_and_set(dst, src);
             }
-            return __sync_lock_test_and_set(dst, src);
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_exchange_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            if (order > ma_atomic_memory_order_acquire) {
-                __sync_synchronize();
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                if (order > ma_atomic_memory_order_acquire) {
+                    __sync_synchronize();
+                }
+                return __sync_lock_test_and_set(dst, src);
             }
-            return __sync_lock_test_and_set(dst, src);
+            #else
+            {
+                MA_ATOMIC_EXCHANGE_EXPLICIT_LOCK(64, dst, src, order);
+            }
+            #endif
         }
         #define ma_atomic_store_explicit_8( dst, src, order) (void)ma_atomic_exchange_explicit_8 (dst, src, order)
         #define ma_atomic_store_explicit_16(dst, src, order) (void)ma_atomic_exchange_explicit_16(dst, src, order)
@@ -15792,103 +15919,263 @@ ma_atomic_spinlock ma_atomic_global_lock;
         #define ma_atomic_store_explicit_64(dst, src, order) (void)ma_atomic_exchange_explicit_64(dst, src, order)
         static MA_INLINE ma_uint8 ma_atomic_fetch_add_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_add(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return __sync_fetch_and_add(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_add_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_add(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return __sync_fetch_and_add(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_add_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_add(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return __sync_fetch_and_add(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_add_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_add(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return __sync_fetch_and_add(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(64, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_sub_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_sub(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return __sync_fetch_and_sub(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(8, dst, (ma_uint8)(-(ma_int8)src), order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_sub_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_sub(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return __sync_fetch_and_sub(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(16, dst, (ma_uint16)(-(ma_int16)src), order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_sub_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_sub(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return __sync_fetch_and_sub(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(32, dst, (ma_uint32)(-(ma_int32)src), order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_sub_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_sub(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return __sync_fetch_and_sub(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_ADD_LOCK(64, dst, (ma_uint64)(-(ma_int64)src), order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_and_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return __sync_fetch_and_and(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_AND_CAS(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_and_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return __sync_fetch_and_and(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_AND_CAS(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_and_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return __sync_fetch_and_and(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_AND_CAS(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_and_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_and(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return __sync_fetch_and_and(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_AND_CAS(64, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_or_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_or(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return __sync_fetch_and_or(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_OR_CAS(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_or_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_or(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return __sync_fetch_and_or(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_OR_CAS(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_or_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_or(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return __sync_fetch_and_or(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_OR_CAS(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_or_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_or(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return __sync_fetch_and_or(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_OR_CAS(64, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint8 ma_atomic_fetch_xor_explicit_8(volatile ma_uint8* dst, ma_uint8 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_xor(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_8)
+            {
+                (void)order;
+                return __sync_fetch_and_xor(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_XOR_CAS(8, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint16 ma_atomic_fetch_xor_explicit_16(volatile ma_uint16* dst, ma_uint16 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_xor(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_16)
+            {
+                (void)order;
+                return __sync_fetch_and_xor(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_XOR_CAS(16, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint32 ma_atomic_fetch_xor_explicit_32(volatile ma_uint32* dst, ma_uint32 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_xor(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_32)
+            {
+                (void)order;
+                return __sync_fetch_and_xor(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_XOR_CAS(32, dst, src, order);
+            }
+            #endif
         }
         static MA_INLINE ma_uint64 ma_atomic_fetch_xor_explicit_64(volatile ma_uint64* dst, ma_uint64 src, ma_atomic_memory_order order)
         {
-            (void)order;
-            return __sync_fetch_and_xor(dst, src);
+            #if defined(MA_ATOMIC_IS_LOCK_FREE_64)
+            {
+                (void)order;
+                return __sync_fetch_and_xor(dst, src);
+            }
+            #else
+            {
+                MA_ATOMIC_FETCH_XOR_CAS(64, dst, src, order);
+            }
+            #endif
         }
     #elif defined(MA_ATOMIC_LEGACY_GCC_ASM)
         #define MA_ATOMIC_CMPXCHG_GCC_X86(instructionSizeSuffix, result, dst, expected, replacement) \
