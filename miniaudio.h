@@ -64357,9 +64357,12 @@ static ma_bool32 ma_mp3_dr_callback__seek(void* pUserData, int offset, ma_dr_mp3
 
     MA_ASSERT(pMP3 != NULL);
 
-    maSeekOrigin = ma_seek_origin_start;
-    if (origin == ma_dr_mp3_seek_origin_current) {
-        maSeekOrigin =  ma_seek_origin_current;
+    if (origin == ma_dr_mp3_seek_origin_start) {
+        maSeekOrigin =  ma_seek_origin_start;
+    } else if (origin == ma_dr_mp3_seek_origin_end) {
+        maSeekOrigin = ma_seek_origin_end;
+    } else {
+        maSeekOrigin = ma_seek_origin_current;
     }
 
     result = pMP3->onSeek(pMP3->pReadSeekTellUserData, offset, maSeekOrigin);
