@@ -62373,6 +62373,12 @@ MA_API ma_bool32 ma_dr_flac_next_cuesheet_track(ma_dr_flac_cuesheet_track_iterat
 #endif  /* MA_NO_FLAC */
 
 #if !defined(MA_NO_MP3) && !defined(MA_NO_DECODING)
+#ifndef MA_DR_MP3_NO_SIMD
+    #if (defined(MA_NO_NEON) && defined(MA_ARM)) || (defined(MA_NO_SSE2) && (defined(MA_X86) || defined(MA_X64)))
+    #define MA_DR_MP3_NO_SIMD
+    #endif
+#endif
+
 /* dr_mp3_h begin */
 #ifndef ma_dr_mp3_h
 #define ma_dr_mp3_h
