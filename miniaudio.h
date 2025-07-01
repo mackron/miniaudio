@@ -89155,9 +89155,7 @@ static ma_bool32 ma_dr_flac__init_private(ma_dr_flac_init_info* pInit, ma_dr_fla
                 return MA_FALSE;
             }
             pInit->runningFilePos += headerSize;
-        } else {
-            break;
-        }
+	    continue;
     }
     if (id[0] == 'f' && id[1] == 'L' && id[2] == 'a' && id[3] == 'C') {
         return ma_dr_flac__init_private__native(pInit, onRead, onSeek, onMeta, pUserData, pUserDataMD, relaxed);
