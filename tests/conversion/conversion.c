@@ -1,4 +1,5 @@
-
+#define MA_NO_THREADING
+#define MA_NO_DEVICE_IO
 #include "../common/common.c"
 
 ma_result init_data_converter(ma_uint32 rateIn, ma_uint32 rateOut, ma_resample_algorithm algorithm, ma_data_converter* pDataConverter)
