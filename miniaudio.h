@@ -3874,22 +3874,24 @@ typedef ma_uint16 wchar_t;
 #if !defined(_WIN32)    /* If it's not Win32, assume POSIX. */
     #define MA_POSIX
 
-    /*
-    Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
-    You can use this to avoid including pthread.h in the header section. The downside is that it
-    results in some fixed sized structures being declared for the various types that are used in
-    miniaudio. The risk here is that these types might be too small for a given platform. This
-    risk is yours to take and no support will be offered if you enable this option.
-    */
-    #ifndef MA_NO_PTHREAD_IN_HEADER
-        #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
-        typedef pthread_t       ma_pthread_t;
-        typedef pthread_mutex_t ma_pthread_mutex_t;
-        typedef pthread_cond_t  ma_pthread_cond_t;
-    #else
-        typedef ma_uintptr      ma_pthread_t;
-        typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
-        typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+    #if !defined(MA_NO_THREADING)
+        /*
+        Use the MA_NO_PTHREAD_IN_HEADER option at your own risk. This is intentionally undocumented.
+        You can use this to avoid including pthread.h in the header section. The downside is that it
+        results in some fixed sized structures being declared for the various types that are used in
+        miniaudio. The risk here is that these types might be too small for a given platform. This
+        risk is yours to take and no support will be offered if you enable this option.
+        */
+        #ifndef MA_NO_PTHREAD_IN_HEADER
+            #include <pthread.h>    /* Unfortunate #include, but needed for pthread_t, pthread_mutex_t and pthread_cond_t types. */
+            typedef pthread_t       ma_pthread_t;
+            typedef pthread_mutex_t ma_pthread_mutex_t;
+            typedef pthread_cond_t  ma_pthread_cond_t;
+        #else
+            typedef ma_uintptr      ma_pthread_t;
+            typedef union           ma_pthread_mutex_t { char __data[40]; ma_uint64 __alignment; } ma_pthread_mutex_t;
+            typedef union           ma_pthread_cond_t  { char __data[48]; ma_uint64 __alignment; } ma_pthread_cond_t;
+        #endif
     #endif
 
     #if defined(__unix__)
@@ -11547,14 +11549,14 @@ IMPLEMENTATION
 #endif
 
 #if !defined(MA_WIN32)
-#include <sched.h>
-#include <sys/time.h>   /* select() (used for ma_sleep()). */
-#include <unistd.h>
-#include <pthread.h>
-#endif
+    #if !defined(MA_NO_THREADING)
+        #include <sched.h>
+        #include <pthread.h>     /* For pthreads. */
+    #endif
 
-#ifdef MA_NX
-#include <time.h>       /* For nanosleep() */
+    #include <sys/time.h>   /* select() (used for ma_sleep()). */
+    #include <time.h>       /* For nanosleep() */
+    #include <unistd.h> 
 #endif
 
 #include <sys/stat.h>   /* For fstat(), etc. */
