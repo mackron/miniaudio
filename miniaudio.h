@@ -70414,6 +70414,9 @@ static ma_result ma_resource_manager_data_buffer_node_acquire_critical_section(m
                     /*
                     Fences were acquired before posting the job, but since the job was not able to
                     be posted, we need to make sure we release them so nothing gets stuck waiting.
+
+                    In the WAIT_INIT case, these will have already been released in ma_job_process()
+                    so we should only release fences in this branch.
                     */
                     if (pInitFence != NULL) { ma_fence_release(pInitFence); }
                     if (pDoneFence != NULL) { ma_fence_release(pDoneFence); }
