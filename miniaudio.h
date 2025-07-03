@@ -31890,6 +31890,11 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
             ss.channels = pDescriptorCapture->channels;
         }
 
+        /* PulseAudio has a maximum channel count of 32. We'll get a crash if this is exceeded. */
+        if (ss.channels > 32) {
+            ss.channels = 32;
+        }
+
         /* Use a default channel map. */
         ((ma_pa_channel_map_init_extend_proc)pDevice->pContext->pulse.pa_channel_map_init_extend)(&cmap, ss.channels, pConfig->pulse.channelMap);
 
@@ -32040,6 +32045,11 @@ static ma_result ma_device_init__pulse(ma_device* pDevice, const ma_device_confi
         /* Use the requested channel count if we have one. */
         if (pDescriptorPlayback->channels != 0) {
             ss.channels = pDescriptorPlayback->channels;
+        }
+
+        /* PulseAudio has a maximum channel count of 32. We'll get a crash if this is exceeded. */
+        if (ss.channels > 32) {
+            ss.channels = 32;
         }
 
         /* Use a default channel map. */
