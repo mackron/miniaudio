@@ -1,0 +1,289 @@
+miniaudio_h := <../miniaudio.h>;
+miniaudio_c := <../miniaudio.c>;
+dr_wav_h    :: <../../dr_libs/dr_wav.h>;
+dr_flac_h   :: <../../dr_libs/dr_flac.h>;
+dr_mp3_h    :: <../../dr_libs/dr_mp3.h>;
+c89atomic_h :: <../../c89atomic/c89atomic.h>;
+c89atomic_c :: <../../c89atomic/c89atomic.c>;
+
+minify :: function(src:string) string
+{
+    return @(src)
+        ["/\*[^*]*\*+(?:[^/*][^*]*\*+)*/"] <= "" // Remove all block comments to keep things clean.
+        ["(?m)^\s*\R"]                     <= "" // Remove all empty lines to compress it all down.
+        ["[ \t]+(?=(?:\R|$))"]             <= "" // Remove trailing whitespace.
+    ;
+}
+
+
+// dr_wav
+rename_wav_namespace :: function(src:string) string
+{
+    return @(src)
+        ["\bdrwav"]                          <= "ma_dr_wav"
+        ["\bDRWAV"]                          <= "MA_DR_WAV"
+        ["\bdr_wav"]                         <= "ma_dr_wav"
+        ["\bDR_WAV"]                         <= "MA_DR_WAV"
+        ["\bg_drwav"]                        <= "ma_dr_wav_g"
+
+        // Some common tokens will be namespaced as "ma_dr_wav" when we really want them to be "ma_".
+        ["\bma_dr_wav_int"]                  <= "ma_int"
+        ["\bma_dr_wav_uint"]                 <= "ma_uint"
+        ["\bma_dr_wav_bool"]                 <= "ma_bool"
+        ["\bma_dr_wav_uintptr"]              <= "ma_uintptr"
+        ["\bMA_DR_WAV_TRUE"]                 <= "MA_TRUE"
+        ["\bMA_DR_WAV_FALSE"]                <= "MA_FALSE"
+        ["\bMA_DR_WAV_UINT64_MAX"]           <= "MA_UINT64_MAX"
+        ["\bMA_DR_WAV_32BIT"]                <= "MA_32BIT"
+        ["\bMA_DR_WAV_64BIT"]                <= "MA_64BIT"
+        ["\bMA_DR_WAV_ARM32"]                <= "MA_ARM32"
+        ["\bMA_DR_WAV_ARM64"]                <= "MA_ARM64"
+        ["\bMA_DR_WAV_X64"]                  <= "MA_X64"
+        ["\bMA_DR_WAV_X86"]                  <= "MA_X86"
+        ["\bMA_DR_WAV_ARM"]                  <= "MA_ARM"
+        ["\bMA_DR_WAV_API"]                  <= "MA_API"
+        ["\bMA_DR_WAV_PRIVATE"]              <= "MA_PRIVATE"
+        ["\bMA_DR_WAV_DLL"]                  <= "MA_DLL"
+        ["\bMA_DR_WAV_DLL_IMPORT"]           <= "MA_DLL_IMPORT"
+        ["\bMA_DR_WAV_DLL_EXPORT"]           <= "MA_DLL_EXPORT"
+        ["\bMA_DR_WAV_DLL_PRIVATE"]          <= "MA_DLL_PRIVATE"
+        ["\bma_dr_wav_result"]               <= "ma_result"
+        ["\bma_dr_wav_allocation_callbacks"] <= "ma_allocation_callbacks"
+        ["\bMA_DR_WAV_INLINE"]               <= "MA_INLINE"
+        ["\bMA_DR_WAV_SIZE_MAX"]             <= "MA_SIZE_MAX"
+        ["\bma_dr_wav_result_from_errno"]    <= "ma_result_from_errno"
+        ["\bma_dr_wav_fopen"]                <= "ma_fopen"
+        ["\bma_dr_wav_wfopen"]               <= "ma_wfopen"
+
+        // Result codes.
+        ["MA_DR_WAV_SUCCESS"]                <= "MA_SUCCESS"
+        ["MA_DR_WAV_INVALID_ARGS"]           <= "MA_INVALID_ARGS"
+        ["MA_DR_WAV_OUT_OF_MEMORY"]          <= "MA_OUT_OF_MEMORY"
+        ["MA_DR_WAV_INVALID_FILE"]           <= "MA_INVALID_FILE"
+        ["MA_DR_WAV_AT_END"]                 <= "MA_AT_END"
+        ["MA_DR_WAV_BAD_SEEK"]               <= "MA_BAD_SEEK"
+    ;
+}
+
+convert_wav_h :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+
+    return minify(rename_wav_namespace(stripped));
+}
+
+convert_wav_c :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+
+    return minify(rename_wav_namespace(stripped));
+}
+
+miniaudio_h("/\* dr_wav_h begin \*/\R":"\R/\* dr_wav_h end \*/") = convert_wav_h(@(dr_wav_h["#ifndef dr_wav_h\R":"\R#endif  /\* dr_wav_h \*/"]));
+miniaudio_h("/\* dr_wav_c begin \*/\R":"\R/\* dr_wav_c end \*/") = convert_wav_c(@(dr_wav_h["#ifndef dr_wav_c\R":"\R#endif  /\* dr_wav_c \*/"]));
+
+
+// dr_flac
+rename_flac_namespace :: function(src:string) string
+{
+    return @(src)
+        ["\bdrflac"]                          <= "ma_dr_flac"
+        ["\bDRFLAC"]                          <= "MA_DR_FLAC"
+        ["\bdr_flac"]                         <= "ma_dr_flac"
+        ["\bDR_FLAC"]                         <= "MA_DR_FLAC"
+        ["\bg_drflac"]                        <= "ma_dr_flac_g"
+
+        // Some common tokens will be namespaced as "ma_dr_flac" when we really want them to be "ma_".
+        ["\bma_dr_flac_int"]                  <= "ma_int"
+        ["\bma_dr_flac_uint"]                 <= "ma_uint"
+        ["\bma_dr_flac_bool"]                 <= "ma_bool"
+        ["\bma_dr_flac_uintptr"]              <= "ma_uintptr"
+        ["\bMA_DR_FLAC_TRUE"]                 <= "MA_TRUE"
+        ["\bMA_DR_FLAC_FALSE"]                <= "MA_FALSE"
+        ["\bMA_DR_FLAC_UINT64_MAX"]           <= "MA_UINT64_MAX"
+        ["\bMA_DR_FLAC_32BIT"]                <= "MA_32BIT"
+        ["\bMA_DR_FLAC_64BIT"]                <= "MA_64BIT"
+        ["\bMA_DR_FLAC_ARM32"]                <= "MA_ARM32"
+        ["\bMA_DR_FLAC_ARM64"]                <= "MA_ARM64"
+        ["\bMA_DR_FLAC_X64"]                  <= "MA_X64"
+        ["\bMA_DR_FLAC_X86"]                  <= "MA_X86"
+        ["\bMA_DR_FLAC_ARM"]                  <= "MA_ARM"
+        ["\bMA_DR_FLAC_API"]                  <= "MA_API"
+        ["\bMA_DR_FLAC_PRIVATE"]              <= "MA_PRIVATE"
+        ["\bMA_DR_FLAC_DLL"]                  <= "MA_DLL"
+        ["\bMA_DR_FLAC_DLL_IMPORT"]           <= "MA_DLL_IMPORT"
+        ["\bMA_DR_FLAC_DLL_EXPORT"]           <= "MA_DLL_EXPORT"
+        ["\bMA_DR_FLAC_DLL_PRIVATE"]          <= "MA_DLL_PRIVATE"
+        ["\bma_dr_flac_result"]               <= "ma_result"
+        ["\bma_dr_flac_allocation_callbacks"] <= "ma_allocation_callbacks"
+        ["\bMA_DR_FLAC_INLINE"]               <= "MA_INLINE"
+        ["\bMA_DR_FLAC_SIZE_MAX"]             <= "MA_SIZE_MAX"
+        ["\bma_dr_flac_result_from_errno"]    <= "ma_result_from_errno"
+        ["\bma_dr_flac_fopen"]                <= "ma_fopen"
+        ["\bma_dr_flac_wfopen"]               <= "ma_wfopen"
+
+        // Result codes.
+        ["MA_DR_FLAC_SUCCESS"]                <= "MA_SUCCESS"
+        ["MA_DR_FLAC_ERROR"]                  <= "MA_ERROR"
+        ["MA_DR_FLAC_AT_END"]                 <= "MA_AT_END"
+        ["MA_DR_FLAC_CRC_MISMATCH"]           <= "MA_CRC_MISMATCH"
+    ;
+}
+
+convert_flac_h :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+
+    return minify(rename_flac_namespace(stripped));
+}
+
+convert_flac_c :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+
+    return minify(rename_flac_namespace(stripped));
+}
+
+miniaudio_h("/\* dr_flac_h begin \*/\R":"\R/\* dr_flac_h end \*/") = convert_flac_h(@(dr_flac_h["#ifndef dr_flac_h\R":"\R#endif  /\* dr_flac_h \*/"]));
+miniaudio_h("/\* dr_flac_c begin \*/\R":"\R/\* dr_flac_c end \*/") = convert_flac_c(@(dr_flac_h["#ifndef dr_flac_c\R":"\R#endif  /\* dr_flac_c \*/"]));
+
+
+
+// dr_mp3
+rename_mp3_namespace :: function(src:string) string
+{
+    return @(src)
+        ["\bdrmp3"]                          <= "ma_dr_mp3"
+        ["\bDRMP3"]                          <= "MA_DR_MP3"
+        ["\bdr_mp3"]                         <= "ma_dr_mp3"
+        ["\bDR_MP3"]                         <= "MA_DR_MP3"
+        ["\bg_drmp3"]                        <= "ma_dr_mp3_g"
+
+        // Some common tokens will be namespaced as "ma_dr_mp3" when we really want them to be "ma_".
+        ["\bma_dr_mp3_int"]                  <= "ma_int"
+        ["\bma_dr_mp3_uint"]                 <= "ma_uint"
+        ["\bma_dr_mp3_bool"]                 <= "ma_bool"
+        ["\bma_dr_mp3_uintptr"]              <= "ma_uintptr"
+        ["\bMA_DR_MP3_TRUE"]                 <= "MA_TRUE"
+        ["\bMA_DR_MP3_FALSE"]                <= "MA_FALSE"
+        ["\bMA_DR_MP3_UINT64_MAX"]           <= "MA_UINT64_MAX"
+        ["\bMA_DR_MP3_32BIT"]                <= "MA_32BIT"
+        ["\bMA_DR_MP3_64BIT"]                <= "MA_64BIT"
+        ["\bMA_DR_MP3_ARM32"]                <= "MA_ARM32"
+        ["\bMA_DR_MP3_ARM64"]                <= "MA_ARM64"
+        ["\bMA_DR_MP3_X64"]                  <= "MA_X64"
+        ["\bMA_DR_MP3_X86"]                  <= "MA_X86"
+        ["\bMA_DR_MP3_ARM"]                  <= "MA_ARM"
+        ["\bMA_DR_MP3_API"]                  <= "MA_API"
+        ["\bMA_DR_MP3_PRIVATE"]              <= "MA_PRIVATE"
+        ["\bMA_DR_MP3_DLL"]                  <= "MA_DLL"
+        ["\bMA_DR_MP3_DLL_IMPORT"]           <= "MA_DLL_IMPORT"
+        ["\bMA_DR_MP3_DLL_EXPORT"]           <= "MA_DLL_EXPORT"
+        ["\bMA_DR_MP3_DLL_PRIVATE"]          <= "MA_DLL_PRIVATE"
+        ["\bma_dr_mp3_result"]               <= "ma_result"
+        ["\bma_dr_mp3_allocation_callbacks"] <= "ma_allocation_callbacks"
+        ["\bMA_DR_MP3_INLINE"]               <= "MA_INLINE"
+        ["\bMA_DR_MP3_SIZE_MAX"]             <= "MA_SIZE_MAX"
+        ["\bma_dr_mp3_result_from_errno"]    <= "ma_result_from_errno"
+        ["\bma_dr_mp3_fopen"]                <= "ma_fopen"
+        ["\bma_dr_mp3_wfopen"]               <= "ma_wfopen"
+
+        // Result codes.
+        ["MA_DR_MP3_SUCCESS"]                <= "MA_SUCCESS"
+    ;
+}
+
+convert_mp3_h :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
+    stripped["/\* Decorations \*/\R"            : "\R/\* End Decorations \*/"           ] = "";
+    stripped["/\* Result Codes \*/\R"           : "\R/\* End Result Codes \*/"          ] = "";
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
+    stripped["/\* Allocation Callbacks \*/\R"   : "\R/\* End Allocation Callbacks \*/"  ] = "";
+
+    return minify(rename_mp3_namespace(stripped));
+}
+
+convert_mp3_c :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* SIZE_MAX \*/\R"               : "\R/\* End SIZE_MAX \*/"              ] = "";
+    stripped["/\* Errno \*/\R"                  : "\R/\* End Errno \*/"                 ] = "";
+    stripped["/\* fopen \*/\R"                  : "\R/\* End fopen \*/"                 ] = "";
+
+    return minify(rename_mp3_namespace(stripped));
+}
+
+miniaudio_h("/\* dr_mp3_h begin \*/\R":"\R/\* dr_mp3_h end \*/") = convert_mp3_h(@(dr_mp3_h["#ifndef dr_mp3_h\R":"\R#endif  /\* dr_mp3_h \*/"]));
+miniaudio_h("/\* dr_mp3_c begin \*/\R":"\R/\* dr_mp3_c end \*/") = convert_mp3_c(@(dr_mp3_h["#ifndef dr_mp3_c\R":"\R#endif  /\* dr_mp3_c \*/"]));
+
+
+// c89atomic
+rename_c89atomic_namespace :: function(src:string) string
+{
+    return @(src)
+        ["\bc89atomic"]          <= "ma_atomic"
+        ["\bC89ATOMIC"]          <= "MA_ATOMIC"
+
+        // Some common tokens will be namespaced as "ma_atomic" when we really want them to be "ma_".
+        ["\bma_atomic_int"]      <= "ma_int"
+        ["\bma_atomic_uint"]     <= "ma_uint"
+        ["\bma_atomic_bool"]     <= "ma_bool32"
+        ["\bMA_ATOMIC_32BIT"]    <= "MA_32BIT"
+        ["\bMA_ATOMIC_64BIT"]    <= "MA_64BIT"
+        ["\bMA_ATOMIC_ARM32"]    <= "MA_ARM32"
+        ["\bMA_ATOMIC_ARM64"]    <= "MA_ARM64"
+        ["\bMA_ATOMIC_X64"]      <= "MA_X64"
+        ["\bMA_ATOMIC_X86"]      <= "MA_X86"
+        ["\bMA_ATOMIC_ARM"]      <= "MA_ARM"
+        ["\bMA_ATOMIC_INLINE"]   <= "MA_INLINE"
+
+        // We have an "extern c89atomic_spinlock" in c89atomic.h, but since we're putting this into the implementation section we can just
+        // drop the extern and not bother importing anything from c89atomic.c.
+        ["\bextern ma_atomic_spinlock"] <= "ma_atomic_spinlock"
+    ;
+}
+
+convert_c89atomic_h :: function(src:string) string
+{
+    stripped := @(src);
+    stripped["/\* Sized Types \*/\R"            : "\R/\* End Sized Types \*/"           ] = "";
+    stripped["/\* Architecture Detection \*/\R" : "\R/\* End Architecture Detection \*/"] = "";
+    stripped["/\* Inline \*/\R"                 : "\R/\* End Inline \*/"                ] = "";
+
+    return minify(rename_c89atomic_namespace(stripped));
+}
+
+miniaudio_h("/\* c89atomic.h begin \*/\R":"\R/\* c89atomic.h end \*/") = convert_c89atomic_h(@(c89atomic_h["#ifndef c89atomic_h\R":"\R#endif  /\* c89atomic_h \*/"]));
+
+
+// Cleanup. If we don't normalize line endings we'll fail to compile on old versions of GCC.
+cleanup :: function(src:string) string
+{
+    return @(src)
+        ["\r\n"] <= "\n"        // Normalize line endings to "\n". Needed for very old versions of GCC.
+        ["\t"]   <= "    "      // Tabs to spaces.
+    ;
+}
+
+miniaudio_h = cleanup(@(miniaudio_h));
+miniaudio_c = cleanup(@(miniaudio_c));
