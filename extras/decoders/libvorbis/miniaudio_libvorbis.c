@@ -80,11 +80,11 @@ static int ma_libvorbis_vf_callback__seek(void* pUserData, ogg_int64_t offset, i
     ma_seek_origin origin;
 
     if (whence == SEEK_SET) {
-        origin = ma_seek_origin_start;
+        origin = MA_SEEK_SET;
     } else if (whence == SEEK_END) {
-        origin = ma_seek_origin_end;
+        origin = MA_SEEK_END;
     } else {
-        origin = ma_seek_origin_current;
+        origin = MA_SEEK_CUR;
     }
 
     result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, offset, origin);
