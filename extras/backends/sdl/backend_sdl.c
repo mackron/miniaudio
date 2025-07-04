@@ -165,7 +165,7 @@ static ma_result ma_context_enumerate_devices__sdl(void* pUserData, ma_context* 
                 deviceInfo.isDefault = MA_TRUE;
             }
 
-            cbResult = callback(pContext, ma_device_type_playback, &deviceInfo, pCallbackUserData);
+            cbResult = callback(ma_device_type_playback, &deviceInfo, pCallbackUserData);
             if (cbResult == MA_FALSE) {
                 isTerminated = MA_TRUE;
                 break;
@@ -187,7 +187,7 @@ static ma_result ma_context_enumerate_devices__sdl(void* pUserData, ma_context* 
                 deviceInfo.isDefault = MA_TRUE;
             }
 
-            cbResult = callback(pContext, ma_device_type_capture, &deviceInfo, pCallbackUserData);
+            cbResult = callback(ma_device_type_capture, &deviceInfo, pCallbackUserData);
             if (cbResult == MA_FALSE) {
                 isTerminated = MA_TRUE;
                 break;
@@ -616,7 +616,16 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_SDL =
     NULL,   /* onDeviceWrite */
     NULL,   /* onDeviceDataLoop */
     NULL,   /* onDeviceDataLoopWakeup */
-    NULL    /* onDeviceGetInfo */
+    NULL,   /* onDeviceGetInfo */
+
+    /* Temp. */
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL
 };
 
 const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL = &ma_gDeviceBackendVTable_SDL;
