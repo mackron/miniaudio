@@ -9994,9 +9994,9 @@ typedef enum
 
 typedef enum
 {
-    ma_seek_origin_start,
-    ma_seek_origin_current,
-    ma_seek_origin_end  /* Not used by decoders. */
+    MA_SEEK_SET,
+    MA_SEEK_CUR,
+    MA_SEEK_END
 } ma_seek_origin;
 
 typedef struct
@@ -61252,9 +61252,9 @@ static ma_result ma_default_vfs_seek__win32(ma_vfs* pVFS, ma_vfs_file file, ma_i
 
     liDistanceToMove.QuadPart = offset;
 
-    /*  */ if (origin == ma_seek_origin_current) {
+    /*  */ if (origin == MA_SEEK_CUR) {
         dwMoveMethod = FILE_CURRENT;
-    } else if (origin == ma_seek_origin_end) {
+    } else if (origin == MA_SEEK_END) {
         dwMoveMethod = FILE_END;
     } else {
         dwMoveMethod = FILE_BEGIN;
@@ -61461,9 +61461,9 @@ static ma_result ma_default_vfs_seek__stdio(ma_vfs* pVFS, ma_vfs_file file, ma_i
 
     (void)pVFS;
 
-    if (origin == ma_seek_origin_start) {
+    if (origin == MA_SEEK_SET) {
         whence = SEEK_SET;
-    } else if (origin == ma_seek_origin_end) {
+    } else if (origin == MA_SEEK_END) {
         whence = SEEK_END;
     } else {
         whence = SEEK_CUR;
@@ -62824,11 +62824,11 @@ static ma_bool32 ma_wav_dr_callback__seek(void* pUserData, int offset, ma_dr_wav
 
     MA_ASSERT(pWav != NULL);
 
-    maSeekOrigin = ma_seek_origin_start;
+    maSeekOrigin = MA_SEEK_SET;
     if (origin == MA_DR_WAV_SEEK_CUR) {
-        maSeekOrigin = ma_seek_origin_current;
+        maSeekOrigin = MA_SEEK_CUR;
     } else if (origin == MA_DR_WAV_SEEK_END) {
-        maSeekOrigin = ma_seek_origin_end;
+        maSeekOrigin = MA_SEEK_END;
     }
 
     result = pWav->onSeek(pWav->pReadSeekTellUserData, offset, maSeekOrigin);
@@ -63522,11 +63522,11 @@ static ma_bool32 ma_flac_dr_callback__seek(void* pUserData, int offset, ma_dr_fl
 
     MA_ASSERT(pFlac != NULL);
 
-    maSeekOrigin = ma_seek_origin_start;
+    maSeekOrigin = MA_SEEK_SET;
     if (origin == MA_DR_FLAC_SEEK_CUR) {
-        maSeekOrigin = ma_seek_origin_current;
+        maSeekOrigin = MA_SEEK_CUR;
     } else if (origin == MA_DR_FLAC_SEEK_END) {
-        maSeekOrigin = ma_seek_origin_end;
+        maSeekOrigin = MA_SEEK_END;
     }
 
     result = pFlac->onSeek(pFlac->pReadSeekTellUserData, offset, maSeekOrigin);
@@ -64161,11 +64161,11 @@ static ma_bool32 ma_mp3_dr_callback__seek(void* pUserData, int offset, ma_dr_mp3
     MA_ASSERT(pMP3 != NULL);
 
     if (origin == MA_DR_MP3_SEEK_SET) {
-        maSeekOrigin = ma_seek_origin_start;
+        maSeekOrigin = MA_SEEK_SET;
     } else if (origin == MA_DR_MP3_SEEK_END) {
-        maSeekOrigin = ma_seek_origin_end;
+        maSeekOrigin = MA_SEEK_END;
     } else {
-        maSeekOrigin = ma_seek_origin_current;
+        maSeekOrigin = MA_SEEK_CUR;
     }
 
     result = pMP3->onSeek(pMP3->pReadSeekTellUserData, offset, maSeekOrigin);
@@ -65314,7 +65314,7 @@ MA_API ma_result ma_stbvorbis_seek_to_pcm_frame(ma_stbvorbis* pVorbis, ma_uint64
                 MA_ZERO_OBJECT(&pVorbis->push);
 
                 /* Seek to the start of the file. */
-                result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, 0, ma_seek_origin_start);
+                result = pVorbis->onSeek(pVorbis->pReadSeekTellUserData, 0, MA_SEEK_SET);
                 if (result != MA_SUCCESS) {
                     return result;
                 }
@@ -66294,7 +66294,7 @@ static ma_result ma_decoder_init__internal(const ma_decoder_config* pConfig, ma_
                     firstError = result;
                 }
 
-                result = ma_decoder_on_seek(pDecoder, 0, ma_seek_origin_start);
+                result = ma_decoder_on_seek(pDecoder, 0, MA_SEEK_SET);
                 if (result != MA_SUCCESS) {
                     return result;  /* Failed to seek back to the start. */
                 }
@@ -66365,7 +66365,7 @@ static ma_result ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteO
         return MA_BAD_SEEK;
     }
 
-    if (origin == ma_seek_origin_current) {
+    if (origin == MA_SEEK_CUR) {
         if (byteOffset > 0) {
             if (pDecoder->data.memory.currentReadPos + byteOffset > pDecoder->data.memory.dataSize) {
                 byteOffset = (ma_int64)(pDecoder->data.memory.dataSize - pDecoder->data.memory.currentReadPos);  /* Trying to seek too far forward. */
@@ -66380,7 +66380,7 @@ static ma_result ma_decoder__on_seek_memory(ma_decoder* pDecoder, ma_int64 byteO
             pDecoder->data.memory.currentReadPos -= (size_t)-byteOffset;
         }
     } else {
-        if (origin == ma_seek_origin_end) {
+        if (origin == MA_SEEK_END) {
             if (byteOffset < 0) {
                 byteOffset = -byteOffset;
             }
@@ -67256,11 +67256,11 @@ static ma_bool32 ma_encoder__internal_on_seek_wav(void* pUserData, int offset, m
 
     MA_ASSERT(pEncoder != NULL);
 
-    maSeekOrigin = ma_seek_origin_start;
+    maSeekOrigin = MA_SEEK_SET;
     if (origin == MA_DR_WAV_SEEK_CUR) {
-        maSeekOrigin = ma_seek_origin_current;
+        maSeekOrigin = MA_SEEK_CUR;
     } else if (origin == MA_DR_WAV_SEEK_END) {
-        maSeekOrigin = ma_seek_origin_end;
+        maSeekOrigin = MA_SEEK_END;
     }
 
     result = pEncoder->onSeek(pEncoder, offset, maSeekOrigin);
