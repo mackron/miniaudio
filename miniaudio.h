@@ -7133,10 +7133,11 @@ typedef struct ma_device_data_callback
 MA_API void ma_device_data_callback_invoke(ma_device_data_callback* pDeviceDataCallback, void* pFramesOutInBackendFormat, const void* pFramesInInBackendFormat, ma_uint32 frameCount);
 
 
-typedef struct ma_context_config        ma_context_config;
-typedef struct ma_device_config         ma_device_config;
-typedef struct ma_device_backend_vtable ma_device_backend_vtable;
-typedef struct ma_backend_callbacks     ma_backend_callbacks;
+typedef struct ma_context_config         ma_context_config;
+typedef struct ma_device_config          ma_device_config;
+typedef struct ma_device_backend_vtable  ma_device_backend_vtable;
+typedef struct ma_device_backend_vtable2 ma_device_backend_vtable2;
+typedef struct ma_backend_callbacks      ma_backend_callbacks;
 
 /* For defining vtables, configs and user data pointers for custom backends. */
 typedef struct
@@ -7145,6 +7146,13 @@ typedef struct
     const void* pConfig;                        /* Contextual based on whether or not this is being used for a context or device. The object this points to depends on the backend. */
     void* pUserData;                            /* User data pointer passed into each callback in the vtable. */
 } ma_device_backend_spec;
+
+/* For mapping a config object to a backend. Used for both context configs or device configs. */
+typedef struct ma_device_backend_config
+{
+    const ma_device_backend_vtable2* pBackend;
+    void* pConfig;   /* Can be a pointer to either a backend-specific context config, or a backend-specific device config, depending on context. */
+} ma_device_backend_config;
 
 
 #define MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE (1U << 1)    /* If set, this is supported in exclusive mode. Otherwise not natively supported by exclusive mode. */
@@ -7405,6 +7413,28 @@ struct ma_device_backend_vtable
     ma_bool32 (* onHasDeviceGetInfo )(void* pUserData, ma_context* pContext);
 };
 
+
+typedef struct ma_backend_info
+{
+    const char* pName;
+} ma_backend_info;
+
+struct ma_device_backend_vtable2
+{
+    void      (* onBackendInfo            )(ma_backend_info* pBackendInfo);
+    ma_result (* onContextInit            )(const ma_context_config* pConfig, ma_log* pLog, const ma_allocation_callbacks* pAllocationCallbacks, void** ppContextState);
+    void      (* onContextUninit          )(void* pContextState, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onContextEnumerateDevices)(void* pContextState, ma_enum_devices_callback_proc callback, void* pCallbackUserData);
+    ma_result (* onContextGetDeviceInfo   )(void* pContextState, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
+    ma_result (* onDeviceInit             )(void* pContextState, const ma_device_config* pConfig, ma_device_data_callback* pDeviceDataCallback, const ma_allocation_callbacks* pAllocationCallbacks, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void** ppDeviceState);
+    void      (* onDeviceUninit           )(void* pDeviceState, const ma_allocation_callbacks* pAllocationCallbacks);
+    ma_result (* onDeviceStart            )(void* pDeviceState);
+    ma_result (* onDeviceStop             )(void* pDeviceState);
+    ma_result (* onDeviceRead             )(void* pDeviceState, void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesRead);
+    ma_result (* onDeviceWrite            )(void* pDeviceState, const void* pFrames, ma_uint32 frameCount, ma_uint32* pFramesWritten);
+    ma_result (* onDeviceGetInfo          )(void* pDeviceState, ma_device_type type, ma_device_info* pDeviceInfo);
+};
+
 struct ma_context_config
 {
     ma_log* pLog;
@@ -7473,11 +7503,12 @@ typedef struct
 
 struct ma_context
 {
-    ma_backend_callbacks callbacks;     /* Old system. Will be removed when all stock backends have been converted over to the new system. */
-    const ma_device_backend_vtable* pVTable;  /* New system. */
-    void* pVTableUserData;
-    void* pBackendData;                 /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
-    void* pBackendState;
+    ma_backend_callbacks callbacks;            /* Old system. Will be removed when all stock backends have been converted over to the new system. */
+    const ma_device_backend_vtable* pVTable;   /* New system. TODO: Delete this.  */
+    void* pVTableUserData;              /* TODO: Delete this. */
+    const ma_device_backend_vtable2* pVTable2; /* New new system. */
+    void* pBackendData;                 /* TODO: Delete this. */
+    void* pBackendState;                /* Backend state created by the backend. This will be passed to the relevant backend functions. */
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
@@ -7894,7 +7925,7 @@ struct ma_device
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     void* pUserData;                            /* Application defined data. */
     void* pBackendData;                         /* This is not used by miniaudio, but is a way for custom backends to associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
-    void* pBackendState;
+    void* pBackendState;                        /* Backend state created by the backend. This will be passed to the relevant backend functions. */
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
@@ -19703,9 +19734,9 @@ typedef struct
 {
     ma_backend backend;
     const char* pName;
-} ma_backend_info;
+} ma_backend_name;
 
-static ma_backend_info gBackendInfo[] = /* Indexed by the backend enum. Must be in the order backends are declared in the ma_backend enum. */
+static ma_backend_name gBackendInfo[] = /* Indexed by the backend enum. Must be in the order backends are declared in the ma_backend enum. */
 {
     {ma_backend_wasapi,     "WASAPI"},
     {ma_backend_dsound,     "DirectSound"},
