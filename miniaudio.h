@@ -7114,6 +7114,25 @@ typedef union
 MA_API ma_bool32 ma_device_id_equal(const ma_device_id* pA, const ma_device_id* pB);
 
 
+/*
+This data structure is used to bridge the backend with the device's data callback. When a backend needs to
+invoke the data callback, it should call `ma_device_data_callback_invoke()`. When the backend needs data for
+for playback, the backend should pass in a value for `pFramesOutInBackendFormat` which will be in the
+backend's native format. Likewise for capture, when the backend is ready to push data to the application from
+the microphone, it should pass in a value for `pFramesInInBackendFormat`, which again is in the backend's
+native format.
+
+The `ma_device_data_callback` structure should be considered opaque. It is declared here in the header section
+so it can be stored directly in the `ma_device` object without needing a heap allocation.
+*/
+typedef struct ma_device_data_callback
+{
+    void* pInternal;
+} ma_device_data_callback;
+
+MA_API void ma_device_data_callback_invoke(ma_device_data_callback* pDeviceDataCallback, void* pFramesOutInBackendFormat, const void* pFramesInInBackendFormat, ma_uint32 frameCount);
+
+
 typedef struct ma_context_config        ma_context_config;
 typedef struct ma_device_config         ma_device_config;
 typedef struct ma_device_backend_vtable ma_device_backend_vtable;
@@ -7458,6 +7477,7 @@ struct ma_context
     const ma_device_backend_vtable* pVTable;  /* New system. */
     void* pVTableUserData;
     void* pBackendData;                 /* This is not used by miniaudio, but is a way for custom backends to store associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
+    void* pBackendState;
     ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
@@ -7867,12 +7887,14 @@ struct ma_device
 {
     ma_context* pContext;
     ma_device_type type;
+    ma_device_data_callback dataCallback;       /* The data callback object for bridging the backend to the device. */
     ma_uint32 sampleRate;
     ma_atomic_device_state state;               /* The state of the device is variable and can change at any time on any thread. Must be used atomically. */
     ma_device_data_proc onData;                 /* Set once at initialization time and should not be changed after. */
     ma_device_notification_proc onNotification; /* Set once at initialization time and should not be changed after. */
     void* pUserData;                            /* Application defined data. */
     void* pBackendData;                         /* This is not used by miniaudio, but is a way for custom backends to associate some backend-specific data with the device. Custom backends are free to use this pointer however they like. */
+    void* pBackendState;
     ma_mutex startStopLock;
     ma_event wakeupEvent;
     ma_event startEvent;
@@ -43185,6 +43207,24 @@ MA_API ma_bool32 ma_device_id_equal(const ma_device_id* pA, const ma_device_id* 
 }
 
 
+
+MA_API void ma_device_data_callback_invoke(ma_device_data_callback* pDeviceDataCallback, void* pFramesOutInBackendFormat, const void* pFramesInInBackendFormat, ma_uint32 frameCount)
+{
+    if (pDeviceDataCallback == NULL) {
+        return;
+    }
+
+    MA_ASSERT(pDeviceDataCallback->pInternal != NULL);
+
+    /*
+    For now `ma_device_data_callback` is just a wrapper around `ma_device`, but later on I want to update
+    this so that it's entirely decoupled from `ma_device`.
+    */
+    ma_device_handle_backend_data_callback((ma_device*)pDeviceDataCallback->pInternal, pFramesOutInBackendFormat, pFramesInInBackendFormat, frameCount);
+}
+
+
+
 static const void* ma_find_device_backend_config(const ma_device_backend_spec* pBackends, size_t count, const ma_device_backend_vtable* pVTable)
 {
     size_t iBackend;
@@ -43754,9 +43794,10 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
         }
     }
 
-    pDevice->pContext = pContext;
+    /* The data callback object is for bridging the data callback between the backend and the device. */
+    pDevice->dataCallback.pInternal = pDevice;
 
-    /* Set the user data and log callback ASAP to ensure it is available for the entire initialization process. */
+    pDevice->pContext       = pContext;
     pDevice->pUserData      = pConfig->pUserData;
     pDevice->onData         = pConfig->dataCallback;
     pDevice->onNotification = pConfig->notificationCallback;
@@ -43962,7 +44003,7 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
     } else {
         /*
         If the backend is asynchronous and the device is duplex, we'll need an intermediary ring buffer. Note that this needs to be done
-        after ma_device__post_init_setup().
+        after ma_device_post_init().
         */
         if (ma_context_is_backend_asynchronous(pContext)) {
             if (pConfig->deviceType == ma_device_type_duplex) {
