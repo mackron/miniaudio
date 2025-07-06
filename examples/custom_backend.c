@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 
 
     /*
-    Here is where we would config the SDL-specific context-level config. The custom SDL backend allows this to be null, but we're
+    Here is where we would set up the SDL-specific context-level config. The custom SDL backend allows this to be null, but we're
     defining it here just for the sake of demonstration. Whether or not this is required depends on the backend. If you're not sure,
     check the documentation for the backend.
     */
