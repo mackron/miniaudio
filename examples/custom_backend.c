@@ -78,12 +78,21 @@ int main(int argc, char** argv)
         { MA_DEVICE_BACKEND_VTABLE_SDL, &sdlContextConfig, NULL }
     };
 
+    #if 0
+    ma_device_backend_config backends[] =
+    {
+        { ma_device_backend_sdl,        &sdlContextConfig },
+        { ma_device_backend_wasapi,     NULL },
+        { ma_device_backend_pulseaudio, NULL }
+    };
+    #endif
+
     contextConfig = ma_context_config_init();
     contextConfig.custom.pBackends = pCustomContextConfigs;
     contextConfig.custom.count     = (sizeof(pCustomContextConfigs) / sizeof(pCustomContextConfigs[0]));
     
 
-    result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, (ma_context*)&context);
+    result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context);
     if (result != MA_SUCCESS) {
         return -1;
     }
@@ -119,19 +128,19 @@ int main(int argc, char** argv)
     deviceConfig.custom.pBackends  = pCustomDeviceConfigs;
     deviceConfig.custom.count      = sizeof(pCustomDeviceConfigs) / sizeof(pCustomDeviceConfigs[0]);
 
-    result = ma_device_init((ma_context*)&context, &deviceConfig, (ma_device*)&device);
+    result = ma_device_init(&context, &deviceConfig, &device);
     if (result != MA_SUCCESS) {
-        ma_context_uninit((ma_context*)&context);
+        ma_context_uninit(&context);
         return -1;
     }
 
 
-    ma_device_get_name((ma_device*)&device, ma_device_type_playback, name, sizeof(name), NULL);
+    ma_device_get_name(&device, ma_device_type_playback, name, sizeof(name), NULL);
     printf("Device Name: %s\n", name);
 
-    if (ma_device_start((ma_device*)&device) != MA_SUCCESS) {
-        ma_device_uninit((ma_device*)&device);
-        ma_context_uninit((ma_context*)&context);
+    if (ma_device_start(&device) != MA_SUCCESS) {
+        ma_device_uninit(&device);
+        ma_context_uninit(&context);
         return -5;
     }
     
@@ -141,9 +150,9 @@ int main(int argc, char** argv)
     printf("Press Enter to quit...\n");
     getchar();
 #endif
-    
-    ma_device_uninit((ma_device*)&device);
-    ma_context_uninit((ma_context*)&context);
+
+    ma_device_uninit(&device);
+    ma_context_uninit(&context);
 
     (void)argc;
     (void)argv;
