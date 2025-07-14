@@ -27,6 +27,7 @@ option(MINIAUDIO_NO_OPENSL                     "Disable the OpenSL|ES backend"  
 option(MINIAUDIO_NO_WEBAUDIO                   "Disable the Web Audio backend"       OFF)
 option(MINIAUDIO_NO_CUSTOM                     "Disable support for custom backends" OFF)
 option(MINIAUDIO_NO_NULL                       "Disable the null backend"            OFF)
+option(MINIAUDIO_NO_PIPEWIRE                   "Disable the PipeWire backend"        OFF)
 option(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS "Only enable specific backends. Backends can be enabled with MINIAUDIO_ENABLE_[BACKEND]." OFF)
 option(MINIAUDIO_ENABLE_WASAPI                 "Enable the WASAPI backend"           OFF)
 option(MINIAUDIO_ENABLE_DSOUND                 "Enable the DirectSound backend"      OFF)
@@ -154,6 +155,9 @@ if(MINIAUDIO_NO_CUSTOM)
 endif()
 if(MINIAUDIO_NO_NULL)
     list(APPEND COMPILE_DEFINES MA_NO_NULL)
+endif()
+if(MINIAUDIO_NO_PIPEWIRE)
+    list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
 endif()
 if(MINIAUDIO_ENABLE_ONLY_SPECIFIC_BACKENDS)
     if(MINIAUDIO_ENABLE_WASAPI)
@@ -442,6 +446,20 @@ else()
     message(STATUS "SteamAudio not found. miniaudio_engine_steamaudio will be excluded.")
 endif()
 
+# PipeWire. For this we care only about SPA.
+if(NOT MINIAUDIO_NO_PIPEWIRE)
+    find_path(SPA_INCLUDE_DIR NAMES spa/param/audio/format-utils.h HINTS
+        /usr/include/spa-0.2
+    )
+    
+    if(SPA_INCLUDE_DIR)
+        message(STATUS "Found SPA include directory: ${SPA_INCLUDE_DIR}")
+    else()
+        message(STATUS "SPA include directory not found. PipeWire will be excluded.")
+        set(MINIAUDIO_NO_PIPEWIRE ON)
+        list(APPEND COMPILE_DEFINES MA_NO_PIPEWIRE)
+    endif()
+endif()
 
 # Link libraries
 set(COMMON_LINK_LIBRARIES)
@@ -472,6 +490,24 @@ target_compile_options    (miniaudio PRIVATE ${COMPILE_OPTIONS})
 target_compile_definitions(miniaudio PRIVATE ${COMPILE_DEFINES})
 
 
+# Extra Backends
+if(NOT MINIAUDIO_NO_PIPEWIRE)
+    add_library(miniaudio_pipewire STATIC
+        extras/backends/pipewire/miniaudio_pipewire.c
+        extras/backends/pipewire/miniaudio_pipewire.h
+    )
+
+    list(APPEND LIBS_TO_INSTALL miniaudio_pipewire)
+    install(FILES extras/backends/pipewire/miniaudio_pipewire.h DESTINATION include/miniaudio/extras/backends/pipewire)
+
+    target_include_directories(miniaudio_pipewire PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/extras/backends/pipewire)
+    target_compile_options    (miniaudio_pipewire PRIVATE ${COMPILE_OPTIONS})
+    target_compile_definitions(miniaudio_pipewire PRIVATE ${COMPILE_DEFINES})
+    target_include_directories(miniaudio_pipewire PRIVATE ${SPA_INCLUDE_DIR})
+endif()
+
+
+# Extra Decoders
 add_library(libvorbis_interface INTERFACE)
 if(HAS_LIBVORBIS)
     if(TARGET vorbisfile)
@@ -590,6 +626,15 @@ if(MINIAUDIO_BUILD_TESTS)
     
     add_miniaudio_test(miniaudio_generation generation/generation.c)
     add_test(NAME miniaudio_generation COMMAND miniaudio_generation)
+
+    if(NOT MINIAUDIO_NO_PIPEWIRE)
+        add_executable            (miniaudio_pipewire_test extras/backends/pipewire/miniaudio_pipewire_test.c)
+        target_compile_options    (miniaudio_pipewire_test PRIVATE ${COMPILE_OPTIONS})
+        target_compile_definitions(miniaudio_pipewire_test PRIVATE ${COMPILE_DEFINES})
+        target_include_directories(miniaudio_pipewire_test PRIVATE ${SPA_INCLUDE_DIR})
+        target_link_libraries     (miniaudio_pipewire_test PRIVATE ${COMMON_LINK_LIBRARIES})
+        add_test(NAME miniaudio_pipewire_test COMMAND miniaudio_pipewire_test --auto)
+    endif()
 endif()
 
 # Examples
