@@ -45,22 +45,12 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 int main(int argc, char** argv)
 {
     ma_result result;
-    ma_context_config contextConfig;
     ma_context context;
     ma_device_config deviceConfig;
     ma_device device;
     ma_waveform_config sineWaveConfig;
     ma_waveform sineWave;
     char name[256];
-
-    /*
-    We're just using ma_backend_custom in this example for demonstration purposes, but a more realistic use case would probably want to include
-    other backends as well for robustness.
-    */
-    ma_backend backends[] = {
-        ma_backend_custom
-    };
-
 
     /*
     Here is where we would set up the SDL-specific context-level config. The custom SDL backend allows this to be null, but we're
@@ -73,26 +63,18 @@ int main(int argc, char** argv)
     /*
     You must include an entry for each backend you're using, even if the config is NULL. This is how miniaudio knows about
     your custom backend.
-    */
-    ma_device_backend_spec pCustomContextConfigs[] = {
-        { MA_DEVICE_BACKEND_VTABLE_SDL, &sdlContextConfig, NULL }
-    };
 
-    #if 0
+    For stock backends, you can just leave the config pointer as NULL and fill out any backend-specific config options in
+    the ma_context_config structure. Same with device configs.
+    */
     ma_device_backend_config backends[] =
     {
         { ma_device_backend_sdl,        &sdlContextConfig },
         { ma_device_backend_wasapi,     NULL },
         { ma_device_backend_pulseaudio, NULL }
     };
-    #endif
 
-    contextConfig = ma_context_config_init();
-    contextConfig.custom.pBackends = pCustomContextConfigs;
-    contextConfig.custom.count     = (sizeof(pCustomContextConfigs) / sizeof(pCustomContextConfigs[0]));
-    
-
-    result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), &contextConfig, &context);
+    result = ma_context_init(backends, sizeof(backends)/sizeof(backends[0]), NULL, &context);
     if (result != MA_SUCCESS) {
         return -1;
     }
@@ -113,20 +95,23 @@ int main(int argc, char** argv)
     /*
     Unlike with contexts, if your backend does not require a device-level config, you can just leave it out of this list entirely.
     */
-    ma_device_backend_spec pCustomDeviceConfigs[] = {
-        { MA_DEVICE_BACKEND_VTABLE_SDL, &sdlDeviceConfig, NULL }
+    ma_device_backend_config pBackendDeviceConfigs[] =
+    {
+        { ma_device_backend_sdl,        &sdlDeviceConfig },
+        { ma_device_backend_wasapi,     NULL },
+        { ma_device_backend_pulseaudio, NULL }
     };
 
     deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.playback.format   = DEVICE_FORMAT;
-    deviceConfig.playback.channels = DEVICE_CHANNELS;
-    deviceConfig.capture.format    = DEVICE_FORMAT;
-    deviceConfig.capture.channels  = DEVICE_CHANNELS;
-    deviceConfig.sampleRate        = DEVICE_SAMPLE_RATE;
-    deviceConfig.dataCallback      = data_callback;
-    deviceConfig.pUserData         = &sineWave;
-    deviceConfig.custom.pBackends  = pCustomDeviceConfigs;
-    deviceConfig.custom.count      = sizeof(pCustomDeviceConfigs) / sizeof(pCustomDeviceConfigs[0]);
+    deviceConfig.playback.format    = DEVICE_FORMAT;
+    deviceConfig.playback.channels  = DEVICE_CHANNELS;
+    deviceConfig.capture.format     = DEVICE_FORMAT;
+    deviceConfig.capture.channels   = DEVICE_CHANNELS;
+    deviceConfig.sampleRate         = DEVICE_SAMPLE_RATE;
+    deviceConfig.dataCallback       = data_callback;
+    deviceConfig.pUserData          = &sineWave;
+    deviceConfig.pBackendConfigs    = pBackendDeviceConfigs;
+    deviceConfig.backendConfigCount = sizeof(pBackendDeviceConfigs) / sizeof(pBackendDeviceConfigs[0]);
 
     result = ma_device_init(&context, &deviceConfig, &device);
     if (result != MA_SUCCESS) {

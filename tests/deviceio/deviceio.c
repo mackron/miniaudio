@@ -112,7 +112,7 @@ ma_bool32 try_parse_mode(const char* arg, ma_device_type* pDeviceType)
     return MA_FALSE;
 }
 
-ma_bool32 try_parse_backend(const char* arg, ma_backend* pBackends, ma_uint32 backendCap, ma_uint32* pBackendCount)
+ma_bool32 try_parse_backend(const char* arg, ma_device_backend_config* pBackends, ma_uint32 backendCap, ma_uint32* pBackendCount)
 {
     ma_uint32 backendCount;
 
@@ -126,59 +126,59 @@ ma_bool32 try_parse_backend(const char* arg, ma_backend* pBackends, ma_uint32 ba
     }
 
     if (strcmp(arg, "wasapi") == 0) {
-        pBackends[backendCount++] = ma_backend_wasapi;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_wasapi, NULL);
         goto done;
     }
     if (strcmp(arg, "dsound") == 0 || strcmp(arg, "directsound") == 0) {
-        pBackends[backendCount++] = ma_backend_dsound;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_dsound, NULL);
         goto done;
     }
     if (strcmp(arg, "winmm") == 0) {
-        pBackends[backendCount++] = ma_backend_winmm;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_winmm, NULL);
         goto done;
     }
     if (strcmp(arg, "coreaudio") == 0) {
-        pBackends[backendCount++] = ma_backend_coreaudio;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_coreaudio, NULL);
         goto done;
     }
     if (strcmp(arg, "sndio") == 0) {
-        pBackends[backendCount++] = ma_backend_sndio;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_sndio, NULL);
         goto done;
     }
     if (strcmp(arg, "audio4") == 0) {
-        pBackends[backendCount++] = ma_backend_audio4;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_audio4, NULL);
         goto done;
     }
     if (strcmp(arg, "oss") == 0) {
-        pBackends[backendCount++] = ma_backend_oss;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_oss, NULL);
         goto done;
     }
     if (strcmp(arg, "pulseaudio") == 0 || strcmp(arg, "pulse") == 0) {
-        pBackends[backendCount++] = ma_backend_pulseaudio;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_pulseaudio, NULL);
         goto done;
     }
     if (strcmp(arg, "alsa") == 0) {
-        pBackends[backendCount++] = ma_backend_alsa;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_alsa, NULL);
         goto done;
     }
     if (strcmp(arg, "jack") == 0) {
-        pBackends[backendCount++] = ma_backend_jack;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_jack, NULL);
         goto done;
     }
     if (strcmp(arg, "aaudio") == 0) {
-        pBackends[backendCount++] = ma_backend_aaudio;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_aaudio, NULL);
         goto done;
     }
     if (strcmp(arg, "opensl") == 0) {
-        pBackends[backendCount++] = ma_backend_opensl;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_opensl, NULL);
         goto done;
     }
     if (strcmp(arg, "webaudio") == 0) {
-        pBackends[backendCount++] = ma_backend_webaudio;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_webaudio, NULL);
         goto done;
     }
     if (strcmp(arg, "null") == 0) {
-        pBackends[backendCount++] = ma_backend_null;
+        pBackends[backendCount++] = ma_device_backend_config_init(ma_device_backend_null, NULL);
         goto done;
     }
 
@@ -235,6 +235,26 @@ ma_bool32 try_parse_noise(const char* arg, ma_noise_type* pNoiseType)
     }
 
     return MA_FALSE;
+}
+
+void print_enabled_backends()
+{
+    const ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
+    ma_uint32 stockBackendCount = ma_countof(pStockBackends);
+    ma_uint32 iEnabledStockBackend;
+
+    printf("Enabled Backends:\n");
+
+    for (iEnabledStockBackend = 0; iEnabledStockBackend < stockBackendCount; iEnabledStockBackend += 1) {
+        ma_device_backend_config backend = pStockBackends[iEnabledStockBackend];
+        if (backend.pVTable != NULL && backend.pVTable->onBackendInfo != NULL) {
+            ma_device_backend_info backendInfo;
+            backend.pVTable->onBackendInfo(&backendInfo);
+            printf("    %s\n", backendInfo.pName);
+        }
+    }
+
+    printf("\n");
 }
 
 ma_result print_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_info* pDeviceInfo)
@@ -399,10 +419,7 @@ int main(int argc, char** argv)
 {
     int iarg;
     ma_result result;
-    ma_backend enabledBackends[MA_BACKEND_COUNT];
-    size_t enabledBackendCount;
-    size_t iEnabledBackend;
-    ma_backend backends[MA_BACKEND_COUNT];
+    ma_device_backend_config backends[256];
     ma_uint32 backendCount = 0;
     ma_context_config contextConfig;
     ma_device_type deviceType = ma_device_type_playback;
@@ -455,18 +472,7 @@ int main(int argc, char** argv)
     }
 
     /* Here we'll quickly print the available backends. */
-    printf("Enabled Backends:\n");
-    result = ma_get_enabled_backends(enabledBackends, ma_countof(enabledBackends), &enabledBackendCount);
-    if (result != MA_SUCCESS) {
-        printf("Failed to retrieve available backends.\n");
-        return -1;
-    }
-
-    for (iEnabledBackend = 0; iEnabledBackend < enabledBackendCount; iEnabledBackend += 1) {
-        printf("    %s\n", ma_get_backend_name(enabledBackends[iEnabledBackend]));
-    }
-    printf("\n");
-
+    print_enabled_backends();
 
     /* Initialize the context first. If no backends were passed into the command line we just use defaults. */
     contextConfig = ma_context_config_init();

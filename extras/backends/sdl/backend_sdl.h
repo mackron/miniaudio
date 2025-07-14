@@ -10,7 +10,7 @@ and device configs.
 extern "C" {
 #endif
 
-extern const ma_device_backend_vtable* MA_DEVICE_BACKEND_VTABLE_SDL;
+extern ma_device_backend_vtable* ma_device_backend_sdl;
 
 
 typedef struct

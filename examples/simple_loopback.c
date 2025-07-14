@@ -31,8 +31,8 @@ int main(int argc, char** argv)
     ma_device device;
 
     /* Loopback mode is currently only supported on WASAPI. */
-    ma_backend backends[] = {
-        ma_backend_wasapi
+    ma_device_backend_config backends[] = {
+        { ma_device_backend_wasapi, NULL }
     };
 
     if (argc < 2) {

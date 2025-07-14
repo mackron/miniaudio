@@ -75,7 +75,7 @@ Java_io_miniaud_miniaudiotester_MainActivity_PlayAudio(JNIEnv *env, jobject, jlo
     /* If we don't have a device, create one. */
     if (!pAudioState->hasDevice) {
         ma_context_config contextConfig = ma_context_config_init();
-        ma_backend pBackends[1];
+        ma_device_backend_config pBackends[1];
         size_t backendCount;
 
         if (backend == BACKEND_AUTO) {
@@ -83,9 +83,9 @@ Java_io_miniaud_miniaudiotester_MainActivity_PlayAudio(JNIEnv *env, jobject, jlo
         } else {
             backendCount = 1;
             if (backend == BACKEND_AAUDIO) {
-                pBackends[0] = ma_backend_aaudio;
+                pBackends[0] = ma_device_backend_config_init(ma_device_backend_aaudio, nullptr);
             } else if (backend == BACKEND_OPENSL) {
-                pBackends[0] = ma_backend_opensl;
+                pBackends[0] = ma_device_backend_config_init(ma_device_backend_opensl, nullptr);
             } else {
                 backendCount = 0;
             }
