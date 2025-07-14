@@ -7899,18 +7899,6 @@ MA_API ma_context_config ma_context_config_init(void);
 
 
 /*
-Helper function for retrieving a pointer to a backend's context config.
-
-
-Remarks
--------
-This should only ever be used by custom backend implementations. It's used for retrieving the
-pConfig pointer that has been associated with the specified backend vtable.
-*/
-MA_API const void* ma_context_config_find_backend_config(const ma_context_config* pConfig, const ma_device_backend_config* pBackendConfigs, size_t backendConfigCount, ma_device_backend_vtable* pVTable);
-
-
-/*
 Initializes a context.
 
 The context is used for selecting and initializing an appropriate backend and to represent the backend at a more global level than that of an individual
@@ -8483,18 +8471,6 @@ ma_device_init()
 ma_device_init_ex()
 */
 MA_API ma_device_config ma_device_config_init(ma_device_type deviceType);
-
-
-/*
-Helper function for retrieving a pointer to a custom backend's context config.
-
-
-Remarks
--------
-This should only ever be used by custom backend implementations. It's used for retrieving the
-pConfig pointer that has been associated with the specified backend vtable.
-*/
-MA_API const void* ma_device_config_find_backend_config(const ma_device_config* pConfig, ma_device_backend_vtable* pVTable);
 
 
 /*
@@ -44627,7 +44603,7 @@ MA_API ma_context_config ma_context_config_init(void)
     return config;
 }
 
-MA_API const void* ma_context_config_find_backend_config(const ma_context_config* pConfig, const ma_device_backend_config* pBackendConfigs, size_t backendConfigCount, ma_device_backend_vtable* pVTable)
+static const void* ma_context_config_find_backend_config(const ma_context_config* pConfig, const ma_device_backend_config* pBackendConfigs, size_t backendConfigCount, ma_device_backend_vtable* pVTable)
 {
     const void* pBackendConfig;
 
@@ -45070,7 +45046,7 @@ MA_API ma_device_config ma_device_config_init(ma_device_type deviceType)
     return config;
 }
 
-MA_API const void* ma_device_config_find_backend_config(const ma_device_config* pConfig, ma_device_backend_vtable* pVTable)
+static const void* ma_device_config_find_backend_config(const ma_device_config* pConfig, ma_device_backend_vtable* pVTable)
 {
     const void* pBackendConfig;
 
