@@ -38,7 +38,7 @@ static ma_result ma_libvorbis_ds_get_length(ma_data_source* pDataSource, ma_uint
     return ma_libvorbis_get_length_in_pcm_frames((ma_libvorbis*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_libvorbis_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_libvorbis =
 {
     ma_libvorbis_ds_read,
     ma_libvorbis_ds_seek,
@@ -131,7 +131,7 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
         ma_data_source_config dataSourceConfig;
 
         dataSourceConfig = ma_data_source_config_init();
-        dataSourceConfig.vtable = &g_ma_libvorbis_ds_vtable;
+        dataSourceConfig.vtable = &ma_gDataSourceVTable_libvorbis;
 
         result = ma_data_source_init(&dataSourceConfig, &pVorbis->ds);
         if (result != MA_SUCCESS) {
@@ -149,6 +149,7 @@ static ma_result ma_libvorbis_init_internal(const ma_decoding_backend_config* pC
     #else
     {
         /* libvorbis is disabled. */
+        (void)ma_gDataSourceVTable_libvorbis;
         (void)pAllocationCallbacks;
         return MA_NOT_IMPLEMENTED;
     }

@@ -35,7 +35,7 @@ static ma_result ma_libopus_ds_get_length(ma_data_source* pDataSource, ma_uint64
     return ma_libopus_get_length_in_pcm_frames((ma_libopus*)pDataSource, pLength);
 }
 
-static ma_data_source_vtable g_ma_libopus_ds_vtable =
+static ma_data_source_vtable ma_gDataSourceVTable_libopus =
 {
     ma_libopus_ds_read,
     ma_libopus_ds_seek,
@@ -123,7 +123,7 @@ static ma_result ma_libopus_init_internal(const ma_decoding_backend_config* pCon
     }
 
     dataSourceConfig = ma_data_source_config_init();
-    dataSourceConfig.vtable = &g_ma_libopus_ds_vtable;
+    dataSourceConfig.vtable = &ma_gDataSourceVTable_libopus;
 
     result = ma_data_source_init(&dataSourceConfig, &pOpus->ds);
     if (result != MA_SUCCESS) {
@@ -174,6 +174,7 @@ MA_API ma_result ma_libopus_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_te
     #else
     {
         /* libopus is disabled. */
+        (void)ma_gDataSourceVTable_libopus;
         return MA_NOT_IMPLEMENTED;
     }
     #endif
