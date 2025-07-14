@@ -531,7 +531,6 @@ if(HAS_LIBVORBIS)
     target_link_libraries     (miniaudio_libvorbis PRIVATE libvorbis_interface)
 endif()
 
-
 add_library(libopus_interface INTERFACE)
 if(HAS_LIBOPUS)
     if(TARGET opusfile)
@@ -558,7 +557,7 @@ if(HAS_LIBOPUS)
 endif()
 
 
-if (NOT MINIAUDIO_NO_EXTRA_NODES)
+if(NOT MINIAUDIO_NO_EXTRA_NODES)
     function(add_extra_node name)
         add_library(miniaudio_${name}_node STATIC
             extras/nodes/ma_${name}_node/ma_${name}_node.c
