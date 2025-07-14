@@ -64903,7 +64903,7 @@ static ma_encoding_format ma_decoding_backend_get_encoding_format__wav(void* pUs
     return ma_encoding_format_wav;
 }
 
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
+static ma_decoding_backend_vtable ma_gDecodingBackendVTable_WAV =
 {
     ma_decoding_backend_init__wav,
     ma_decoding_backend_init_file__wav,
@@ -64912,7 +64912,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_wav =
     ma_decoding_backend_uninit__wav,
     ma_decoding_backend_get_encoding_format__wav
 };
-ma_decoding_backend_vtable* ma_decoding_backend_wav = &g_ma_decoding_backend_vtable_wav;
+ma_decoding_backend_vtable* ma_decoding_backend_wav = &ma_gDecodingBackendVTable_WAV;
 #else
 ma_decoding_backend_vtable* ma_decoding_backend_wav = NULL;
 #endif  /* ma_dr_wav_h */
@@ -65539,7 +65539,7 @@ static ma_encoding_format ma_decoding_backend_get_encoding_format__flac(void* pU
     return ma_encoding_format_flac;
 }
 
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
+static ma_decoding_backend_vtable ma_gDecodingBackendVTable_FLAC =
 {
     ma_decoding_backend_init__flac,
     ma_decoding_backend_init_file__flac,
@@ -65548,7 +65548,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_flac =
     ma_decoding_backend_uninit__flac,
     ma_decoding_backend_get_encoding_format__flac
 };
-ma_decoding_backend_vtable* ma_decoding_backend_flac = &g_ma_decoding_backend_vtable_flac;
+ma_decoding_backend_vtable* ma_decoding_backend_flac = &ma_gDecodingBackendVTable_FLAC;
 #else
 ma_decoding_backend_vtable* ma_decoding_backend_flac = NULL;
 #endif  /* ma_dr_flac_h */
@@ -66229,7 +66229,7 @@ static ma_encoding_format ma_decoding_backend_get_encoding_format__mp3(void* pUs
     return ma_encoding_format_mp3;
 }
 
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
+static ma_decoding_backend_vtable ma_gDecodingBackendVTable_MP3 =
 {
     ma_decoding_backend_init__mp3,
     ma_decoding_backend_init_file__mp3,
@@ -66238,7 +66238,7 @@ static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_mp3 =
     ma_decoding_backend_uninit__mp3,
     ma_decoding_backend_get_encoding_format__mp3
 };
-ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &g_ma_decoding_backend_vtable_mp3;
+ma_decoding_backend_vtable* ma_decoding_backend_mp3 = &ma_gDecodingBackendVTable_MP3;
 #else
 ma_decoding_backend_vtable* ma_decoding_backend_mp3 = NULL;
 #endif  /* ma_dr_mp3_h */
@@ -67053,7 +67053,7 @@ static ma_encoding_format ma_decoding_backend_get_encoding_format__stbvorbis(voi
     return ma_encoding_format_vorbis;
 }
 
-static ma_decoding_backend_vtable g_ma_decoding_backend_vtable_stbvorbis =
+static ma_decoding_backend_vtable ma_gDecodingBackendVTable_stbvorbis =
 {
     ma_decoding_backend_init__stbvorbis,
     ma_decoding_backend_init_file__stbvorbis,
@@ -67307,22 +67307,22 @@ MA_API ma_decoder_config ma_decoder_config_init_default(void)
 static ma_decoding_backend_vtable* ma_DefaultDecodingBackendVTables[] =
 {
 #if defined(MA_HAS_WAV)
-    &g_ma_decoding_backend_vtable_wav,
+    &ma_gDecodingBackendVTable_WAV,
 #else
     NULL,
 #endif
 #if defined(MA_HAS_FLAC)
-    &g_ma_decoding_backend_vtable_flac,
+    &ma_gDecodingBackendVTable_FLAC,
 #else
     NULL,
 #endif
 #if defined(MA_HAS_MP3)
-    &g_ma_decoding_backend_vtable_mp3,
+    &ma_gDecodingBackendVTable_MP3,
 #else
     NULL,
 #endif
 #if defined(MA_HAS_VORBIS)
-    &g_ma_decoding_backend_vtable_stbvorbis
+    &ma_gDecodingBackendVTable_stbvorbis
 #else
     NULL
 #endif
