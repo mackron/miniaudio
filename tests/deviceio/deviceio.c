@@ -237,7 +237,7 @@ ma_bool32 try_parse_noise(const char* arg, ma_noise_type* pNoiseType)
     return MA_FALSE;
 }
 
-void print_enabled_backends()
+void print_enabled_backends(void)
 {
     const ma_device_backend_config pStockBackends[] = MA_STOCK_DEVICE_BACKENDS;
     ma_uint32 stockBackendCount = ma_countof(pStockBackends);
