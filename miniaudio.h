@@ -19253,7 +19253,12 @@ DEVICE I/O
 
 /* This must be set to at least 26. */
 #ifndef MA_AAUDIO_MIN_ANDROID_SDK_VERSION
-#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION 27
+#define MA_AAUDIO_MIN_ANDROID_SDK_VERSION   27
+#endif
+
+/* This must be set to at least 9. */
+#ifndef MA_OPENSL_MIN_ANDROID_SDK_VERSION
+#define MA_OPENSL_MIN_ANDROID_SDK_VERSION   9
 #endif
 
 
@@ -40546,6 +40551,10 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
 
     (void)pContextConfigAAudio;
 
+    if (ma_android_sdk_version() < MA_AAUDIO_MIN_ANDROID_SDK_VERSION) {
+        return MA_FAILED_TO_INIT_BACKEND;
+    }
+
     pContextStateAAudio = (ma_context_state_aaudio*)ma_calloc(sizeof(*pContextStateAAudio), ma_context_get_allocation_callbacks(pContext));
     if (pContextStateAAudio == NULL) {
         return MA_OUT_OF_MEMORY;
@@ -41793,6 +41802,10 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const void* pCont
     }
 
     (void)pContextBackendConfig;
+
+    if (ma_android_sdk_version() < MA_OPENSL_MIN_ANDROID_SDK_VERSION) {
+        return MA_FAILED_TO_INIT_BACKEND;
+    }
 
     pContextStateOpenSL = (ma_context_state_opensl*)ma_calloc(sizeof(*pContextStateOpenSL), ma_context_get_allocation_callbacks(pContext));
     if (pContextStateOpenSL == NULL) {
