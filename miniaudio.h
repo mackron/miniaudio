@@ -7254,28 +7254,6 @@ typedef struct
 } ma_IMMNotificationClient;
 #endif
 
-/* Backend enums must be in priority order. */
-typedef enum
-{
-    ma_backend_wasapi,
-    ma_backend_dsound,
-    ma_backend_winmm,
-    ma_backend_coreaudio,
-    ma_backend_sndio,
-    ma_backend_audio4,
-    ma_backend_oss,
-    ma_backend_pulseaudio,
-    ma_backend_alsa,
-    ma_backend_jack,
-    ma_backend_aaudio,
-    ma_backend_opensl,
-    ma_backend_webaudio,
-    ma_backend_custom,  /* <-- Custom backend, with callbacks defined by the context config. */
-    ma_backend_null     /* <-- Must always be the last item. Lowest priority, and used as the terminator for backend enumeration. */
-} ma_backend;
-
-#define MA_BACKEND_COUNT (ma_backend_null+1)
-
 
 /*
 Device job thread. This is used by backends that require asynchronous processing of certain
