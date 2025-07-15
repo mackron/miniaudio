@@ -7466,35 +7466,6 @@ typedef struct
 } ma_device_descriptor;
 
 
-/*
-This data structure is used to bridge backends to miniaudio. There are two main uses for it:
-
-    1) To handle the data callback from inside the backend
-    2) To notify miniaudio of a reroute so it can do any necessary data conversion reinitialization
-
-Not all backends need to use this, but many will. If the backend uses a blocking read/write mechanism
-to deliver audio data, they need not deal with the data callback aspect. If the backend handles
-rerouting automatically under the hood it need not worry about the rerouting part.
-
-The `ma_device_backend_connection` structure should be considered opaque. It is declared here in the header
-section so it can be stored directly in the `ma_device` object without needing a heap allocation.
-*/
-typedef struct ma_device_backend_connection
-{
-    void* pInternal;
-} ma_device_backend_connection;
-
-MA_API void ma_device_backend_connection_data_callback(ma_device_backend_connection* pDeviceBackendConnection, void* pFramesOutInBackendFormat, const void* pFramesInInBackendFormat, ma_uint32 frameCount);
-MA_API void ma_device_backend_connection_reroute(ma_device_backend_connection* pDeviceBackendConnection, ma_device_descriptor* pDescriptorPlayback, ma_device_descriptor* pDescriptorCapture, void* pNewDeviceState);
-MA_API void ma_device_backend_connection_rerouted_notification(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_stopped_notification(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_started_notification(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_interruption_began_notification(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_interruption_ended_notification(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API ma_device_state ma_device_backend_connection_status(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_start_device(ma_device_backend_connection* pDeviceBackendConnection);
-MA_API void ma_device_backend_connection_stop_device(ma_device_backend_connection* pDeviceBackendConnection);
-
 
 typedef struct ma_context_config ma_context_config;
 typedef struct ma_device_config  ma_device_config;
@@ -33276,7 +33247,6 @@ typedef struct ma_context_state_jack
 typedef struct ma_device_state_jack
 {
     ma_context_state_jack* pContextStateJACK;
-    ma_device_backend_connection* pDeviceBackendConnection;
     ma_device_type deviceType;
     ma_jack_client_t* pClient;
     ma_jack_port_t** ppPortsPlayback;
