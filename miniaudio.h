@@ -8400,22 +8400,6 @@ This leaves pDeviceInfo unmodified in the result of an error.
 */
 MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo);
 
-/*
-Determines if the given context supports loopback mode.
-
-
-Parameters
-----------
-pContext (in)
-    A pointer to the context getting queried.
-
-
-Return Value
-------------
-MA_TRUE if the context supports loopback mode; MA_FALSE otherwise.
-*/
-MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext);
-
 
 
 /*
@@ -44775,15 +44759,6 @@ MA_API ma_result ma_context_get_device_info(ma_context* pContext, ma_device_type
 
     *pDeviceInfo = deviceInfo;
     return result;
-}
-
-MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
-{
-    if (pContext == NULL) {
-        return MA_FALSE;
-    }
-
-    return pContext->pVTable == ma_device_backend_wasapi;
 }
 
 
