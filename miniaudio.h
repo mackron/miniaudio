@@ -38326,7 +38326,7 @@ OSS Backend
 
 #define MA_OSS_DEFAULT_DEVICE_NAME  "/dev/dsp"
 
-static int ma_open_temp_device__oss()
+static int ma_open_temp_device__oss(void)
 {
     /* The OSS sample code uses "/dev/mixer" as the device for getting system properties so I'm going to do the same. */
     int fd = open("/dev/mixer", O_RDONLY, 0);
