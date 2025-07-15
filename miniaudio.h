@@ -7222,6 +7222,7 @@ END BACKENDS
 typedef struct ma_device_backend_info
 {
     const char* pName;
+    ma_bool32 isLoopbackSupported;
 } ma_device_backend_info;
 
 
@@ -23384,6 +23385,7 @@ static void ma_backend_info__wasapi(ma_device_backend_info* pBackendInfo)
 {
     MA_ASSERT(pBackendInfo != NULL);
     pBackendInfo->pName = "WASAPI";
+    pBackendInfo->isLoopbackSupported = MA_TRUE;
 }
 
 static ma_result ma_context_init__wasapi(ma_context* pContext, const void* pContextBackendConfig, void** ppContextState)
