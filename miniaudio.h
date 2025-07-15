@@ -7219,6 +7219,16 @@ extern ma_device_backend_vtable* ma_device_backend_null;
 END BACKENDS
 
 ************************************************************************************************************************************************************/
+typedef struct ma_device_backend_info
+{
+    const char* pName;
+} ma_device_backend_info;
+
+
+/*
+Retrieves information about a backend.
+*/
+MA_API void ma_get_device_backend_info(ma_device_backend_vtable* pBackendVTable, ma_device_backend_info* pBackendInfo);
 
 
 typedef enum
@@ -7486,11 +7496,6 @@ typedef struct
     ma_uint32 periodSizeInMilliseconds;
     ma_uint32 periodCount;
 } ma_device_descriptor;
-
-typedef struct ma_device_backend_info
-{
-    const char* pName;
-} ma_device_backend_info;
 
 
 /*
@@ -8222,6 +8227,13 @@ Return Value
 A pointer to the backend-specific state object.
 */
 MA_API void* ma_context_get_backend_state(ma_context* pContext);
+
+
+/*
+Retrieves basic information about the backend, most notably the name.
+*/
+MA_API void ma_context_get_backend_info(ma_context* pContext, ma_device_backend_info* pBackendInfo);
+
 
 
 /*
@@ -43920,6 +43932,17 @@ ma_device_backend_vtable* ma_device_backend_webaudio = NULL;
 #endif  /* MA_HAS_WEBAUDIO */
 
 
+MA_API void ma_get_device_backend_info(ma_device_backend_vtable* pBackendVTable, ma_device_backend_info* pBackendInfo)
+{
+    if (pBackendVTable == NULL || pBackendVTable->onBackendInfo || pBackendInfo == NULL) {
+        return;
+    }
+
+    MA_ZERO_OBJECT(pBackendInfo);
+    pBackendVTable->onBackendInfo(pBackendInfo);
+}
+
+
 
 static ma_bool32 ma__is_channel_map_valid(const ma_channel* pChannelMap, ma_uint32 channels)
 {
@@ -44866,6 +44889,17 @@ MA_API void* ma_context_get_backend_state(ma_context* pContext)
     }
 
     return pContext->pBackendState;
+}
+
+
+
+MA_API void ma_context_get_backend_info(ma_context* pContext, ma_device_backend_info* pBackendInfo)
+{
+    if (pContext == NULL || pBackendInfo == NULL) {
+        return;
+    }
+
+    return ma_get_device_backend_info(pContext->pVTable, pBackendInfo);
 }
 
 
