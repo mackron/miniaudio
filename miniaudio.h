@@ -9577,12 +9577,6 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 
 
 
-
-/*
-Retrieves a friendly name for a backend.
-*/
-MA_API const char* ma_get_backend_name(ma_backend backend);
-
 /*
 Retrieves the backend enum from the given name.
 */
@@ -19616,15 +19610,6 @@ static ma_backend_name gBackendInfo[] = /* Indexed by the backend enum. Must be 
     {ma_backend_custom,     "Custom"},
     {ma_backend_null,       "Null"}
 };
-
-MA_API const char* ma_get_backend_name(ma_backend backend)
-{
-    if (backend < 0 || backend >= (int)ma_countof(gBackendInfo)) {
-        return "Unknown";
-    }
-
-    return gBackendInfo[backend].pName;
-}
 
 MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend)
 {
