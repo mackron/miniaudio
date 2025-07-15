@@ -7244,17 +7244,6 @@ typedef enum
 MA_ATOMIC_SAFE_TYPE_DECL(i32, 4, device_state)
 
 
-#ifdef MA_SUPPORT_WASAPI
-/* We need a IMMNotificationClient object for WASAPI. */
-typedef struct
-{
-    void* lpVtbl;
-    ma_uint32 counter;
-    ma_device* pDevice;
-} ma_IMMNotificationClient;
-#endif
-
-
 /*
 Device job thread. This is used by backends that require asynchronous processing of certain
 operations. It is not used by all backends.
@@ -21636,6 +21625,13 @@ typedef struct
     BOOL bIsOffload;
     MA_AUDIO_STREAM_CATEGORY eCategory;
 } ma_AudioClientProperties;
+
+typedef struct
+{
+    void* lpVtbl;
+    ma_uint32 counter;
+    ma_device* pDevice;
+} ma_IMMNotificationClient;
 
 /* IUnknown */
 typedef struct
