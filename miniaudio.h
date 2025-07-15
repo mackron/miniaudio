@@ -20858,14 +20858,14 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
     */
     result = ma_event_init(&pDeviceStateNull->operationEvent);
     if (result != MA_SUCCESS) {
-        ma_device_get_allocation_callbacks(pDevice);
+        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
         return result;
     }
 
     result = ma_event_init(&pDeviceStateNull->operationCompletionEvent);
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_device_get_allocation_callbacks(pDevice);
+        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
         return result;
     }
 
@@ -20873,7 +20873,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
     if (result != MA_SUCCESS) {
         ma_event_uninit(&pDeviceStateNull->operationCompletionEvent);
         ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_device_get_allocation_callbacks(pDevice);
+        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
         return result;
     }
 
@@ -20882,7 +20882,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
         ma_semaphore_uninit(&pDeviceStateNull->operationSemaphore);
         ma_event_uninit(&pDeviceStateNull->operationCompletionEvent);
         ma_event_uninit(&pDeviceStateNull->operationEvent);
-        ma_device_get_allocation_callbacks(pDevice);
+        ma_free(pDeviceStateNull, ma_device_get_allocation_callbacks(pDevice));
         return result;
     }
 
@@ -26127,6 +26127,7 @@ static ma_result ma_device_init__dsound(ma_device* pDevice, const void* pDeviceB
 
         result = ma_config_to_WAVEFORMATEXTENSIBLE(pDescriptorCapture->format, pDescriptorCapture->channels, pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, &wf);
         if (result != MA_SUCCESS) {
+            ma_device_uninit__dsound(pDevice);
             return result;
         }
 
@@ -27829,6 +27830,7 @@ on_error:
     }
 
     ma_free(pDeviceStateWinMM->_pHeapData, ma_device_get_allocation_callbacks(pDevice));
+    ma_free(pDeviceStateWinMM, ma_device_get_allocation_callbacks(pDevice));
 
     if (errorMsg != NULL && errorMsg[0] != '\0') {
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "%s", errorMsg);
@@ -31749,6 +31751,7 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
         }
 
         if (pContextStatePulseAudio->pulseSO == NULL) {
+            ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_NO_BACKEND;
         }
 
@@ -31947,6 +31950,12 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
     if (pContextConfigPulseAudio->pApplicationName != NULL) {
         pContextStatePulseAudio->pApplicationName = ma_copy_string(pContextConfigPulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
         if (pContextStatePulseAudio->pApplicationName == NULL) {
+            ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
+            #ifndef MA_NO_RUNTIME_LINKING
+            {
+                ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
+            }
+            #endif
             return MA_OUT_OF_MEMORY;
         }
     }
@@ -31955,6 +31964,12 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
         pContextStatePulseAudio->pServerName = ma_copy_string(pContextConfigPulseAudio->pServerName, ma_context_get_allocation_callbacks(pContext));
         if (pContextStatePulseAudio->pServerName == NULL) {
             ma_free(pContextStatePulseAudio->pApplicationName, ma_context_get_allocation_callbacks(pContext));
+            #ifndef MA_NO_RUNTIME_LINKING
+            {
+                ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
+            }
+            #endif
+            ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_OUT_OF_MEMORY;
         }
     }
@@ -31971,6 +31986,7 @@ static ma_result ma_context_init__pulseaudio(ma_context* pContext, const void* p
             ma_dlclose(pLog, pContextStatePulseAudio->pulseSO);
         }
         #endif
+        ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
 
         return result;
     }
@@ -31998,6 +32014,8 @@ static void ma_context_uninit__pulseaudio(ma_context* pContext)
         ma_dlclose(ma_context_get_log(pContext), pContextStatePulseAudio->pulseSO);
     }
     #endif
+
+    ma_free(pContextStatePulseAudio, ma_context_get_allocation_callbacks(pContext));
 }
 
 
@@ -33791,6 +33809,8 @@ static void ma_device_uninit__jack(ma_device* pDevice)
         ma_free(pDeviceStateJACK->pIntermediaryBufferPlayback, ma_device_get_allocation_callbacks(pDevice));
         ma_free(pDeviceStateJACK->ppPortsPlayback, ma_device_get_allocation_callbacks(pDevice));
     }
+
+    ma_free(pDeviceStateJACK, ma_device_get_allocation_callbacks(pDevice));
 }
 
 
@@ -35476,6 +35496,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
                 if (pContextConfigCoreAudio->sessionCategory != ma_ios_session_category_none) {
                 #if defined(__IPHONE_12_0)
                     if (![pAudioSession setCategory: ma_to_AVAudioSessionCategory(pContextConfigCoreAudio->sessionCategory) withOptions:options error:nil]) {
+                        ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
                         return MA_INVALID_OPERATION;    /* Failed to set session category. */
                     }
                 #else
@@ -35488,6 +35509,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
             if (!pContextConfigCoreAudio->noAudioSessionActivate) {
                 if (![pAudioSession setActive:true error:nil]) {
                     ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "Failed to activate audio session.");
+                    ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
                     return MA_FAILED_TO_INIT_BACKEND;
                 }
             }
@@ -35509,6 +35531,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
         pContextStateCoreAudio->hCoreAudio = ma_dlopen(ma_context_get_log(pContext), "/System/Library/Frameworks/CoreAudio.framework/CoreAudio");
         if (pContextStateCoreAudio->hCoreAudio == NULL) {
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
+            ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_API_NOT_FOUND;
         }
 
@@ -35528,6 +35551,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
         if (pContextStateCoreAudio->hAudioUnit == NULL) {
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
+            ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_API_NOT_FOUND;
         }
 
@@ -35538,6 +35562,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
             if (pContextStateCoreAudio->hAudioUnit == NULL) {
                 ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
                 ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
+                ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
                 return MA_API_NOT_FOUND;
             }
         }
@@ -35601,6 +35626,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
         #endif
+            ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return MA_FAILED_TO_INIT_BACKEND;
         }
     }
@@ -35614,6 +35640,7 @@ static ma_result ma_context_init__coreaudio(ma_context* pContext, const void* pC
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreAudio);
             ma_dlclose(ma_context_get_log(pContext), pContextStateCoreAudio->hCoreFoundation);
         #endif
+            ma_free(pContextStateCoreAudio, ma_context_get_allocation_callbacks(pContext));
             return result;
         }
     }
@@ -35634,7 +35661,6 @@ static void ma_context_uninit__coreaudio(ma_context* pContext)
     if (!pContextStateCoreAudio->noAudioSessionDeactivate) {
         if (![[AVAudioSession sharedInstance] setActive:false error:nil]) {
             ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "Failed to deactivate audio session.");
-            return MA_FAILED_TO_INIT_BACKEND;
         }
     }
 #endif
@@ -37469,6 +37495,8 @@ static void ma_context_uninit__sndio(ma_context* pContext)
         ma_dlclose(ma_context_get_log(pContext), pContextStateSndio->sndioSO);
     }
     #endif
+
+    ma_free(pContextStateSndio, ma_context_get_allocation_callbacks(pContext));
 }
 
 
@@ -38090,6 +38118,8 @@ static void ma_device_uninit__sndio(ma_device* pDevice)
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         pContextStateSndio->sio_close(pDeviceStateSndio->handlePlayback);
     }
+
+    ma_free(pDeviceStateSndio, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_start__sndio(ma_device* pDevice)
@@ -38993,6 +39023,7 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorCapture, ma_device_type_capture, &pDeviceStateAudio4->fdCapture);
         if (result != MA_SUCCESS) {
+            ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
             return result;
         }
     }
@@ -39001,6 +39032,7 @@ static ma_result ma_device_init__audio4(ma_device* pDevice, const void* pDeviceB
         ma_result result = ma_device_init_fd__audio4(pDevice, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateAudio4->fdPlayback);
         if (result != MA_SUCCESS) {
             if (deviceType == ma_device_type_duplex) {
+                ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
                 close(pDeviceStateAudio4->fdCapture);
             }
             return result;
@@ -39024,6 +39056,8 @@ static void ma_device_uninit__audio4(ma_device* pDevice)
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         close(pDeviceStateAudio4->fdPlayback);
     }
+
+    ma_free(pDeviceStateAudio4, ma_device_get_allocation_callbacks(pDevice));
 }
 
 static ma_result ma_device_start__audio4(ma_device* pDevice)
@@ -39705,6 +39739,7 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorCapture, ma_device_type_capture, &pDeviceStateOSS->fdCapture);
         if (result != MA_SUCCESS) {
+            ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open device.");
             return result;
         }
@@ -39713,6 +39748,7 @@ static ma_result ma_device_init__oss(ma_device* pDevice, const void* pDeviceBack
     if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_result result = ma_device_init_fd__oss(pDevice, pDeviceConfigOSS, pDescriptorPlayback, ma_device_type_playback, &pDeviceStateOSS->fdPlayback);
         if (result != MA_SUCCESS) {
+            ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
             ma_log_post(ma_device_get_log(pDevice), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open device.");
             return result;
         }
@@ -39736,6 +39772,8 @@ static void ma_device_uninit__oss(ma_device* pDevice)
     if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
         close(pDeviceStateOSS->fdPlayback);
     }
+
+    ma_free(pDeviceStateOSS, ma_device_get_allocation_callbacks(pDevice));
 }
 
 /*
@@ -40270,8 +40308,13 @@ static ma_result ma_context_init__aaudio(ma_context* pContext, const void* pCont
 
         result = ma_device_job_thread_init(&jobThreadConfig, &pContext->allocationCallbacks, &pContextStateAAudio->jobThread);
         if (result != MA_SUCCESS) {
+            #if !defined(MA_NO_RUNTIME_LINKING)
+            {
+                ma_dlclose(ma_context_get_log(pContext), pContextStateAAudio->hAAudio);
+            }
+            #endif
+
             ma_free(pContextStateAAudio, ma_context_get_allocation_callbacks(pContext));
-            ma_dlclose(ma_context_get_log(pContext), pContextStateAAudio->hAAudio);
             return result;
         }
     }
@@ -41533,7 +41576,12 @@ static ma_result ma_context_init__opensl(ma_context* pContext, const void* pCont
     ma_spinlock_unlock(&g_maOpenSLSpinlock);
 
     if (result != MA_SUCCESS) {
-        ma_dlclose(ma_context_get_log(pContext), pContextStateOpenSL->libOpenSLES);
+        #if !defined(MA_NO_RUNTIME_LINKING)
+        {
+            ma_dlclose(ma_context_get_log(pContext), pContextStateOpenSL->libOpenSLES);
+        }
+        #endif
+
         ma_free(pContextStateOpenSL, ma_context_get_allocation_callbacks(pContext));
         ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_INFO, "[OpenSL] Failed to initialize OpenSL engine.");
         return result;
@@ -41559,6 +41607,12 @@ static void ma_context_uninit__opensl(ma_context* pContext)
         }
     }
     ma_spinlock_unlock(&g_maOpenSLSpinlock);
+
+    #if !defined(MA_NO_RUNTIME_LINKING)
+    {
+        ma_dlclose(ma_context_get_log(pContext), pContextStateOpenSL->libOpenSLES);
+    }
+    #endif
 
     ma_free(pContextStateOpenSL, ma_context_get_allocation_callbacks(pContext));
 }
@@ -43494,7 +43548,7 @@ ma_device_backend_vtable* ma_device_backend_webaudio = NULL;
 
 MA_API void ma_get_device_backend_info(ma_device_backend_vtable* pBackendVTable, ma_device_backend_info* pBackendInfo)
 {
-    if (pBackendVTable == NULL || pBackendVTable->onBackendInfo || pBackendInfo == NULL) {
+    if (pBackendVTable == NULL || pBackendVTable->onBackendInfo == NULL || pBackendInfo == NULL) {
         return;
     }
 
