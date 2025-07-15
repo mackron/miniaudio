@@ -468,7 +468,7 @@ static void ma_stream_event_param_changed__pipewire(void* pUserData, ma_uint32 i
         /* Now that we definitely know the sample rate, we can reliable configure the size of the buffer. */
         bufferSizeInFrames = pDeviceStatePipeWire->paramChangedCallbackData.pDescriptor->periodSizeInFrames;
         if (bufferSizeInFrames == 0) {
-            bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDeviceStatePipeWire->paramChangedCallbackData.pDescriptor, (ma_uint32)audioInfo.rate, ma_performance_profile_low_latency);
+            bufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDeviceStatePipeWire->paramChangedCallbackData.pDescriptor, (ma_uint32)audioInfo.rate);
         }
 
         /* Update the descriptor. This is where the internal format/channels/rate is set. */

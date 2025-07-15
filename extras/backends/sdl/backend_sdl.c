@@ -447,8 +447,7 @@ static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_sta
         1) If periodSizeInFrames is not 0, use periodSizeInFrames; else
         2) If periodSizeInMilliseconds is not 0, use periodSizeInMilliseconds; else
         3) If both periodSizeInFrames and periodSizeInMilliseconds is 0, use the backend's default. If the backend does not allow a default
-           buffer size, use a default value of MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY or 
-           MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE depending on the value of pConfig->performanceProfile.
+           buffer size, use a default value of MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS.
 
     Note that options 2 and 3 require knowledge of the sample rate in order to convert it to a frame count. You should try to keep the
     calculation of the period size as accurate as possible, but sometimes it's just not practical so just use whatever you can.
@@ -456,7 +455,7 @@ static ma_result ma_device_init_internal__sdl(ma_device* pDevice, ma_context_sta
     A helper function called ma_calculate_buffer_size_in_frames_from_descriptor() is available to do all of this for you which is what
     we'll be using here.
     */
-    pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, ma_performance_profile_low_latency);
+    pDescriptor->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate);
 
     /* SDL wants the buffer size to be a power of 2 for some reason. */
     if (pDescriptor->periodSizeInFrames > 32768) {

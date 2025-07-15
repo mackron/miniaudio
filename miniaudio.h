@@ -4417,12 +4417,6 @@ typedef enum
     ma_standard_channel_map_default = ma_standard_channel_map_microsoft
 } ma_standard_channel_map;
 
-typedef enum
-{
-    ma_performance_profile_low_latency = 0,
-    ma_performance_profile_conservative
-} ma_performance_profile;
-
 
 typedef struct
 {
@@ -7510,7 +7504,6 @@ struct ma_device_config
     ma_uint32 periodSizeInFrames;
     ma_uint32 periodSizeInMilliseconds;
     ma_uint32 periods;
-    ma_performance_profile performanceProfile;
     ma_bool8 noPreSilencedOutputBuffer; /* When set to true, the contents of the output buffer passed into the data callback will be left undefined rather than initialized to silence. */
     ma_bool8 noClip;                    /* When set to true, the contents of the output buffer passed into the data callback will not be clipped after returning. Only applies when the playback sample format is f32. */
     ma_bool8 noDisableDenormals;        /* Do not disable denormals when firing the data callback. */
@@ -8477,19 +8470,15 @@ then be set directly on the structure. Below are the members of the `ma_device_c
 
     periodSizeInFrames
         The desired size of a period in PCM frames. If this is 0, `periodSizeInMilliseconds` will be used instead. If both are 0 the default buffer size will
-        be used depending on the selected performance profile. This value affects latency. See below for details.
+        be used. This value affects latency. See below for details.
 
     periodSizeInMilliseconds
         The desired size of a period in milliseconds. If this is 0, `periodSizeInFrames` will be used instead. If both are 0 the default buffer size will be
-        used depending on the selected performance profile. The value affects latency. See below for details.
+        used. The value affects latency. See below for details.
 
     periods
         The number of periods making up the device's entire buffer. The total buffer size is `periodSizeInFrames` or `periodSizeInMilliseconds` multiplied by
         this value. This is just a hint as backends will be the ones who ultimately decide how your periods will be configured.
-
-    performanceProfile
-        A hint to miniaudio as to the performance requirements of your program. Can be either `ma_performance_profile_low_latency` (default) or
-        `ma_performance_profile_conservative`. This mainly affects the size of default buffers and can usually be left at its default value.
 
     noPreSilencedOutputBuffer
         When set to true, the contents of the output buffer passed into the data callback will be left undefined. When set to false (default), the contents of
@@ -8645,9 +8634,7 @@ Once initialized, the device's config is immutable. If you need to change the co
 
 After initializing the device it will be in a stopped state. To start it, use `ma_device_start()`.
 
-If both `periodSizeInFrames` and `periodSizeInMilliseconds` are set to zero, it will default to `MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY` or
-`MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE`, depending on whether or not `performanceProfile` is set to `ma_performance_profile_low_latency` or
-`ma_performance_profile_conservative`.
+If both `periodSizeInFrames` and `periodSizeInMilliseconds` are set to zero, it will use `MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS` which defaults to 10ms.
 
 If you request exclusive mode and the backend does not support it an error will be returned. For robustness, you may want to first try initializing the device
 in exclusive mode, and then fall back to shared mode if required. Alternatively you can just request shared mode (the default if you leave it unset in the
@@ -9447,14 +9434,13 @@ MA_API void ma_device_post_notification_unlocked(ma_device* pDevice);
 
 
 /*
-Calculates an appropriate buffer size from a descriptor, native sample rate and performance profile.
+Calculates an appropriate buffer size from a descriptor and native sample rate.
 
 This function is used by backends for helping determine an appropriately sized buffer to use with
 the device depending on the values of `periodSizeInFrames` and `periodSizeInMilliseconds` in the
 `pDescriptor` object. Since buffer size calculations based on time depends on the sample rate, a
 best guess at the device's native sample rate is also required which is where `nativeSampleRate`
-comes in. In addition, the performance profile is also needed for cases where both the period size
-in frames and milliseconds are both zero.
+comes in.
 
 
 Parameters
@@ -9467,11 +9453,6 @@ nativeSampleRate (in)
     The device's native sample rate. This is only ever used when the `periodSizeInFrames` member of
     `pDescriptor` is zero. In this case, `periodSizeInMilliseconds` will be used instead, in which
     case a sample rate is required to convert to a size in frames.
-
-performanceProfile (in)
-    When both the `periodSizeInFrames` and `periodSizeInMilliseconds` members of `pDescriptor` are
-    zero, miniaudio will fall back to a buffer size based on the performance profile. The profile
-    to use for this calculation is determine by this parameter.
 
 
 Return Value
@@ -9496,7 +9477,7 @@ Remarks
 If `nativeSampleRate` is zero, this function will fall back to `pDescriptor->sampleRate`. If that
 is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
 */
-MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile);
+MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate);
 
 #endif  /* MA_NO_DEVICE_IO */
 
@@ -11927,14 +11908,9 @@ int ma_android_sdk_version()
 #define MA_DEFAULT_PERIODS                                  3
 #endif
 
-/* The default period size in milliseconds for low latency mode. */
-#ifndef MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY
-#define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY  10
-#endif
-
-/* The default buffer size in milliseconds for conservative mode. */
-#ifndef MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE
-#define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE 100
+/* The default period size in milliseconds. */
+#ifndef MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS
+#define MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS  10
 #endif
 
 /* The default LPF filter order for linear resampling. Note that this is clamped to MA_MAX_FILTER_ORDER. */
@@ -20857,7 +20833,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
             ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorCapture->channels);
         }
 
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate, ma_performance_profile_low_latency);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
 
         pDeviceStateNull->capture.descriptor = *pDescriptorCapture;
     }
@@ -20871,7 +20847,7 @@ static ma_result ma_device_init__null(ma_device* pDevice, const void* pDeviceBac
             ma_channel_map_init_standard(ma_standard_channel_map_default, pDescriptorPlayback->channelMap, ma_countof(pDescriptorCapture->channelMap), pDescriptorPlayback->channels);
         }
 
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate, ma_performance_profile_low_latency);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
 
         pDeviceStateNull->playback.descriptor = *pDescriptorPlayback;
     }
@@ -22032,7 +22008,6 @@ typedef struct ma_device_state_wasapi
     ma_uint32 originalPeriodSizeInFrames;
     ma_uint32 originalPeriodSizeInMilliseconds;
     ma_uint32 originalPeriods;
-    ma_performance_profile originalPerformanceProfile;
     ma_uint32 periodSizeInFramesPlayback;
     ma_uint32 periodSizeInFramesCapture;
     void* pMappedBufferCapture;
@@ -22547,7 +22522,6 @@ static ma_thread_result MA_THREADCALL ma_context_command_thread__wasapi(void* pU
 {
     ma_result result;
     ma_context* pContext = (ma_context*)pUserData;
-    ma_context_state_wasapi* pContextStateWASAPI = ma_context_get_backend_state__wasapi(pContext);
     MA_ASSERT(pContext != NULL);
 
     for (;;) {
@@ -23297,7 +23271,7 @@ static ma_result ma_context_init__wasapi(ma_context* pContext, const void* pCont
         pContextBackendConfig = &defaultConfigWASAPI;
     }
 
-    (void)pContextBackendConfig;
+    (void)pContextConfigWASAPI;
 
 #ifdef MA_WIN32_DESKTOP
     /*
@@ -23585,7 +23559,6 @@ typedef struct
     ma_uint32 periodSizeInMillisecondsIn;
     ma_uint32 periodsIn;
     ma_share_mode shareMode;
-    ma_performance_profile performanceProfile;
     ma_bool32 noAutoConvertSRC;
     ma_bool32 noDefaultQualitySRC;
     ma_bool32 noHardwareOffloading;
@@ -23816,11 +23789,7 @@ static ma_result ma_device_init_internal__wasapi(ma_context* pContext, ma_device
     pData->periodSizeInFramesOut = pData->periodSizeInFramesIn;
     if (pData->periodSizeInFramesOut == 0) {
         if (pData->periodSizeInMillisecondsIn == 0) {
-            if (pData->performanceProfile == ma_performance_profile_low_latency) {
-                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, wf.nSamplesPerSec);
-            } else {
-                pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, wf.nSamplesPerSec);
-            }
+            pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS, wf.nSamplesPerSec);
         } else {
             pData->periodSizeInFramesOut = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, wf.nSamplesPerSec);
         }
@@ -24154,7 +24123,6 @@ static ma_result ma_device_reinit__wasapi(ma_device* pDevice, ma_device_type dev
     data.periodSizeInFramesIn       = pDeviceStateWASAPI->originalPeriodSizeInFrames;
     data.periodSizeInMillisecondsIn = pDeviceStateWASAPI->originalPeriodSizeInMilliseconds;
     data.periodsIn                  = pDeviceStateWASAPI->originalPeriods;
-    data.performanceProfile         = pDeviceStateWASAPI->originalPerformanceProfile;
     data.noAutoConvertSRC           = pDeviceStateWASAPI->noAutoConvertSRC;
     data.noDefaultQualitySRC        = pDeviceStateWASAPI->noDefaultQualitySRC;
     data.noHardwareOffloading       = pDeviceStateWASAPI->noHardwareOffloading;
@@ -24260,7 +24228,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
         data.periodSizeInMillisecondsIn = pDescriptorCapture->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorCapture->periodCount;
         data.shareMode                  = pDescriptorCapture->shareMode;
-        data.performanceProfile         = ma_performance_profile_low_latency;
         data.noAutoConvertSRC           = pDeviceConfigWASAPI->noAutoConvertSRC;
         data.noDefaultQualitySRC        = pDeviceConfigWASAPI->noDefaultQualitySRC;
         data.noHardwareOffloading       = pDeviceConfigWASAPI->noHardwareOffloading;
@@ -24278,7 +24245,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
         pDeviceStateWASAPI->originalPeriodSizeInMilliseconds = pDescriptorCapture->periodSizeInMilliseconds;
         pDeviceStateWASAPI->originalPeriodSizeInFrames       = pDescriptorCapture->periodSizeInFrames;
         pDeviceStateWASAPI->originalPeriods                  = pDescriptorCapture->periodCount;
-        pDeviceStateWASAPI->originalPerformanceProfile       = ma_performance_profile_low_latency;
 
         /*
         The event for capture needs to be manual reset for the same reason as playback. We keep the initial state set to unsignaled,
@@ -24328,7 +24294,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
         data.periodSizeInMillisecondsIn = pDescriptorPlayback->periodSizeInMilliseconds;
         data.periodsIn                  = pDescriptorPlayback->periodCount;
         data.shareMode                  = pDescriptorPlayback->shareMode;
-        data.performanceProfile         = ma_performance_profile_low_latency;
         data.noAutoConvertSRC           = pDeviceConfigWASAPI->noAutoConvertSRC;
         data.noDefaultQualitySRC        = pDeviceConfigWASAPI->noDefaultQualitySRC;
         data.noHardwareOffloading       = pDeviceConfigWASAPI->noHardwareOffloading;
@@ -24360,7 +24325,6 @@ static ma_result ma_device_init__wasapi(ma_device* pDevice, const void* pDeviceB
         pDeviceStateWASAPI->originalPeriodSizeInMilliseconds = pDescriptorPlayback->periodSizeInMilliseconds;
         pDeviceStateWASAPI->originalPeriodSizeInFrames       = pDescriptorPlayback->periodSizeInFrames;
         pDeviceStateWASAPI->originalPeriods                  = pDescriptorPlayback->periodCount;
-        pDeviceStateWASAPI->originalPerformanceProfile       = ma_performance_profile_low_latency;
 
         /*
         The event for playback is needs to be manual reset because we want to explicitly control the fact that it becomes signalled
@@ -26115,7 +26079,7 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__dsound(cons
     ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(30, nativeSampleRate);
     ma_uint32 periodSizeInFrames;
 
-    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate, ma_performance_profile_low_latency);
+    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate);
     if (periodSizeInFrames < minPeriodSizeInFrames) {
         periodSizeInFrames = minPeriodSizeInFrames;
     }
@@ -27632,7 +27596,7 @@ static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__winmm(const
     ma_uint32 minPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(40, nativeSampleRate);
     ma_uint32 periodSizeInFrames;
 
-    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate, ma_performance_profile_low_latency);
+    periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, nativeSampleRate);
     if (periodSizeInFrames < minPeriodSizeInFrames) {
         periodSizeInFrames = minPeriodSizeInFrames;
     }
@@ -27944,7 +27908,7 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
     ma_device_type deviceType = ma_device_get_type(pDevice);
     MA_MMRESULT resultMM;
 
-    if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_capture || deviceType == ma_device_type_duplex) {
         if (pDeviceStateWinMM->hDeviceCapture == NULL) {
             return MA_INVALID_ARGS;
         }
@@ -27955,7 +27919,7 @@ static ma_result ma_device_stop__winmm(ma_device* pDevice)
         }
     }
 
-    if (pDevice->type == ma_device_type_playback || pDevice->type == ma_device_type_duplex) {
+    if (deviceType == ma_device_type_playback || deviceType == ma_device_type_duplex) {
         ma_uint32 iPeriod;
         MA_WAVEHDR* pWAVEHDR;
 
@@ -29885,7 +29849,7 @@ static ma_result ma_device_init_by_type__alsa(ma_context* pContext, ma_context_s
 
     /* Buffer Size */
     {
-        ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, ma_performance_profile_low_latency) * internalPeriods;
+        ma_snd_pcm_uframes_t actualBufferSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate) * internalPeriods;
 
         resultALSA = pContextStateALSA->snd_pcm_hw_params_set_buffer_size_near(pPCM, pHWParams, &actualBufferSizeInFrames);
         if (resultALSA < 0) {
@@ -32522,24 +32486,19 @@ static void ma_device_on_rerouted__pulseaudio(ma_pa_stream* pStream, void* pUser
     ma_device_post_notification_rerouted(pDevice);
 }
 
-static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
+static ma_uint32 ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate)
 {
     /*
     There have been reports from users where buffers of < ~20ms result glitches when running through
     PipeWire. To work around this we're going to have to use a different default buffer size.
     */
-    const ma_uint32 defaultPeriodSizeInMilliseconds_LowLatency   = 25;
-    const ma_uint32 defaultPeriodSizeInMilliseconds_Conservative = MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE;
+    const ma_uint32 defaultPeriodSizeInMilliseconds_LowLatency = 25;
 
     MA_ASSERT(nativeSampleRate != 0);
 
     if (pDescriptor->periodSizeInFrames == 0) {
         if (pDescriptor->periodSizeInMilliseconds == 0) {
-            if (performanceProfile == ma_performance_profile_low_latency) {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_LowLatency, nativeSampleRate);
-            } else {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_Conservative, nativeSampleRate);
-            }
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(defaultPeriodSizeInMilliseconds_LowLatency, nativeSampleRate);
         } else {
             return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
         }
@@ -32671,7 +32630,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         }
 
         /* We now have enough information to calculate our actual period size in frames. */
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(pDescriptorCapture, ss.rate, ma_performance_profile_low_latency);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(pDescriptorCapture, ss.rate);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorCapture->periodSizeInFrames, pDescriptorCapture->periodCount, &ss);
         ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[PulseAudio] Capture attr: maxlength=%d, tlength=%d, prebuf=%d, minreq=%d, fragsize=%d; periodSizeInFrames=%d\n", attr.maxlength, attr.tlength, attr.prebuf, attr.minreq, attr.fragsize, pDescriptorCapture->periodSizeInFrames);
@@ -32832,7 +32791,7 @@ static ma_result ma_device_init__pulseaudio(ma_device* pDevice, const void* pDev
         }
 
         /* We now have enough information to calculate the actual buffer size in frames. */
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(pDescriptorPlayback, ss.rate, ma_performance_profile_low_latency);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_period_size_in_frames_from_descriptor__pulseaudio(pDescriptorPlayback, ss.rate);
 
         attr = ma_device__pa_buffer_attr_new(pDescriptorPlayback->periodSizeInFrames, pDescriptorPlayback->periodCount, &ss);
 
@@ -34089,7 +34048,6 @@ typedef struct ma_device_state_coreaudio
     ma_uint32 originalPeriodSizeInFrames;
     ma_uint32 originalPeriodSizeInMilliseconds;
     ma_uint32 originalPeriods;
-    ma_performance_profile originalPerformanceProfile;
     ma_bool32 isDefaultPlaybackDevice;
     ma_bool32 isDefaultCaptureDevice;
     ma_bool32 isSwitchingPlaybackDevice;   /* <-- Set to true when the default device has changed and miniaudio is in the process of switching. */
@@ -36551,7 +36509,6 @@ typedef struct
     ma_uint32 periodSizeInMillisecondsIn;
     ma_uint32 periodsIn;
     ma_share_mode shareMode;
-    ma_performance_profile performanceProfile;
     ma_bool32 registerStopEvent;
 
     /* Output. */
@@ -36859,11 +36816,7 @@ static ma_result ma_device_init_internal__coreaudio(ma_context* pContext, ma_dev
     /* Buffer size. Not allowing this to be configurable on iOS. */
     if (pData->periodSizeInFramesIn == 0) {
         if (pData->periodSizeInMillisecondsIn == 0) {
-            if (pData->performanceProfile == ma_performance_profile_low_latency) {
-                actualPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, pData->sampleRateOut);
-            } else {
-                actualPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, pData->sampleRateOut);
-            }
+            actualPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS, pData->sampleRateOut);
         } else {
             actualPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_milliseconds(pData->periodSizeInMillisecondsIn, pData->sampleRateOut);
         }
@@ -36993,7 +36946,6 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
         data.sampleRateIn           = pDevice->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->capture.channelMap, sizeof(pDevice->capture.channelMap));
         data.shareMode              = pDevice->capture.shareMode;
-        data.performanceProfile     = pDeviceStateCoreAudio->originalPerformanceProfile;
         data.registerStopEvent      = MA_TRUE;
 
         if (disposePreviousAudioUnit) {
@@ -37009,7 +36961,6 @@ static ma_result ma_device_reinit_internal__coreaudio(ma_device* pDevice, ma_dev
         data.sampleRateIn           = pDevice->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pDevice->playback.channelMap, sizeof(pDevice->playback.channelMap));
         data.shareMode              = pDevice->playback.shareMode;
-        data.performanceProfile     = pDeviceStateCoreAudio->originalPerformanceProfile;
         data.registerStopEvent      = (pDevice->type != ma_device_type_duplex);
 
         if (disposePreviousAudioUnit) {
@@ -37106,7 +37057,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         data.periodSizeInMillisecondsIn   = pDescriptorCapture->periodSizeInMilliseconds;
         data.periodsIn                    = pDescriptorCapture->periodCount;
         data.shareMode                    = pDescriptorCapture->shareMode;
-        data.performanceProfile           = ma_performance_profile_low_latency;
         data.registerStopEvent            = MA_TRUE;
 
         /* Need at least 3 periods for duplex. */
@@ -37130,7 +37080,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         pDeviceStateCoreAudio->originalPeriodSizeInFrames       = pDescriptorCapture->periodSizeInFrames;
         pDeviceStateCoreAudio->originalPeriodSizeInMilliseconds = pDescriptorCapture->periodSizeInMilliseconds;
         pDeviceStateCoreAudio->originalPeriods                  = pDescriptorCapture->periodCount;
-        pDeviceStateCoreAudio->originalPerformanceProfile       = ma_performance_profile_low_latency;
 
         pDescriptorCapture->format             = data.formatOut;
         pDescriptorCapture->channels           = data.channelsOut;
@@ -37161,7 +37110,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         data.sampleRateIn                   = pDescriptorPlayback->sampleRate;
         MA_COPY_MEMORY(data.channelMapIn, pDescriptorPlayback->channelMap, sizeof(pDescriptorPlayback->channelMap));
         data.shareMode                      = pDescriptorPlayback->shareMode;
-        data.performanceProfile             = ma_performance_profile_low_latency;
 
         /* In full-duplex mode we want the playback buffer to be the same size as the capture buffer. */
         if (deviceType == ma_device_type_duplex) {
@@ -37196,7 +37144,6 @@ static ma_result ma_device_init__coreaudio(ma_device* pDevice, const void* pDevi
         pDeviceStateCoreAudio->originalPeriodSizeInFrames       = pDescriptorPlayback->periodSizeInFrames;
         pDeviceStateCoreAudio->originalPeriodSizeInMilliseconds = pDescriptorPlayback->periodSizeInMilliseconds;
         pDeviceStateCoreAudio->originalPeriods                  = pDescriptorPlayback->periodCount;
-        pDeviceStateCoreAudio->originalPerformanceProfile       = ma_performance_profile_low_latency;
 
         pDescriptorPlayback->format                         = data.formatOut;
         pDescriptorPlayback->channels                       = data.channelsOut;
@@ -38048,7 +37995,7 @@ static ma_result ma_device_init_handle__sndio(ma_device* pDevice, ma_device_desc
 
     par.rate = sampleRate;
 
-    internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, par.rate, ma_performance_profile_low_latency);
+    internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, par.rate);
 
     par.round    = internalPeriodSizeInFrames;
     par.appbufsz = par.round * pDescriptor->periodCount;
@@ -38902,7 +38849,7 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         {
             ma_uint32 internalPeriodSizeInBytes;
 
-            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, ma_performance_profile_low_latency);
+            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate);
 
             internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
             if (internalPeriodSizeInBytes < 16) {
@@ -38954,7 +38901,7 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descrip
         {
             ma_uint32 internalPeriodSizeInBytes;
 
-            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, ma_performance_profile_low_latency);
+            internalPeriodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate);
 
             /* What miniaudio calls a period, audio4 calls a block. */
             internalPeriodSizeInBytes = internalPeriodSizeInFrames * ma_get_bytes_per_frame(internalFormat, internalChannels);
@@ -39694,7 +39641,7 @@ static ma_result ma_device_init_fd__oss(ma_device* pDevice, const ma_device_conf
         ma_uint32 periodSizeInBytes;
         ma_uint32 ossFragmentSizePower;
 
-        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, (ma_uint32)ossSampleRate, ma_performance_profile_low_latency);
+        periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, (ma_uint32)ossSampleRate);
 
         periodSizeInBytes = ma_round_to_power_of_2(periodSizeInFrames * ma_get_bytes_per_frame(ma_format_from_oss(ossFormat), ossChannels));
         if (periodSizeInBytes < 16) {
@@ -40470,7 +40417,7 @@ static ma_result ma_create_and_configure_AAudioStreamBuilder__aaudio(ma_context*
 
             To solve, we're just going to assume MA_DEFAULT_SAMPLE_RATE (48000) and move on.
             */
-            ma_uint32 bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate, ma_performance_profile_low_latency) * pDescriptor->periodCount;
+            ma_uint32 bufferCapacityInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, pDescriptor->sampleRate) * pDescriptor->periodCount;
 
             pContextStateAAudio->AAudioStreamBuilder_setBufferCapacityInFrames(pBuilder, bufferCapacityInFrames);
             pContextStateAAudio->AAudioStreamBuilder_setFramesPerDataCallback(pBuilder, bufferCapacityInFrames / pDescriptor->periodCount);
@@ -42184,7 +42131,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorCapture->format, &pDescriptorCapture->channels, &pDescriptorCapture->sampleRate, pDescriptorCapture->channelMap, ma_countof(pDescriptorCapture->channelMap));
 
         /* Buffer. */
-        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate, ma_performance_profile_low_latency);
+        pDescriptorCapture->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorCapture, pDescriptorCapture->sampleRate);
         pDeviceStateOpenSL->currentBufferIndexCapture = 0;
 
         bufferSizeInBytes = pDescriptorCapture->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorCapture->format, pDescriptorCapture->channels) * pDescriptorCapture->periodCount;
@@ -42307,7 +42254,7 @@ static ma_result ma_device_init__opensl(ma_device* pDevice, const void* pDeviceB
         ma_deconstruct_SLDataFormat_PCM__opensl(&pcm, &pDescriptorPlayback->format, &pDescriptorPlayback->channels, &pDescriptorPlayback->sampleRate, pDescriptorPlayback->channelMap, ma_countof(pDescriptorPlayback->channelMap));
 
         /* Buffer. */
-        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate, ma_performance_profile_low_latency);
+        pDescriptorPlayback->periodSizeInFrames = ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptorPlayback, pDescriptorPlayback->sampleRate);
         pDeviceStateOpenSL->currentBufferIndexPlayback   = 0;
 
         bufferSizeInBytes = pDescriptorPlayback->periodSizeInFrames * ma_get_bytes_per_frame(pDescriptorPlayback->format, pDescriptorPlayback->channels) * pDescriptorPlayback->periodCount;
@@ -45663,7 +45610,7 @@ MA_API void ma_device_post_notification_unlocked(ma_device* pDevice)
 }
 
 
-MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile)
+MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate)
 {
     if (pDescriptor == NULL) {
         return 0;
@@ -45686,11 +45633,7 @@ MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_dev
 
     if (pDescriptor->periodSizeInFrames == 0) {
         if (pDescriptor->periodSizeInMilliseconds == 0) {
-            if (performanceProfile == ma_performance_profile_low_latency) {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_LOW_LATENCY, nativeSampleRate);
-            } else {
-                return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS_CONSERVATIVE, nativeSampleRate);
-            }
+            return ma_calculate_buffer_size_in_frames_from_milliseconds(MA_DEFAULT_PERIOD_SIZE_IN_MILLISECONDS, nativeSampleRate);
         } else {
             return ma_calculate_buffer_size_in_frames_from_milliseconds(pDescriptor->periodSizeInMilliseconds, nativeSampleRate);
         }
