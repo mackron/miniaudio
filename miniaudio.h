@@ -9560,11 +9560,6 @@ is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
 */
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile);
 
-/*
-Determines whether or not loopback mode is support by a backend.
-*/
-MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend);
-
 #endif  /* MA_NO_DEVICE_IO */
 
 
@@ -19472,9 +19467,6 @@ END BACKENDS
 
 ************************************************************************************************************************************************************/
 
-
-
-
 MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, ma_format format, ma_uint32 channels, ma_uint32 sampleRate, ma_uint32 flags)
 {
     if (pDeviceInfo == NULL) {
@@ -19487,30 +19479,6 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
         pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].sampleRate = sampleRate;
         pDeviceInfo->nativeDataFormats[pDeviceInfo->nativeDataFormatCount].flags      = flags;
         pDeviceInfo->nativeDataFormatCount += 1;
-    }
-}
-
-
-MA_API ma_bool32 ma_is_loopback_supported(ma_backend backend)
-{
-    switch (backend)
-    {
-        case ma_backend_wasapi:     return MA_TRUE;
-        case ma_backend_dsound:     return MA_FALSE;
-        case ma_backend_winmm:      return MA_FALSE;
-        case ma_backend_coreaudio:  return MA_FALSE;
-        case ma_backend_sndio:      return MA_FALSE;
-        case ma_backend_audio4:     return MA_FALSE;
-        case ma_backend_oss:        return MA_FALSE;
-        case ma_backend_pulseaudio: return MA_FALSE;
-        case ma_backend_alsa:       return MA_FALSE;
-        case ma_backend_jack:       return MA_FALSE;
-        case ma_backend_aaudio:     return MA_FALSE;
-        case ma_backend_opensl:     return MA_FALSE;
-        case ma_backend_webaudio:   return MA_FALSE;
-        case ma_backend_custom:     return MA_FALSE;    /* <-- Will depend on the implementation of the backend. */
-        case ma_backend_null:       return MA_FALSE;
-        default:                    return MA_FALSE;
     }
 }
 
