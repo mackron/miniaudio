@@ -9576,12 +9576,6 @@ is also zero, `MA_DEFAULT_SAMPLE_RATE` will be used instead.
 MA_API ma_uint32 ma_calculate_buffer_size_in_frames_from_descriptor(const ma_device_descriptor* pDescriptor, ma_uint32 nativeSampleRate, ma_performance_profile performanceProfile);
 
 
-
-/*
-Retrieves the backend enum from the given name.
-*/
-MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend);
-
 /*
 Determines whether or not the given backend is available by the compilation environment.
 */
@@ -19586,52 +19580,6 @@ MA_API void ma_device_info_add_native_data_format(ma_device_info* pDeviceInfo, m
 }
 
 
-typedef struct
-{
-    ma_backend backend;
-    const char* pName;
-} ma_backend_name;
-
-static ma_backend_name gBackendInfo[] = /* Indexed by the backend enum. Must be in the order backends are declared in the ma_backend enum. */
-{
-    {ma_backend_wasapi,     "WASAPI"},
-    {ma_backend_dsound,     "DirectSound"},
-    {ma_backend_winmm,      "WinMM"},
-    {ma_backend_coreaudio,  "Core Audio"},
-    {ma_backend_sndio,      "sndio"},
-    {ma_backend_audio4,     "audio(4)"},
-    {ma_backend_oss,        "OSS"},
-    {ma_backend_pulseaudio, "PulseAudio"},
-    {ma_backend_alsa,       "ALSA"},
-    {ma_backend_jack,       "JACK"},
-    {ma_backend_aaudio,     "AAudio"},
-    {ma_backend_opensl,     "OpenSL|ES"},
-    {ma_backend_webaudio,   "Web Audio"},
-    {ma_backend_custom,     "Custom"},
-    {ma_backend_null,       "Null"}
-};
-
-MA_API ma_result ma_get_backend_from_name(const char* pBackendName, ma_backend* pBackend)
-{
-    size_t iBackend;
-
-    if (pBackendName == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    for (iBackend = 0; iBackend < ma_countof(gBackendInfo); iBackend += 1) {
-        if (ma_strcmp(pBackendName, gBackendInfo[iBackend].pName) == 0) {
-            if (pBackend != NULL) {
-                *pBackend = gBackendInfo[iBackend].backend;
-            }
-
-            return MA_SUCCESS;
-        }
-    }
-
-    /* Getting here means the backend name is unknown. */
-    return MA_INVALID_ARGS;
-}
 
 MA_API ma_bool32 ma_is_backend_enabled(ma_backend backend)
 {
