@@ -7753,7 +7753,6 @@ struct ma_context
 {
     ma_device_backend_vtable* pVTable; /* New new system. */
     void* pBackendState;                /* Backend state created by the backend. This will be passed to the relevant backend functions. */
-    ma_backend backend;                 /* DirectSound, ALSA, etc. */
     ma_log* pLog;
     ma_log log; /* Only used if the log is owned by the context. The pLog member will be set to &log in this case. */
     ma_thread_priority threadPriority;
@@ -23836,7 +23835,6 @@ static void ma_context_uninit__wasapi(ma_context* pContext)
     ma_context_command__wasapi cmd = ma_context_init_command__wasapi(MA_CONTEXT_COMMAND_QUIT__WASAPI);
 
     MA_ASSERT(pContext != NULL);
-    MA_ASSERT(pContext->backend == ma_backend_wasapi);
 
     ma_context_post_command__wasapi(pContext, &cmd);
     ma_thread_wait(&pContextStateWASAPI->commandThread);
@@ -45066,7 +45064,7 @@ MA_API ma_bool32 ma_context_is_loopback_supported(ma_context* pContext)
         return MA_FALSE;
     }
 
-    return ma_is_loopback_supported(pContext->backend);
+    return pContext->pVTable == ma_device_backend_wasapi;
 }
 
 
@@ -45414,7 +45412,10 @@ MA_API ma_result ma_device_init(ma_context* pContext, const ma_device_config* pC
 
     /* Log device information. */
     {
-        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[%s]\n", ma_get_backend_name(pDevice->pContext->backend));
+        ma_device_backend_info backendInfo;
+        ma_context_get_backend_info(pDevice->pContext, &backendInfo);
+
+        ma_log_postf(ma_device_get_log(pDevice), MA_LOG_LEVEL_INFO, "[%s]\n", backendInfo.pName);
         if (pDevice->type == ma_device_type_capture || pDevice->type == ma_device_type_duplex || pDevice->type == ma_device_type_loopback) {
             char name[MA_MAX_DEVICE_NAME_LENGTH + 1];
             ma_device_get_name(pDevice, ma_device_type_capture, name, sizeof(name), NULL);

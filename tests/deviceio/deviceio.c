@@ -432,6 +432,7 @@ int main(int argc, char** argv)
     const char* pFilePath = NULL;  /* Input or output file path, depending on the mode. */
     ma_bool32 enumerate = MA_TRUE;
     ma_bool32 interactive = MA_TRUE;
+    ma_device_backend_info backendInfo;
 
     /* Default to a sine wave if nothing is passed into the command line. */
     waveformType = ma_waveform_type_sine;
@@ -485,7 +486,9 @@ int main(int argc, char** argv)
     ma_log_register_callback(ma_context_get_log(&g_State.context), ma_log_callback_init(on_log, NULL));
 
     /* Here we'll print some info about what we're doing. */
-    printf("Backend: %s\n", ma_get_backend_name(g_State.context.backend));
+    ma_context_get_backend_info(&g_State.context, &backendInfo);
+
+    printf("Backend: %s\n", backendInfo.pName);
     printf("Mode:    %s\n", get_mode_description(deviceType));
     printf("\n");
 
