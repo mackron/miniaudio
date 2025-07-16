@@ -44513,7 +44513,7 @@ MA_API void ma_context_get_backend_info(ma_context* pContext, ma_device_backend_
         return;
     }
 
-    return ma_get_device_backend_info(pContext->pVTable, pBackendInfo);
+    ma_get_device_backend_info(pContext->pVTable, pBackendInfo);
 }
 
 
