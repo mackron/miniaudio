@@ -34,14 +34,14 @@ int main(int argc, char** argv)
 
     printf("Playback Devices\n");
     for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+        printf("    %u: %s%s\n", iDevice, pPlaybackDeviceInfos[iDevice].name, (pPlaybackDeviceInfos[iDevice].isDefault) ? " [Default]" : "");
     }
 
     printf("\n");
 
     printf("Capture Devices\n");
     for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
+        printf("    %u: %s%s\n", iDevice, pCaptureDeviceInfos[iDevice].name, (pPlaybackDeviceInfos[iDevice].isDefault) ? " [Default]" : "");
     }
 
 
