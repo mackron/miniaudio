@@ -38347,38 +38347,6 @@ static void ma_construct_device_id__audio4(char* id, size_t idSize, const char* 
     ma_itoa_s(deviceIndex, id+baseLen, idSize-baseLen, 10);
 }
 
-static ma_result ma_extract_device_index_from_id__audio4(const char* id, const char* base, int* pIndexOut)
-{
-    size_t idLen;
-    size_t baseLen;
-    const char* deviceIndexStr;
-
-    MA_ASSERT(id != NULL);
-    MA_ASSERT(base != NULL);
-    MA_ASSERT(pIndexOut != NULL);
-
-    idLen = strlen(id);
-    baseLen = strlen(base);
-    if (idLen <= baseLen) {
-        return MA_ERROR;   /* Doesn't look like the id starts with the base. */
-    }
-
-    if (strncmp(id, base, baseLen) != 0) {
-        return MA_ERROR;   /* ID does not begin with base. */
-    }
-
-    deviceIndexStr = id + baseLen;
-    if (deviceIndexStr[0] == '\0') {
-        return MA_ERROR;   /* No index specified in the ID. */
-    }
-
-    if (pIndexOut) {
-        *pIndexOut = atoi(deviceIndexStr);
-    }
-
-    return MA_SUCCESS;
-}
-
 
 #if !defined(MA_AUDIO4_USE_NEW_API)    /* Old API */
 static ma_format ma_format_from_encoding__audio4(unsigned int encoding, unsigned int precision)
@@ -38519,20 +38487,26 @@ static ma_format ma_format_from_swpar__audio4(struct audio_swpar* par)
 }
 #endif
 
-static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext, ma_device_type deviceType, int fd, ma_device_info* pDeviceInfo)
+static ma_result ma_context_get_device_info_from_fd__audio4(int fd, int deviceIndex, struct stat* stDevice, struct stat* stDefault, ma_device_type deviceType, ma_device_info* pDeviceInfo)
 {
     audio_device_t fdDevice;
 
-    MA_ASSERT(pContext != NULL);
     MA_ASSERT(fd >= 0);
     MA_ASSERT(pDeviceInfo != NULL);
-
-    (void)pContext;
-    (void)deviceType;
 
     if (ioctl(fd, AUDIO_GETDEV, &fdDevice) < 0) {
         return MA_ERROR;   /* Failed to retrieve device info. */
     }
+
+    MA_ZERO_OBJECT(pDeviceInfo);
+
+    /* Default. */
+    if ((stDefault->st_dev == stDevice->st_dev) && (stDefault->st_ino == stDevice->st_ino)) {
+        pDeviceInfo->isDefault = MA_TRUE;
+    }
+
+    /* ID. */
+    ma_construct_device_id__audio4(pDeviceInfo->id.audio4, sizeof(pDeviceInfo->id.audio4), "/dev/audio", deviceIndex);
 
     /* Name. */
     ma_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), fdDevice.name);
@@ -38614,20 +38588,39 @@ static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext
     return MA_SUCCESS;
 }
 
+static ma_bool32 ma_context_enumerate_device_from_fd___audio4(int fd, int deviceIndex, struct stat* stDevice, struct stat* stDefault, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_result result;
+    ma_device_info deviceInfo;
+
+    result = ma_context_get_device_info_from_fd__audio4(fd, deviceIndex, stDevice, stDefault, deviceType, &deviceInfo);
+    if (result != MA_SUCCESS) {
+        return MA_TRUE;
+    }
+
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
 static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     const int maxDevices = 64;
     char devpath[256];
     int iDevice;
+    struct stat stDefault;
 
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(callback != NULL);
+
+    if (stat("/dev/audioctl", &stDefault) < 0) {
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[audio4] Failed to open /dev/audioctl. Backend not usable.");
+        return MA_NO_BACKEND;
+    }
 
     /*
     Every device will be named "/dev/audioN", with a "/dev/audioctlN" equivalent. We use the "/dev/audioctlN"
     version here since we can open it even when another process has control of the "/dev/audioN" device.
     */
-    for (iDevice = 0; iDevice < maxDevices; ++iDevice) {
+    for (iDevice = 0; iDevice < maxDevices; iDevice += 1) {
         struct stat st;
         int fd;
         ma_bool32 isTerminating = MA_FALSE;
@@ -38645,14 +38638,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
         if (!isTerminating) {
             fd = open(devpath, O_RDONLY, 0);
             if (fd >= 0) {
-                /* Supports playback. */
-                ma_device_info deviceInfo;
-                MA_ZERO_OBJECT(&deviceInfo);
-                ma_construct_device_id__audio4(deviceInfo.id.audio4, sizeof(deviceInfo.id.audio4), "/dev/audio", iDevice);
-                if (ma_context_get_device_info_from_fd__audio4(pContext, ma_device_type_playback, fd, &deviceInfo) == MA_SUCCESS) {
-                    isTerminating = !callback(ma_device_type_playback, &deviceInfo, pUserData);
-                }
-
+                isTerminating = !ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_playback, callback, pUserData);
                 close(fd);
             }
         }
@@ -38661,14 +38647,7 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
         if (!isTerminating) {
             fd = open(devpath, O_WRONLY, 0);
             if (fd >= 0) {
-                /* Supports capture. */
-                ma_device_info deviceInfo;
-                MA_ZERO_OBJECT(&deviceInfo);
-                ma_construct_device_id__audio4(deviceInfo.id.audio4, sizeof(deviceInfo.id.audio4), "/dev/audio", iDevice);
-                if (ma_context_get_device_info_from_fd__audio4(pContext, ma_device_type_capture, fd, &deviceInfo) == MA_SUCCESS) {
-                    isTerminating = !callback(ma_device_type_capture, &deviceInfo, pUserData);
-                }
-
+                isTerminating = !ma_context_enumerate_device_from_fd___audio4(fd, iDevice, &st, &stDefault, ma_device_type_capture, callback, pUserData);
                 close(fd);
             }
         }
@@ -38679,49 +38658,6 @@ static ma_result ma_context_enumerate_devices__audio4(ma_context* pContext, ma_e
     }
 
     return MA_SUCCESS;
-}
-
-static ma_result ma_context_get_device_info__audio4(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    int fd = -1;
-    int deviceIndex = -1;
-    char ctlid[256];
-    ma_result result;
-
-    MA_ASSERT(pContext != NULL);
-
-    /*
-    We need to open the "/dev/audioctlN" device to get the info. To do this we need to extract the number
-    from the device ID which will be in "/dev/audioN" format.
-    */
-    if (pDeviceID == NULL) {
-        /* Default device. */
-        ma_strcpy_s(ctlid, sizeof(ctlid), "/dev/audioctl");
-    } else {
-        /* Specific device. We need to convert from "/dev/audioN" to "/dev/audioctlN". */
-        result = ma_extract_device_index_from_id__audio4(pDeviceID->audio4, "/dev/audio", &deviceIndex);
-        if (result != MA_SUCCESS) {
-            return result;
-        }
-
-        ma_construct_device_id__audio4(ctlid, sizeof(ctlid), "/dev/audioctl", deviceIndex);
-    }
-
-    fd = open(ctlid, (deviceType == ma_device_type_playback) ? O_WRONLY : O_RDONLY, 0);
-    if (fd == -1) {
-        return MA_NO_DEVICE;
-    }
-
-    if (deviceIndex == -1) {
-        ma_strcpy_s(pDeviceInfo->id.audio4, sizeof(pDeviceInfo->id.audio4), "/dev/audio");
-    } else {
-        ma_construct_device_id__audio4(pDeviceInfo->id.audio4, sizeof(pDeviceInfo->id.audio4), "/dev/audio", deviceIndex);
-    }
-
-    result = ma_context_get_device_info_from_fd__audio4(pContext, deviceType, fd, pDeviceInfo);
-
-    close(fd);
-    return result;
 }
 
 static ma_result ma_device_init_fd__audio4(ma_device* pDevice, ma_device_descriptor* pDescriptor, ma_device_type deviceType, int* pFD)
@@ -39195,7 +39131,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_Audio4 =
     ma_context_init__audio4,
     ma_context_uninit__audio4,
     ma_context_enumerate_devices__audio4,
-    ma_context_get_device_info__audio4,
+    NULL,
     ma_device_init__audio4,
     ma_device_uninit__audio4,
     ma_device_start__audio4,
