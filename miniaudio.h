@@ -6693,7 +6693,7 @@ BACKENDS
     #if defined(__NetBSD__) || defined(__OpenBSD__)
         #define MA_SUPPORT_AUDIO4   /* Only support audio(4) on platforms with known support. */
     #endif
-    #if defined(__FreeBSD__) || defined(__DragonFly__)
+    #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(MA_LINUX)
         #define MA_SUPPORT_OSS      /* Only support OSS on specific platforms with known support. */
     #endif
 #endif
@@ -6729,15 +6729,6 @@ BACKENDS
 #if defined(MA_SUPPORT_COREAUDIO) && !defined(MA_NO_COREAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_COREAUDIO))
     #define MA_HAS_COREAUDIO
 #endif
-#if defined(MA_SUPPORT_SNDIO) && !defined(MA_NO_SNDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SNDIO))
-    #define MA_HAS_SNDIO
-#endif
-#if defined(MA_SUPPORT_AUDIO4) && !defined(MA_NO_AUDIO4) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AUDIO4))
-    #define MA_HAS_AUDIO4
-#endif
-#if defined(MA_SUPPORT_OSS) && !defined(MA_NO_OSS) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OSS))
-    #define MA_HAS_OSS
-#endif
 #if defined(MA_SUPPORT_PULSEAUDIO) && !defined(MA_NO_PULSEAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_PULSEAUDIO))
     #define MA_HAS_PULSEAUDIO
 #endif
@@ -6746,6 +6737,15 @@ BACKENDS
 #endif
 #if defined(MA_SUPPORT_JACK) && !defined(MA_NO_JACK) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_JACK))
     #define MA_HAS_JACK
+#endif
+#if defined(MA_SUPPORT_SNDIO) && !defined(MA_NO_SNDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_SNDIO))
+    #define MA_HAS_SNDIO
+#endif
+#if defined(MA_SUPPORT_AUDIO4) && !defined(MA_NO_AUDIO4) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AUDIO4))
+    #define MA_HAS_AUDIO4
+#endif
+#if defined(MA_SUPPORT_OSS) && !defined(MA_NO_OSS) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_OSS))
+    #define MA_HAS_OSS
 #endif
 #if defined(MA_SUPPORT_AAUDIO) && !defined(MA_NO_AAUDIO) && (!defined(MA_ENABLE_ONLY_SPECIFIC_BACKENDS) || defined(MA_ENABLE_AAUDIO))
     #define MA_HAS_AAUDIO
@@ -6888,69 +6888,6 @@ extern ma_device_backend_vtable* ma_device_backend_coreaudio;
 /* END COREAUDIO */
 
 
-/* BEG SNDIO */
-typedef struct ma_context_config_sndio
-{
-    int _unused;
-} ma_context_config_sndio;
-
-MA_API ma_context_config_sndio ma_context_config_sndio_init(void);
-
-
-typedef struct ma_device_config_sndio
-{
-    int _unused;
-} ma_device_config_sndio;
-
-MA_API ma_device_config_sndio ma_device_config_sndio_init(void);
-
-
-extern ma_device_backend_vtable* ma_device_backend_sndio;
-/* END SNDIO */
-
-
-/* BEG AUDIO4 */
-typedef struct ma_context_config_audio4
-{
-    int _unused;
-} ma_context_config_audio4;
-
-MA_API ma_context_config_audio4 ma_context_config_audio4_init(void);
-
-
-typedef struct ma_device_config_audio4
-{
-    int _unused;
-} ma_device_config_audio4;
-
-MA_API ma_device_config_audio4 ma_device_config_audio4_init(void);
-
-
-extern ma_device_backend_vtable* ma_device_backend_audio4;
-/* END AUDIO4 */
-
-
-/* BEG OSS */
-typedef struct ma_context_config_oss
-{
-    int _unused;
-} ma_context_config_oss;
-
-MA_API ma_context_config_oss ma_context_config_oss_init(void);
-
-
-typedef struct ma_device_config_oss
-{
-    int _unused;
-} ma_device_config_oss;
-
-MA_API ma_device_config_oss ma_device_config_oss_init(void);
-
-
-extern ma_device_backend_vtable* ma_device_backend_oss;
-/* END OSS */
-
-
 /* BEG PULSEAUDIO */
 typedef struct ma_context_config_pulseaudio
 {
@@ -7020,6 +6957,69 @@ MA_API ma_device_config_jack ma_device_config_jack_init(void);
 
 extern ma_device_backend_vtable* ma_device_backend_jack;
 /* END JACK */
+
+
+/* BEG SNDIO */
+typedef struct ma_context_config_sndio
+{
+    int _unused;
+} ma_context_config_sndio;
+
+MA_API ma_context_config_sndio ma_context_config_sndio_init(void);
+
+
+typedef struct ma_device_config_sndio
+{
+    int _unused;
+} ma_device_config_sndio;
+
+MA_API ma_device_config_sndio ma_device_config_sndio_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_sndio;
+/* END SNDIO */
+
+
+/* BEG AUDIO4 */
+typedef struct ma_context_config_audio4
+{
+    int _unused;
+} ma_context_config_audio4;
+
+MA_API ma_context_config_audio4 ma_context_config_audio4_init(void);
+
+
+typedef struct ma_device_config_audio4
+{
+    int _unused;
+} ma_device_config_audio4;
+
+MA_API ma_device_config_audio4 ma_device_config_audio4_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_audio4;
+/* END AUDIO4 */
+
+
+/* BEG OSS */
+typedef struct ma_context_config_oss
+{
+    int _unused;
+} ma_context_config_oss;
+
+MA_API ma_context_config_oss ma_context_config_oss_init(void);
+
+
+typedef struct ma_device_config_oss
+{
+    int _unused;
+} ma_device_config_oss;
+
+MA_API ma_device_config_oss ma_device_config_oss_init(void);
+
+
+extern ma_device_backend_vtable* ma_device_backend_oss;
+/* END OSS */
 
 
 /* BEG AAUDIO */
@@ -39238,6 +39238,10 @@ OSS Backend
 #define SNDCTL_DSP_HALT SNDCTL_DSP_RESET
 #endif
 
+#ifndef OSS_GETVERSION
+#define OSS_GETVERSION  _IOR('M', 118, int)
+#endif
+
 #define MA_OSS_DEFAULT_DEVICE_NAME  "/dev/dsp"
 
 typedef struct ma_context_state_oss
@@ -39303,7 +39307,7 @@ static ma_result ma_context_init__oss(ma_context* pContext, const void* pContext
     fd = ma_open_temp_device__oss();
     if (fd == -1) {
         ma_free(pContextStateOSS, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties.");   /* Looks liks OSS isn't installed, or there are no available devices. */
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to open temporary device for retrieving system properties. errno = %s", strerror(errno));   /* Looks liks OSS isn't installed, or there are no available devices. */
         return MA_NO_BACKEND;
     }
 
@@ -39311,10 +39315,8 @@ static ma_result ma_context_init__oss(ma_context* pContext, const void* pContext
     ossVersion = 0;
     result = ioctl(fd, OSS_GETVERSION, &ossVersion);
     if (result == -1) {
-        close(fd);
-        ma_free(pContextStateOSS, ma_context_get_allocation_callbacks(pContext));
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[OSS] Failed to retrieve OSS version.");
-        return MA_NO_BACKEND;
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_WARNING, "[OSS] Failed to retrieve OSS version. Assuming the version of SOUND_VERSION (%d).", SOUND_VERSION);
+        ossVersion = SOUND_VERSION;
     }
 
     /* The file handle to temp device is no longer needed. Close ASAP. */
@@ -39332,11 +39334,11 @@ static ma_result ma_context_init__oss(ma_context* pContext, const void* pContext
 
     #if defined(MA_OSS_MODERN)
     {
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Modern");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Modern");
     }
     #else
     {
-        ma_log_post(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Legacy");
+        ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_DEBUG, "[OSS] API: Legacy");
     }
     #endif
 
@@ -44493,12 +44495,12 @@ static const void* ma_context_config_find_backend_config(const ma_context_config
     { ma_device_backend_dsound,     NULL }, \
     { ma_device_backend_winmm,      NULL }, \
     { ma_device_backend_coreaudio,  NULL }, \
-    { ma_device_backend_sndio,      NULL }, \
-    { ma_device_backend_audio4,     NULL }, \
-    { ma_device_backend_oss,        NULL }, \
     { ma_device_backend_pulseaudio, NULL }, \
     { ma_device_backend_alsa,       NULL }, \
     { ma_device_backend_jack,       NULL }, \
+    { ma_device_backend_sndio,      NULL }, \
+    { ma_device_backend_audio4,     NULL }, \
+    { ma_device_backend_oss,        NULL }, \
     { ma_device_backend_aaudio,     NULL }, \
     { ma_device_backend_opensl,     NULL }, \
     { ma_device_backend_webaudio,   NULL }, \
