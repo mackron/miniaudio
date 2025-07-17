@@ -37759,79 +37759,33 @@ static ma_uint32 ma_find_best_sample_rate_from_sio_cap__sndio(struct ma_sio_cap*
     return bestSampleRate;
 }
 
-
-static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+static ma_bool32 ma_context_enumeate_device_from_handle__sndio(ma_context* pContext, struct ma_sio_hdl* handle, const char* name, ma_device_type deviceType, ma_enum_devices_callback_proc callback, void* pUserData)
 {
     ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(pContext);
-    ma_bool32 isTerminating = MA_FALSE;
-    struct ma_sio_hdl* handle;
-
-    /* sndio doesn't seem to have a good device enumeration API, so I'm therefore only enumerating over default devices for now. */
-
-    /* Playback. */
-    if (!isTerminating) {
-        handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_PLAY, 0);
-        if (handle != NULL) {
-            /* Supports playback. */
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), MA_SIO_DEVANY);
-            ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME);
-
-            isTerminating = !callback(ma_device_type_playback, &deviceInfo, pUserData);
-
-            pContextStateSndio->sio_close(handle);
-        }
-    }
-
-    /* Capture. */
-    if (!isTerminating) {
-        handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_REC, 0);
-        if (handle != NULL) {
-            /* Supports capture. */
-            ma_device_info deviceInfo;
-            MA_ZERO_OBJECT(&deviceInfo);
-            ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), "default");
-            ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_CAPTURE_DEVICE_NAME);
-
-            isTerminating = !callback(ma_device_type_capture, &deviceInfo, pUserData);
-
-            pContextStateSndio->sio_close(handle);
-        }
-    }
-
-    return MA_SUCCESS;
-}
-
-static ma_result ma_context_get_device_info__sndio(ma_context* pContext, ma_device_type deviceType, const ma_device_id* pDeviceID, ma_device_info* pDeviceInfo)
-{
-    ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(pContext);
-    char devid[256];
-    struct ma_sio_hdl* handle;
+    ma_device_info deviceInfo;
     struct ma_sio_cap caps;
     unsigned int iConfig;
 
-    MA_ASSERT(pContext != NULL);
+    /* We're only supporting default devices for now. */
+    MA_ASSERT(strcmp(name, MA_SIO_DEVANY) == 0);
 
-    /* We need to open the device before we can get information about it. */
-    if (pDeviceID == NULL) {
-        ma_strcpy_s(devid, sizeof(devid), MA_SIO_DEVANY);
-        ma_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), (deviceType == ma_device_type_playback) ? MA_DEFAULT_PLAYBACK_DEVICE_NAME : MA_DEFAULT_CAPTURE_DEVICE_NAME);
-    } else {
-        ma_strcpy_s(devid, sizeof(devid), pDeviceID->sndio);
-        ma_strcpy_s(pDeviceInfo->name, sizeof(pDeviceInfo->name), devid);
-    }
+    MA_ZERO_OBJECT(&deviceInfo);
 
-    handle = pContextStateSndio->sio_open(devid, (deviceType == ma_device_type_playback) ? MA_SIO_PLAY : MA_SIO_REC, 0);
-    if (handle == NULL) {
-        return MA_NO_DEVICE;
-    }
+    /* Default. */
+    deviceInfo.isDefault = MA_TRUE;
 
+    /* ID. */
+    ma_strcpy_s(deviceInfo.id.sndio, sizeof(deviceInfo.id.sndio), name);
+
+    /* Name. */
+    ma_strcpy_s(deviceInfo.name, sizeof(deviceInfo.name), MA_DEFAULT_PLAYBACK_DEVICE_NAME);
+
+    /* Format. */
     if (pContextStateSndio->sio_getcap(handle, &caps) == 0) {
-        return MA_ERROR;
+        return MA_TRUE;
     }
 
-    pDeviceInfo->nativeDataFormatCount = 0;
+    deviceInfo.nativeDataFormatCount = 0;
 
     for (iConfig = 0; iConfig < caps.nconf; iConfig += 1) {
         /*
@@ -37890,14 +37844,42 @@ static ma_result ma_context_get_device_info__sndio(ma_context* pContext, ma_devi
                 /* Sample Rates. */
                 for (iRate = 0; iRate < MA_SIO_NRATE; iRate += 1) {
                     if ((caps.confs[iConfig].rate & (1UL << iRate)) != 0) {
-                        ma_device_info_add_native_data_format(pDeviceInfo, format, channels, caps.rate[iRate], 0);
+                        ma_device_info_add_native_data_format(&deviceInfo, format, channels, caps.rate[iRate], 0);
                     }
                 }
             }
         }
     }
 
-    pContextStateSndio->sio_close(handle);
+    return callback(deviceType, &deviceInfo, pUserData);
+}
+
+static ma_result ma_context_enumerate_devices__sndio(ma_context* pContext, ma_enum_devices_callback_proc callback, void* pUserData)
+{
+    ma_context_state_sndio* pContextStateSndio = ma_context_get_backend_state__sndio(pContext);
+    ma_bool32 isTerminating = MA_FALSE;
+    struct ma_sio_hdl* handle;
+
+    /* sndio doesn't seem to have a good device enumeration API, so I'm therefore only enumerating over default devices for now. */
+
+    /* Playback. */
+    if (!isTerminating) {
+        handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_PLAY, 0);
+        if (handle != NULL) {
+            isTerminating = !ma_context_enumeate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_playback, callback, pUserData);
+            pContextStateSndio->sio_close(handle);
+        }
+    }
+
+    /* Capture. */
+    if (!isTerminating) {
+        handle = pContextStateSndio->sio_open(MA_SIO_DEVANY, MA_SIO_REC, 0);
+        if (handle != NULL) {
+            isTerminating = !ma_context_enumeate_device_from_handle__sndio(pContext, handle, MA_SIO_DEVANY, ma_device_type_capture, callback, pUserData);
+            pContextStateSndio->sio_close(handle);
+        }
+    }
+
     return MA_SUCCESS;
 }
 
@@ -38230,7 +38212,7 @@ static ma_device_backend_vtable ma_gDeviceBackendVTable_sndio =
     ma_context_init__sndio,
     ma_context_uninit__sndio,
     ma_context_enumerate_devices__sndio,
-    ma_context_get_device_info__sndio,
+    NULL,
     ma_device_init__sndio,
     ma_device_uninit__sndio,
     ma_device_start__sndio,
